@@ -14,13 +14,13 @@ Status legend: `[ ]` todo · `[~]` in progress (leave a note) · `[x]` done · `
 
 ## Phase 0 — Foundation
 
-- [ ] 0.1 Project scaffold: Vite + React + TS, path aliases, strict tsconfig
-- [ ] 0.2 Test harness: vitest core/ui projects, fast-check, coverage gate, deterministic fakes
-- [ ] 0.3 Lint architecture boundary (core purity enforced by eslint)
-- [ ] 0.4 Docs: CLAUDE.md, ARCHITECTURE.md, ROADMAP.md, checkpoint script
-- [ ] 0.5 Git init + first commit
-- [ ] 0.6 `src/core/shared`: `Result`, branded types, invariants + tests
-- [ ] 0.7 `src/core/ports`: Clock, Rng, MidiInput, AudioOutput, Store interfaces + test fakes
+- [x] 0.1 Project scaffold: Vite + React + TS, path aliases, strict tsconfig
+- [x] 0.2 Test harness: vitest core/ui projects, fast-check, coverage gate, deterministic fakes
+- [x] 0.3 Lint architecture boundary (core purity enforced by eslint)
+- [x] 0.4 Docs: CLAUDE.md, ARCHITECTURE.md, ROADMAP.md, checkpoint script
+- [x] 0.5 Git init + first commit
+- [x] 0.6 `src/core/shared`: `Result`, branded types, invariants + tests
+- [x] 0.7 `src/core/ports`: Clock, Rng, MidiInput, AudioOutput, Store interfaces + test fakes
 
 ## Phase 1 — Milestone M1: playable core
 
@@ -105,4 +105,4 @@ metronome.
 
 Append one line per session: date, what landed, anything the next session must know.
 
-- _(nothing yet)_
+- 2026-07-31 — Phase 0 done. Scaffold, dual vitest projects, eslint core-purity gate, ports + deterministic fakes, shared Result/invariant/units. 66 tests, <1s.
