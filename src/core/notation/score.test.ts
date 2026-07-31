@@ -676,17 +676,22 @@ describe('filterHands', () => {
 
   it('keeps a staff a surviving note still stands on, after a mid-piece clef change', () => {
     // Staff 1 is declared treble/right, but bars 3–4 are written in bass clef,
-    // so their notes carry hand 'left' on that same staff. Dropping the staff
-    // because its declared hand was muted leaves those notes homeless.
+    // so their notes carry hand 'left' on that same staff. Keeping only the
+    // staves whose DECLARED hand survives answers [2] and leaves those notes
+    // homeless. It takes a second staff to see that: on a one-staff score the
+    // wrong answer is the empty list, which the "a score always has a staff"
+    // fallback quietly restores to the very list that was wanted.
     const lh = filterHands(MID_PIECE_CLEF_CHANGE, ['left'])
-    expect(midis(lh.notes)).toEqual([48, 52, 55])
-    expect(lh.notes.every((n) => n.staff === 1)).toBe(true)
-    expect(lh.staves).toEqual([{ staff: 1, clef: 'treble', hand: 'right' }])
-    expect(errorOf(validateScore(lh))).not.toMatch(/no staves/)
+    expect(lh.staves.map((s) => s.staff)).toEqual([1, 2])
+    expect(lh.notes.filter((n) => n.staff === 1).map((n) => n.midi)).toEqual([48, 52, 55])
+    expect(lh.notes.filter((n) => n.staff === 2)).toHaveLength(4)
+    expect(errorOf(validateScore(lh))).not.toMatch(/undeclared staff 1/)
     expect(validateScore(lh).ok).toBe(true)
   })
 
-  it('keeps the right hand of a single-staff part without duplicating the staff', () => {
+  it('drops a staff no surviving note is written on', () => {
+    // The mirror image: muting the left hand empties staff 2, and nothing is
+    // left standing on it, so it goes.
     const rh = filterHands(MID_PIECE_CLEF_CHANGE, ['right'])
     expect(midis(rh.notes)).toEqual([72, 74, 76, 77, 79])
     expect(rh.staves).toEqual([{ staff: 1, clef: 'treble', hand: 'right' }])
@@ -827,13 +832,19 @@ describe('fixtures', () => {
     ])
   })
 
-  it('MID_PIECE_CLEF_CHANGE puts both hands on one staff declared right', () => {
-    expect(MID_PIECE_CLEF_CHANGE.staves).toEqual([{ staff: 1, clef: 'treble', hand: 'right' }])
-    expect(MID_PIECE_CLEF_CHANGE.notes.every((n) => n.staff === 1)).toBe(true)
-    expect(MID_PIECE_CLEF_CHANGE.notes.filter((n) => n.hand === 'left').map((n) => n.midi)).toEqual(
-      [48, 52, 55],
-    )
-    expect(MID_PIECE_CLEF_CHANGE.notes.filter((n) => n.hand === 'right')).toHaveLength(5)
+  it('MID_PIECE_CLEF_CHANGE puts both hands on a staff declared right, next to a bass staff', () => {
+    expect(MID_PIECE_CLEF_CHANGE.staves).toEqual([
+      { staff: 1, clef: 'treble', hand: 'right' },
+      { staff: 2, clef: 'bass', hand: 'left' },
+    ])
+    const upper = MID_PIECE_CLEF_CHANGE.notes.filter((n) => n.staff === 1)
+    expect(upper.filter((n) => n.hand === 'left').map((n) => n.midi)).toEqual([48, 52, 55])
+    expect(upper.filter((n) => n.hand === 'right')).toHaveLength(5)
+    // The lower staff is a plain left-hand line: it is declared 'left', so it is
+    // never what proves the filter looks at where the notes actually stand.
+    const lower = MID_PIECE_CLEF_CHANGE.notes.filter((n) => n.staff === 2)
+    expect(lower.map((n) => n.midi)).toEqual([36, 36, 36, 36])
+    expect(lower.every((n) => n.hand === 'left')).toBe(true)
     expect(validateScore(MID_PIECE_CLEF_CHANGE).ok).toBe(true)
   })
 
@@ -908,7 +919,40 @@ const singleStaffScoreArb = fc.array(noteSpecArb, { maxLength: 15 }).map((specs)
   }),
 )
 
-const anyScoreArb = fc.oneof(scoreArb, singleStaffScoreArb)
+/**
+ * The shape that actually discriminates: a grand staff whose UPPER staff turned
+ * bass clef part-way, so staff 1 is declared 'right' while always carrying at
+ * least one left-hand note, and staff 2 is a plain bass staff. Filtering the
+ * staves by declared hand alone answers [2] for hands=['left'], stranding the
+ * staff-1 notes. On a one-staff score the same mistake answers [] and is hidden
+ * by the fallback, which is why `singleStaffScoreArb` alone pinned nothing.
+ */
+const twoStaffScoreArb = fc.array(noteSpecArb, { maxLength: 15 }).map((specs) =>
+  makeScore({
+    id: 'two-staff-clef-change',
+    measures: Array.from({ length: Math.max(1, ...specs.map((s) => s.bar + 1)) }, () => ({})),
+    notes: [
+      // A2 on the upper staff, in bass clef — always present, so every generated
+      // case has a left-hand note standing on the staff declared 'right'.
+      { midi: 45, startTick: 0, durationTicks: 480, hand: 'left' as const, staff: 1 },
+      // E1 on the lower staff: an ordinary left-hand note on a staff declared 'left'.
+      { midi: 28, startTick: 0, durationTicks: 480, hand: 'left' as const, staff: 2 },
+      ...specs.map((s) => ({
+        midi: s.midi,
+        startTick: s.bar * BAR + s.beat * 480,
+        durationTicks: Math.min(s.beats, 4 - s.beat) * 480,
+        hand: s.hand,
+        staff: 1,
+      })),
+    ],
+    staves: [
+      { staff: 1, clef: 'treble', hand: 'right' },
+      { staff: 2, clef: 'bass', hand: 'left' },
+    ],
+  }),
+)
+
+const anyScoreArb = fc.oneof(scoreArb, singleStaffScoreArb, twoStaffScoreArb)
 const HAND_SUBSETS: readonly (readonly Hand[])[] = [[], ['left'], ['right'], ['left', 'right']]
 
 describe('score properties', () => {
@@ -1047,7 +1091,23 @@ describe('score properties', () => {
           )
           const declared = new Set(filtered.staves.map((s) => s.staff))
           for (const n of filtered.notes) expect(declared.has(n.staff)).toBe(true)
+          // Never invents a staff, never returns none.
+          const original = new Set(score.staves.map((s) => s.staff))
+          expect(filtered.staves.length).toBeGreaterThan(0)
+          for (const s of filtered.staves) expect(original.has(s.staff)).toBe(true)
         }
+      }),
+    )
+  })
+
+  it('keeps the staff a bass-clef passage on the upper staff is written on', () => {
+    fc.assert(
+      fc.property(twoStaffScoreArb, (score) => {
+        // Staff 1 is declared 'right', but always carries a left-hand note, so
+        // muting the right hand must keep BOTH staves. Muting the left hand
+        // empties staff 2, which nothing then stands on, so it goes.
+        expect(filterHands(score, ['left']).staves.map((s) => s.staff)).toEqual([1, 2])
+        expect(filterHands(score, ['right']).staves.map((s) => s.staff)).toEqual([1])
       }),
     )
   })

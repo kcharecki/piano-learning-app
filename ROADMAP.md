@@ -39,19 +39,11 @@ metronome.
 - [x] 1.10 `core/timing/transport`: play/pause/seek/loop range, deterministic tick advance under FakeClock
 - [x] 1.11 `core/timing/metronome`: click scheduling, subdivisions, accents, ramping (REQ-3.9.1)
 - [x] 1.12 `core/practice/matcher`: real-time note matching — correct/wrong/missed/extra + timing (REQ-3.3.2)
-- [~] 1.13 `core/practice/waitmode`: gate transport on required-notes-satisfied (REQ-3.3.3)
-      — implemented and green, but three reviewer findings are still unfixed; see 1.13b
-- [ ] 1.13b `core/practice/waitmode`: rewrite against the new `Transport` barrier API. Known defects:
-      (a) a pump spanning more than one required onset walks past every owed note but the last
-      (`armAt` is overwritten per event) — a background tab or a GC pause triggers it;
-      (b) the frozen position overshoots the onset by up to a frame, because the hold is installed
-      after `transport.tick()` has already advanced (503 ms frames drift to 482.88, 965.76, ...);
-      (c) `pause()` during a wait leaves `transport.state === 'paused'` while `wait.waiting` is true.
-      The existing tests miss all three: they only ever pump in exact 500/1000 ms multiples and the
-      property's step generator emits nothing but pump/press/lift.
-- [ ] 1.13c Re-review the M1 fix round (theory, notation, timing, practice). For each fix: reproduce
-      the original symptom and confirm it is gone, and confirm the new test actually fails against
-      the old code. This pass was launched but died on a session limit, so it never ran.
+- [x] 1.13 `core/practice/waitmode`: gate transport on required-notes-satisfied (REQ-3.3.3)
+- [x] 1.13b `core/practice/waitmode`: rebuilt on the new Transport barrier — parks exactly on the onset,
+      cannot walk past owed notes in a long pump, and derives its waiting flag from the transport
+- [x] 1.13c Re-review of the M1 fix round: every fix confirmed by reverting it and watching the new
+      tests fail. Nine follow-up findings raised and fixed, including a live 1-in-15 suite flake.
 - [ ] 1.14 `adapters/midi`: Web MIDI input + output, device hot-plug, port-conformance tests
 - [ ] 1.15 `adapters/audio`: MIDI-out-preferred / Web Audio soundfont fallback (REQ-4.7)
 - [ ] 1.16 `adapters/store`: IndexedDB store implementing the Store port
@@ -119,3 +111,4 @@ Append one line per session: date, what landed, anything the next session must k
 
 - 2026-07-31 — Phase 0 done. Scaffold, dual vitest projects, eslint core-purity gate, ports + deterministic fakes, shared Result/invariant/units. 66 tests, <1s.
 - 2026-08-01 - Phase 1 core domain landed (theory, notation, timing, practice): 1328 tests, core suite 1.1s. Two adversarial review rounds; ~30 real defects fixed, several found despite 100% line coverage. Outstanding: 1.13b (wait-mode barrier rewrite) and 1.13c (re-review of the fix round, which died on a session limit). Next up after those: adapters (1.14-1.16).
+- 2026-08-01 - M1 core domain complete and hardened through three review rounds (build, fix, re-review + fix). 1367 tests, core suite ~0.9s, 0 failures in 12 consecutive runs. Next: adapters 1.14-1.16 (Web MIDI, audio, IndexedDB), then the app shell and score viewer 1.17-1.19.

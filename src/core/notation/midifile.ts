@@ -630,8 +630,20 @@ function denominatorPower(beatType: number): number {
   return power
 }
 
+/**
+ * The numerator is a single byte, so a metre with more than 255 beats to the bar
+ * has no encoding either — and `beats & 0xff` would publish a different metre
+ * just as surely as a rounded exponent does (400/4 written as 144/4). Nothing in
+ * the score model bounds `beats`: `<beats>200+200</beats>` is a legal additive
+ * MusicXML metre and parses to a valid 400/4 `Score`. Refuse it here, the way
+ * `denominatorPower` refuses a beat type SMF cannot spell.
+ */
 function timeSignatureMeta(ts: TimeSignature): number[] {
-  return metaEvent(0x58, [ts.beats & 0xff, denominatorPower(ts.beatType), 24, 8])
+  invariant(
+    Number.isInteger(ts.beats) && ts.beats >= 1 && ts.beats <= 0xff,
+    `cannot write time signature with ${ts.beats} beats: SMF holds 1 to 255 beats to the bar`,
+  )
+  return metaEvent(0x58, [ts.beats, denominatorPower(ts.beatType), 24, 8])
 }
 
 /**
@@ -661,14 +673,13 @@ function buildConductorTrack(score: Score): number[] {
   for (const t of score.tempos) {
     // Below about 3.5763 bpm a quarter note lasts longer than the three bytes
     // the event has to say it in; clamp, rather than let the high bits fall off
-    // and turn 3 bpm into 18.6.
+    // and turn 3 bpm into 18.6. The other end matters too, absurd as it looks:
+    // above about 120,000,000 bpm the rounded value is 0 µs, and a set-tempo of 0
+    // is dropped by the reader — the mark would vanish and the score come back at
+    // the 120 bpm default, so one microsecond is the floor.
     const micros = Math.round(MICROS_PER_MINUTE / t.bpm)
     const clamped = Math.min(MAX_MICROS_PER_QUARTER, Math.max(1, micros))
-    const bytes = metaEvent(0x51, [
-      (clamped >> 16) & 0xff,
-      (clamped >> 8) & 0xff,
-      clamped & 0xff,
-    ])
+    const bytes = metaEvent(0x51, [(clamped >> 16) & 0xff, (clamped >> 8) & 0xff, clamped & 0xff])
     events.push({ tick: t.tick, order: 1, bytes })
   }
   let ts: TimeSignature | undefined
@@ -738,7 +749,9 @@ function buildHandTrack(notes: readonly ScoreNote[], hand: Hand, endTick: number
  * barline that ends it, which is how a pickup survives. Ties, fingering, voices
  * and staff assignment have no SMF representation and are lost.
  *
- * Throws (programmer error) on a metre SMF cannot encode; see `denominatorPower`.
+ * Throws (programmer error) on a metre SMF cannot encode — a beat type that is
+ * not a power of two from 1 to 128, or more than 255 beats to the bar; see
+ * `denominatorPower` and `timeSignatureMeta`.
  */
 export function writeMidiFile(score: Score): Uint8Array {
   const endTick = scoreDurationTicks(score)

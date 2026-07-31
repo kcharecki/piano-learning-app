@@ -11,11 +11,12 @@ import {
   type TestNote,
 } from '@core/notation/fixtures.ts'
 import type { Score } from '@core/notation/score.ts'
+import type { Clock } from '@core/ports/index.ts'
 import { InvariantError } from '@core/shared/invariant.ts'
-import { ticks as asTicks } from '@core/shared/units.ts'
+import { millis as asMillis, ticks as asTicks, type Millis } from '@core/shared/units.ts'
 import { FakeClock } from '@test/fakes.ts'
-import { makeTempoMap } from './tempo.ts'
-import { Transport, type LoopRange, type TransportEvent } from './transport.ts'
+import { makeTempoMap, msToTick, tickToMs } from './tempo.ts'
+import { MIN_LOOP_TICKS, Transport, type LoopRange, type TransportEvent } from './transport.ts'
 
 // -------------------------------------------------------------------- helpers
 
@@ -75,6 +76,34 @@ const runToEnd = (h: Harness, stepMs = 250, maxSteps = 400): TransportEvent[] =>
     if (batch.some((e) => e.type === 'end')) return events
   }
   throw new Error('transport never reached the end')
+}
+
+/**
+ * A clock that moves on every reading, the way a real monotonic one does: two
+ * readings taken inside a single pump are never the same instant. `FakeClock`
+ * stands still until a test moves it, so it can never show the difference.
+ */
+class TickingClock implements Clock {
+  reads = 0
+  private current: number
+  private readonly step: number
+
+  constructor(stepMs = 100) {
+    this.current = 0
+    this.step = stepMs
+  }
+
+  now(): Millis {
+    this.reads += 1
+    const at = this.current
+    this.current += this.step
+    return asMillis(at)
+  }
+
+  /** Wall time passing on its own, as opposed to the cost of a reading. */
+  advance(deltaMs: number): void {
+    this.current += deltaMs
+  }
 }
 
 const QUARTER = 480
@@ -435,6 +464,30 @@ describe('seekTick', () => {
     const h = harness()
     expect(() => h.transport.seekTick(asTicks(Number.NaN))).toThrow(InvariantError)
   })
+
+  it('never lets the next pump slip back off the destination tick', () => {
+    // The seek anchors the origin at `now - tickToMs(tick)` and the pump recovers
+    // the target with `msToTick(now - origin)`. The two are inverses in exact
+    // arithmetic only: 86 of this fixture's 3841 whole ticks come back a few
+    // times 1e-13 SHORT of where they started, and a playhead that slid back a
+    // hair breaks the transport's one ordering guarantee (and, before this test,
+    // the wait-mode property that asserts it, roughly one run in fifteen).
+    const tempo = makeTempoMap(C_MAJOR_SCALE_RH.tempos)
+    const roundsDown = (tick: number): boolean =>
+      (msToTick(tempo, tickToMs(tempo, asTicks(tick))) as number) < tick
+    const lossy: number[] = []
+    for (let tick = 0; tick <= 2 * BAR; tick++) if (roundsDown(tick)) lossy.push(tick)
+
+    expect(lossy).toContain(1043) // the shrunk counter-example, kept as a witness
+    expect(lossy.length).toBeGreaterThan(0)
+    for (const tick of lossy) {
+      const h = harness()
+      h.transport.play()
+      h.transport.seekTick(asTicks(tick))
+      pumpRaw(h, 0)
+      expect(h.transport.positionTicks as number).toBeGreaterThanOrEqual(tick)
+    }
+  })
 })
 
 describe('seekMeasure', () => {
@@ -469,6 +522,49 @@ describe('seekMeasure', () => {
   it('throws on a non-finite index', () => {
     const h = harness()
     expect(() => h.transport.seekMeasure(Number.NaN)).toThrow(InvariantError)
+  })
+})
+
+// ------------------------------------------------------- cursor generation
+
+describe('cursorGeneration', () => {
+  it('counts a seek that rewinds the cursor without moving the playhead', () => {
+    // "Play me that note again": the playhead does not budge, but tick 480 is
+    // unspent — it sounds again on the next pump — and a caller tracking what has
+    // been played can only see that in the generation.
+    const h = harness()
+    h.transport.play()
+    expect(pump(h, 500)).toEqual(['measure:0', 'on:60', 'off:60', 'on:62'])
+    const before = h.transport.cursorGeneration
+    h.transport.seekTick(asTicks(QUARTER))
+    expect(h.transport.positionTicks).toBe(QUARTER)
+    expect(h.transport.cursorGeneration).toBe(before + 1)
+    expect(pump(h, 0)).toEqual(['off:62', 'on:62'])
+  })
+
+  it('counts every rewind and nothing else', () => {
+    const h = harness()
+    expect(h.transport.cursorGeneration).toBe(0)
+    h.transport.play()
+    pump(h, 500)
+    h.transport.pause()
+    h.transport.play()
+    h.transport.setBarrier(asTicks(2 * QUARTER))
+    pump(h, 5000)
+    h.transport.setTempoScale(0.5)
+    expect(h.transport.cursorGeneration).toBe(0)
+    h.transport.seekMeasure(1)
+    h.transport.stop()
+    expect(h.transport.cursorGeneration).toBe(2)
+  })
+
+  it('counts the restart that playing from the end of the piece does', () => {
+    const h = harness()
+    h.transport.play()
+    pump(h, 5000)
+    const before = h.transport.cursorGeneration
+    h.transport.play()
+    expect(h.transport.cursorGeneration).toBe(before + 1)
   })
 })
 
@@ -612,6 +708,41 @@ describe('loop', () => {
     expect(h.transport.positionTicks).toBe(BAR + 96)
     expect(h.transport.loopIteration).toBe(3)
     expect(events).not.toContain('end')
+  })
+
+  it('widens a range that clamping left shorter than a demisemiquaver', () => {
+    // A selection anchored a beat before the double bar and dragged off the end:
+    // clamping the end alone would leave a one-tick loop, which is not a loop but
+    // a buzz — and one 5 s pump across it would grind out 4800 wrap events.
+    const h = harness(C_MAJOR_SCALE_RH, { loop: loopRange(2 * BAR - 1, 99_999) })
+    expect(h.transport.loop).toEqual({ startTick: 2 * BAR - MIN_LOOP_TICKS, endTick: 2 * BAR })
+    h.transport.seekTick(asTicks(2 * BAR - MIN_LOOP_TICKS))
+    h.transport.play()
+    // 60 ticks last 62.5 ms at ♩=120, so 5 s is 80 passes — bounded by the floor.
+    const events = pump(h, 5000)
+    expect(events.filter((e) => e.startsWith('loop:'))).toHaveLength(80)
+    expect(h.transport.loopIteration).toBe(80)
+  })
+
+  it('leaves a range exactly a demisemiquaver long alone', () => {
+    const h = harness()
+    h.transport.setLoop(loopRange(2 * BAR - MIN_LOOP_TICKS, 2 * BAR))
+    expect(h.transport.loop).toEqual({ startTick: 2 * BAR - MIN_LOOP_TICKS, endTick: 2 * BAR })
+  })
+
+  it('widens forwards when the start is already at the top of the score', () => {
+    // Nothing to give backwards, so the end moves instead.
+    const h = harness()
+    h.transport.setLoop(loopRange(0, 30))
+    expect(h.transport.loop).toEqual({ startTick: 0, endTick: MIN_LOOP_TICKS })
+  })
+
+  it('never widens a loop past the end of the score', () => {
+    // A score shorter than the floor is all the loop there is to have.
+    const h = harness(buildTestScore([], { measureCount: 1, pickupTicks: 30 }))
+    expect(h.transport.endTick).toBe(30)
+    h.transport.setLoop(loopRange(0, 30))
+    expect(h.transport.loop).toEqual({ startTick: 0, endTick: 30 })
   })
 
   it('rejects a range that lies entirely past the end of the score', () => {
@@ -1090,6 +1221,41 @@ describe('setBarrier', () => {
     expect(events.slice(-4)).toEqual(['on:41', 'on:45', 'on:48', 'on:77'])
     expect(h.transport.positionTicks).toBe(BAR)
     expect(h.transport.soundingNotes.map((n) => n.midi)).toEqual([41, 45, 48, 77])
+  })
+
+  it('a barrier past the final tick never fires', () => {
+    // Documented as unreachable, and it has to be: parking half a tick past the
+    // double bar leaves the playhead outside the score (3840.5 ticks, 4000.5 ms
+    // of a 4000 ms piece) and swallows `end` for good.
+    const h = harness()
+    h.transport.setBarrier(asTicks(2 * BAR + 0.5))
+    h.transport.play()
+    const events = pump(h, 9000)
+    expect(events.at(-1)).toBe('end')
+    expect(h.transport.positionTicks).toBe(2 * BAR)
+    expect(h.transport.positionMs).toBe(4000)
+    expect(h.transport.isAtBarrier).toBe(false)
+    expect(h.transport.state).toBe('stopped')
+  })
+
+  it('parks on one reading of the clock, not two', () => {
+    // `tick()` is handed an instant and advances to it. Taking a second reading
+    // to anchor the park discards everything between the two as musical time —
+    // invisible under a FakeClock, and once per note under a real one.
+    const clock = new TickingClock()
+    const transport = new Transport({
+      score: C_MAJOR_SCALE_RH,
+      tempo: makeTempoMap(C_MAJOR_SCALE_RH.tempos),
+      clock,
+    })
+    transport.setBarrier(asTicks(QUARTER))
+    transport.play()
+    clock.advance(5000)
+    clock.reads = 0
+    transport.tick()
+    expect(transport.isAtBarrier).toBe(true)
+    expect(transport.positionTicks).toBe(QUARTER)
+    expect(clock.reads).toBe(1)
   })
 
   it('throws on a non-finite barrier', () => {

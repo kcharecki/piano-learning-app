@@ -553,6 +553,14 @@ const MAJOR_FINGERINGS: readonly Fingering[] = [
  * minor forms and the modes each have their own conventions that vary between
  * editions — Bb minor is not Bb major with two fingers moved — so rather than
  * invent them this returns null and the caller can fall back to showing none.
+ *
+ * The domain is the **pitch class**, not the writable key. A fingering is a fact
+ * about which keys are under the hand, so every spelling of a pitch class shares
+ * one, and this function is deliberately more permissive than {@link buildScale}
+ * as a result: `scaleFingering(G##4, 'major')` answers the A major pattern,
+ * which is what the hand does, while `buildScale(G##4, 'major')` throws because
+ * that key cannot be written down. Nothing here reads the letter, so nothing
+ * here has cause to refuse a tonic that only notation objects to.
  */
 export function scaleFingering(tonic: SpelledPitch, type: ScaleType): Fingering | null {
   if (type !== 'major' && type !== 'ionian') return null

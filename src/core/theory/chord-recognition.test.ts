@@ -23,7 +23,7 @@ import {
   type Inversion,
   isTriad,
 } from './chords.ts'
-import { identifyChord, matchesChord } from './chord-recognition.ts'
+import { identifyChord, matchesChord, QUALITY_PRIORITY } from './chord-recognition.ts'
 
 // ---------------------------------------------------------------------------
 // helpers (deliberately duplicated from chords.test.ts — a shared fixture file
@@ -172,6 +172,45 @@ describe('identifyChord', () => {
       expect(confidences).toEqual([...confidences].sort((a, b) => b - a))
       expect(confidences.every((c) => c > 0.5 && c <= 1)).toBe(true)
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// the tie-break table
+// ---------------------------------------------------------------------------
+
+describe('QUALITY_PRIORITY', () => {
+  // The table decides every tie, so a quality missing from it is not a cosmetic
+  // gap: the lookup would answer undefined (or, with the list this used to be,
+  // -1) and float that quality to the top of every tie ahead of major.
+  it('is total over CHORD_QUALITIES and has nothing else in it', () => {
+    for (const quality of CHORD_QUALITIES) {
+      expect({ quality, listed: quality in QUALITY_PRIORITY }).toEqual({ quality, listed: true })
+    }
+    expect(Object.keys(QUALITY_PRIORITY).sort()).toEqual([...CHORD_QUALITIES].sort())
+  })
+
+  it('gives every quality its own rank, so ties never fall through to the root', () => {
+    const ranks = CHORD_QUALITIES.map((quality) => QUALITY_PRIORITY[quality])
+    expect(new Set(ranks).size).toBe(CHORD_QUALITIES.length)
+    expect(QUALITY_PRIORITY.major).toBe(Math.min(...ranks))
+  })
+
+  // C C# D F: five readings, all at 0.6, all rooted off the bass, so the table
+  // is the only thing separating them. Dropping any one entry re-ranks these.
+  it('orders equally confident readings by the table', () => {
+    expect(identifyChord(m(60, 61, 62, 65)).map((x) => chordSymbol(x.chord))).toEqual([
+      'C#maj7/B#',
+      'Dm7/C',
+      'Dm7b5/C',
+      'DmMaj7',
+      'C#+maj7/B#',
+    ])
+    // C E F: maj7 outranks mMaj7 on the same root and the same bass.
+    expect(identifyChord(m(60, 64, 65)).map((x) => chordSymbol(x.chord))).toEqual([
+      'Fmaj7/C',
+      'FmMaj7/C',
+    ])
   })
 })
 

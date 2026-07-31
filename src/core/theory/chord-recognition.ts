@@ -32,25 +32,31 @@ export type ChordMatch = { readonly chord: Chord; readonly confidence: number }
 const SEMITONES_PER_OCTAVE = 12
 
 /**
- * Which reading wins a tie in {@link identifyChord}. Plain triads and the
- * everyday sevenths come before the exotica, so C E G reads as C major rather
- * than as a rootless something.
+ * Which reading wins a tie in {@link identifyChord}, lowest first. Plain triads
+ * and the everyday sevenths come before the exotica, so C E G reads as C major
+ * rather than as a rootless something.
+ *
+ * A `Record` rather than a list, for the same reason as the tables in
+ * `chords.ts`: it has to be **total** over {@link CHORD_QUALITIES}, and only the
+ * record shape makes an omission a compile error. A list consulted with
+ * `indexOf` answers -1 for a quality nobody added, which would quietly rank that
+ * quality ahead of major in every tie rather than failing loudly.
  */
-const QUALITY_PRIORITY: readonly ChordQuality[] = [
-  'major',
-  'minor',
-  'dominant7',
-  'major7',
-  'minor7',
-  'diminished',
-  'halfDiminished7',
-  'diminished7',
-  'augmented',
-  'sus4',
-  'sus2',
-  'minorMajor7',
-  'augmentedMajor7',
-]
+export const QUALITY_PRIORITY: Readonly<Record<ChordQuality, number>> = {
+  major: 0,
+  minor: 1,
+  dominant7: 2,
+  major7: 3,
+  minor7: 4,
+  diminished: 5,
+  halfDiminished7: 6,
+  diminished7: 7,
+  augmented: 8,
+  sus4: 9,
+  sus2: 10,
+  minorMajor7: 11,
+  augmentedMajor7: 12,
+}
 
 /**
  * A reading must share strictly more than half of the pitch classes involved
@@ -81,8 +87,7 @@ type Candidate = {
 function compareCandidates(a: Candidate, b: Candidate): number {
   if (a.confidence !== b.confidence) return b.confidence - a.confidence
   if (a.rootIsBass !== b.rootIsBass) return a.rootIsBass ? -1 : 1
-  const byQuality =
-    QUALITY_PRIORITY.indexOf(a.chord.quality) - QUALITY_PRIORITY.indexOf(b.chord.quality)
+  const byQuality = QUALITY_PRIORITY[a.chord.quality] - QUALITY_PRIORITY[b.chord.quality]
   if (byQuality !== 0) return byQuality
   return a.rootClass - b.rootClass
 }

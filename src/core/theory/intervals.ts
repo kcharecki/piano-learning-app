@@ -24,11 +24,14 @@
  *    number; the caller asks `intervalDirection` which way round the pair was.
  *
  * Measuring and transposing come in two forms. `intervalBetween` and
- * `transposeSpelled` throw, and are what internal callers holding known-good
- * spellings use; {@link tryIntervalBetween} and {@link tryTransposeSpelled}
- * return a Result and are what anything reading an imported score uses, because
- * MusicXML really does contain Fb and B#, and no quality names the interval
- * between them.
+ * `transposeSpelled` throw, and are what every caller in the app uses today:
+ * chord construction stacks intervals it already knows are legal on a root it
+ * already knows is writable. {@link tryIntervalBetween} and
+ * {@link tryTransposeSpelled} return a Result instead, and are the form to reach
+ * for when the spellings come from outside rather than from a table — an
+ * imported score really can contain Fb and B#, and no quality names the interval
+ * between them. No import path measures intervals yet, so for now that pair has
+ * no production caller and only the tests exercise it.
  */
 import { at, InvariantError, invariant } from '@core/shared/invariant.ts'
 import { err, ok, unwrap, type Result } from '@core/shared/result.ts'

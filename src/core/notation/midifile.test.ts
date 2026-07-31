@@ -1115,6 +1115,44 @@ describe('writeMidiFile', () => {
     ])
   })
 
+  it('refuses a numerator SMF cannot hold, rather than wrapping it to a different metre', () => {
+    // The numerator is one byte. MusicXML's additive form — <beats>200+200</beats>
+    // — parses to a perfectly valid 400/4 Score, and `400 & 0xff` is 144: the one
+    // 192,000-tick bar was published as 144/4 and read back as three 69,120-tick
+    // bars. Same failure class the beat-type guard closed, so it fails the same way.
+    const score = makeScore({
+      id: 'four-hundred-four',
+      measures: [{ timeSignature: { beats: 400, beatType: 4 } }],
+      notes: [],
+    })
+    expect(() => writeMidiFile(score)).toThrow(/400 beats/)
+  })
+
+  it('writes the largest numerator the one-byte field holds', () => {
+    const score = makeScore({
+      id: 'two-fifty-five-four',
+      measures: [{ timeSignature: { beats: 255, beatType: 4 } }],
+      notes: [],
+    })
+    const parsed = parseOk(writeMidiFile(score))
+    expect(at(parsed.measures, 0).timeSignature).toEqual({ beats: 255, beatType: 4 })
+    expect(grid(parsed)).toEqual([[0, 255 * 480]])
+  })
+
+  it('clamps a tempo so fast that the microsecond field would round down to zero', () => {
+    // The other end of the three-byte set-tempo field: above ~120,000,000 bpm a
+    // quarter note is under half a microsecond, so the rounded value is 0 — and a
+    // set-tempo of 0 is dropped by the reader, taking the whole mark with it and
+    // leaving the score at the 120 bpm default. One microsecond is the floor.
+    const score = makeScore({
+      id: 'prestissimo',
+      measures: [{}],
+      notes: [],
+      tempos: [{ tick: 0, bpm: 240_000_000 }],
+    })
+    expect(at(parseOk(writeMidiFile(score)).tempos, 0).bpm).toBe(60_000_000)
+  })
+
   it('is byte-for-byte deterministic', () => {
     expect([...writeMidiFile(TWO_HAND_CHORDS)]).toEqual([...writeMidiFile(TWO_HAND_CHORDS)])
   })

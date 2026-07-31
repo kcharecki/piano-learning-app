@@ -139,6 +139,8 @@ export class WaitModeController {
   private consumedOnset: number | null = null
   /** Where the last `update` left the playhead — anything else means it was moved. */
   private lastPosition: number | null = null
+  /** The transport's cursor generation at the last `update`; a bump is a rewind. */
+  private lastCursor = 0
   private snapshot: WaitState = IDLE
 
   /** `score` must be the score the transport is playing — the wait is armed from it. */
@@ -184,6 +186,7 @@ export class WaitModeController {
       this.disarm()
     }
     this.lastPosition = this.transport.positionTicks
+    this.lastCursor = this.transport.cursorGeneration
     return { events, wait: this.state }
   }
 
@@ -238,9 +241,18 @@ export class WaitModeController {
    * it is inert until the wrap moves the playhead back before it. One that is not
    * behind the playhead means the pass owes a single onset and the playhead is
    * standing on it; arming that would park on it again without emitting anything,
-   * so the pump is fenced half a tick ahead instead. The fence costs one frame and
-   * no music, and the pump after it wraps with the onset armed behind the
-   * playhead, where it is inert until the wrap puts it back in front.
+   * so the pump is fenced short of the wrap instead, and the pump after it wraps
+   * with the onset armed behind the playhead, where it is inert until the wrap
+   * puts it back in front.
+   *
+   * The fence goes on the last whole tick before the wrap rather than just ahead
+   * of the playhead: the rest of the pass owes nothing, so it may be played at
+   * the written tempo, and an ordinary frame never reaches the fence at all. Only
+   * the frame that would cross the wrap is stopped by it — which is the frame
+   * that has to be stopped — and the playhead is left on a whole tick, not on the
+   * half tick that would otherwise ride along for the rest of the pass. When the
+   * onset IS that last whole tick there is none left to stop on, so the fence
+   * falls half way to the wrap.
    */
   private armBarrier(): void {
     const position = this.transport.positionTicks
@@ -258,7 +270,9 @@ export class WaitModeController {
       return
     }
     this.armedOnset = null
-    this.transport.setBarrier(asTicks(position + 0.5))
+    const lastWholeTick = Math.ceil(loop.endTick) - 1
+    const fence = Math.max(lastWholeTick, (position + loop.endTick) / 2)
+    this.transport.setBarrier(asTicks(fence))
   }
 
   /** Tick of the first onset the learner owes in `[fromTick, limitTick)`, or `null`. */
@@ -315,9 +329,16 @@ export class WaitModeController {
    * was armed describes the old position, and that the tick it parked on is no
    * longer spent — those calls all rewind the transport's cursor, so its notes
    * come out again and can be waited for again.
+   *
+   * The cursor generation is watched alongside the position because the position
+   * cannot see the case that matters most: seeking to the tick the playhead is
+   * parked on — "play me that note again" — rewinds the cursor without moving the
+   * playhead, and the onset would otherwise sound with no wait at all.
    */
   private noticeMovedPlayhead(): void {
-    const moved = this.lastPosition !== null && this.transport.positionTicks !== this.lastPosition
+    const rewound = this.transport.cursorGeneration !== this.lastCursor
+    const moved =
+      this.lastPosition !== null && (rewound || this.transport.positionTicks !== this.lastPosition)
     if (!moved && (!this.holding || this.transport.isAtBarrier)) return
     this.consumedOnset = null
     this.disarm()

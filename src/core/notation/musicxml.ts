@@ -411,11 +411,12 @@ const MAX_FINGER = 5
 
 function fingeringOf(note: XmlNode): number | undefined {
   const el = nodeAt(note, ['notations', 'technical', 'fingering'])
-  // An empty <fingering/> must not become finger 0: Number('') is 0, and a "0"
-  // printed over the note is worse than no fingering at all.
-  if (el === undefined || el.text.length === 0) return undefined
+  if (el === undefined) return undefined
   const value = Number(el.text)
-  // Substitutions ("1-2") and alternatives ("1 or 2") are left to the renderer.
+  // The 1..5 range check is what keeps an empty <fingering/> from becoming
+  // finger 0 — Number('') is 0, and a "0" printed over the note is worse than no
+  // fingering at all. It also drops substitutions ("1-2") and alternatives
+  // ("1 or 2"), which are NaN here and are left to the renderer.
   return Number.isInteger(value) && value >= MIN_FINGER && value <= MAX_FINGER ? value : undefined
 }
 

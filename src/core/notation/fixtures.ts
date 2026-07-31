@@ -278,16 +278,21 @@ export const TEMPO_CHANGE: Score = frozen(
 )
 
 /**
- * A single-staff part that turns bass clef mid-piece — the shape the MusicXML
- * parser produces for `mid-score-changes`, and the reason a staff cannot be
- * identified with a hand. Four bars of 4/4, everything on staff 1, and staff 1
- * is declared with the clef it OPENED with (treble/right):
- *   bar 1  C5 D5 E5 F5 quarters   right hand
- *   bar 2  G5 whole               right hand
- *   bar 3  C3 half, E3 half       left hand — the clef has turned bass
- *   bar 4  G3 whole               left hand
+ * A grand staff whose UPPER staff turns bass clef mid-piece — the shape the
+ * MusicXML parser produces for `mid-score-changes`, and the reason a staff
+ * cannot be identified with a hand. Four bars of 4/4. Staff 1 is declared with
+ * the clef it OPENED with (treble/right) and staff 2 is the ordinary bass staff:
+ *   staff 1  bar 1  C5 D5 E5 F5 quarters   right hand
+ *            bar 2  G5 whole               right hand
+ *            bar 3  C3 half, E3 half       left hand — the clef has turned bass
+ *            bar 4  G3 whole               left hand
+ *   staff 2  bars 1–4  C2 whole notes      left hand — a plain pedal line
  * So three notes carry `hand: 'left'` while standing on a staff whose `hand` is
- * 'right'. Anything that filters staves by hand alone breaks here.
+ * 'right'. Anything that filters staves by hand alone breaks here: muting the
+ * right hand keeps notes on BOTH staves, while the declared hands name only
+ * staff 2. The second staff is what makes that discriminating — with one staff
+ * the wrong answer (no staves at all) is indistinguishable from the fallback
+ * `filterHands` applies when nothing survives.
  */
 export const MID_PIECE_CLEF_CHANGE: Score = frozen(
   makeScore({
@@ -312,8 +317,18 @@ export const MID_PIECE_CLEF_CHANGE: Score = frozen(
         staff: 1,
       },
       { midi: 55, startTick: 3 * WHOLE, durationTicks: WHOLE, hand: 'left' as const, staff: 1 },
+      ...[0, 1, 2, 3].map((bar) => ({
+        midi: 36,
+        startTick: bar * WHOLE,
+        durationTicks: WHOLE,
+        hand: 'left' as const,
+        staff: 2,
+      })),
     ],
-    staves: [{ staff: 1, clef: 'treble', hand: 'right' }],
+    staves: [
+      { staff: 1, clef: 'treble', hand: 'right' },
+      { staff: 2, clef: 'bass', hand: 'left' },
+    ],
   }),
 )
 

@@ -358,6 +358,40 @@ describe('pause, seek, stop and tempo during a wait', () => {
     expect(h.transport.positionTicks).toBe(0)
   })
 
+  it('a seek to the tick the playhead is parked on waits for that onset again', () => {
+    // "Play me that note again" — the commonest gesture there is, and the one
+    // the position alone cannot see, because it does not move. The seek rewinds
+    // the transport's cursor, so D4 sounds again; without noticing the rewind the
+    // controller still counts tick 480 as spent, arms the barrier on 960 instead,
+    // and D4 goes past unwaited-for with E4 sounding straight after it.
+    const h = started()
+    pump(h)
+    strike(h, 60)
+    expect(required(pump(h, 500).wait)).toEqual([62])
+    strike(h, 62)
+
+    h.transport.seekTick(asTicks(QUARTER))
+    expect(h.transport.positionTicks).toBe(QUARTER)
+    const again = pump(h, 500)
+    expect(labels(again)).toEqual(['off:62', 'on:62'])
+    expect(required(again.wait)).toEqual([62])
+    expect(again.wait.waiting).toBe(true)
+    expect(h.transport.positionTicks).toBe(QUARTER)
+  })
+
+  it('a seek to the measure the playhead is parked on does the same', () => {
+    const h = started()
+    pump(h)
+    strike(h, 60)
+
+    h.transport.seekMeasure(0)
+    const again = pump(h, 500)
+    expect(labels(again)).toEqual(['off:60', 'measure:0', 'on:60'])
+    expect(required(again.wait)).toEqual([60])
+    expect(again.wait.waiting).toBe(true)
+    expect(h.transport.positionTicks).toBe(0)
+  })
+
   it('a stop during a wait clears it, and playing again waits from the top', () => {
     const h = started()
     pump(h)
@@ -683,6 +717,57 @@ describe('looping', () => {
     expect(h.wait.state.waiting).toBe(true)
     expect(h.transport.positionTicks).toBe(0)
     expect(h.transport.loopIteration).toBe(1)
+  })
+
+  it('costs the pass no music when it owes a single onset', () => {
+    // Loop over E4 alone (tick 960 to 1440), at 60 Hz. Once E4 is struck the pass
+    // owes nothing more, so the fence that keeps the pump from wrapping ahead of
+    // the wait belongs at the wrap, not under the playhead: 480 ticks of music at
+    // 16 ticks a frame is 30 frames, and not one of them may be spent standing
+    // still. Fenced half a tick ahead instead, two frames in a row froze and the
+    // half tick then rode along for the rest of the pass.
+    const h = setup(C_MAJOR_SCALE_RH, { loop: loopRange(2 * QUARTER, 3 * QUARTER) })
+    h.transport.seekTick(asTicks(2 * QUARTER))
+    h.transport.play()
+    expect(required(pump(h).wait)).toEqual([64])
+    strike(h, 64)
+
+    const barriers: (number | null)[] = []
+    const wrapEvents: string[] = []
+    let frames = 0
+    for (let i = 0; i < 60 && wrapEvents.length === 0; i++) {
+      const u = pump(h, 1000 / 60)
+      barriers.push(h.transport.barrierTick)
+      frames += 1
+      if (u.events.some((e) => e.type === 'loop')) wrapEvents.push(...labels(u))
+    }
+    expect(frames).toBe(30)
+    // and every barrier armed along the way is a whole tick, so no consumer of
+    // positionTicks is handed a fraction of one
+    for (const barrier of barriers) expect(barrier === null || Number.isInteger(barrier)).toBe(true)
+    expect(wrapEvents).toEqual(['off:64', 'loop:1', 'on:64'])
+    expect(required(h.wait.state)).toEqual([64])
+    expect(h.wait.state.waiting).toBe(true)
+    expect(h.transport.positionTicks).toBe(2 * QUARTER)
+  })
+
+  it('fences half way when the onset is the last whole tick of the pass', () => {
+    // Nothing whole left to stop on: the onset IS the tick before the wrap. The
+    // pump must still be stopped short of the wrap, however long the frame.
+    const score = buildTestScore([{ midi: 60, startTick: 479, durationTicks: 1 }])
+    const h = setup(score, { loop: loopRange(0, 480) })
+    h.transport.seekTick(asTicks(479))
+    h.transport.play()
+    expect(required(pump(h).wait)).toEqual([60])
+    strike(h, 60)
+
+    const events: string[] = []
+    for (let i = 0; i < 4; i++) events.push(...labels(pump(h, 5000)))
+    expect(events.filter((e) => e.startsWith('on:'))).toEqual(['on:60'])
+    expect(events).toContain('loop:1')
+    expect(h.wait.state.waiting).toBe(true)
+    expect(required(h.wait.state)).toEqual([60])
+    expect(h.transport.positionTicks).toBe(479)
   })
 
   it('a wrap that lands on nothing waited for leaves the gate down', () => {
