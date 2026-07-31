@@ -204,6 +204,212 @@ describe('holding at a required onset', () => {
   })
 })
 
+// ------------------------------------------------------- pumps that stall
+//
+// requestAnimationFrame is throttled to about 1 Hz in a background tab, and a GC
+// pause can swallow several beats at once. One pump may therefore span more
+// onsets than one — and every one of them is owed.
+
+describe('a pump that spans several onsets', () => {
+  it('stops on the first onset it owes, not the last', () => {
+    // 1000 ms is two quarter notes: C4 must sound and the pump must stop there.
+    const h = started()
+    const u = pump(h, 1000)
+    expect(labels(u)).toEqual(['measure:0', 'on:60'])
+    expect(required(u.wait)).toEqual([60])
+    expect(u.wait.waiting).toBe(true)
+    expect(h.transport.positionTicks).toBe(0)
+  })
+
+  it('one pump longer than the whole piece still stops on the first onset', () => {
+    const h = started()
+    const u = pump(h, 60_000)
+    expect(labels(u)).toEqual(['measure:0', 'on:60'])
+    expect(h.transport.state).toBe('waiting')
+    expect(h.transport.positionTicks).toBe(0)
+  })
+
+  it('waits for every note of the phrase in turn under 1 Hz frames', () => {
+    const h = started()
+    const sounded: number[] = []
+    for (const note of SCALE_MIDI) {
+      const u = pump(h, 1000)
+      for (const e of u.events) if (e.type === 'noteOn') sounded.push(e.note.midi)
+      expect(required(u.wait)).toEqual([note])
+      expect(u.wait.waiting).toBe(true)
+      // one owed onset per pump, so nothing can slip through unplayed
+      expect(u.events.filter((e) => e.type === 'noteOn')).toHaveLength(1)
+      strike(h, note)
+    }
+    expect(sounded).toEqual([...SCALE_MIDI])
+  })
+
+  it('sounds no chord it has not stopped on, however stalled the frame', () => {
+    // TWO_HAND_CHORDS is 8 s long; this one pump is longer than two bars of it.
+    const h = started(TWO_HAND_CHORDS, { settings: { hands: ['left'] } })
+    const u = pump(h, 10_000)
+    expect(required(u.wait)).toEqual([48, 52, 55])
+    expect(u.events.filter((e) => e.type === 'noteOn').map((e) => e.note.midi)).toEqual([
+      48, 52, 55, 72,
+    ])
+    expect(h.transport.positionTicks).toBe(0)
+  })
+})
+
+// ------------------------------------------------------ where it freezes
+//
+// Every wait-mode test above pumps in exact multiples of the beat, where any
+// overshoot is exactly zero. These do not.
+
+describe('the frozen position is the onset itself', () => {
+  it('parks exactly on the onset with 503 ms frames', () => {
+    const h = started()
+    const frozen: number[] = []
+    for (const note of [60, 62, 64, 65]) {
+      const u = pump(h, 503)
+      expect(u.wait.waiting).toBe(true)
+      expect(required(u.wait)).toEqual([note])
+      frozen.push(h.transport.positionTicks)
+      strike(h, note)
+    }
+    // not [482.88, 965.76, 1448.64, 1931.52]
+    expect(frozen).toEqual([0, QUARTER, 2 * QUARTER, 3 * QUARTER])
+  })
+
+  it('parks exactly on the onset whatever the frame length', () => {
+    for (const frame of [37, 503, 1234, 4999]) {
+      const h = started()
+      const frozen: number[] = []
+      for (const note of SCALE_MIDI) {
+        let u = pump(h, frame)
+        for (let i = 0; i < 100 && !u.wait.waiting; i++) u = pump(h, frame)
+        expect(required(u.wait)).toEqual([note])
+        frozen.push(h.transport.positionTicks)
+        strike(h, note)
+      }
+      expect(frozen).toEqual(SCALE_MIDI.map((_, i) => i * QUARTER))
+    }
+  })
+
+  it('parks on a chord onset with every note of it ringing', () => {
+    const h = started(TWO_HAND_CHORDS, { settings: { hands: ['left'] } })
+    pump(h, 37)
+    strike(h, 48, 52, 55)
+    let u = pump(h, 1234)
+    for (let i = 0; i < 100 && !u.wait.waiting; i++) u = pump(h, 1234)
+    expect(required(u.wait)).toEqual([41, 45, 48])
+    expect(h.transport.positionTicks).toBe(BAR)
+    expect(h.transport.soundingNotes.map((n) => n.midi)).toEqual([41, 45, 48, 77])
+  })
+})
+
+// --------------------------------------------- the transport moved under it
+
+describe('pause, seek, stop and tempo during a wait', () => {
+  it('a pause during a wait is not a wait', () => {
+    const h = started()
+    pump(h)
+    expect(h.wait.state.waiting).toBe(true)
+
+    h.transport.pause()
+    expect(h.transport.state).toBe('paused')
+    expect(h.wait.state.waiting).toBe(false)
+    // the requirement survives the pause, so resuming waits for the same note
+    expect(required(h.wait.state)).toEqual([60])
+    expect(pump(h, 5000).events).toEqual([])
+    expect(h.transport.positionTicks).toBe(0)
+
+    h.transport.play()
+    expect(h.transport.state).toBe('waiting')
+    expect(h.wait.state.waiting).toBe(true)
+    press(h, 60)
+    expect(h.wait.state.waiting).toBe(false)
+    expect(labels(pump(h, 500))).toEqual(['off:60', 'on:62'])
+  })
+
+  it('a seek during a wait re-arms on the new position', () => {
+    const h = started()
+    pump(h)
+    strike(h, 60)
+    expect(required(pump(h, 500).wait)).toEqual([62])
+
+    h.transport.seekTick(asTicks(2 * QUARTER))
+    expect(h.wait.state.waiting).toBe(false) // the playhead is no longer on an onset
+    const u = pump(h)
+    expect(labels(u)).toEqual(['off:62', 'on:64'])
+    expect(required(u.wait)).toEqual([64])
+    expect(u.wait.waiting).toBe(true)
+    expect(h.transport.positionTicks).toBe(2 * QUARTER)
+
+    strike(h, 64)
+    expect(labels(pump(h, 500))).toEqual(['off:64', 'on:65'])
+  })
+
+  it('a seek backwards waits for the note it lands on all over again', () => {
+    const h = started()
+    pump(h)
+    strike(h, 60)
+    pump(h, 500)
+    h.transport.seekTick(asTicks(0))
+    const u = pump(h)
+    expect(labels(u)).toEqual(['off:62', 'measure:0', 'on:60'])
+    expect(required(u.wait)).toEqual([60])
+    expect(u.wait.waiting).toBe(true)
+    expect(h.transport.positionTicks).toBe(0)
+  })
+
+  it('a stop during a wait clears it, and playing again waits from the top', () => {
+    const h = started()
+    pump(h)
+    strike(h, 60)
+    pump(h, 500)
+
+    h.transport.stop()
+    expect(h.wait.state.waiting).toBe(false)
+    const stopped = pump(h, 1000)
+    expect(labels(stopped)).toEqual(['off:62'])
+    expect(stopped.wait).toEqual({ waiting: false, requiredNotes: [], satisfiedNotes: [] })
+    expect(h.transport.barrierTick).toBeNull()
+
+    h.transport.play()
+    const again = pump(h)
+    expect(labels(again)).toEqual(['measure:0', 'on:60'])
+    expect(required(again.wait)).toEqual([60])
+    expect(h.transport.positionTicks).toBe(0)
+  })
+
+  it('a stop and an immediate replay does not let the music run past the wait', () => {
+    // No update between the two: the controller has to notice on its own that the
+    // gate it installed was taken away by `stop`.
+    const h = started()
+    pump(h)
+    h.transport.stop()
+    h.transport.play()
+    const u = pump(h, 5000)
+    expect(labels(u)).toEqual(['off:60', 'measure:0', 'on:60'])
+    expect(required(u.wait)).toEqual([60])
+    expect(h.transport.positionTicks).toBe(0)
+  })
+
+  it('a tempo change during a wait leaves the playhead on the onset', () => {
+    const h = started()
+    pump(h)
+    strike(h, 60)
+    expect(required(pump(h, 503).wait)).toEqual([62])
+
+    h.transport.setTempoScale(0.5)
+    expect(h.transport.state).toBe('waiting')
+    expect(h.wait.state.waiting).toBe(true)
+    expect(h.transport.positionTicks).toBe(QUARTER)
+
+    press(h, 62)
+    // half speed: a quarter note is now a full second of wall time
+    expect(pump(h, 500).events).toEqual([])
+    expect(labels(pump(h, 500))).toEqual(['off:62', 'on:64'])
+    expect(h.transport.positionTicks).toBe(2 * QUARTER)
+  })
+})
+
 // -------------------------------------------------------------------- chords
 
 describe('chords', () => {
@@ -449,6 +655,36 @@ describe('looping', () => {
     expect(h.wait.state.waiting).toBe(false)
   })
 
+  it('re-arms after the wrap when the pass owes a single onset', () => {
+    // The one owed onset of the pass is the one the playhead is standing on, so
+    // the wrap has to happen before the wait can be armed again — and it must not
+    // run past that onset on the way, however long the frames are.
+    const h = started(TWO_HAND_CHORDS, {
+      settings: { hands: ['left'] },
+      loop: loopRange(0, BAR),
+    })
+    expect(required(pump(h).wait)).toEqual([48, 52, 55])
+    strike(h, 48, 52, 55)
+
+    const events: string[] = []
+    for (let i = 0; i < 3; i++) events.push(...labels(pump(h, 5000)))
+    // the right hand finishes the bar by itself, then the pass starts over
+    expect(events.filter((e) => e.startsWith('on:'))).toEqual([
+      'on:74',
+      'on:76',
+      'on:77',
+      'on:48',
+      'on:52',
+      'on:55',
+      'on:72',
+    ])
+    expect(events).toContain('loop:1')
+    expect(required(h.wait.state)).toEqual([48, 52, 55])
+    expect(h.wait.state.waiting).toBe(true)
+    expect(h.transport.positionTicks).toBe(0)
+    expect(h.transport.loopIteration).toBe(1)
+  })
+
   it('a wrap that lands on nothing waited for leaves the gate down', () => {
     // Loop over the second half of bar 1 only, with the left hand muted: the wrap
     // point (tick 960) carries no right-hand onset, so nothing re-arms there.
@@ -531,10 +767,13 @@ describe('programmer errors', () => {
   })
 
   it('rejects a controller score that is not the one the transport is playing', () => {
+    // The controller stops the playhead on tick 240, where its own score has a
+    // note and the score actually being played has none: nothing sounds there,
+    // and the wait it would arm is fiction.
     const h = started(C_MAJOR_SCALE_RH, {
-      controllerScore: buildTestScore([{ midi: 60, startTick: QUARTER }], { id: 'other' }),
+      controllerScore: buildTestScore([{ midi: 60, startTick: 240 }], { id: 'other' }),
     })
-    expect(() => pump(h)).toThrow(InvariantError)
+    expect(() => pump(h, 500)).toThrow(InvariantError)
   })
 })
 
@@ -652,17 +891,66 @@ describe('WaitModeController properties', () => {
     )
   })
 
+  it('sounds at most one owed onset per pump, however long the pump', () => {
+    fc.assert(
+      fc.property(
+        fc.array(fc.integer({ min: 0, max: 5000 }), { maxLength: 30 }),
+        fc.boolean(),
+        (deltas, playAlong) => {
+          const h = started()
+          const heard: number[] = []
+          for (const ms of deltas) {
+            const u = pump(h, ms)
+            const attacks = u.events.filter((e) => e.type === 'noteOn')
+            // every note of this fixture is owed, so a pump may sound one at most
+            expect(attacks.length).toBeLessThanOrEqual(1)
+            for (const e of attacks) heard.push(e.note.midi)
+            // nothing sounds out of order and nothing is skipped
+            expect(heard).toEqual(SCALE_MIDI.slice(0, heard.length))
+            if (playAlong && u.wait.waiting) strike(h, at(SCALE_MIDI, heard.length - 1))
+          }
+        },
+      ),
+      runs,
+    )
+  })
+
   it('keeps its invariants under an arbitrary stream of playing and pumping', () => {
     type Step =
       | { readonly kind: 'pump'; readonly ms: number }
       | { readonly kind: 'press'; readonly midi: number }
       | { readonly kind: 'lift'; readonly midi: number }
+      | { readonly kind: 'pause' }
+      | { readonly kind: 'resume' }
+      | { readonly kind: 'stop' }
+      | { readonly kind: 'seek'; readonly tick: number }
+      | { readonly kind: 'tempo'; readonly scale: number }
 
     const keys = fc.constantFrom(60, 61, 62, 63, 64, 65, 67, 69, 71, 72)
+    // Transport commands are rare on purpose: they must not drown out the runs
+    // that simply play the piece.
     const step: fc.Arbitrary<Step> = fc.oneof(
-      fc.integer({ min: 0, max: 900 }).map((ms) => ({ kind: 'pump', ms }) as const),
-      keys.map((midi) => ({ kind: 'press', midi }) as const),
-      keys.map((midi) => ({ kind: 'lift', midi }) as const),
+      {
+        weight: 6,
+        arbitrary: fc.integer({ min: 0, max: 900 }).map((ms) => ({ kind: 'pump', ms }) as const),
+      },
+      { weight: 4, arbitrary: keys.map((midi) => ({ kind: 'press', midi }) as const) },
+      { weight: 4, arbitrary: keys.map((midi) => ({ kind: 'lift', midi }) as const) },
+      { weight: 1, arbitrary: fc.constant({ kind: 'pause' } as const) },
+      { weight: 1, arbitrary: fc.constant({ kind: 'resume' } as const) },
+      { weight: 1, arbitrary: fc.constant({ kind: 'stop' } as const) },
+      {
+        weight: 1,
+        arbitrary: fc
+          .integer({ min: 0, max: 4 * BAR })
+          .map((tick) => ({ kind: 'seek', tick }) as const),
+      },
+      {
+        weight: 1,
+        arbitrary: fc
+          .constantFrom(0.5, 1, 1.75)
+          .map((scale) => ({ kind: 'tempo', scale }) as const),
+      },
     )
 
     fc.assert(
@@ -675,10 +963,16 @@ describe('WaitModeController properties', () => {
           // satisfied is always a duplicate-free subset of what was asked for
           expect(new Set(satisfied(state)).size).toBe(satisfied(state).length)
           for (const s of satisfied(state)) expect(pitches).toContain(s)
-          // waiting agrees with the transport, and with the requirement itself
-          expect(h.transport.state === 'waiting').toBe(state.waiting)
-          if (state.waiting) expect(satisfied(state).length).toBeLessThan(new Set(pitches).size)
-          // the playhead only ever moves forwards
+          // waiting says exactly what the transport says: the gate is up AND the
+          // playhead is parked on the onset. A pause, a stop or a seek breaks one
+          // of the two, and is reported as not waiting the moment it happens.
+          expect(state.waiting).toBe(h.transport.state === 'waiting' && h.transport.isAtBarrier)
+          if (state.waiting) {
+            expect(satisfied(state).length).toBeLessThan(new Set(pitches).size)
+            // and it is frozen ON the onset, never a fraction of a frame past it
+            expect(h.transport.positionTicks).toBe(at(state.requiredNotes, 0).startTick)
+          }
+          // the playhead only ever moves forwards between transport commands
           const now = h.transport.positionTicks as number
           expect(now).toBeGreaterThanOrEqual(previous)
           previous = now
@@ -687,7 +981,16 @@ describe('WaitModeController properties', () => {
         for (const s of steps) {
           if (s.kind === 'pump') pump(h, s.ms)
           else if (s.kind === 'press') press(h, s.midi)
-          else lift(h, s.midi)
+          else if (s.kind === 'lift') lift(h, s.midi)
+          else if (s.kind === 'pause') h.transport.pause()
+          else if (s.kind === 'resume') h.transport.play()
+          else if (s.kind === 'stop') h.transport.stop()
+          else if (s.kind === 'seek') h.transport.seekTick(asTicks(s.tick))
+          else h.transport.setTempoScale(s.scale)
+          // a command that moves the playhead restarts the monotonicity check
+          if (s.kind !== 'pump' && s.kind !== 'press' && s.kind !== 'lift') {
+            previous = h.transport.positionTicks as number
+          }
           check()
         }
       }),
