@@ -1,0 +1,86 @@
+import js from '@eslint/js'
+import globals from 'globals'
+import reactHooks from 'eslint-plugin-react-hooks'
+import reactRefresh from 'eslint-plugin-react-refresh'
+import tseslint from 'typescript-eslint'
+
+export default tseslint.config(
+  { ignores: ['dist', 'coverage', 'node_modules', 'playwright-report', 'test-results'] },
+  {
+    extends: [js.configs.recommended, ...tseslint.configs.recommended],
+    files: ['**/*.{ts,tsx}'],
+    languageOptions: {
+      ecmaVersion: 2023,
+      globals: { ...globals.browser, ...globals.node },
+    },
+    plugins: {
+      'react-hooks': reactHooks,
+      'react-refresh': reactRefresh,
+    },
+    rules: {
+      ...reactHooks.configs.recommended.rules,
+      'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+      ],
+      '@typescript-eslint/consistent-type-imports': [
+        'error',
+        { prefer: 'type-imports', fixStyle: 'inline-type-imports' },
+      ],
+      'no-console': ['warn', { allow: ['warn', 'error'] }],
+    },
+  },
+  // The domain core must stay pure: no DOM, no browser APIs, no framework.
+  // This rule is the automated enforcement of the architecture boundary
+  // described in CLAUDE.md; it is what keeps the `core` test suite fast.
+  {
+    files: ['src/core/**/*.ts'],
+    languageOptions: { globals: {} },
+    rules: {
+      'no-restricted-globals': [
+        'error',
+        { name: 'window', message: 'src/core must be pure — no DOM. Put this in src/adapters.' },
+        { name: 'document', message: 'src/core must be pure — no DOM. Put this in src/adapters.' },
+        { name: 'navigator', message: 'src/core must be pure — no DOM. Put this in src/adapters.' },
+        { name: 'localStorage', message: 'src/core must be pure — use a port interface.' },
+        { name: 'indexedDB', message: 'src/core must be pure — use a port interface.' },
+        { name: 'fetch', message: 'src/core must be pure — use a port interface.' },
+        { name: 'performance', message: 'src/core must be pure — inject a Clock port.' },
+      ],
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "CallExpression[callee.object.name='Date'][callee.property.name='now']",
+          message: 'src/core must be deterministic — inject a Clock port instead of Date.now().',
+        },
+        {
+          selector: "NewExpression[callee.name='Date']",
+          message: 'src/core must be deterministic — inject a Clock port instead of new Date().',
+        },
+        {
+          selector: "CallExpression[callee.object.name='Math'][callee.property.name='random']",
+          message: 'src/core must be deterministic — inject an Rng port instead of Math.random().',
+        },
+      ],
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            { group: ['react', 'react-dom', 'zustand', 'idb', 'opensheetmusicdisplay'], message: 'src/core must not depend on UI/IO libraries.' },
+            { group: ['@app/*', '@adapters/*'], message: 'src/core must not import from app or adapters.' },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ['**/*.test.ts', '**/*.test.tsx', 'src/test/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+      'no-restricted-syntax': 'off',
+      'no-restricted-globals': 'off',
+      'no-restricted-imports': 'off',
+    },
+  },
+)

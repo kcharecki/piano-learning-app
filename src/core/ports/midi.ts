@@ -1,0 +1,60 @@
+import type { Midi, Millis } from '../shared/units.ts'
+
+/**
+ * MIDI events as the domain sees them: pitch, time, velocity. Everything
+ * device-specific (running status, channel juggling, SysEx) is the adapter's
+ * problem and never reaches the core.
+ */
+export type MidiNoteOn = {
+  readonly type: 'noteOn'
+  readonly note: Midi
+  /** 1–127. A note-on with velocity 0 is normalised to a note-off by the adapter. */
+  readonly velocity: number
+  readonly time: Millis
+}
+
+export type MidiNoteOff = {
+  readonly type: 'noteOff'
+  readonly note: Midi
+  readonly time: Millis
+}
+
+export type MidiSustain = {
+  readonly type: 'sustain'
+  readonly down: boolean
+  readonly time: Millis
+}
+
+export type MidiEvent = MidiNoteOn | MidiNoteOff | MidiSustain
+
+export type MidiDevice = {
+  readonly id: string
+  readonly name: string
+  readonly manufacturer: string
+}
+
+export type Unsubscribe = () => void
+
+/** Input side: the keyboard the learner plays. */
+export interface MidiInput {
+  listDevices(): readonly MidiDevice[]
+  /** Subscribe to note events from the currently selected device. */
+  onEvent(handler: (event: MidiEvent) => void): Unsubscribe
+  /** Subscribe to device connect/disconnect (hot-plug is common in practice). */
+  onDevicesChanged(handler: (devices: readonly MidiDevice[]) => void): Unsubscribe
+  selectDevice(deviceId: string | null): void
+  readonly selectedDeviceId: string | null
+}
+
+/**
+ * Output side: preferred sound source per REQ-4.7 — send notes to the digital
+ * piano and let the instrument make the sound, avoiding synthesis latency.
+ */
+export interface MidiOutput {
+  listDevices(): readonly MidiDevice[]
+  selectDevice(deviceId: string | null): void
+  noteOn(note: Midi, velocity: number, atMs?: Millis): void
+  noteOff(note: Midi, atMs?: Millis): void
+  allNotesOff(): void
+  readonly selectedDeviceId: string | null
+}
