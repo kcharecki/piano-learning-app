@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- One 4/4 bar, one staff, divisions=2 (a division is an eighth = 240 ticks).
+     Voice 1: grace B3 (skipped, steals no time) then
+              C4 quarter (fingering 1) at tick 0,
+              quarter rest,                       cursor 480 -> 960
+              <forward> a quarter,                cursor 960 -> 1440
+              E4 quarter at tick 1440.
+     Voice 2 (after <backup> of a whole bar): G3 whole note at tick 0.
+     The second grace note carries a <duration> — some exporters write one — and
+     must still steal no time. A CDATA block and a numeric entity ride along in
+     the title so the XML reader gets exercised too. -->
+<score-partwise version="4.0">
+  <work><work-title>Grace &#38; Voices</work-title></work>
+  <identification><creator><![CDATA[J. S. Test]]></creator></identification>
+  <part-list>
+    <score-part id="P1"><part-name>Piano</part-name></score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>2</divisions>
+        <key><fifths>0</fifths></key>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
+        <clef><sign>G</sign><line>2</line></clef>
+      </attributes>
+      <note>
+        <grace slash="yes"/>
+        <pitch><step>B</step><octave>3</octave></pitch>
+        <voice>1</voice><type>eighth</type>
+      </note>
+      <note>
+        <pitch><step>C</step><octave>4</octave></pitch>
+        <duration>2</duration><voice>1</voice><type>quarter</type>
+        <notations><technical><fingering>1</fingering></technical></notations>
+      </note>
+      <note>
+        <rest/>
+        <duration>2</duration><voice>1</voice><type>quarter</type>
+      </note>
+      <forward><duration>2</duration></forward>
+      <note>
+        <grace/>
+        <pitch><step>D</step><octave>4</octave></pitch>
+        <duration>1</duration><voice>1</voice><type>eighth</type>
+      </note>
+      <note>
+        <pitch><step>E</step><octave>4</octave></pitch>
+        <duration>2</duration><voice>1</voice><type>quarter</type>
+        <notations><technical><fingering>3-2</fingering></technical></notations>
+      </note>
+      <backup><duration>8</duration></backup>
+      <note>
+        <pitch><step>G</step><octave>3</octave></pitch>
+        <duration>8</duration><voice>2</voice><type>whole</type>
+      </note>
+    </measure>
+  </part>
+</score-partwise>

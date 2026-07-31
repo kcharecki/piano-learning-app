@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Everything that can change mid-score changes here. Single staff.
+     bar 1  4/4, C major, divisions=1, sound tempo 100
+            C4 D4 E4 F4 quarters            ticks 0 480 960 1440
+     bar 2  key -> 2 sharps (D major), time -> 3/4, tempo -> 72
+            The direction carries BOTH a <metronome> (quarter = 60) and a
+            <sound tempo="72"/>. <sound> is the playback authority and wins, so
+            the parsed tempo is 72, not 60.
+            D4 E4 F#4 quarters              ticks 1920 2400 2880  (F#4 = 66)
+     bar 3  divisions -> 4 (a quarter is now 4 divisions)
+            A4 B4 C#5 quarters              ticks 3360 3840 4320  (C#5 = 73)
+     bar 4  clef -> bass, so a single-staff part switches to the left hand
+            D3 dotted half (12 divisions)   tick  4800, 1440 ticks long
+     Measure lengths: 1920 + 1440 + 1440 + 1440 = 6240 ticks. -->
+<score-partwise version="4.0">
+  <work><work-title>Mid Score Changes</work-title></work>
+  <identification><creator type="composer">Test</creator></identification>
+  <part-list>
+    <score-part id="P1"><part-name>Piano</part-name></score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>1</divisions>
+        <key><fifths>0</fifths></key>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
+        <clef><sign>G</sign><line>2</line></clef>
+      </attributes>
+      <direction placement="above">
+        <direction-type><words>Allegro</words></direction-type>
+        <sound tempo="100"/>
+      </direction>
+      <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><pitch><step>F</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+    </measure>
+    <measure number="2">
+      <attributes>
+        <key><fifths>2</fifths></key>
+        <time><beats>3</beats><beat-type>4</beat-type></time>
+      </attributes>
+      <direction placement="above">
+        <direction-type>
+          <metronome><beat-unit>quarter</beat-unit><per-minute>60</per-minute></metronome>
+        </direction-type>
+        <sound tempo="72"/>
+      </direction>
+      <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note>
+        <pitch><step>F</step><alter>1</alter><octave>4</octave></pitch>
+        <duration>1</duration><type>quarter</type>
+      </note>
+    </measure>
+    <measure number="3">
+      <attributes>
+        <divisions>4</divisions>
+      </attributes>
+      <note><pitch><step>A</step><octave>4</octave></pitch><duration>4</duration><type>quarter</type></note>
+      <note><pitch><step>B</step><octave>4</octave></pitch><duration>4</duration><type>quarter</type></note>
+      <note>
+        <pitch><step>C</step><alter>1</alter><octave>5</octave></pitch>
+        <duration>4</duration><type>quarter</type>
+      </note>
+    </measure>
+    <measure number="4">
+      <attributes>
+        <clef><sign>F</sign><line>4</line></clef>
+      </attributes>
+      <note>
+        <pitch><step>D</step><octave>3</octave></pitch>
+        <duration>12</duration><type>half</type><dot/>
+      </note>
+    </measure>
+  </part>
+</score-partwise>

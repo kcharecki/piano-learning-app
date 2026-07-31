@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A tie across the barline, 4/4, divisions=1:
+       E4 half | C4 half ~ | ~ C4 half | G4 half
+     The C4 sounds for four beats but is two ScoreNotes, because a note may not
+     cross a barline: the second carries tiedFrom and expects no new key press.
+     The first bar's C4 uses <tie type="start"/>, the second bar's C4 uses only
+     <notations><tied type="stop"/> — both spellings occur in the wild. -->
+<score-partwise version="4.0">
+  <work><work-title>Tied Notes</work-title></work>
+  <part-list>
+    <score-part id="P1"><part-name>Piano</part-name></score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>1</divisions>
+        <key><fifths>0</fifths></key>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
+        <clef><sign>G</sign><line>2</line></clef>
+      </attributes>
+      <note>
+        <pitch><step>E</step><octave>4</octave></pitch>
+        <duration>2</duration><voice>1</voice><type>half</type>
+      </note>
+      <note>
+        <pitch><step>C</step><octave>4</octave></pitch>
+        <duration>2</duration>
+        <tie type="start"/>
+        <voice>1</voice><type>half</type>
+        <notations><tied type="start"/></notations>
+      </note>
+    </measure>
+    <measure number="2">
+      <note>
+        <pitch><step>C</step><octave>4</octave></pitch>
+        <duration>2</duration>
+        <voice>1</voice><type>half</type>
+        <notations><tied type="stop"/></notations>
+      </note>
+      <note>
+        <pitch><step>G</step><octave>4</octave></pitch>
+        <duration>2</duration><voice>1</voice><type>half</type>
+      </note>
+    </measure>
+  </part>
+</score-partwise>

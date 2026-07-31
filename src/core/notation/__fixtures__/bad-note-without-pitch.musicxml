@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The second <note> has neither <pitch> nor <rest>, so nothing says whether it
+     sounds or how high. (An <unpitched> percussion note lands here too.) -->
+<score-partwise version="4.0">
+  <part-list>
+    <score-part id="P1"><part-name>Piano</part-name></score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>1</divisions>
+        <key><fifths>0</fifths></key>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
+      </attributes>
+      <note>
+        <pitch><step>C</step><octave>4</octave></pitch>
+        <duration>2</duration><type>half</type>
+      </note>
+      <note>
+        <duration>2</duration><type>half</type>
+      </note>
+    </measure>
+  </part>
+</score-partwise>

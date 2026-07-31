@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A part-list that promises a part, and no <part> element to go with it. -->
+<score-partwise version="4.0">
+  <work><work-title>Empty</work-title></work>
+  <part-list>
+    <score-part id="P1"><part-name>Piano</part-name></score-part>
+  </part-list>
+</score-partwise>
