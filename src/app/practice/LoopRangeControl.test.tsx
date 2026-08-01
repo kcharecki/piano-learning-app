@@ -1,4 +1,4 @@
-import { C_MAJOR_SCALE_RH } from '@test/fixtures.ts'
+import { C_MAJOR_SCALE_RH, TWO_HAND_CHORDS } from '@test/fixtures.ts'
 import { measureRange } from '@core/notation/score.ts'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -56,5 +56,80 @@ describe('LoopRangeControl', () => {
     await user.type(endField, '1')
 
     expect(onChange).toHaveBeenLastCalledWith(measureRange(C_MAJOR_SCALE_RH, 0, 0))
+  })
+
+  it('reflects a loop set from outside the control (roadmap 2.11, REQ-3.3.5)', () => {
+    // TWO_HAND_CHORDS has 4 measures; the defaults (0..3) differ from this
+    // external range (1..2), so a mutant that only derives startMeasure and
+    // leaves endMeasure at its default (4) cannot pass the `to measure`
+    // assertion too.
+    const externalLoop = measureRange(TWO_HAND_CHORDS, 1, 2)
+    render(
+      <LoopRangeControl score={TWO_HAND_CHORDS} loop={externalLoop} onChange={() => {}} />,
+    )
+
+    expect(screen.getByRole('checkbox', { name: 'Loop' })).toBeChecked()
+    expect(screen.getByLabelText('From measure')).toHaveValue(2)
+    expect(screen.getByLabelText('to measure')).toHaveValue(3)
+  })
+
+  it('loop going back to undefined leaves the numbers where they were', () => {
+    const externalLoop = measureRange(TWO_HAND_CHORDS, 1, 2)
+    const { rerender } = render(
+      <LoopRangeControl score={TWO_HAND_CHORDS} loop={externalLoop} onChange={() => {}} />,
+    )
+    expect(screen.getByLabelText('From measure')).toHaveValue(2)
+
+    rerender(<LoopRangeControl score={TWO_HAND_CHORDS} loop={undefined} onChange={() => {}} />)
+
+    // The checkbox reflects `loop` directly and goes off, but the numbers
+    // stay at the measures that were just looping — same "remembers where it
+    // was" behaviour as unchecking the box itself, now also true for a loop
+    // that arrived from outside the control.
+    expect(screen.getByRole('checkbox', { name: 'Loop' })).not.toBeChecked()
+    expect(screen.getByLabelText('From measure')).toHaveValue(2)
+    expect(screen.getByLabelText('to measure')).toHaveValue(3)
+  })
+
+  it('editing a number while an externally-set loop is active still emits the right tick range', async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    // TWO_HAND_CHORDS defaults to (0..3); this external range (0..2) differs
+    // from the default endMeasure (3), so the assertion below only holds if
+    // endMeasure was actually derived from `loop` rather than defaulted.
+    const externalLoop = measureRange(TWO_HAND_CHORDS, 0, 2)
+    render(
+      <LoopRangeControl score={TWO_HAND_CHORDS} loop={externalLoop} onChange={onChange} />,
+    )
+
+    const startField = screen.getByLabelText('From measure')
+    await user.clear(startField)
+    await user.type(startField, '1')
+
+    expect(onChange).toHaveBeenLastCalledWith(measureRange(TWO_HAND_CHORDS, 0, 2))
+  })
+
+  it('an external loop equal to a previously-emitted range still updates the display', () => {
+    // Regression for the stale `lastEmitted` ref: check the box (emits
+    // 0..3), simulate an external loop elsewhere (1..2), then set the loop
+    // back to the SAME range the control emitted earlier (0..3) via an
+    // external setLoop call. Because that range is byte-identical to what
+    // `lastEmitted` recorded, the sync effect used to skip it and the boxes
+    // kept showing 1..2 forever.
+    const wholeScore = measureRange(TWO_HAND_CHORDS, 0, 3)
+    const { rerender } = render(
+      <LoopRangeControl score={TWO_HAND_CHORDS} loop={wholeScore} onChange={() => {}} />,
+    )
+    expect(screen.getByLabelText('From measure')).toHaveValue(1)
+    expect(screen.getByLabelText('to measure')).toHaveValue(4)
+
+    const middleRange = measureRange(TWO_HAND_CHORDS, 1, 2)
+    rerender(<LoopRangeControl score={TWO_HAND_CHORDS} loop={middleRange} onChange={() => {}} />)
+    expect(screen.getByLabelText('From measure')).toHaveValue(2)
+    expect(screen.getByLabelText('to measure')).toHaveValue(3)
+
+    rerender(<LoopRangeControl score={TWO_HAND_CHORDS} loop={wholeScore} onChange={() => {}} />)
+    expect(screen.getByLabelText('From measure')).toHaveValue(1)
+    expect(screen.getByLabelText('to measure')).toHaveValue(4)
   })
 })
