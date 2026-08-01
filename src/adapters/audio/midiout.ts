@@ -15,6 +15,11 @@
  * `noteOff` and `noteOn` both take an absolute `atMs`, which `MidiOutput`
  * schedules on the device's own clock (see `webmidi.ts`'s `port.send(data,
  * atMs)`) — no `setTimeout` needed for the click's timed release either.
+ * `atMs` and `now()` are on the `Clock` epoch (`performance.now()`, per
+ * `core/ports/audio.ts`) — which this adapter gets for free, since
+ * `performance.now()` and Web MIDI's own `event.timeStamp` already share
+ * that epoch. Nothing here needs converting; `webaudio.ts` is the
+ * implementation that does, because `AudioContext.currentTime` does not.
  *
  * `allNotesOff` has a real limitation here: Web MIDI has no way to cancel a
  * message already handed to the device with a future timestamp. What this

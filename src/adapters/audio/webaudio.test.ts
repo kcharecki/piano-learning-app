@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createWebAudioOutput } from '@adapters/audio/webaudio.ts'
 import { midi, millis } from '@core/shared/units.ts'
 
@@ -94,9 +94,25 @@ function makeCtx(): FakeAudioContext {
   return new FakeAudioContext()
 }
 
-/** `createWebAudioOutput` wants a real `AudioContext`; the fake is structural. */
+/**
+ * `createWebAudioOutput` wants a real `AudioContext`; the fake is structural.
+ *
+ * Every test but the dedicated epoch-conversion ones below wants the old,
+ * simple world where `atMs` lines up 1:1 with `ctx.currentTime * 1000` — that
+ * was true before the fix only because both happened to start at the same
+ * real-world instant in a fresh `AudioContext`. Pinning `performance.now()`
+ * to exactly `ctx.currentTime * 1000` at construction makes the captured
+ * `clockOffsetMs` zero, which reproduces that world deliberately rather than
+ * by accident, so the existing assertions (`atMs` value in, same value out as
+ * ctx-seconds) keep meaning what they say.
+ */
 function output(ctx: FakeAudioContext) {
-  return createWebAudioOutput(ctx as unknown as AudioContext)
+  const restore = vi.spyOn(performance, 'now').mockReturnValue(ctx.currentTime * 1000)
+  try {
+    return createWebAudioOutput(ctx as unknown as AudioContext)
+  } finally {
+    restore.mockRestore()
+  }
 }
 
 // The very first gain node any factory call creates is the master gain —
@@ -329,11 +345,65 @@ describe('createWebAudioOutput', () => {
     expect(masterGain(ctx).gain.calls.at(-1)).toMatchObject({ value: 0 })
   })
 
-  it('now() reads the context clock in milliseconds', () => {
+  it('now() reads the context clock in milliseconds, when the Clock and ctx epochs coincide', () => {
     const ctx = makeCtx()
     ctx.currentTime = 2.5
     const out = output(ctx)
     expect(out.now()).toBe(2500)
+  })
+
+  // ------------------------------------------------------- epoch conversion
+  //
+  // `atMs` is on the Clock epoch (`performance.now()`), not `ctx.currentTime`
+  // — see the module comment and `core/ports/audio.ts`. Every test above uses
+  // the `output()` helper, which pins the two epochs together so the plain
+  // "atMs in, same value out as ctx-seconds" assertions keep working. These
+  // tests are the ones that would catch an offset bug: they construct the
+  // context with `ctx.currentTime` already non-zero (an AudioContext that has
+  // been running a while) and a `performance.now()` far ahead of it (a
+  // session that started even earlier), which is exactly the case an
+  // unconverted `atMs` gets wrong.
+  describe('when the Clock epoch and ctx.currentTime have drifted apart', () => {
+    afterEach(() => {
+      vi.restoreAllMocks()
+    })
+
+    it('shifts a scheduled atMs from the Clock epoch into ctx.currentTime using the offset captured at construction', () => {
+      const ctx = makeCtx()
+      ctx.currentTime = 100 // the AudioContext has been running for 100s
+      vi.spyOn(performance, 'now').mockReturnValue(2_500_100) // Clock: 2500.1s in
+      const out = createWebAudioOutput(ctx as unknown as AudioContext)
+      // offset = 2_500_100 - 100_000 = 2_400_100
+      out.noteOn(midi(60), 100, millis(2_500_600)) // Clock-epoch time, 500ms after construction
+
+      const osc = ctx.oscillators.at(-1)
+      expect(osc?.startedAt).toEqual([100.5]) // (2_500_600 - 2_400_100) / 1000
+    })
+
+    it('now() converts ctx.currentTime back to the Clock epoch using the same offset', () => {
+      const ctx = makeCtx()
+      ctx.currentTime = 100
+      vi.spyOn(performance, 'now').mockReturnValue(2_500_100)
+      const out = createWebAudioOutput(ctx as unknown as AudioContext)
+
+      ctx.currentTime = 100.5 // 500ms of ctx-time has passed
+      expect(out.now()).toBe(2_500_600) // back on the Clock epoch
+    })
+
+    it('a construction-time offset error is exactly what this catches: a zero offset would misplace every schedule', () => {
+      const ctx = makeCtx()
+      ctx.currentTime = 100
+      vi.spyOn(performance, 'now').mockReturnValue(2_500_100)
+      const out = createWebAudioOutput(ctx as unknown as AudioContext)
+
+      out.noteOn(midi(60), 100, millis(2_500_600))
+      const osc = ctx.oscillators.at(-1)
+      // Treating atMs as already being ctx-time (the old bug) would schedule
+      // this 2.5 million seconds in the future instead of half a second from
+      // now.
+      expect(osc?.startedAt.at(-1)).not.toBe(2_500_600)
+      expect(osc?.startedAt.at(-1)).toBe(100.5)
+    })
   })
 
   it('noteOn defaults to "now" on the context clock when atMs is omitted', () => {

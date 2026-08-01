@@ -34,14 +34,20 @@ import {
   type MetronomeSettings,
   type Subdivision,
 } from '@core/timing/metronome.ts'
-import { bpmAtTick, effectiveBpmAtTick, makeTempoMap } from '@core/timing/tempo.ts'
+import {
+  bpmAtTick,
+  effectiveBpmAtTick,
+  makeTempoMap,
+  tickToMs,
+  type TempoMap,
+} from '@core/timing/tempo.ts'
 import {
   Transport,
   type LoopRange,
   type TransportEvent,
   type TransportState,
 } from '@core/timing/transport.ts'
-import { ticks, type Bpm, type Ticks } from '@core/shared/units.ts'
+import { millis, ticks, type Bpm, type Millis, type Ticks } from '@core/shared/units.ts'
 import { type RefObject, useEffect, useMemo, useRef, useState } from 'react'
 import { useTransportLoop, type FrameDriver } from './useTransportLoop.ts'
 
@@ -155,11 +161,32 @@ function displayEqual(a: EngineDisplay, b: EngineDisplay): boolean {
   )
 }
 
-function dispatchAudio(audio: AudioOutput | undefined, events: readonly TransportEvent[]): void {
+/**
+ * `anchorMs` maps this pump's tick-relative musical time onto the `Clock`
+ * epoch `AudioOutput.atMs` is on (see `core/ports/audio.ts`): the wall-clock
+ * instant tick 0 would have sounded at, so `anchorMs + tickToMs(tempo, t)` is
+ * when tick `t` actually sounds. Passing it through — instead of letting
+ * every event in the pump default to "now" — is what keeps a frame that
+ * covers several onsets (a dropped frame, a metronome pumping four clicks at
+ * once) from collapsing them onto the frame boundary as a simultaneous chord;
+ * see the roadmap-1.18 review.
+ */
+function dispatchAudio(
+  audio: AudioOutput | undefined,
+  events: readonly TransportEvent[],
+  tempo: TempoMap,
+  anchorMs: Millis,
+): void {
   if (audio === undefined) return
   for (const event of events) {
-    if (event.type === 'noteOn') audio.noteOn(event.note.midi, event.note.velocity)
-    else if (event.type === 'noteOff') audio.noteOff(event.note.midi)
+    if (event.type === 'noteOn') {
+      const atMs = millis(anchorMs + tickToMs(tempo, event.note.startTick))
+      audio.noteOn(event.note.midi, event.note.velocity, atMs)
+    } else if (event.type === 'noteOff') {
+      const endTick = ticks(event.note.startTick + event.note.durationTicks)
+      const atMs = millis(anchorMs + tickToMs(tempo, endTick))
+      audio.noteOff(event.note.midi, atMs)
+    }
   }
 }
 
@@ -180,6 +207,7 @@ function dispatchMetronome(
   prevTick: number,
   newTick: number,
   events: readonly TransportEvent[],
+  anchorMs: Millis,
 ): void {
   if (audio === undefined) return
   const settings: MetronomeSettings = {
@@ -199,7 +227,7 @@ function dispatchMetronome(
       : newTick > prevTick
         ? clicksInRange(settings, ticks(prevTick), ticks(newTick))
         : []
-  for (const click of clicks) audio.click(click.accented)
+  for (const click of clicks) audio.click(click.accented, millis(anchorMs + click.ms))
 }
 
 export function usePracticeEngine(options: PracticeEngineOptions): PracticeEngine {
@@ -213,12 +241,26 @@ export function usePracticeEngine(options: PracticeEngineOptions): PracticeEngin
   const [waitController, setWaitController] = useState<WaitModeController | undefined>(undefined)
   const [display, setDisplay] = useState<EngineDisplay>(IDLE_DISPLAY)
   const lastTickRef = useRef(0)
+  /** Mirrors `transport` for this same effect to read without depending on
+   * its own output — see the rebuild effect below. */
+  const transportRef = useRef<Transport | undefined>(undefined)
 
   // Rebuild the transport when the score (or which hands are muted) changes —
   // its score is fixed at construction, so this is the only way hand mute can
-  // take effect.
+  // take effect (REQ-3.2.3).
+  //
+  // A rebuild mid-playback must not read as a stop: the old transport is
+  // simply dropped here, so without carrying its position and running phase
+  // over, toggling a hand mute while playing silently rewound to bar 1 and
+  // orphaned whatever chord was ringing on the old, now-unreferenced
+  // transport — see the roadmap-1.18 review. `allNotesOff` first panics
+  // whatever the old transport left sounding; the new transport is seeked to
+  // the same tick and, if the old one was running, restarted from there.
   useEffect(() => {
+    const previous = transportRef.current
     if (filteredScore === undefined) {
+      if (previous !== undefined) options.audioOutput?.allNotesOff()
+      transportRef.current = undefined
       setTransport(undefined)
       return
     }
@@ -227,8 +269,16 @@ export function usePracticeEngine(options: PracticeEngineOptions): PracticeEngin
       tempo: makeTempoMap(filteredScore.tempos),
       clock: options.clock,
     })
+    if (previous !== undefined) {
+      options.audioOutput?.allNotesOff()
+      const wasRunning = previous.state === 'playing' || previous.state === 'waiting'
+      next.seekTick(previous.positionTicks)
+      if (wasRunning) next.play()
+    }
     lastTickRef.current = next.positionTicks
+    transportRef.current = next
     setTransport(next)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- audioOutput is read via the latest closure, not tracked: only a score/hands change should rebuild the transport
   }, [filteredScore, options.clock])
 
   // Tempo scale and loop range update the SAME transport instance — both
@@ -276,7 +326,21 @@ export function usePracticeEngine(options: PracticeEngineOptions): PracticeEngin
     const prevTick = lastTickRef.current
     const events = waitController !== undefined ? waitController.update().events : transport.tick()
     const newTick = transport.positionTicks
-    dispatchAudio(options.audioOutput, events)
+    // The wall-clock instant tick 0 would have sounded at, so every event this
+    // pump produced converts back to its OWN moment instead of "now".
+    //
+    // Anchored on the tick the pump STARTED from, not the one it ended on. A
+    // pump reports the events of the window it just crossed, so anchoring on
+    // the end places every one of them in the past — and Web Audio rejects a
+    // negative time outright ("Time must be a finite non-negative number:
+    // -0.0017"), which killed playback entirely. Anchoring on the start puts
+    // the window in the next frame instead: one frame of latency, about 16ms
+    // at 60fps and well inside REQ-4.1's 20ms budget, with the relative
+    // spacing intact. That last part is the point — after a 400ms stall the
+    // gap's notes are spread across the following 400ms rather than fired
+    // together as a chord.
+    const anchorMs = millis(options.clock.now() - tickToMs(transport.tempoMap, ticks(prevTick)))
+    dispatchAudio(options.audioOutput, events, transport.tempoMap, anchorMs)
     if (options.metronomeEnabled && filteredScore !== undefined) {
       dispatchMetronome(
         options.audioOutput,
@@ -286,6 +350,7 @@ export function usePracticeEngine(options: PracticeEngineOptions): PracticeEngin
         prevTick,
         newTick,
         events,
+        anchorMs,
       )
     }
     lastTickRef.current = newTick
@@ -313,12 +378,26 @@ export function usePracticeEngine(options: PracticeEngineOptions): PracticeEngin
   function pause(): void {
     if (transport === undefined) return
     transport.pause()
+    // `Transport.pause` freezes the playhead but leaves held notes held (by
+    // design, on the domain side — see `transport.ts`), so nothing there
+    // releases the sound. Without this the instrument keeps droning through
+    // the pause; see the roadmap-1.18 review. The note stays marked "held" on
+    // the transport, so its eventual real `noteOff` still fires on resume —
+    // harmlessly, into a voice that is already silent.
+    options.audioOutput?.allNotesOff()
     setDisplay(computeDisplay(transport, waitController, filteredScore))
   }
 
   function stop(): void {
     if (transport === undefined) return
     transport.stop()
+    // `Transport.stop` queues its releases into a private pending list that
+    // only the NEXT `tick()` drains — and stopping is exactly what stops the
+    // pump (`active` below goes false), so that pending release could sit
+    // unheard until the next `play()`, on Web MIDI (no safety net) for as
+    // long as the player leaves it stopped. Panicking here is what actually
+    // silences the instrument now; see the roadmap-1.18 review.
+    options.audioOutput?.allNotesOff()
     waitController?.reset()
     lastTickRef.current = transport.positionTicks
     setDisplay(computeDisplay(transport, waitController, filteredScore))

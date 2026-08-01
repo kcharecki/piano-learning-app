@@ -19,6 +19,9 @@ jobs:
       - run: npm run lint
       - run: npm run knip
       - run: npm run test:cov
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
       - name: Assert the core suite is still fast
         # The fast suite is a feature, not a nicety — it is what makes the
         # implement/test loop tight. Fail the build if it regresses past 10s.

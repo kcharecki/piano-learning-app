@@ -134,13 +134,28 @@ describe('MusicXML -> TempoMap -> Transport (mid-score divisions/key/tempo chang
     const transport = new Transport({ score, tempo, clock })
     transport.play()
 
-    const observed: number[] = []
+    // Assert PER PUMP, inside the loop: pumping to exactly `expected.ms` must
+    // yield exactly that note's noteOn and nothing else — nothing fired early
+    // (it would already be here, ahead of its own pump), nothing fired late
+    // (it would still be missing here, and only show up on a later pump).
+    // Accumulating across pumps and comparing once at the end (the bug this
+    // replaces) only proves the notes arrive in score order by the final
+    // deadline — it says nothing about which pump each one fired on, so it
+    // survives a tempo map that is silently ignored. This does not.
+    //
+    // The noteOn check alone is not enough either: a monotonic tick<->ms
+    // mismatch (e.g. a tempo map silently dropped to 1ms/tick) can still land
+    // in the right "bucket" between two note ticks 480 apart purely by
+    // coincidence of these fixture's numbers, and fire the right note anyway.
+    // `positionTicks` is the actual musical-time value the mismatch would
+    // corrupt, checked against `expected.tick`, which comes straight from the
+    // parser and never passes through `tickToMs`/`msToTick` — so this catches
+    // the mismatch even when the note-identity check above would not.
     for (const expected of EXPECTED) {
-      observed.push(...noteOnMidis(pumpJustPast(clock, transport, expected.ms)))
+      const firedThisPump = noteOnMidis(pumpJustPast(clock, transport, expected.ms))
+      expect(firedThisPump).toEqual([expected.midi])
+      expect(transport.positionTicks).toBeCloseTo(expected.tick, 3)
     }
-    // One noteOn per pump, in order: nothing fired early, nothing fired late,
-    // nothing fired at all extra or missing.
-    expect(observed).toEqual(EXPECTED.map((e) => e.midi))
   })
 
   it('negative control: halving the divisions without touching <duration> moves the note', () => {
@@ -265,10 +280,10 @@ describe('SMF -> TempoMap -> Transport (division-independent rescale)', () => {
    *   F4 tick1440  ms 1250 + 480*125/125         = 1250 + 480  = 1730
    */
   const EXPECTED = [
-    { midi: 60, ms: 0 },
-    { midi: 62, ms: 625 },
-    { midi: 64, ms: 1250 },
-    { midi: 65, ms: 1730 },
+    { midi: 60, tick: 0, ms: 0 },
+    { midi: 62, tick: 480, ms: 625 },
+    { midi: 64, tick: 960, ms: 1250 },
+    { midi: 65, tick: 1440, ms: 1730 },
   ] as const
 
   it.each([96, 960] as const)(
@@ -280,11 +295,15 @@ describe('SMF -> TempoMap -> Transport (division-independent rescale)', () => {
       const transport = new Transport({ score, tempo, clock })
       transport.play()
 
-      const observed: number[] = []
+      // Per pump, not accumulated, and checked against `positionTicks` as well
+      // as the fired note — see the identical comments on the MusicXML seam
+      // test above for why the flattened form, and the note-identity check
+      // alone, both fail to pin timing here.
       for (const expected of EXPECTED) {
-        observed.push(...noteOnMidis(pumpJustPast(clock, transport, expected.ms)))
+        const firedThisPump = noteOnMidis(pumpJustPast(clock, transport, expected.ms))
+        expect(firedThisPump).toEqual([expected.midi])
+        expect(transport.positionTicks).toBeCloseTo(expected.tick, 3)
       }
-      expect(observed).toEqual(EXPECTED.map((e) => e.midi))
     },
   )
 

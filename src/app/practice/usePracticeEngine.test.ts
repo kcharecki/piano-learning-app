@@ -247,6 +247,138 @@ describe('usePracticeEngine', () => {
     expect(audio.playedNotes).toContain(62)
   })
 
+  it('pause silences whatever is sounding, instead of leaving it to drone through the pause', () => {
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const manual = manualDriver()
+    const { result } = renderHook((p: PracticeEngineOptions) => usePracticeEngine(p), {
+      initialProps: makeOptions(clock, { audioOutput: audio, frameDriver: manual.driver }),
+    })
+
+    act(() => result.current.play())
+    act(() => {
+      clock.advance(200) // mid C4, well before its release
+      manual.pump()
+    })
+    expect(audio.calls.some((c) => c.kind === 'allNotesOff')).toBe(false)
+
+    act(() => result.current.pause())
+
+    expect(audio.calls.at(-1)).toMatchObject({ kind: 'allNotesOff' })
+  })
+
+  it('stop silences whatever is sounding immediately, instead of only queuing the release for the next pump', () => {
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const manual = manualDriver()
+    const { result } = renderHook((p: PracticeEngineOptions) => usePracticeEngine(p), {
+      initialProps: makeOptions(clock, { audioOutput: audio, frameDriver: manual.driver }),
+    })
+
+    act(() => result.current.play())
+    act(() => {
+      clock.advance(200) // mid C4, well before its release
+      manual.pump()
+    })
+    expect(audio.calls.some((c) => c.kind === 'allNotesOff')).toBe(false)
+
+    act(() => result.current.stop())
+
+    expect(audio.calls.at(-1)).toMatchObject({ kind: 'allNotesOff' })
+  })
+
+  it('notes sound at their own written time within the frame, not collapsed onto the frame boundary', () => {
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const manual = manualDriver()
+    const { result } = renderHook((p: PracticeEngineOptions) => usePracticeEngine(p), {
+      initialProps: makeOptions(clock, { audioOutput: audio, frameDriver: manual.driver }),
+    })
+
+    act(() => result.current.play())
+    act(() => {
+      clock.advance(700) // one late pump spanning C4 (tick 0) and D4 (tick 480, 500ms in)
+      manual.pump()
+    })
+
+    const noteOns = audio.calls.filter((c) => c.kind === 'noteOn')
+    // The pump crossed the window [tick 0, tick 672], so its two notes are
+    // scheduled from the instant the window STARTED, which is now: 700 and
+    // 1200. Two properties matter, and the second is why the app once could
+    // not play at all — Web Audio throws on a time in the past:
+    expect(noteOns.map((c) => c.at)).toEqual([700, 1200])
+    //  - the 500ms written gap between C4 and D4 survives the frame;
+    expect(noteOns[1]!.at - noteOns[0]!.at).toBe(500)
+    //  - nothing is scheduled before the moment it was scheduled at.
+    for (const call of noteOns) expect(call.at).toBeGreaterThanOrEqual(clock.now())
+  })
+
+  it('metronome clicks land at their own musical time within the frame, not all at the frame boundary', () => {
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const manual = manualDriver()
+    const { result } = renderHook((p: PracticeEngineOptions) => usePracticeEngine(p), {
+      initialProps: makeOptions(clock, {
+        audioOutput: audio,
+        frameDriver: manual.driver,
+        metronomeEnabled: true,
+        metronomeSubdivision: 1,
+      }),
+    })
+
+    act(() => result.current.play())
+    act(() => {
+      clock.advance(2000) // one late pump spanning all 4 beats of bar 1 at 120bpm
+      manual.pump()
+    })
+
+    // Anchored on the tick the pump started from — tick 0, i.e. now — so the
+    // bar's four beats are laid out across the next 2000ms at their written
+    // spacing, rather than all landing on the frame boundary (the bug) or all
+    // in the past (the bug the first fix introduced).
+    expect(audio.clicks.map((c) => c.at)).toEqual([2000, 2500, 3000, 3500])
+    for (const click of audio.clicks) expect(click.at).toBeGreaterThanOrEqual(clock.now())
+  })
+
+  it('hand mute mid-playback carries the transport position and phase to the rebuilt transport, and panics the audio instead of orphaning what was ringing', () => {
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const manual = manualDriver()
+    const { result, rerender } = renderHook((p: PracticeEngineOptions) => usePracticeEngine(p), {
+      initialProps: makeOptions(clock, {
+        score: TWO_HAND_CHORDS,
+        activeHands: ['left', 'right'],
+        audioOutput: audio,
+        frameDriver: manual.driver,
+      }),
+    })
+
+    act(() => result.current.play())
+    act(() => {
+      clock.advance(1200) // measure 1 beat 3: LH triad 48/52/55 and RH 76 all sounding
+      manual.pump()
+    })
+    expect(result.current.phase).toBe('playing')
+    expect(result.current.position).toEqual({ measureNumber: 1, beat: 3, beatsPerMeasure: 4 })
+
+    audio.reset() // only care about what the mute itself does
+
+    act(() => {
+      rerender(
+        makeOptions(clock, {
+          score: TWO_HAND_CHORDS,
+          activeHands: ['right'], // mute the left hand mid-playback
+          audioOutput: audio,
+          frameDriver: manual.driver,
+        }),
+      )
+    })
+
+    expect(result.current.phase).toBe('playing') // not reset to stopped
+    expect(result.current.position).toEqual({ measureNumber: 1, beat: 3, beatsPerMeasure: 4 }) // not rewound to bar 1
+    expect(audio.calls.some((c) => c.kind === 'allNotesOff')).toBe(true) // orphaned chord panicked
+  })
+
   it('moves the score cursor imperatively through the ref every frame, not through props or state', () => {
     const clock = new FakeClock()
     const audio = new RecordingAudioOutput(clock)

@@ -14,6 +14,14 @@
  * All scheduling is done on the Web Audio clock via `AudioParam` automation
  * and `start`/`stop` times, never `setTimeout` — that is what keeps it sample
  * accurate and immune to JS event-loop jitter.
+ *
+ * `AudioOutput.atMs` is on the `Clock` epoch (`performance.now()`), per
+ * `core/ports/audio.ts` — NOT `ctx.currentTime`, which starts at 0 when the
+ * `AudioContext` was constructed, not when the page loaded. An `AudioContext`
+ * built 40 minutes into a session is 40 minutes behind `performance.now()`,
+ * so every `atMs` this module is handed is shifted into `ctx`-time by
+ * `clockOffsetMs`, captured once at construction. `now()` does the reverse
+ * shift, so `toCtxSeconds(now())` is always `ctx.currentTime`.
  */
 import type { AudioOutput } from '@core/ports/audio.ts'
 import { millis, type Midi, type Millis } from '@core/shared/units.ts'
@@ -91,8 +99,22 @@ export function createWebAudioOutput(
 
   const voices: Voice[] = []
 
-  function currentMs(): number {
-    return ctx.currentTime * 1000
+  // The gap, in ms, between the Clock epoch (`performance.now()`, what every
+  // `atMs` argument is expressed in) and this AudioContext's own epoch
+  // (`ctx.currentTime`, which starts at 0 when the context was constructed).
+  // Captured once: `ctx.currentTime` is ~0 right now, so this is effectively
+  // "what time is it on the Clock epoch, at the instant ctx-time 0 happened".
+  const clockOffsetMs = performance.now() - ctx.currentTime * 1000
+
+  /** Clock-epoch `atMs` -> `ctx.currentTime` seconds. */
+  function toCtxSeconds(clockMs: number): number {
+    const seconds = (clockMs - clockOffsetMs) / 1000
+    // Never hand Web Audio a time in the past: `setValueAtTime` throws
+    // ("Time must be a finite non-negative number: -0.0017") and one throw
+    // inside the frame loop takes the whole transport down with it. A note
+    // whose moment has already gone cannot be played then — the honest
+    // outcome is to play it now, late, rather than to stop the music.
+    return Math.max(ctx.currentTime, seconds)
   }
 
   function removeVoice(voice: Voice): void {
@@ -101,7 +123,7 @@ export function createWebAudioOutput(
   }
 
   function noteOn(note: Midi, velocity: number, atMs?: Millis): void {
-    const startSec = (atMs ?? currentMs()) / 1000
+    const startSec = atMs === undefined ? ctx.currentTime : toCtxSeconds(atMs)
     const peak = VOICE_PEAK_GAIN * velocityToGain(velocity)
     const sustainGain = peak * SUSTAIN_LEVEL
 
@@ -127,7 +149,7 @@ export function createWebAudioOutput(
   }
 
   function noteOff(note: Midi, atMs?: Millis): void {
-    const offSec = (atMs ?? currentMs()) / 1000
+    const offSec = atMs === undefined ? ctx.currentTime : toCtxSeconds(atMs)
     const voice = voices.find((v) => v.note === note && !v.released)
     if (voice === undefined) return
     voice.released = true
@@ -138,7 +160,7 @@ export function createWebAudioOutput(
   }
 
   function click(accented: boolean, atMs?: Millis): void {
-    const startSec = (atMs ?? currentMs()) / 1000
+    const startSec = atMs === undefined ? ctx.currentTime : toCtxSeconds(atMs)
     const freq = accented ? ACCENTED_CLICK_FREQUENCY_HZ : CLICK_FREQUENCY_HZ
     const peak = accented ? ACCENTED_CLICK_PEAK_GAIN : CLICK_PEAK_GAIN
 
@@ -183,7 +205,7 @@ export function createWebAudioOutput(
   }
 
   function now(): Millis {
-    return millis(currentMs())
+    return millis(clockOffsetMs + ctx.currentTime * 1000)
   }
 
   return { noteOn, noteOff, click, allNotesOff, setVolume, now }

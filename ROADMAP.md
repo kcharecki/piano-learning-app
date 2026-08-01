@@ -44,13 +44,18 @@ metronome.
       cannot walk past owed notes in a long pump, and derives its waiting flag from the transport
 - [x] 1.13c Re-review of the M1 fix round: every fix confirmed by reverting it and watching the new
       tests fail. Nine follow-up findings raised and fixed, including a live 1-in-15 suite flake.
-- [ ] 1.14 `adapters/midi`: Web MIDI input + output, device hot-plug, port-conformance tests
-- [ ] 1.15 `adapters/audio`: MIDI-out-preferred / Web Audio soundfont fallback (REQ-4.7)
-- [ ] 1.16 `adapters/store`: IndexedDB store implementing the Store port
-- [ ] 1.17 `app`: shell, routing, score viewer with OSMD + cursor highlight (REQ-3.2.4)
-- [ ] 1.18 `app`: practice screen — transport controls, loop range, hand mute, tempo, metronome
-- [ ] 1.19 e2e smoke: app boots, load bundled score, start playback
-- [ ] 1.20 M1 acceptance pass: check §9 criteria reachable at M1; fix gaps
+- [x] 1.14 `adapters/midi`: Web MIDI input + output, device hot-plug, port-conformance tests
+- [x] 1.15 `adapters/audio`: MIDI-out-preferred / Web Audio soundfont fallback (REQ-4.7)
+- [x] 1.16 `adapters/store`: IndexedDB store implementing the Store port
+- [x] 1.17 `app`: shell, routing, score viewer with OSMD + cursor highlight (REQ-3.2.4)
+- [x] 1.18 `app`: practice screen — transport controls, loop range, hand mute, tempo, metronome
+- [x] 1.19 e2e smoke: app boots, load bundled score, start playback
+- [x] 1.20 M1 acceptance pass: reviewed; gaps found and fixed (see below)
+- [ ] 1.21 UX: the transport controls sit below a long scrolling score, so they are off-screen while
+      reading. Make the control strip sticky, or put it above the score.
+- [ ] 1.22 `core/practice/matcher`: add a way to start matching from a tick other than the first note.
+      Looping a sub-range currently reports every note before the loop start as `missed` in one batch
+      on the wrap, because `reset()` always rewinds to the first expected note.
 
 ## Phase 2 — Milestone M2: feedback & reading
 
@@ -112,3 +117,4 @@ Append one line per session: date, what landed, anything the next session must k
 - 2026-07-31 — Phase 0 done. Scaffold, dual vitest projects, eslint core-purity gate, ports + deterministic fakes, shared Result/invariant/units. 66 tests, <1s.
 - 2026-08-01 - Phase 1 core domain landed (theory, notation, timing, practice): 1328 tests, core suite 1.1s. Two adversarial review rounds; ~30 real defects fixed, several found despite 100% line coverage. Outstanding: 1.13b (wait-mode barrier rewrite) and 1.13c (re-review of the fix round, which died on a session limit). Next up after those: adapters (1.14-1.16).
 - 2026-08-01 - M1 core domain complete and hardened through three review rounds (build, fix, re-review + fix). 1367 tests, core suite ~0.9s, 0 failures in 12 consecutive runs. Next: adapters 1.14-1.16 (Web MIDI, audio, IndexedDB), then the app shell and score viewer 1.17-1.19.
+- 2026-08-01 - Phase 1 complete. Adapters, shell, OSMD viewer, practice screen, note feedback, e2e. Opus review found the practice screen was built but never rendered by the shell, and that `checkpoint` did not run e2e (the only suite that caught it) - `checkpoint` now runs `verify:full`. Also fixed: stop/pause left notes ringing forever on MIDI-out, the pump discarded every time the domain computed, the two AudioOutputs disagreed on clock epoch, hand mute mid-playback rewound to bar 1, and the seam tests survived deleting the tempo map (9 of 10 passed). 1567 tests + 6 e2e.

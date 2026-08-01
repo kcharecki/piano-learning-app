@@ -7,6 +7,7 @@
  */
 import { useScoreStore } from '@app/state/scoreStore.ts'
 import { C_MAJOR_SCALE_RH } from '@core/notation/fixtures.ts'
+import { midi, millis } from '@core/shared/units.ts'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FakeClock, FakeMidiInput, RecordingAudioOutput } from '@test/fakes.ts'
@@ -96,5 +97,41 @@ describe('PracticeScreen', () => {
 
     await user.click(screen.getByRole('checkbox', { name: 'Metronome' }))
     expect(useScoreStore.getState().settings.metronomeEnabled).toBe(true)
+  })
+
+  it('shows live note feedback (REQ-3.3.2) and clears it when the transport stops', async () => {
+    loadSampleScore()
+    const user = userEvent.setup()
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const midiInput = new FakeMidiInput()
+    const manual = manualDriver()
+
+    render(
+      <PracticeScreen
+        clock={clock}
+        audioOutput={audio}
+        midiInput={midiInput}
+        frameDriver={manual.driver}
+      />,
+    )
+
+    // Before anything is played, the panel reads a clean slate.
+    expect(screen.getByTestId('feedback-accuracy')).toHaveTextContent('100%')
+    expect(screen.getByTestId('feedback-correct')).toHaveTextContent('0')
+
+    await user.click(screen.getByRole('button', { name: 'Play' }))
+    act(() => manual.pump()) // parks the cursor on tick 0, arming the matcher
+
+    // C_MAJOR_SCALE_RH's first note is C4 (60) at tick 0.
+    act(() => midiInput.emit({ type: 'noteOn', note: midi(60), velocity: 80, time: millis(0) }))
+
+    expect(screen.getByTestId('feedback-correct')).toHaveTextContent('1')
+    expect(screen.getByTestId('feedback-accuracy')).toHaveTextContent('100%')
+
+    await user.click(screen.getByRole('button', { name: 'Stop' }))
+
+    expect(screen.getByTestId('feedback-correct')).toHaveTextContent('0')
+    expect(screen.getByTestId('feedback-accuracy')).toHaveTextContent('100%')
   })
 })

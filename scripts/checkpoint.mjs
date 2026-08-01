@@ -32,9 +32,14 @@ if (staged.length === 0) fail('nothing to commit')
 say(`→ ${staged.length} file(s) staged`)
 
 // 2. Green gate. This is the whole point of the script.
-say('→ npm run verify')
-const verify = spawnSync('npm', ['run', 'verify'], { stdio: 'inherit', shell: true })
-if (verify.status !== 0) fail('verify failed — fix it before checkpointing (never --no-verify)')
+//
+// It runs verify:full, not verify: the practice screen once shipped completely
+// unreachable — built, tested and committed green — because the only suite that
+// caught it was the e2e layer, and the commit gate did not run it. A gate that
+// skips the one test that would have failed is not a gate.
+say('→ npm run verify:full (typecheck, lint, unit, knip, e2e)')
+const verify = spawnSync('npm', ['run', 'verify:full'], { stdio: 'inherit', shell: true })
+if (verify.status !== 0) fail('verify:full failed — fix it before checkpointing (never --no-verify)')
 
 // 3. Commit message.
 const argMsg = process.argv.slice(2).join(' ').trim()
