@@ -24,6 +24,48 @@ without asking for confirmation:
 
 Loop steps 3–6 while there is budget. Never leave the tree red at the end of a turn.
 
+**Checkpoint before you fan out.** Commit the green tree *before* launching a round of parallel
+agents, not after. A round that dies half-finished (session limit, crash) otherwise leaves edited
+files with no clean state to return to — this has already happened once.
+
+## Leave it better (the meta pass)
+
+Every session, alongside the feature work, spend a little of the budget improving the thing that
+produces the work. This is not optional tidying; it is what stops a fast-moving generated codebase
+from silting up.
+
+- **Delete dead code.** Exports nobody imports, options nobody passes, error branches for inputs that
+  cannot occur, abstractions with exactly one implementation and no second one coming. An export used
+  only by its own test is dead. Run `npx knip` if configured; otherwise grep before you assume.
+- **Compact the docs.** `CLAUDE.md` is a contract, not a wiki — keep it under ~150 lines and make
+  every line true. If a rule is not being followed, either enforce it in tooling or delete it. Move
+  detail to `docs/` only if something actually reads it. Prune `ARCHITECTURE.md` claims that the code
+  no longer honours; a stale doc is worse than no doc, because it is trusted.
+- **Prune tests, not just add them.** Delete tests that restate the implementation, duplicate a
+  neighbour, or would pass against a broken version. Suite size is a cost. If a test has never
+  plausibly failed and never could, it is documentation with a runtime bill.
+- **Improve the process itself.** When something in this file's protocol turned out to be wrong or
+  missing, change it in the same commit and say so. Record what actually worked, not what sounded
+  good.
+
+State what you deleted in the commit body. "Deleted nothing" is a valid outcome, but say it.
+
+## Model policy
+
+Match the model to the job; do not use one tier for everything.
+
+| Work | Model |
+|---|---|
+| Orchestration, planning, final review, judgement calls | **Opus** (the main thread) |
+| Implementation agents — writing modules and their tests | **Sonnet 5** (`model: 'sonnet'`) |
+| Exploration, search, measurement, mechanical sweeps | **Sonnet 5**, or **Haiku** when the task is lookup-shaped |
+| Research and summarisation feeding a decision | **Sonnet 5**, with **Opus** reading the summary and deciding |
+
+Opus reviews what Sonnet produced — a summary from a cheaper model is input to an Opus judgement,
+never a substitute for one. Adversarial review of correctness-critical code (music theory, timing,
+matching) stays on Opus with high effort; that is where the expensive model has repeatedly earned
+its cost by finding bugs a 100%-covered suite missed.
+
 ## Testing rules (non-negotiable)
 
 - `npm test` runs the **core** suite: pure domain logic, node environment, **must stay under ~3 s**.
