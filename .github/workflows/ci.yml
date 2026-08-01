@@ -17,6 +17,7 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run lint
+      - run: npm run knip
       - run: npm run test:cov
       - name: Assert the core suite is still fast
         # The fast suite is a feature, not a nicety — it is what makes the

@@ -65,10 +65,10 @@ const LETTERS_PER_OCTAVE = 7
 const FIFTHS_IN_CIRCLE = 12
 
 /** Beyond seven accidentals a signature needs a double sharp or flat, so nobody writes it. */
-export const MAX_FIFTHS = 7
+const MAX_FIFTHS = 7
 
 /** A key's tonic carries no register; this is the octave every tonic is stored in. */
-export const KEY_OCTAVE = 4
+const KEY_OCTAVE = 4
 
 /** A minor tonic lies three fifths below the major sharing its signature: A minor / C major. */
 const RELATIVE_MINOR_FIFTHS = 3

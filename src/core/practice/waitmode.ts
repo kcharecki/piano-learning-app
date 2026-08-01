@@ -97,7 +97,7 @@ export type WaitModeUpdate = {
   readonly wait: WaitState
 }
 
-export const WAIT_MODE_DEFAULTS = {
+const WAIT_MODE_DEFAULTS = {
   requireAllChordNotes: true,
   allowExtraNotes: true,
 } as const

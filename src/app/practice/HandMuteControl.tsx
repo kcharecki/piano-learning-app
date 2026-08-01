@@ -1,0 +1,43 @@
+/**
+ * Hand mute (roadmap 1.18, REQ-3.2.3): left only, right only, or both. The
+ * actual muting is `filterHands` from `@core/notation/score.ts`, applied by
+ * `usePracticeEngine` to the score before it reaches the transport — this is
+ * only the three-way switch that picks which hands stay active.
+ */
+import type { Hand } from '@core/notation/score.ts'
+
+export type HandMuteControlProps = {
+  readonly activeHands: readonly Hand[]
+  readonly onChange: (hands: readonly Hand[]) => void
+}
+
+const OPTIONS: readonly { readonly label: string; readonly hands: readonly Hand[] }[] = [
+  { label: 'Left hand only', hands: ['left'] },
+  { label: 'Right hand only', hands: ['right'] },
+  { label: 'Both hands', hands: ['left', 'right'] },
+]
+
+function sameHands(a: readonly Hand[], b: readonly Hand[]): boolean {
+  return a.length === b.length && a.every((hand) => b.includes(hand))
+}
+
+export function HandMuteControl({ activeHands, onChange }: HandMuteControlProps) {
+  return (
+    <div className="hand-mute-control" role="radiogroup" aria-label="Hands">
+      {OPTIONS.map((option) => {
+        const selected = sameHands(activeHands, option.hands)
+        return (
+          <button
+            key={option.label}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            onClick={() => onChange(option.hands)}
+          >
+            {option.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}

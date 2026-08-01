@@ -7,7 +7,11 @@
   --warn: #ffb300;
   --error: #ef5350;
   color-scheme: dark light;
-  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
 }
 
 body {
@@ -18,4 +22,62 @@ body {
 
 main {
   padding: 2rem;
+}
+
+.shell {
+  display: flex;
+  min-height: 100vh;
+}
+
+.shell-nav {
+  flex: 0 0 auto;
+  width: 12rem;
+  padding: 1.5rem 0.75rem;
+  border-right: 1px solid #2a2d33;
+}
+
+.shell-nav ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.shell-nav button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border: none;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--fg);
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.shell-nav button:hover {
+  background: #2a2d33;
+}
+
+.shell-nav button.active {
+  background: var(--accent);
+  color: #14161a;
+  font-weight: 600;
+}
+
+.shell-main {
+  flex: 1 1 auto;
+  padding: 1.5rem 2rem;
+  min-width: 0;
+}
+
+.import-error {
+  color: var(--error);
+}
+
+.score-viewer-error {
+  color: var(--error);
 }
