@@ -230,6 +230,9 @@ RULES (complete digest — there are no others you need):
 - Co-located <name>.test.ts. Music-theory/timing invariants get fast-check property tests,
   not just examples. Files < 500 code lines.
 - Run ONLY `npx vitest run [module dir]`. Never run the full suite — other agents are working.
+- Then run `npx tsc --noEmit` and fix every error in YOUR files (ignore errors in files you do
+  not own — another agent is mid-edit). `vitest` does not typecheck, so a green scoped run says
+  NOTHING about types: do not claim "no type errors" without having run tsc.
 
 TASK: [requirement IDs + spec, 1–2 paragraphs]
 YOUR FILES (write these and nothing else): [exact paths]
@@ -274,7 +277,9 @@ FINDINGS: [pasted list from the reviewer]
 RULES DIGEST: [same digest as Appendix A]
 
 For each finding: fix it, or report exactly why it is a false positive (evidence, not opinion).
-Run ONLY `npx vitest run [module dir]`; leave it green.
+Run ONLY `npx vitest run [module dir]`; leave it green. Then `npx tsc --noEmit` and fix every
+error in YOUR files — vitest does not typecheck, and the integration step is blocked by any
+type error you leave behind.
 RETURN: per finding — fixed (with the diff hunk) or rejected (with the evidence).
 ```
 
