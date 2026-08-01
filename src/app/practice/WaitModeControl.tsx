@@ -12,6 +12,8 @@ export type WaitModeControlProps = {
   readonly enabled: boolean
   readonly onToggle: (enabled: boolean) => void
   readonly wait: WaitState | undefined
+  /** Disables the checkbox — e.g. while an assessment run is in progress. */
+  readonly disabled?: boolean
 }
 
 /** Distinct pitches still owed — required notes minus the ones already struck. */
@@ -23,7 +25,12 @@ function pendingPitches(wait: WaitState): readonly Midi[] {
   return out
 }
 
-export function WaitModeControl({ enabled, onToggle, wait }: WaitModeControlProps) {
+export function WaitModeControl({
+  enabled,
+  onToggle,
+  wait,
+  disabled = false,
+}: WaitModeControlProps) {
   const pending = wait === undefined ? [] : pendingPitches(wait)
   return (
     <div className="wait-mode-control" role="group" aria-label="Wait mode">
@@ -31,6 +38,7 @@ export function WaitModeControl({ enabled, onToggle, wait }: WaitModeControlProp
         <input
           type="checkbox"
           checked={enabled}
+          disabled={disabled}
           onChange={(event) => onToggle(event.target.checked)}
         />
         Wait for me

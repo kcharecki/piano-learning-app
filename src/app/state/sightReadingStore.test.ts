@@ -33,4 +33,17 @@ describe('useSightReadingStore', () => {
 
     expect(useSightReadingStore.getState().history).toEqual([RECORD_A, RECORD_B])
   })
+
+  // Kills a mutant that has `hydrate` ignore its arguments (or fold them into
+  // `setLevel`/`addRecord` and so re-append onto whatever is already there):
+  // this is a wholesale replace, used by `persistence.ts`'s `restoreSession`.
+  it('hydrate replaces level and history wholesale, not append', () => {
+    useSightReadingStore.getState().addRecord(RECORD_A)
+    useSightReadingStore.getState().setLevel(2)
+
+    useSightReadingStore.getState().hydrate(4, [RECORD_B])
+
+    expect(useSightReadingStore.getState().level).toBe(4)
+    expect(useSightReadingStore.getState().history).toEqual([RECORD_B])
+  })
 })

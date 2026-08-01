@@ -9,6 +9,8 @@ import type { Hand } from '@core/notation/score.ts'
 export type HandMuteControlProps = {
   readonly activeHands: readonly Hand[]
   readonly onChange: (hands: readonly Hand[]) => void
+  /** Disables every option — e.g. while an assessment run is in progress. */
+  readonly disabled?: boolean
 }
 
 const OPTIONS: readonly { readonly label: string; readonly hands: readonly Hand[] }[] = [
@@ -21,7 +23,11 @@ function sameHands(a: readonly Hand[], b: readonly Hand[]): boolean {
   return a.length === b.length && a.every((hand) => b.includes(hand))
 }
 
-export function HandMuteControl({ activeHands, onChange }: HandMuteControlProps) {
+export function HandMuteControl({
+  activeHands,
+  onChange,
+  disabled = false,
+}: HandMuteControlProps) {
   return (
     <div className="hand-mute-control" role="radiogroup" aria-label="Hands">
       {OPTIONS.map((option) => {
@@ -32,6 +38,7 @@ export function HandMuteControl({ activeHands, onChange }: HandMuteControlProps)
             type="button"
             role="radio"
             aria-checked={selected}
+            disabled={disabled}
             onClick={() => onChange(option.hands)}
           >
             {option.label}

@@ -4,10 +4,10 @@
  * (which reduces the run with `core/practice/assessment.ts`'s `assess` and
  * `passesThreshold`) — this only renders it and forwards the start action.
  *
- * The per-measure table numbers rows with the raw `measureIndex` `assess()`
- * reports, matching how `ReviewOverlay` numbers the same measures in its
- * problem list and loop suggestions — the two panels must agree on what
- * "measure 3" means.
+ * The per-measure table numbers rows 1-based (`measureIndex + 1`), matching
+ * how `ReviewOverlay` numbers the same measures in its problem list and loop
+ * suggestions — the two panels must agree on what "measure 3" means to a
+ * learner reading it against the printed score.
  */
 import { passesThreshold, type AssessmentResult } from '@core/practice/assessment.ts'
 import type { AssessmentRunPhase } from './useAssessment.ts'
@@ -59,7 +59,7 @@ export function AssessmentPanel({ phase, result, canStart, onStart }: Assessment
             <tbody>
               {result.measures.map((measure) => (
                 <tr key={measure.measureIndex}>
-                  <th scope="row">{measure.measureIndex}</th>
+                  <th scope="row">{measure.measureIndex + 1}</th>
                   <td>{percent(measure.accuracy)}</td>
                   <td>{measure.correct}</td>
                   <td>{measure.wrongPitch}</td>

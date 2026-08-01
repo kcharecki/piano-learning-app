@@ -58,4 +58,33 @@ describe('TempoControl', () => {
     fireEvent.change(screen.getByRole('slider'), { target: { value: '75' } })
     expect(onChange).toHaveBeenCalledWith(0.75)
   })
+
+  // Kills a mutant that drops `disabled` from the slider's `disabled` prop —
+  // REQ-3.3.4: the tempo slider must go visibly inert during an assessment
+  // run, not just be ignored.
+  it('disables the slider when disabled is set', () => {
+    render(
+      <TempoControl
+        tempoScale={1}
+        onChange={() => {}}
+        writtenBpm={undefined}
+        effectiveBpm={undefined}
+        disabled
+      />,
+    )
+    expect(screen.getByRole('slider')).toBeDisabled()
+  })
+
+  // Flip side: `disabled` defaults to false — ordinary practice is unaffected.
+  it('leaves the slider enabled when disabled is not set', () => {
+    render(
+      <TempoControl
+        tempoScale={1}
+        onChange={() => {}}
+        writtenBpm={undefined}
+        effectiveBpm={undefined}
+      />,
+    )
+    expect(screen.getByRole('slider')).toBeEnabled()
+  })
 })

@@ -127,25 +127,27 @@ test('assessment run driven end to end: play it, review lists problem measures, 
 
   const review = page.getByRole('group', { name: 'Review' })
   const problems = review.getByRole('list', { name: 'Problem measures' })
-  // `measureIndex` is 0-based (`core/notation/score.ts`) and `ReviewOverlay`
-  // prints it raw (see that component's own module comment), so the last
-  // three measures (human-numbered 4-6) read "Measure 3/4/5", and the first
-  // measure (human-numbered 1) reads "Measure 0" and must be ABSENT — it was
-  // played correctly.
-  await expect(problems).toContainText('Measure 3')
+  // `measureIndex` is 0-based (`core/notation/score.ts`), but `ReviewOverlay`
+  // prints `measureIndex + 1` (see that component's own module comment) —
+  // everything a human reads is 1-based. So the last three measures
+  // (0-based indices 3-5) read "Measure 4/5/6", and the first measure
+  // (0-based index 0) reads "Measure 1" and must be ABSENT — it was played
+  // correctly.
   await expect(problems).toContainText('Measure 4')
   await expect(problems).toContainText('Measure 5')
-  await expect(problems).not.toContainText('Measure 0')
+  await expect(problems).toContainText('Measure 6')
+  await expect(problems).not.toContainText('Measure 1')
 
   const loops = review.getByRole('list', { name: 'Suggested loops' })
   const loopButton = loops.getByRole('button')
   await expect(loopButton).toHaveCount(1)
   // Deterministic, not just bounded: contextBars (default 1) pads the
   // problem measures [3,4,5] to [2,4], which merges with 4 and 5 (adjacent
-  // problem measures) into one group {start:2, end:5} — the review.ts merge
-  // rule `start <= open.end + 1`, end clamped to the fixture's lastIndex 5.
-  // The label is "Practice measures {start}–{end}" — an EN DASH, not a hyphen.
-  await expect(loopButton).toHaveText('Practice measures 2–5')
+  // problem measures) into one group {start:2, end:5} (0-based) — the
+  // review.ts merge rule `start <= open.end + 1`, end clamped to the
+  // fixture's lastIndex 5. The label is "Practice measures {start+1}–{end+1}"
+  // — 1-based to match the printed score, an EN DASH, not a hyphen.
+  await expect(loopButton).toHaveText('Practice measures 3–6')
   const startMeasureIndex = 2
   const endMeasureIndex = 5
 

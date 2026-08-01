@@ -12,10 +12,12 @@
  * and that is exactly when the "clean run" message below is the only thing on
  * screen — never both an empty list AND no explanation.
  *
- * Measure numbers here are shown exactly as `review.ts`'s own `reason` string
- * numbers them (raw `measureIndex`, not the printed 1-based measure number) —
- * the problem list and the loop suggestion for the same measure must read the
- * same number, and `reason` is core text this component does not reformat.
+ * Measure numbers here are shown 1-based, matching the printed score: the
+ * problem list adds 1 to `problem.measureIndex`, and the loop button label
+ * adds 1 to `loop.startMeasure`/`endMeasure`. `review.ts`'s own `reason`
+ * string is already 1-based prose (core converts at that boundary), so it
+ * needs no reformatting here — the problem list and the loop suggestion for
+ * the same measure agree on the same number.
  */
 import type { ProblemMeasure, ProblemReason, SuggestedLoop } from '@core/practice/review.ts'
 
@@ -50,7 +52,7 @@ export function ReviewOverlay({ problems, loops, onPracticeLoop }: ReviewOverlay
       <ul aria-label="Problem measures">
         {problems.map((problem) => (
           <li key={problem.measureIndex}>
-            Measure {problem.measureIndex}:{' '}
+            Measure {problem.measureIndex + 1}:{' '}
             {problem.reasons.map((reason) => REASON_LABEL[reason]).join(', ')}
           </li>
         ))}
@@ -60,7 +62,7 @@ export function ReviewOverlay({ problems, loops, onPracticeLoop }: ReviewOverlay
           <li key={loopKey(loop)}>
             <span>{loop.reason}</span>
             <button type="button" onClick={() => onPracticeLoop(loop)}>
-              Practice measures {loop.startMeasure}–{loop.endMeasure}
+              Practice measures {loop.startMeasure + 1}–{loop.endMeasure + 1}
             </button>
           </li>
         ))}

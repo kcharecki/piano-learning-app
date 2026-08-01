@@ -17,6 +17,8 @@ export type TempoControlProps = {
   readonly onChange: (scale: number) => void
   readonly writtenBpm: Bpm | undefined
   readonly effectiveBpm: Bpm | undefined
+  /** Disables the slider — e.g. while an assessment run is in progress. */
+  readonly disabled?: boolean
 }
 
 export function TempoControl({
@@ -24,6 +26,7 @@ export function TempoControl({
   onChange,
   writtenBpm,
   effectiveBpm,
+  disabled = false,
 }: TempoControlProps) {
   const id = useId()
   const percent = Math.round(tempoScale * 100)
@@ -36,6 +39,7 @@ export function TempoControl({
         min={MIN_PERCENT}
         max={MAX_PERCENT}
         value={percent}
+        disabled={disabled}
         onChange={(event) => onChange(Number(event.target.value) / 100)}
       />
       <output>

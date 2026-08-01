@@ -320,6 +320,13 @@ describe('PracticeScreen', () => {
     await user.click(screen.getByRole('button', { name: 'Start assessment' }))
     act(() => manual.pump())
 
+    // The fix for REQ-3.3.4's silent failure mode: Pause and Stop are
+    // actually DISABLED during a run, not wired to no-op handlers that
+    // swallow the click invisibly — see PracticeScreen's TransportControls
+    // wiring and the bug this task fixes.
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeDisabled()
+
     await user.click(screen.getByRole('button', { name: 'Stop' }))
     await user.click(screen.getByRole('button', { name: 'Pause' }))
 
@@ -327,6 +334,115 @@ describe('PracticeScreen', () => {
     // so the Play button — disabled only while playing/waiting — stays disabled.
     expect(screen.getByText(/assessment running/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Play' })).toBeDisabled()
+  })
+
+  // The bug this task fixes (REQ-3.3.4, M2 acceptance audit): tempo, loop,
+  // hand-mute, wait-mode and metronome all stayed live during a run, so
+  // changing any of them silently invalidated the assessment's fixed-tempo
+  // anchor arithmetic — moving the tempo mid-run mistimed every later note
+  // with no indication anything went wrong, and setting a loop mid-run made
+  // the transport loop forever, so the 'stopped' transition that finalises
+  // the run never fired (a stuck run, un-recoverable short of a reload).
+  // Kills any mutant that drops one `disabled={assessmentRunning}` wire, or
+  // that swaps the fieldset's `disabled` condition for a constant.
+  it('disables every control that could invalidate a run while the assessment is running, and re-enables them once it completes (REQ-3.3.4)', async () => {
+    loadSampleScore()
+    const user = userEvent.setup()
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const midiInput = new FakeMidiInput()
+    const manual = manualDriver()
+
+    render(
+      <PracticeScreen
+        clock={clock}
+        date={clock}
+        audioOutput={audio}
+        midiInput={midiInput}
+        frameDriver={manual.driver}
+      />,
+    )
+
+    // These five are gated purely on `assessmentRunning` and stay enabled
+    // through ordinary (non-assessment) transport phases, so they are
+    // checked independently of Pause/Stop below, which are ALSO gated on
+    // `phase` (only enabled while playing/waiting) — conflating the two
+    // would make this test depend on incidental phase timing instead of the
+    // one thing REQ-3.3.4 actually requires.
+    function assertNonTransportEnabled(): void {
+      expect(screen.getByLabelText('Tempo')).toBeEnabled()
+      expect(screen.getByLabelText('From measure')).toBeEnabled()
+      expect(screen.getByLabelText('to measure')).toBeEnabled()
+      expect(screen.getByRole('checkbox', { name: 'Loop' })).toBeEnabled()
+      expect(screen.getByRole('radio', { name: 'Left hand only' })).toBeEnabled()
+      expect(screen.getByRole('checkbox', { name: 'Wait for me' })).toBeEnabled()
+      expect(screen.getByRole('checkbox', { name: 'Metronome' })).toBeEnabled()
+    }
+
+    function assertNonTransportDisabled(): void {
+      expect(screen.getByLabelText('Tempo')).toBeDisabled()
+      expect(screen.getByLabelText('From measure')).toBeDisabled()
+      expect(screen.getByLabelText('to measure')).toBeDisabled()
+      expect(screen.getByRole('checkbox', { name: 'Loop' })).toBeDisabled()
+      expect(screen.getByRole('radio', { name: 'Left hand only' })).toBeDisabled()
+      expect(screen.getByRole('checkbox', { name: 'Wait for me' })).toBeDisabled()
+      expect(screen.getByRole('checkbox', { name: 'Metronome' })).toBeDisabled()
+    }
+
+    // Not running yet: every non-transport control is enabled (Pause/Stop
+    // are disabled too, but that is `phase === 'stopped'` doing its
+    // ordinary job, not this task's fix — checked separately below).
+    assertNonTransportEnabled()
+
+    // Ordinary (non-assessment) Play: phase becomes 'playing' with
+    // assessmentRunning still false, so Pause/Stop must be enabled — proves
+    // the new `disabled` wiring does not neuter them outside a run.
+    await user.click(screen.getByRole('button', { name: 'Play' }))
+    act(() => manual.pump())
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: 'Stop' }))
+
+    await user.click(screen.getByRole('button', { name: 'Start assessment' }))
+    act(() => manual.pump())
+
+    // Now running an assessment: phase is 'playing' again (an assessment run
+    // IS a play), but this time assessmentRunning is true — Pause/Stop must
+    // be disabled by that alone, not by phase.
+    assertNonTransportDisabled()
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeDisabled()
+
+    // Play the scale correctly and past the end of the piece, exactly as the
+    // "runs an assessment end to end" test does, so the run reaches
+    // 'complete' for real rather than being asserted stuck.
+    const scaleMidis = [60, 62, 64, 65, 67, 69, 71, 72]
+    for (let i = 0; i < scaleMidis.length; i++) {
+      if (i > 0) act(() => clock.advance(500))
+      act(() =>
+        midiInput.emit({
+          type: 'noteOn',
+          note: midi(at(scaleMidis, i)),
+          velocity: 80,
+          time: millis(clock.now()),
+        }),
+      )
+      act(() => manual.pump())
+    }
+    act(() => clock.advance(1000))
+    act(() => manual.pump())
+
+    expect(screen.getByTestId('assessment-accuracy')).toBeInTheDocument()
+    assertNonTransportEnabled()
+
+    // The run finishing also returns the transport to 'stopped', so Pause
+    // and Stop read disabled again here too — but for the ordinary reason
+    // (`!running`), not because they are stuck. Prove they are not stuck by
+    // pressing Play once more and seeing them come back.
+    await user.click(screen.getByRole('button', { name: 'Play' }))
+    act(() => manual.pump())
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled()
   })
 
   it('lifts the playing controls into one strip above the score (roadmap 1.21, REQ-4.6)', () => {

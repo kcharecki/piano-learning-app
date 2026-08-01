@@ -188,14 +188,14 @@ describe('suggestedLoops — merging', () => {
     expect(loops[0]).toMatchObject({
       startMeasure: 4,
       endMeasure: 6,
-      reason: 'measure 5: timing',
+      reason: 'measure 6: timing',
     })
   })
 
   it('describes a merged loop with the union of its reasons, in a fixed order', () => {
     const problems = [pm(4, { reasons: ['timing'] }), pm(5, { reasons: ['accuracy', 'missed'] })]
     const loops = suggestedLoops(TEN_MEASURE_SCORE, problems, { contextBars: 0 })
-    expect(at(loops, 0).reason).toBe('measures 4-5: accuracy, timing, missed')
+    expect(at(loops, 0).reason).toBe('measures 5-6: accuracy, timing, missed')
   })
 
   it('does not merge problem measures separated by a real gap', () => {

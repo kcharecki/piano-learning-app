@@ -33,10 +33,10 @@ describe('ReviewOverlay — a clean run', () => {
 })
 
 describe('ReviewOverlay — problem measures', () => {
-  it('lists every problem measure with its reasons', () => {
+  it('lists every problem measure with its reasons, 1-based to match the printed score', () => {
     render(<ReviewOverlay problems={PROBLEMS} loops={LOOPS} onPracticeLoop={() => {}} />)
-    expect(screen.getByText(/Measure 0:.*missed notes/)).toBeInTheDocument()
-    expect(screen.getByText(/Measure 1:.*wrong notes/)).toBeInTheDocument()
+    expect(screen.getByText(/Measure 1:.*missed notes/)).toBeInTheDocument()
+    expect(screen.getByText(/Measure 2:.*wrong notes/)).toBeInTheDocument()
   })
 
   it("renders the loop's own reason text from core, unmodified", () => {
@@ -49,7 +49,7 @@ describe('ReviewOverlay — problem measures', () => {
     const onPracticeLoop = vi.fn()
     render(<ReviewOverlay problems={PROBLEMS} loops={LOOPS} onPracticeLoop={onPracticeLoop} />)
 
-    await user.click(screen.getByRole('button', { name: /practice measures 0.1/i }))
+    await user.click(screen.getByRole('button', { name: /practice measures 1.2/i }))
 
     expect(onPracticeLoop).toHaveBeenCalledTimes(1)
     expect(onPracticeLoop).toHaveBeenCalledWith(LOOPS[0])

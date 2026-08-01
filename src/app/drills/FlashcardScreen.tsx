@@ -6,7 +6,7 @@
  */
 import { MidiDeviceStatus } from '@app/practice/MidiDeviceStatus.tsx'
 import type { ConnectMidi } from '@app/practice/useMidiConnection.ts'
-import type { Clock, MidiInput, Rng } from '@core/ports/index.ts'
+import type { Clock, DateSource, MidiInput, Rng } from '@core/ports/index.ts'
 import { useState } from 'react'
 import { OnScreenKeyboard } from './OnScreenKeyboard.tsx'
 import { StaffNote } from './StaffNote.tsx'
@@ -15,6 +15,8 @@ import { useFlashcardDrill } from './useFlashcardDrill.ts'
 export type FlashcardScreenProps = {
   /** Injection seams for tests; each defaults to the real browser adapter. */
   readonly clock?: Clock
+  /** Epoch-ms source for SRS scheduling — see `useFlashcardDrill`'s module comment. */
+  readonly date?: DateSource
   readonly midiInput?: MidiInput
   readonly connectMidi?: ConnectMidi
   readonly rng?: Rng

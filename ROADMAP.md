@@ -124,7 +124,138 @@ recovered it commit by commit and recorded the evidence each box was ticked on.
       after `transport.stop()` had rewound the position reported tick 0, which `useNoteFeedback`
       read as a loop wrap and reset the matcher on. The second was latent before this task and was
       being masked by the first.
-- [ ] 2.15 M2 acceptance pass
+- [x] 2.15 M2 acceptance pass — audit done (three Opus reviewers, one per requirement group,
+      REQ-3.3.x / REQ-3.4.x / REQ-3.9.x). Verdicts: 3.3.1 MET, 3.3.2 PARTIAL, 3.3.3 MET,
+      3.3.4 PARTIAL, 3.3.5 PARTIAL, 3.3.6 PARTIAL, 3.4.1 PARTIAL, 3.4.2 MET, 3.4.3 NOT MET,
+      3.4.4 MET, 3.4.5 PARTIAL (2 of 4 drills), 3.4.6 NOT MET, 3.9.1 PARTIAL, 3.9.2 PARTIAL,
+      3.9.3 PARTIAL, 3.9.4 PARTIAL, 3.9.5 NOT MET.
+      **M2 accepted with 2.16–2.19 landed** — those were the verdicts that were defects rather than
+      unbuilt features, and all four are done and proved. 2.20–2.32 are unbuilt features and
+      measured-but-unfixed risks; they are recorded, not blocking, and may be taken in Phase 3.
+      Read them before starting Phase 3 — several are cheaper now than later.
+      The dominant finding is one sentence: *nothing persists except the loaded score and the
+      practice settings.* `src/core/ports/store.ts` declares `srsCards`, `sightReadingHistory`,
+      `practiceLog`, `progress` and `recordings`; `persistence.ts:201` is the only `store.put` call
+      in the entire app. Every one of those five is written by nothing.
+
+### M2 blockers — must land before 2.15 can be ticked
+
+- [x] 2.16 `app/practice`: measure numbers disagree between the review overlay and the loop control.
+      `ReviewOverlay`/`AssessmentPanel`/`review.ts`'s `reason` prose printed raw 0-based indices
+      while `LoopRangeControl` prints 1-based, so "Practice measures 2–5" set the loop boxes to 3
+      and 6. A learner told to practise bar 2 practises bar 3. The 2.11 e2e had *encoded* the
+      mismatch as expected behaviour.
+      *Proved: `e2e/assessment.spec.ts` now asserts the button reads "Practice measures 3–6" and
+      the loop-range inputs read 3 and 6. Core data stays 0-based — `ProblemMeasure.measureIndex`
+      and `SuggestedLoop.startMeasure/endMeasure` are still what `measureRange` consumes; only
+      human-facing text converts, at the render site and in `review.ts`'s `reason` prose.*
+- [x] 2.17 `app/practice`: an assessment run is documented as fixed-tempo and its anchor arithmetic
+      depends on it, but the tempo slider, loop, hand mute and wait mode all stay live during a run.
+      Moving the tempo mid-run silently turns the reported timing consistency into fiction; setting
+      a loop mid-run means the transport never plays off the end, so the run never finalises — and
+      Pause/Stop are deliberately neutered, so the only escape is a page reload. Pause and Stop also
+      render enabled while wired to no-op lambdas.
+      *Proved by `e2e/assessment-locked.spec.ts`: tempo, loop range and Pause/Stop are all disabled
+      mid-run and enabled again once it finishes. The no-op lambdas are gone — Pause and Stop are
+      wired to the real handlers and simply disabled, so "cannot be stopped" is now visible rather
+      than a silently swallowed click.*
+- [x] 2.18 `app/state`: persist the sight-reading level + retirement history and the flashcard SRS
+      cards through the `Store` port, into the already-declared, entirely unused
+      `COLLECTIONS.sightReadingHistory` and `COLLECTIONS.srsCards`. Without this, REQ-3.4.3
+      ("unrepeatable **by design**") and REQ-3.4.6 ("track sight-reading level") are simply not met:
+      a refresh empties the retirement pool and drops the learner back to level 1.
+      *Proved by `e2e/persistence.spec.ts`: answer a flashcard, reload, the SRS stats come back from
+      IndexedDB. The roadmap-1.23 single-slice mechanism is now three independent slices sharing one
+      validate-guard-apply helper and one last-write-wins write queue; persisted data is validated
+      structurally on the way in and degrades to defaults rather than throwing.*
+- [x] 2.19 `app/drills`: the flashcard drill schedules SRS cards against `createBrowserClock()`,
+      i.e. `performance.now()` — milliseconds since page load — while `srs/scheduler.ts` computes
+      `due = now + intervalDays * DAY_MS` treating `now` as epoch millis. Self-consistent within one
+      page life, so it looks fine; fatal the moment 2.18 lands, because every persisted card would
+      be due immediately forever. The drill needs the `DateSource` port, not `Clock`.
+      *Proved by unit test: a card graded `good` is not due again after a simulated reload. The
+      drill now takes a `DateSource` for scheduling; `Clock` is kept, but only for `elapsedMs` —
+      how long the learner took to answer, which is legitimately session-relative and never
+      compared across a reload.*
+
+### M2 follow-ups — recorded, not blocking, may be taken in Phase 3
+
+- [ ] 2.20 `core/notation`: a `Score` → MusicXML writer, so generated sight-reading exercises can be
+      engraved by the existing OSMD `ScoreViewer`. Today `SightReadingScreen` renders
+      `NoteListPreview`, a TEXT list reading "C4 (quarter), D4 (quarter)" — in both the preview and
+      the playing phase. That trains no staff decoding and hands the learner the answer in letters;
+      the 30-second "scan the key, time and patterns" preview shows no key signature, no time
+      signature and no bar lines. The engraver already works — the only missing piece is an input.
+      *Proof: e2e — Sight reading → Start exercise → an OSMD `<svg>` with real noteheads is present
+      and the preview contains no text matching `/[A-G][0-9]/`.*
+- [ ] 2.21 `app/practice`: batch `osmd.render()` to once per animation frame. `osmdEngraver.ts`
+      calls a full re-engrave of the entire score synchronously inside `setNoteColor`, once per
+      judged note, on the MIDI event's own task — a four-note chord is four full re-renders. Fine on
+      the two-line bundled sample, and the one structural threat to REQ-3.3.6's 100ms visual budget
+      on a real piece.
+      *Proof: `performance.measure` from `onmidimessage` entry to the SVG mutation on a multi-page
+      score, asserted under 100ms.*
+- [ ] 2.22 `app/score`: `osmdEngraver.ts` is the only file in `src/app/score/` with no test, is
+      imported by no test, and no e2e ever asserts a notehead colour. Its id→OSMD-note mapping is a
+      best-effort index zip that silently no-ops a whole measure on a count mismatch, all inside a
+      `catch {}`. The note colouring REQ-3.3.2 requires is therefore unverified end to end.
+      *Proof: e2e — play a wrong pitch, assert a `fill` in the score SVG became the wrong-note
+      colour.*
+- [ ] 2.23 `app/practice`: show the early/late timing feedback REQ-3.3.2 asks for. The matcher
+      computes `timing` and a signed `deviationMs` for every attributed press and `useNoteFeedback`
+      discards both; `meanAbsDeviationMs` is computed globally and per measure and never displayed.
+      *Proof: play a note ~120ms late and see "late (+120ms)" in the feedback panel.*
+- [ ] 2.24 `app/state`: persist assessment results, recordings and the practice log. REQ-3.3.4's
+      "used for level checks and progress history" has no history — the result dies with the
+      component. Each recording overwrites the last and none survive a refresh. `core/progress/log.ts`
+      is 349 tested lines with zero production importers; no `PracticeTimer` is ever started and
+      there is no session note field. (The 4.7 dashboard is the *display* half; nothing on the
+      roadmap currently wires the *writing* half, which is how that knip ignore becomes permanent.)
+      *Proof: run an assessment and record a take, reload, and read both back out of IndexedDB.*
+- [ ] 2.25 `app/drills`: ship the interval-recognition flashcard UI. `buildIntervalDeck` and the
+      `interval-on-staff` grading are complete and tested; `useFlashcardDrill` hardcodes
+      `buildDeck('staff-to-key', …)` and filters everything else out, so none of it is reachable.
+      *Proof: e2e — Flashcards → select Interval → two noteheads on one staff → answer → graded.*
+- [ ] 2.26 `app/practice`: the "read ahead" drill REQ-3.4.5 requires — notation progressively hidden
+      behind the playback cursor. Zero code exists; the cursor plumbing it needs already does.
+      *Proof: e2e — enable Read ahead, play, assert measures at/behind the cursor are occluded while
+      those ahead stay visible.*
+- [ ] 2.27 `app/practice`: tempo ramping (REQ-3.9.1's own worked example, "+2 BPM per clean
+      repetition"). `startRamp`/`advanceRamp` in `core/timing/metronome.ts` have never been called
+      by production code.
+      *Proof: ramp 60 → 80 at +2 per clean repetition; play a loop cleanly twice and assert the
+      effective BPM went 60 → 62 → 64, and that a failed pass does not lower it.*
+- [ ] 2.28 `app`: a standalone metronome destination with absolute BPM, time signature and accent
+      editing. None of the three is configurable anywhere today, and the metronome cannot run at all
+      without a loaded score — so it is unusable for scales and technique. Also give the Rhythm and
+      Sight-reading screens a metronome toggle (the click is hard-coded on) and Flashcards a
+      metronome at all, per "available standalone and inside every practice screen".
+      *Proof: from a fresh load with no score, set 7/8 at 100 BPM with accents on 1 and 4, start, and
+      assert clicks are emitted at the right gaps with the right accent flags.*
+- [ ] 2.29 `app/practice`: per-loop tempo (REQ-3.9.3). There is one global tempo scale that the
+      assessment's one-click loop button happens to overwrite; switch loops and the previous loop's
+      tempo is gone, turn looping off and the slowed tempo stays applied to the whole piece.
+      *Proof: set loop A to 60% and loop B to 90%, switch between them, assert the effective BPM
+      follows the loop and that disabling looping restores the unlooped tempo.*
+- [ ] 2.30 e2e: drive wait mode end to end. It is the only REQ-3.3.x mode with no e2e, and its
+      defining behaviour — playback actually stopping — is what unit tests with a fake frame driver
+      are worst at proving. The fake-MIDI harness makes it cheap now.
+      *Proof: enable "Wait for me", press Play, assert the position readout has not advanced after
+      2s, fire the owed note, assert it advances.*
+- [ ] 2.31 `app/sightreading`: nav-away silently abandons a run. `Shell` unmounts the screen on any
+      nav click, destroying the session, so a learner butchering a piece can escape in two clicks and
+      it is neither graded nor retired — which also undermines REQ-3.4.4's "no stopping".
+      Related: retirement keys on a score id that is a pure function of `GeneratorParams` and of
+      nothing the Rng drew, so it retires a *parameter combination*, not a piece.
+      *Proof: start a run, nav away mid-run, come back, assert the abandoned piece was recorded and
+      the next exercise differs.*
+- [ ] 2.32 tooling: `verify:full` runs `knip:prod`, not `knip:prod:all`, so production-unreachable
+      *exports* never fail CI — which is exactly how `startRamp`, `advanceRamp`,
+      `validateMetronomeSettings`, `clicksForBars`, `defaultAccents` and `selectAudioOutput` stayed
+      invisible while CLAUDE.md claims that check is what catches inert code. Triage the current
+      output, then add it to the gate.
+      *Proof: `npm run verify:full` fails on today's tree, and passes once every entry is wired,
+      deleted, or ignored with a named roadmap task.*
 
 ## Phase 3 — Milestone M3: theory & ears
 
@@ -177,4 +308,21 @@ Append one line per session: date, what landed, anything the next session must k
   in production core. `knip:prod` is now part of `verify:full` and every ignore names the roadmap
   task that will delete it. 1948 unit tests + 9 e2e, core suite 1.1s. Next: 2.11's proof action,
   then 2.13/2.14 or the M2 acceptance pass (2.15).
+- 2026-08-02 - Phase 2 complete. 2.11 (assessment run driven end to end through a fake Web MIDI
+  keyboard), 2.11a (atomic transport primitives), 2.13 (rhythm drill), 2.14 (record & replay), 2.15
+  (M2 acceptance pass) and its four blockers 2.16-2.19. 2055 unit tests, 14 e2e.
+  What the session actually taught, for whoever picks this up next:
+  * **Every defect that mattered was invisible to the unit suite.** A stop wiping the feedback
+    counters, a frame reading a rewound position as a loop wrap, the review overlay and the loop
+    control disagreeing about which bar is bar 2, SRS scheduling against `performance.now()`. All
+    found by driving a real browser or by an Opus reviewer reading requirement text against code —
+    none by a green test. The unit suite went from 1960 to 2055 without catching one of them.
+  * **The e2e can encode the bug.** `e2e/assessment.spec.ts` asserted the button said "measures 2-5"
+    AND that the loop boxes read 3 and 6, in adjacent lines, for two rounds. Writing the assertion
+    from the observed behaviour rather than the intended behaviour is how that happens.
+  * **`npx tsc --noEmit` checks nothing here** — the root tsconfig is a solution file. A whole round
+    reported "tsc clean" and landed nine type errors. Agent templates now say `npm run typecheck`.
+  * The acceptance pass was worth far more than its cost: three reviewers against the requirement
+    text found 30+ real gaps, including that nothing except the score and practice settings was
+    persisted while `COLLECTIONS` declared five slots nobody wrote.
 - 2026-08-01 - Phase 1 complete. Adapters, shell, OSMD viewer, practice screen, note feedback, e2e. Opus review found the practice screen was built but never rendered by the shell, and that `checkpoint` did not run e2e (the only suite that caught it) - `checkpoint` now runs `verify:full`. Also fixed: stop/pause left notes ringing forever on MIDI-out, the pump discarded every time the domain computed, the two AudioOutputs disagreed on clock epoch, hand mute mid-playback rewound to bar 1, and the seam tests survived deleting the tempo map (9 of 10 passed). 1567 tests + 6 e2e.

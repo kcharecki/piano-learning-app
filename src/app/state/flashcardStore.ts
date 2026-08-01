@@ -8,6 +8,10 @@
  * `cards` and writes the result back through `upsertCard`. Flashcard ids are
  * namespaced by kind (`note-name-64`, `staff-to-key-64`, ...), so one flat map
  * safely holds every kind and level without collision.
+ *
+ * `hydrate` (roadmap 1.24, REQ-3.9.4) replaces `cardsById` wholesale. It
+ * exists only for `persistence.ts`'s `restoreSession` to apply a
+ * previously-saved SRS state; every other caller keeps using `upsertCard`.
  */
 import type { Card } from '@core/srs/scheduler.ts'
 import { create } from 'zustand'
@@ -18,6 +22,7 @@ export type FlashcardStoreState = {
 
 export type FlashcardStoreActions = {
   upsertCard(card: Card): void
+  hydrate(cardsById: Readonly<Record<string, Card>>): void
 }
 
 export type FlashcardStore = FlashcardStoreState & FlashcardStoreActions
@@ -26,4 +31,5 @@ export const useFlashcardStore = create<FlashcardStore>((set) => ({
   cardsById: {},
 
   upsertCard: (card) => set((state) => ({ cardsById: { ...state.cardsById, [card.id]: card } })),
+  hydrate: (cardsById) => set({ cardsById }),
 }))

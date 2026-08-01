@@ -12,6 +12,8 @@ export type MetronomeControlProps = {
   readonly onToggle: (enabled: boolean) => void
   readonly subdivision: Subdivision
   readonly onSubdivisionChange: (subdivision: Subdivision) => void
+  /** Disables both the toggle and the subdivision select — e.g. while an assessment run is in progress. */
+  readonly disabled?: boolean
 }
 
 export function MetronomeControl({
@@ -19,6 +21,7 @@ export function MetronomeControl({
   onToggle,
   subdivision,
   onSubdivisionChange,
+  disabled = false,
 }: MetronomeControlProps) {
   const id = useId()
   return (
@@ -27,6 +30,7 @@ export function MetronomeControl({
         <input
           type="checkbox"
           checked={enabled}
+          disabled={disabled}
           onChange={(event) => onToggle(event.target.checked)}
         />
         Metronome
@@ -35,7 +39,7 @@ export function MetronomeControl({
       <select
         id={id}
         value={subdivision}
-        disabled={!enabled}
+        disabled={disabled || !enabled}
         onChange={(event) => onSubdivisionChange(Number(event.target.value) as Subdivision)}
       >
         {SUBDIVISIONS.map((value) => (

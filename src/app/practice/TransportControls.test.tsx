@@ -91,4 +91,38 @@ describe('TransportControls', () => {
     )
     expect(screen.getByText(/waiting for you/i)).toBeInTheDocument()
   })
+
+  // Kills a mutant that drops `disabled` from the Pause/Stop `disabled`
+  // expressions entirely — REQ-3.3.4: an assessment run must disable Pause
+  // and Stop, not merely wire them to no-op handlers.
+  it('disables Pause and Stop when disabled is set, even while playing', () => {
+    render(
+      <TransportControls
+        phase="playing"
+        position={undefined}
+        onPlay={() => {}}
+        onPause={() => {}}
+        onStop={() => {}}
+        disabled
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeDisabled()
+  })
+
+  // Flip side: `disabled` defaults to false, so ordinary (non-assessment)
+  // play/pause/stop cycles are unaffected by the new prop.
+  it('leaves Pause and Stop enabled while playing when disabled is not set', () => {
+    render(
+      <TransportControls
+        phase="playing"
+        position={undefined}
+        onPlay={() => {}}
+        onPause={() => {}}
+        onStop={() => {}}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled()
+  })
 })

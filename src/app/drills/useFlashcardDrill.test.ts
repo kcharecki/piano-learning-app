@@ -9,6 +9,7 @@
 import { useFlashcardStore } from '@app/state/flashcardStore.ts'
 import { seededRng } from '@core/ports/rng.ts'
 import { midi } from '@core/shared/units.ts'
+import { DAY_MS } from '@core/srs/scheduler.ts'
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { FakeClock, FakeMidiInput } from '@test/fakes.ts'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -114,5 +115,62 @@ describe('useFlashcardDrill — changing level', () => {
     // Level 2 widens the radius by a major sixth (9 semitones) each side.
     expect(result.current.range).toEqual({ low: 47, high: 73 })
     expect(result.current.deckSize).toBe(27)
+  })
+})
+
+describe('useFlashcardDrill — SRS scheduling uses a DateSource, not the Clock (defect 1 fix)', () => {
+  // Kills a mutant that swaps `date.epochMillis()` back for `clock.now()` in
+  // `newCard`/`review`: a `Clock` starting near zero (like real
+  // `performance.now()` at page load) and a `DateSource` anchored at a real
+  // epoch value are nowhere near each other, so a card scheduled off the
+  // wrong one is trivially distinguishable.
+  it('a newly introduced card is scheduled off date.epochMillis(), not clock.now()', () => {
+    const date = new FakeClock(1_700_000_000_000)
+    const clock = new FakeClock(0)
+    const { result } = setup({ clock, date, rng: seededRng(7) })
+
+    const firstId = result.current.card?.id
+    const answer = result.current.card?.prompt.midi as number
+    act(() => result.current.answerNote(midi(answer)))
+
+    const graded = useFlashcardStore.getState().cardsById[firstId!]
+    expect(graded).toBeDefined()
+    expect(graded!.introducedAt).toBe(1_700_000_000_000)
+    // Nowhere near the Clock's near-zero domain — proves `due` was computed
+    // from the DateSource, not the Clock.
+    expect(graded!.due).toBeGreaterThan(1_699_999_000_000)
+  })
+
+  // The important one for defect 1: a card graded `good` must not come back
+  // due just because the monotonic Clock has moved on a long way, which is
+  // exactly what happened across a real reload under the old
+  // `performance.now()`-based scheduling — see `useFlashcardDrill.ts`'s
+  // module comment. `date` (the persisted, reload-surviving source of "now")
+  // stays put here; only `clock` jumps, simulating either a fresh
+  // `performance.now()` after a reload or the same tab staying open a long
+  // time. Kills the same "used clock.now() for scheduling" mutant as above,
+  // but through the actual due-date comparison rather than a raw field read.
+  it('a card graded good is not due again just because the Clock (not the DateSource) has moved on', () => {
+    const date = new FakeClock(1_700_000_000_000)
+    const clock = new FakeClock(0)
+    const { result } = setup({ clock, date, rng: seededRng(7) })
+
+    const firstId = result.current.card?.id
+    const firstAnswer = result.current.card?.prompt.midi as number
+    act(() => result.current.answerNote(midi(firstAnswer)))
+    // Advanced past the just-graded card to a fresh one — confirms grading
+    // took effect before the regression check below.
+    expect(result.current.card?.id).not.toBe(firstId)
+
+    act(() => clock.advance(30 * DAY_MS))
+
+    const secondAnswer = result.current.card?.prompt.midi as number
+    act(() => result.current.answerNote(midi(secondAnswer)))
+
+    // If scheduling used `clock.now()`, the first card's `due` — anchored to
+    // the Clock's near-zero starting value — would now sit far in the past
+    // relative to the jumped Clock, so `nextCard` would hand it straight back
+    // out as the earliest-due card the instant a second card is answered.
+    expect(result.current.card?.id).not.toBe(firstId)
   })
 })

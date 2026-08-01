@@ -2,15 +2,26 @@ import type { Store } from '@core/ports/index.ts'
 import { C_MAJOR_SCALE_RH, SINGLE_NOTE } from '@test/fixtures.ts'
 import { MemoryStore } from '@test/fakes.ts'
 import { ticks } from '@core/shared/units.ts'
+import { MIN_LEVEL } from '@core/sightreading/adaptive.ts'
+import type { SightReadingRecord } from '@core/sightreading/session.ts'
+import type { Card } from '@core/srs/scheduler.ts'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
+  FLASHCARDS_COLLECTION,
+  FLASHCARDS_KEY,
   restoreSession,
   SESSION_COLLECTION,
   SESSION_KEY,
+  SIGHT_READING_COLLECTION,
+  SIGHT_READING_KEY,
   startPersisting,
+  type PersistedFlashcards,
   type PersistedSession,
+  type PersistedSightReadingHistory,
 } from './persistence.ts'
 import { useScoreStore, type ScoreStore } from './scoreStore.ts'
+import { useSightReadingStore } from './sightReadingStore.ts'
+import { useFlashcardStore } from './flashcardStore.ts'
 
 const INITIAL_STATE: ScoreStore = useScoreStore.getState()
 
@@ -31,6 +42,8 @@ function persist(store: Store): () => void {
 
 function resetStore(): void {
   useScoreStore.setState(INITIAL_STATE, true)
+  useSightReadingStore.setState({ level: MIN_LEVEL, history: [] })
+  useFlashcardStore.setState({ cardsById: {} })
 }
 
 /** Waits for the internal write queue to drain: a handful of microtask turns is always enough. */
@@ -516,6 +529,122 @@ describe('persistence', () => {
 
       const saved = await store.get<PersistedSession>(SESSION_COLLECTION, SESSION_KEY)
       expect(saved?.settings.tempoScale).toBe(1) // default, unchanged since unsubscribe
+    })
+  })
+
+  describe('sight-reading history persistence (roadmap 1.24, REQ-3.4.3/3.4.6)', () => {
+    const RECORD_A: SightReadingRecord = { pieceId: 'a', readAt: 100, accuracy: 0.9, level: 1 }
+    const RECORD_B: SightReadingRecord = { pieceId: 'b', readAt: 200, accuracy: 0.5, level: 2 }
+
+    it('round-trips level and history via startPersisting / restoreSession', async () => {
+      const store = new MemoryStore()
+      const unsubscribe = persist(store)
+
+      useSightReadingStore.getState().setLevel(3)
+      useSightReadingStore.getState().addRecord(RECORD_A)
+      useSightReadingStore.getState().addRecord(RECORD_B)
+      await flush()
+      unsubscribe()
+
+      resetStore()
+      expect(useSightReadingStore.getState().level).toBe(MIN_LEVEL)
+      expect(useSightReadingStore.getState().history).toEqual([])
+
+      const restored = await restoreSession(store)
+      expect(restored).toBe(false) // no score session was ever saved in this test
+      expect(useSightReadingStore.getState().level).toBe(3)
+      expect(useSightReadingStore.getState().history).toEqual([RECORD_A, RECORD_B])
+    })
+
+    it.each([
+      ['not an object', 'nope'],
+      ['level missing', { history: [] }],
+      ['level not finite', { level: Number.NaN, history: [] }],
+      ['level below MIN_LEVEL', { level: 0, history: [] }],
+      ['history not an array', { level: 1, history: 'nope' }],
+      [
+        'history has a malformed record',
+        { level: 1, history: [{ pieceId: 'a', readAt: 100, accuracy: 0.9 }] },
+      ],
+    ])('degrades to the default level/history on a corrupt payload: %s', async (_label, payload) => {
+      const store = new MemoryStore()
+      await store.put(SIGHT_READING_COLLECTION, SIGHT_READING_KEY, payload)
+
+      await restoreSession(store)
+
+      expect(useSightReadingStore.getState().level).toBe(MIN_LEVEL)
+      expect(useSightReadingStore.getState().history).toEqual([])
+    })
+
+    it('does not immediately re-save what it just restored (no write amplification)', async () => {
+      const store = new CountingStore()
+      const saved: PersistedSightReadingHistory = { level: 2, history: [RECORD_A] }
+      await store.put(SIGHT_READING_COLLECTION, SIGHT_READING_KEY, saved)
+      store.putCount = 0
+
+      persist(store)
+      await restoreSession(store)
+      await flush()
+
+      expect(store.putCount).toBe(0)
+    })
+  })
+
+  describe('flashcard SRS persistence (roadmap 1.24, REQ-3.9.4)', () => {
+    const CARD_A: Card = {
+      id: 'staff-to-key-60',
+      due: 100,
+      intervalDays: 1,
+      ease: 2.5,
+      reps: 1,
+      lapses: 0,
+      introducedAt: 0,
+    }
+
+    it('round-trips cardsById via startPersisting / restoreSession', async () => {
+      const store = new MemoryStore()
+      const unsubscribe = persist(store)
+
+      useFlashcardStore.getState().upsertCard(CARD_A)
+      await flush()
+      unsubscribe()
+
+      resetStore()
+      expect(useFlashcardStore.getState().cardsById).toEqual({})
+
+      await restoreSession(store)
+      expect(useFlashcardStore.getState().cardsById).toEqual({ [CARD_A.id]: CARD_A })
+    })
+
+    it.each([
+      ['not an object', 'nope'],
+      ['cardsById missing', {}],
+      ['cardsById not an object', { cardsById: 'nope' }],
+      ['a card missing a required field', { cardsById: { x: { id: 'x', due: 1 } } }],
+      [
+        'a card with a non-finite field',
+        { cardsById: { x: { ...CARD_A, ease: Number.NaN } } },
+      ],
+    ])('degrades to an empty cardsById on a corrupt payload: %s', async (_label, payload) => {
+      const store = new MemoryStore()
+      await store.put(FLASHCARDS_COLLECTION, FLASHCARDS_KEY, payload)
+
+      await restoreSession(store)
+
+      expect(useFlashcardStore.getState().cardsById).toEqual({})
+    })
+
+    it('does not immediately re-save what it just restored (no write amplification)', async () => {
+      const store = new CountingStore()
+      const saved: PersistedFlashcards = { cardsById: { [CARD_A.id]: CARD_A } }
+      await store.put(FLASHCARDS_COLLECTION, FLASHCARDS_KEY, saved)
+      store.putCount = 0
+
+      persist(store)
+      await restoreSession(store)
+      await flush()
+
+      expect(store.putCount).toBe(0)
     })
   })
 })

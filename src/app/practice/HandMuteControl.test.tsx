@@ -41,4 +41,19 @@ describe('HandMuteControl', () => {
 
     expect(onChange).toHaveBeenCalledWith(['left', 'right'])
   })
+
+  // Kills a mutant that drops `disabled` from each option button — REQ-3.3.4:
+  // hand-mute must go visibly inert during an assessment run.
+  it('disables every option when disabled is set', () => {
+    render(<HandMuteControl activeHands={['left', 'right']} onChange={() => {}} disabled />)
+    expect(screen.getByRole('radio', { name: 'Left hand only' })).toBeDisabled()
+    expect(screen.getByRole('radio', { name: 'Right hand only' })).toBeDisabled()
+    expect(screen.getByRole('radio', { name: 'Both hands' })).toBeDisabled()
+  })
+
+  // Flip side: `disabled` defaults to false — ordinary practice is unaffected.
+  it('leaves every option enabled when disabled is not set', () => {
+    render(<HandMuteControl activeHands={['left', 'right']} onChange={() => {}} />)
+    expect(screen.getByRole('radio', { name: 'Left hand only' })).toBeEnabled()
+  })
 })

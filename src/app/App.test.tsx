@@ -1,5 +1,17 @@
 import { useScoreStore } from '@app/state/scoreStore.ts'
-import { SESSION_COLLECTION, SESSION_KEY } from '@app/state/persistence.ts'
+import { useSightReadingStore } from '@app/state/sightReadingStore.ts'
+import { useFlashcardStore } from '@app/state/flashcardStore.ts'
+import {
+  FLASHCARDS_COLLECTION,
+  FLASHCARDS_KEY,
+  SESSION_COLLECTION,
+  SESSION_KEY,
+  SIGHT_READING_COLLECTION,
+  SIGHT_READING_KEY,
+  type PersistedFlashcards,
+  type PersistedSightReadingHistory,
+} from '@app/state/persistence.ts'
+import { MIN_LEVEL } from '@core/sightreading/adaptive.ts'
 import type { Store } from '@core/ports/index.ts'
 import { C_MAJOR_SCALE_RH } from '@test/fixtures.ts'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
@@ -12,9 +24,13 @@ vi.mock('@app/score/ScoreScreen.tsx', () => ({
 const { App } = await import('./App.tsx')
 
 /** In-memory `Store`, enough to prove the app talks to the port at all. */
-function fakeStore(seed?: unknown): Store & { readonly writes: unknown[] } {
+function fakeStore(
+  seed?: unknown,
+  extraSeeds: Readonly<Record<string, unknown>> = {},
+): Store & { readonly writes: unknown[] } {
   const data = new Map<string, unknown>()
   if (seed !== undefined) data.set(`${SESSION_COLLECTION}/${SESSION_KEY}`, seed)
+  for (const [key, value] of Object.entries(extraSeeds)) data.set(key, value)
   const writes: unknown[] = []
   return {
     writes,
@@ -54,6 +70,8 @@ afterEach(() => {
       loop: undefined,
     },
   })
+  useSightReadingStore.setState({ level: MIN_LEVEL, history: [] })
+  useFlashcardStore.setState({ cardsById: {} })
 })
 
 describe('App', () => {
@@ -92,5 +110,42 @@ describe('App', () => {
       expect(store.writes).toHaveLength(1)
     })
     expect(store.writes[0]).toMatchObject({ settings: { tempoScale: 1.5 } })
+  })
+
+  // Roadmap 1.24 — the same reachability concern as the two tests above,
+  // now for the two slices added to fix REQ-3.4.3/3.4.6 (sight-reading level
+  // + retirement history) and REQ-3.9.4 (SRS flashcard state) not persisting
+  // at all: it is not enough for `persistence.ts` to know how to restore
+  // them if `App.tsx` never actually calls it with real data present.
+  it('restores the sight-reading and flashcard state on start', async () => {
+    const savedHistory: PersistedSightReadingHistory = {
+      level: 3,
+      history: [{ pieceId: 'p1', readAt: 111, accuracy: 0.95, level: 2 }],
+    }
+    const savedCards: PersistedFlashcards = {
+      cardsById: {
+        'staff-to-key-60': {
+          id: 'staff-to-key-60',
+          due: 222,
+          intervalDays: 6,
+          ease: 2.6,
+          reps: 2,
+          lapses: 0,
+          introducedAt: 100,
+        },
+      },
+    }
+    const store = fakeStore(undefined, {
+      [`${SIGHT_READING_COLLECTION}/${SIGHT_READING_KEY}`]: savedHistory,
+      [`${FLASHCARDS_COLLECTION}/${FLASHCARDS_KEY}`]: savedCards,
+    })
+
+    render(<App openStore={async () => store} />)
+
+    await waitFor(() => {
+      expect(useSightReadingStore.getState().level).toBe(3)
+    })
+    expect(useSightReadingStore.getState().history).toEqual(savedHistory.history)
+    expect(useFlashcardStore.getState().cardsById).toEqual(savedCards.cardsById)
   })
 })

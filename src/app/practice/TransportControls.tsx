@@ -12,6 +12,13 @@ export type TransportControlsProps = {
   readonly onPlay: () => void
   readonly onPause: () => void
   readonly onStop: () => void
+  /**
+   * Disables Pause and Stop specifically — e.g. while an assessment run is in
+   * progress (REQ-3.3.4: a run cannot be paused or stopped). Play is already
+   * disabled whenever `running` is true, which covers it too since a run is
+   * always playing.
+   */
+  readonly disabled?: boolean
 }
 
 export function TransportControls({
@@ -20,6 +27,7 @@ export function TransportControls({
   onPlay,
   onPause,
   onStop,
+  disabled = false,
 }: TransportControlsProps) {
   const running = phase === 'playing' || phase === 'waiting'
   return (
@@ -27,10 +35,10 @@ export function TransportControls({
       <button type="button" onClick={onPlay} disabled={running}>
         Play
       </button>
-      <button type="button" onClick={onPause} disabled={!running}>
+      <button type="button" onClick={onPause} disabled={!running || disabled}>
         Pause
       </button>
-      <button type="button" onClick={onStop} disabled={phase === 'stopped'}>
+      <button type="button" onClick={onStop} disabled={phase === 'stopped' || disabled}>
         Stop
       </button>
       <output aria-label="Position">

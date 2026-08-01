@@ -53,4 +53,19 @@ describe('WaitModeControl', () => {
     render(<WaitModeControl enabled={false} onToggle={() => {}} wait={wait} />)
     expect(screen.queryByRole('status')).toBeNull()
   })
+
+  // Kills a mutant that drops `disabled` from the checkbox's `disabled` prop —
+  // REQ-3.3.4: wait mode must go visibly inert during an assessment run. Note
+  // this `disabled` prop is distinct from the `enabled` prop above (which
+  // toggles wait mode itself, not the control's interactivity).
+  it('disables the checkbox when the disabled prop is set', () => {
+    render(<WaitModeControl enabled={false} onToggle={() => {}} wait={undefined} disabled />)
+    expect(screen.getByRole('checkbox', { name: 'Wait for me' })).toBeDisabled()
+  })
+
+  // Flip side: the disabled prop defaults to false — ordinary practice is unaffected.
+  it('leaves the checkbox enabled when the disabled prop is not set', () => {
+    render(<WaitModeControl enabled={false} onToggle={() => {}} wait={undefined} />)
+    expect(screen.getByRole('checkbox', { name: 'Wait for me' })).toBeEnabled()
+  })
 })

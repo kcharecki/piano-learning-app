@@ -102,6 +102,15 @@ describe('AssessmentPanel — a completed result', () => {
     expect(cells).toEqual(['50%', '1', '1', '0', '0'])
   })
 
+  it('numbers the measure column 1-based (measureIndex + 1), matching the printed score', () => {
+    render(<AssessmentPanel phase="complete" result={RESULT} canStart onStart={() => {}} />)
+    const rows = screen.getAllByRole('row')
+    // RESULT.measures are measureIndex 0 and 1 (0-based core data); the
+    // row header must read the printed 1-based measure number, 1 and 2.
+    expect(within(rows[1] as HTMLElement).getByRole('rowheader')).toHaveTextContent('1')
+    expect(within(rows[2] as HTMLElement).getByRole('rowheader')).toHaveTextContent('2')
+  })
+
   it('offers to run the assessment again instead of "Start assessment"', () => {
     render(<AssessmentPanel phase="complete" result={RESULT} canStart onStart={() => {}} />)
     expect(screen.getByRole('button', { name: 'Run assessment again' })).toBeEnabled()

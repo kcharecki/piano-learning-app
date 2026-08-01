@@ -49,4 +49,35 @@ describe('MetronomeControl', () => {
     await user.selectOptions(screen.getByLabelText('Subdivision'), '3')
     expect(onSubdivisionChange).toHaveBeenCalledWith(3)
   })
+
+  // Kills a mutant that drops `disabled` from either the checkbox or the
+  // select's `disabled` expression — REQ-3.3.4: the metronome must go visibly
+  // inert during an assessment run, even while enabled (which alone would
+  // otherwise leave the subdivision select interactive).
+  it('disables both the toggle and the subdivision select when disabled is set, even while enabled', () => {
+    render(
+      <MetronomeControl
+        enabled
+        onToggle={() => {}}
+        subdivision={1}
+        onSubdivisionChange={() => {}}
+        disabled
+      />,
+    )
+    expect(screen.getByRole('checkbox', { name: 'Metronome' })).toBeDisabled()
+    expect(screen.getByLabelText('Subdivision')).toBeDisabled()
+  })
+
+  // Flip side: `disabled` defaults to false — ordinary practice is unaffected.
+  it('leaves the toggle enabled when disabled is not set', () => {
+    render(
+      <MetronomeControl
+        enabled
+        onToggle={() => {}}
+        subdivision={1}
+        onSubdivisionChange={() => {}}
+      />,
+    )
+    expect(screen.getByRole('checkbox', { name: 'Metronome' })).toBeEnabled()
+  })
 })

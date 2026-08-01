@@ -42,4 +42,16 @@ describe('useFlashcardStore', () => {
     expect(useFlashcardStore.getState().cardsById[CARD_A.id]).toEqual(updated)
     expect(useFlashcardStore.getState().cardsById[other.id]).toEqual(other)
   })
+
+  // Kills a mutant that has `hydrate` merge into the existing map instead of
+  // replacing it: this is a wholesale replace, used by `persistence.ts`'s
+  // `restoreSession` to apply a previously-saved SRS state.
+  it('hydrate replaces cardsById wholesale, not merge', () => {
+    useFlashcardStore.getState().upsertCard(CARD_A)
+    const other: Card = { ...CARD_A, id: 'staff-to-key-62' }
+
+    useFlashcardStore.getState().hydrate({ [other.id]: other })
+
+    expect(useFlashcardStore.getState().cardsById).toEqual({ [other.id]: other })
+  })
 })

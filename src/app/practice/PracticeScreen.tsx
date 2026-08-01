@@ -224,15 +224,20 @@ export function PracticeScreen(props: PracticeScreenProps) {
           phase={engine.phase}
           position={engine.position}
           onPlay={handlePlay}
-          // REQ-3.3.4: an assessment run cannot be paused or stopped once started.
-          onPause={assessmentRunning ? () => {} : engine.pause}
-          onStop={assessmentRunning ? () => {} : engine.stop}
+          // REQ-3.3.4: an assessment run cannot be paused or stopped once
+          // started — enforced by disabling the buttons (`disabled` below),
+          // not by swallowing the click in a no-op handler, so a click during
+          // a run visibly does nothing instead of silently doing nothing.
+          onPause={engine.pause}
+          onStop={engine.stop}
+          disabled={assessmentRunning}
         />
         <TempoControl
           tempoScale={settings.tempoScale}
           onChange={setTempoScale}
           writtenBpm={engine.writtenBpm}
           effectiveBpm={engine.effectiveBpm}
+          disabled={assessmentRunning}
         />
         <dl className="note-feedback" role="status" aria-live="polite" aria-label="Note feedback">
           <dt>Accuracy</dt>
@@ -263,15 +268,31 @@ export function PracticeScreen(props: PracticeScreenProps) {
           onPracticeLoop={assessment.practiceLoop}
         />
       )}
-      <LoopRangeControl score={loaded.score} loop={settings.loop} onChange={setLoop} />
-      <HandMuteControl activeHands={settings.activeHands} onChange={setActiveHands} />
+      {/* `LoopRangeControl` has no `disabled` prop of its own (owned by another
+          agent) — a native `<fieldset disabled>` disables every form control
+          inside it, which is the only lever available without touching that
+          file. */}
+      <fieldset disabled={assessmentRunning}>
+        <LoopRangeControl score={loaded.score} loop={settings.loop} onChange={setLoop} />
+      </fieldset>
+      <HandMuteControl
+        activeHands={settings.activeHands}
+        onChange={setActiveHands}
+        disabled={assessmentRunning}
+      />
       <MetronomeControl
         enabled={settings.metronomeEnabled}
         onToggle={setMetronomeEnabled}
         subdivision={subdivision}
         onSubdivisionChange={setSubdivision}
+        disabled={assessmentRunning}
       />
-      <WaitModeControl enabled={waitModeEnabled} onToggle={setWaitModeEnabled} wait={engine.wait} />
+      <WaitModeControl
+        enabled={waitModeEnabled}
+        onToggle={setWaitModeEnabled}
+        wait={engine.wait}
+        disabled={assessmentRunning}
+      />
       <RecordPanel
         phase={recorder.phase}
         recording={recorder.recording}

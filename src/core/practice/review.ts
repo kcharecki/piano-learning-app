@@ -137,13 +137,24 @@ const DEFAULT_CONTEXT_BARS = 1
 
 const REASON_ORDER: readonly ProblemReason[] = ['accuracy', 'timing', 'missed', 'extra']
 
-/** `"measure 3: accuracy"` for one, `"measures 2-5: accuracy, timing"` for a merged run. */
+/**
+ * `"measure 3: accuracy"` for one, `"measures 2-5: accuracy, timing"` for a
+ * merged run — 1-based, because this string is read by a human against the
+ * printed score, the same convention `LoopRangeControl` already uses for its
+ * own display.
+ */
 function describeLoop(members: readonly ProblemMeasure[]): string {
   const present = new Set<ProblemReason>()
   for (const m of members) for (const r of m.reasons) present.add(r)
   const reasons = REASON_ORDER.filter((r) => present.has(r)).join(', ')
 
-  const indices = members.map((m) => m.measureIndex)
+  // +1: `measureIndex` is 0-based core data (see `ProblemMeasure`), but this
+  // `reason` string is human-facing prose read against the printed 1-based
+  // score — convert here, at the point the prose is built, and nowhere else.
+  // Do NOT "fix" this back to the raw index: `SuggestedLoop.startMeasure`/
+  // `endMeasure` stay 0-based data for `measureRange`, entirely unaffected by
+  // this display-only conversion.
+  const indices = members.map((m) => m.measureIndex + 1)
   const lo = Math.min(...indices)
   const hi = Math.max(...indices)
   const where = lo === hi ? `measure ${lo}` : `measures ${lo}-${hi}`
