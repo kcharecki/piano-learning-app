@@ -23,6 +23,20 @@
  * scheduling sound, they are not in the score the transport plays, so they
  * cannot be waited for either. Metronome and wait-mode note names still read
  * true because both operate on that same filtered score.
+ *
+ * `play`/`playLoop`/`rewindToTop` are the atomic primitives a caller that
+ * needs to mutate the transport (loop, position) AND start or stop it in one
+ * indivisible step — `useAssessment` is the reason they exist (roadmap
+ * 2.11a) — uses instead of going through React state. Score-store state like
+ * `options.loop` reaches the transport only on the NEXT commit, via the
+ * effects below; a caller that sets state and then calls `play()` in the
+ * same event handler would have `play()` run against the transport's OLD
+ * loop, because the commit that applies the new one hasn't happened yet.
+ * These three call straight through to the SAME `Transport` instance the
+ * click handler already has, so the mutation and the play/stop/seek land
+ * together, no commit in between. `play`/`playLoop` also read back the
+ * instant the transport actually anchored tick 0 to — see `anchorOf` below —
+ * instead of making the caller guess it from its own `clock.now()`.
  */
 import type { ScoreViewerHandle } from '@app/score/ScoreViewer.tsx'
 import { filterHands, type Hand, type Score } from '@core/notation/score.ts'
@@ -47,6 +61,7 @@ import {
   type TransportEvent,
   type TransportState,
 } from '@core/timing/transport.ts'
+import { invariant } from '@core/shared/invariant.ts'
 import { millis, ticks, type Bpm, type Millis, type Ticks } from '@core/shared/units.ts'
 import { type RefObject, useEffect, useMemo, useRef, useState } from 'react'
 import { useTransportLoop, type FrameDriver } from './useTransportLoop.ts'
@@ -81,9 +96,28 @@ export type PracticeEngine = {
   readonly writtenBpm: Bpm | undefined
   readonly effectiveBpm: Bpm | undefined
   readonly wait: WaitState | undefined
-  readonly play: () => void
+  /**
+   * Starts the transport. Returns the clock instant tick 0 is anchored to —
+   * i.e. the value `t` for which the note at tick `k` sounds at
+   * `t + tickToMs(tempo, k)`. `undefined` when there is no transport.
+   */
+  readonly play: () => Millis | undefined
   readonly pause: () => void
   readonly stop: () => void
+  /**
+   * Rewinds to tick 0 with any loop cleared, atomically on the transport
+   * instance — no React commit in between, so a caller may `play()` straight
+   * after and be certain it starts at the top of the whole piece (REQ-3.3.4).
+   * Does NOT touch the score store; the caller owns the store's loop state.
+   */
+  readonly rewindToTop: () => void
+  /**
+   * Sets `loop` on the transport, seeks to `loop.startTick`, and plays — all
+   * atomically on the transport instance (REQ-3.3.5's one-click practice
+   * loop). Returns the same anchor `play()` does. Does NOT touch the score
+   * store; the caller owns the store's loop state.
+   */
+  readonly playLoop: (loop: LoopRange) => Millis | undefined
 }
 
 type EngineDisplay = {
@@ -230,6 +264,30 @@ function dispatchMetronome(
   for (const click of clicks) audio.click(click.accented, millis(anchorMs + click.ms))
 }
 
+/**
+ * The clock instant tick 0 is anchored to, read back immediately after a call
+ * that ACTUALLY (re)anchors the transport. `Transport.play()` is a no-op —
+ * and does NOT reanchor — when the transport is already `'running'`
+ * (`transport.ts`'s `play()`: `if (this.runState === 'running') return`,
+ * which covers the public `'playing'` and `'waiting'` states); calling this
+ * function right after such a no-op `play()` would recompute the formula
+ * against the CURRENT `positionTicks`, which has moved on since the last
+ * real reanchor, and return a fabricated anchor. `seekTick` (the `playLoop`
+ * path) has no such no-op case — it always reanchors, even against an
+ * already-running transport — so it is always safe to call this right after
+ * a `seekTick`.
+ *
+ * `Transport` computes and stores this instant itself (`originMs`, private)
+ * inside `reanchor()` every time it reanchors, as `clock.now() -
+ * tickToMs(tempo, positionTicks)` at that moment; `Transport` has no public
+ * getter for it, so callers that need the true value after a possibly-no-op
+ * `play()` must cache the last value they know to be correct instead of
+ * recomputing it — see `play()`'s use of `lastAnchorRef` below.
+ */
+function anchorOf(transport: Transport, clock: Clock): Millis {
+  return millis(clock.now() - tickToMs(transport.tempoMap, transport.positionTicks))
+}
+
 export function usePracticeEngine(options: PracticeEngineOptions): PracticeEngine {
   const filteredScore = useMemo(
     () =>
@@ -244,6 +302,14 @@ export function usePracticeEngine(options: PracticeEngineOptions): PracticeEngin
   /** Mirrors `transport` for this same effect to read without depending on
    * its own output — see the rebuild effect below. */
   const transportRef = useRef<Transport | undefined>(undefined)
+  /**
+   * The last anchor known, for certain, to be correct — set only right after
+   * a call that actually reanchored the transport. `play()` falls back to
+   * this instead of recomputing `anchorOf` when the transport was already
+   * running (see `anchorOf`'s module comment): `Transport.play()` no-ops
+   * there, so nothing changed, and this is still the true value.
+   */
+  const lastAnchorRef = useRef<Millis | undefined>(undefined)
 
   // Rebuild the transport when the score (or which hands are muted) changes —
   // its score is fixed at construction, so this is the only way hand mute can
@@ -276,6 +342,7 @@ export function usePracticeEngine(options: PracticeEngineOptions): PracticeEngin
       if (wasRunning) next.play()
     }
     lastTickRef.current = next.positionTicks
+    lastAnchorRef.current = undefined
     transportRef.current = next
     setTransport(next)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- audioOutput is read via the latest closure, not tracked: only a score/hands change should rebuild the transport
@@ -368,11 +435,65 @@ export function usePracticeEngine(options: PracticeEngineOptions): PracticeEngin
     ...(options.frameDriver === undefined ? {} : { driver: options.frameDriver }),
   })
 
-  function play(): void {
-    if (transport === undefined) return
+  function play(): Millis | undefined {
+    if (transport === undefined) return undefined
+    // `Transport.play()` no-ops without reanchoring when already 'playing' or
+    // 'waiting' — capture that BEFORE calling it, so the fallback below is not
+    // itself contaminated by the call. See `anchorOf`'s module comment.
+    const alreadyRunning = transport.state === 'playing' || transport.state === 'waiting'
     transport.play()
+    const anchor =
+      alreadyRunning && lastAnchorRef.current !== undefined
+        ? lastAnchorRef.current
+        : anchorOf(transport, options.clock)
+    lastAnchorRef.current = anchor
     lastTickRef.current = transport.positionTicks
     setDisplay(computeDisplay(transport, waitController, filteredScore))
+    return anchor
+  }
+
+  /**
+   * Clears the loop and rewinds to tick 0 on the SAME transport instance a
+   * subsequent `play()` will use, in one synchronous call — see the
+   * `PracticeEngine.rewindToTop` doc. `setLoop(null)` first, then `stop()`:
+   * `Transport.stop()` rewinds to `loopRange?.startTick ?? 0`, so clearing the
+   * loop first is what makes it land on tick 0 instead of the old loop start.
+   */
+  function rewindToTop(): void {
+    if (transport === undefined) return
+    transport.setLoop(null)
+    transport.stop()
+    options.audioOutput?.allNotesOff()
+    waitController?.reset()
+    lastTickRef.current = transport.positionTicks
+    setDisplay(computeDisplay(transport, waitController, filteredScore))
+  }
+
+  /**
+   * Sets the loop, seeks INTO it, and plays, atomically — see the
+   * `PracticeEngine.playLoop` doc. Seeks to the transport's OWN (possibly
+   * `MIN_LOOP_TICKS`-widened, see `Transport.setLoop`) loop start rather than
+   * the caller's raw `loop.startTick`, so the seek always lands inside the
+   * range that will actually be played.
+   */
+  function playLoop(loop: LoopRange): Millis | undefined {
+    if (transport === undefined) return undefined
+    transport.setLoop(loop)
+    // `setLoop` either throws (an invalid range) or leaves `transport.loop`
+    // non-null — there is no third outcome — so the widened range is always
+    // there to read back; see `Transport.setLoop`.
+    const armed = transport.loop
+    invariant(armed !== null, 'playLoop: setLoop did not leave a loop armed')
+    transport.seekTick(armed.startTick)
+    transport.play()
+    // `seekTick` always reanchors, even against an already-running transport
+    // (unlike `play()` alone — see `anchorOf`'s module comment), so this is
+    // always the true anchor.
+    const anchor = anchorOf(transport, options.clock)
+    lastAnchorRef.current = anchor
+    lastTickRef.current = transport.positionTicks
+    setDisplay(computeDisplay(transport, waitController, filteredScore))
+    return anchor
   }
 
   function pause(): void {
@@ -412,5 +533,7 @@ export function usePracticeEngine(options: PracticeEngineOptions): PracticeEngin
     play,
     pause,
     stop,
+    rewindToTop,
+    playLoop,
   }
 }

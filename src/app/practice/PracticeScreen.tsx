@@ -7,8 +7,19 @@
  * controls are lifted into `.practice-controls`, a sticky strip rendered
  * ABOVE `ScoreViewer` (see `styles.css`) — a real score is several screens
  * tall, and those controls must stay reachable while the learner scrolls
- * through it. Setup controls (assessment, review, loop/hand/metronome/wait)
- * stay below the score, unchanged.
+ * through it. Setup controls (assessment, review, loop/hand/metronome/wait,
+ * record/replay) stay below the score, unchanged.
+ *
+ * Roadmap 2.14 (REQ-3.9.2): `useRecorder` sits between the raw MIDI input and
+ * every consumer on this screen (`useNoteFeedback`, `usePracticeEngine`,
+ * `useAssessment` all get `recorder.input`, never `midi.input` directly) so a
+ * replay drives the score colouring through the exact same path a live
+ * performance does — see `useRecorder`'s own module comment. That creates a
+ * cycle: `useRecorder` needs the engine's `rewindToTop`/`play`/`stop`, but the
+ * engine needs the recorder's fanned-out input to exist first. It is broken
+ * with `engineRef`, filled in right after `usePracticeEngine` runs — every
+ * callback handed to `useRecorder` reaches the engine through that ref instead
+ * of a value closed over at render time.
  *
  * Everything with browser/IO dependencies is an injection seam with a real
  * default, exactly like `ScoreViewer`'s `createEngraver`: `clock`,
@@ -20,6 +31,7 @@ import { ScoreViewer, type ScoreViewerHandle } from '@app/score/ScoreViewer.tsx'
 import { useScoreStore } from '@app/state/scoreStore.ts'
 import type { AudioOutput, Clock, DateSource, MidiInput } from '@core/ports/index.ts'
 import type { Subdivision } from '@core/timing/metronome.ts'
+import type { Millis } from '@core/shared/units.ts'
 import { useEffect, useRef, useState } from 'react'
 import { AssessmentPanel } from './AssessmentPanel.tsx'
 import { createBrowserClock } from './clock.ts'
@@ -28,13 +40,15 @@ import { HandMuteControl } from './HandMuteControl.tsx'
 import { LoopRangeControl } from './LoopRangeControl.tsx'
 import { MetronomeControl } from './MetronomeControl.tsx'
 import { MidiDeviceStatus } from './MidiDeviceStatus.tsx'
+import { RecordPanel } from './RecordPanel.tsx'
 import { ReviewOverlay } from './ReviewOverlay.tsx'
 import { TempoControl } from './TempoControl.tsx'
 import { TransportControls } from './TransportControls.tsx'
 import { useAssessment } from './useAssessment.ts'
 import { useMidiConnection, type ConnectMidi } from './useMidiConnection.ts'
 import { useNoteFeedback } from './useNoteFeedback.ts'
-import { usePracticeEngine } from './usePracticeEngine.ts'
+import { usePracticeEngine, type PracticeEngine } from './usePracticeEngine.ts'
+import { useRecorder } from './useRecorder.ts'
 import type { FrameDriver } from './useTransportLoop.ts'
 import { WaitModeControl } from './WaitModeControl.tsx'
 
@@ -72,13 +86,51 @@ export function PracticeScreen(props: PracticeScreenProps) {
 
   const scoreViewerRef = useRef<ScoreViewerHandle>(null)
 
+  // `useRecorder` needs the engine's transport primitives, and the engine needs
+  // the recorder's fanned-out input — so the engine is reached through a ref
+  // that is filled in below, after it exists. (roadmap 2.14)
+  const engineRef = useRef<PracticeEngine | undefined>(undefined)
+
+  // Lazily creates the real audio output on first Play — shared by ordinary
+  // Play (`handlePlay`, below) and the recorder's own `play`, so the
+  // lazy-creation logic exists in exactly one place, not duplicated.
+  function ensureAudioOutput(): void {
+    setAudioOutput((current) => current ?? createDefaultAudioOutput())
+  }
+
+  const recorder = useRecorder({
+    // The raw live input — the recorder wraps it, it does not consume the fan-out.
+    source: midi.input,
+    clock,
+    date,
+    scoreId: loaded?.score.id,
+    // `engine` does not exist yet at this point in the render (see the
+    // `engineRef` comment above), so this reads whatever `usePracticeEngine`
+    // published to the ref on the PREVIOUS render — one render stale. In
+    // practice that only matters on the render where the written tempo itself
+    // just changed; it settles by the next commit. Chosen over recomputing
+    // `usePracticeEngine`'s own tick-to-tempo logic a second time here, which
+    // would be duplicated music-timing logic in `src/app` for no real gain.
+    tempoBpm: engineRef.current?.writtenBpm,
+    rewindToTop: () => engineRef.current?.rewindToTop(),
+    play: () => {
+      ensureAudioOutput()
+      return engineRef.current?.play()
+    },
+    stop: () => engineRef.current?.stop(),
+    ...(props.frameDriver === undefined ? {} : { frameDriver: props.frameDriver }),
+  })
+
   // Owns the matcher and colours the score imperatively (REQ-3.3.2, REQ-4.1) —
   // see the module comment on `useNoteFeedback` for why `feedback.cursorRef`,
   // not `scoreViewerRef` itself, is what `usePracticeEngine` gets below.
+  // `recorder.input`, not the raw live `midi.input`: a replay must drive the
+  // score colouring through the exact same path a live performance does
+  // (roadmap 2.14, REQ-3.9.2) — see `useRecorder`'s module comment.
   const feedback = useNoteFeedback({
     score: loaded?.score,
     activeHands: settings.activeHands,
-    midiInput: midi.input,
+    midiInput: recorder.input,
     clock,
     scoreViewerRef,
   })
@@ -93,22 +145,46 @@ export function PracticeScreen(props: PracticeScreenProps) {
     waitModeEnabled,
     clock,
     audioOutput,
-    midiInput: midi.input,
+    midiInput: recorder.input,
     scoreViewerRef: feedback.cursorRef,
     ...(props.frameDriver === undefined ? {} : { frameDriver: props.frameDriver }),
   })
+  engineRef.current = engine
 
-  // `usePracticeEngine` stops pumping frames the instant it stops, so the
-  // frame-driven wiring above can never observe the reset itself — see the
-  // module comment on `useNoteFeedback`.
+  // Clear stale colouring/counters when a NEW run STARTS, not when one ends
+  // (roadmap 2.14): the counters from a just-finished run must survive onto
+  // screen — the learner reads them, and a replay's own counters have to be
+  // compared against the live take's, which is impossible if the take's
+  // result was erased the instant it stopped. "New run" means `engine.phase`
+  // entering a running state (`'playing'`, or `'waiting'` for wait mode) FROM
+  // `'stopped'`. A pause/resume (`'paused'` -> `'playing'`) is explicitly NOT
+  // a new run and must leave the in-progress counters alone, so the check is
+  // against the PREVIOUS phase (`previousPhaseRef`), not just the current one
+  // — `engine.phase === 'stopped'` alone can't distinguish a fresh start from
+  // "still running", but comparing against what it was last commit can.
+  //
+  // Effect ordering guarantees the clear lands before the new run's first
+  // note is judged: `useTransportLoop` (inside `usePracticeEngine`, which
+  // renders before this effect is even declared) only REGISTERS a
+  // `requestAnimationFrame` callback when ITS effect runs in this same commit
+  // — registering never invokes the callback synchronously — so the actual
+  // frame (and therefore the first `moveCursorTo` that could judge a note)
+  // cannot fire until the browser's next paint, strictly after every effect
+  // in this commit, including this one, has already run. See the module
+  // comment on `useNoteFeedback` for the other half of this story.
   const clearFeedback = feedback.clear
+  const previousPhaseRef = useRef(engine.phase)
   useEffect(() => {
-    if (engine.phase === 'stopped') clearFeedback()
+    const previousPhase = previousPhaseRef.current
+    previousPhaseRef.current = engine.phase
+    const justStarted =
+      previousPhase === 'stopped' && (engine.phase === 'playing' || engine.phase === 'waiting')
+    if (justStarted) clearFeedback()
   }, [engine.phase, clearFeedback])
 
-  function handlePlay(): void {
-    setAudioOutput((current) => current ?? createDefaultAudioOutput())
-    engine.play()
+  function handlePlay(): Millis | undefined {
+    ensureAudioOutput()
+    return engine.play()
   }
 
   // The end-of-run story (roadmap 2.11, REQ-3.3.4/3.3.5): a fixed-tempo,
@@ -118,12 +194,13 @@ export function PracticeScreen(props: PracticeScreenProps) {
   const assessment = useAssessment({
     score: loaded?.score,
     activeHands: settings.activeHands,
-    midiInput: midi.input,
+    midiInput: recorder.input,
     clock,
     date,
     phase: engine.phase,
     play: handlePlay,
-    stop: engine.stop,
+    rewindToTop: engine.rewindToTop,
+    playLoop: engine.playLoop,
     setTempoScale,
     setWaitModeEnabled,
     setLoop,
@@ -195,6 +272,15 @@ export function PracticeScreen(props: PracticeScreenProps) {
         onSubdivisionChange={setSubdivision}
       />
       <WaitModeControl enabled={waitModeEnabled} onToggle={setWaitModeEnabled} wait={engine.wait} />
+      <RecordPanel
+        phase={recorder.phase}
+        recording={recorder.recording}
+        canRecord={midi.input !== undefined}
+        onStartRecording={recorder.startRecording}
+        onStopRecording={recorder.stopRecording}
+        onStartReplay={recorder.startReplay}
+        onStopReplay={recorder.stopReplay}
+      />
     </div>
   )
 }

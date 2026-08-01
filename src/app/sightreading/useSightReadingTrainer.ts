@@ -161,7 +161,12 @@ export function useSightReadingTrainer(
     date,
     phase: engine.phase,
     play: engine.play,
-    stop: engine.stop,
+    rewindToTop: engine.rewindToTop,
+    // Sight reading has no loop UI and never calls `practiceLoop` (this hook's
+    // own return type doesn't even expose it) — but `engine.playLoop` is the
+    // real, working transport primitive, so forwarding it is more honest than
+    // a no-op that would silently do nothing if that ever changed.
+    playLoop: engine.playLoop,
     // Sight reading fixes tempo, loop and wait mode — there is no slider for
     // any of them here, but `useAssessment.start()` sets all three anyway.
     setTempoScale: () => {},

@@ -17,7 +17,7 @@
  * two matchers simply run in parallel against the same MIDI events; nothing
  * about the live one is disturbed.
  *
- * ## Turning a MIDI timestamp into a matcher millisecond, the easy way
+ * ## Turning a MIDI timestamp into a matcher millisecond, honestly
  *
  * `useNoteFeedback` has to reconstruct the transport's tick position every
  * frame because tempo scale and pausing can both change the tick↔ms mapping
@@ -26,18 +26,27 @@
  * (REQ-3.3.4's "fixed tempo"), and a running assessment can never be paused
  * or sought. With scale pinned at 1 and no pausing, the transport's own
  * anchoring means `tickToMs(writtenTempo, positionTicks)` and "wall-clock ms
- * since the run started" are the SAME function of time. So this hook just
- * remembers the clock reading at the moment `start()` calls `play()` and
- * turns every MIDI event into a matcher millisecond with one subtraction —
- * no cursor interception, no resampled anchor, no dependency on
- * `usePracticeEngine` or `ScoreViewerHandle` at all.
+ * since the run started" are the SAME function of time — PROVIDED `anchorMs`
+ * is the instant the transport actually anchored tick 0 to.
+ *
+ * That instant is NOT available by reading `clock.now()` inside `start()`:
+ * the transport re-anchors inside `Transport.play()`, called imperatively by
+ * `usePracticeEngine.play()` from a click handler, which runs strictly AFTER
+ * `start()` mutates React state and returns — a `clock.now()` read taken in
+ * `start()` itself is only a guess at when that later call will land, and on
+ * a real clock (unlike `FakeClock`, which never moves on its own) they can
+ * differ. So `start()` doesn't guess: `usePracticeEngine.play()`/`playLoop()`
+ * read the anchor back off the transport the instant after mutating it and
+ * hand it back as their return value (see `usePracticeEngine`'s `anchorOf`),
+ * and `start()`/`practiceLoop()` use THAT as `anchorMs` — one subtraction per
+ * MIDI event, same as before, just no longer built on a guess.
  *
  * ## Detecting the run's end
  *
  * The transport has no "I reached the end" callback reachable from here — only
  * `usePracticeEngine`'s `phase`. Rather than treat any `'stopped'` sighting as
  * "the run finished" (a `'stopped'` phase can also just mean "hasn't started
- * playing yet" — e.g. `start()`'s own `stop()` rewind, below), each `Run`
+ * playing yet" — e.g. `start()`'s own `rewindToTop()` rewind, below), each `Run`
  * tracks whether it has ever actually been observed `'playing'` or
  * `'waiting'`. Only a `'stopped'` transition AFTER that has happened counts as
  * the run finishing (in practice: the transport playing off the end of the
@@ -60,7 +69,7 @@ import {
 } from '@core/practice/review.ts'
 import { bpmAtTick, makeTempoMap, tickToMs, type TempoMap } from '@core/timing/tempo.ts'
 import type { LoopRange, TransportState } from '@core/timing/transport.ts'
-import { millis as asMillis, ticks as asTicks } from '@core/shared/units.ts'
+import { millis as asMillis, ticks as asTicks, type Millis } from '@core/shared/units.ts'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 export type AssessmentRunPhase = 'idle' | 'running' | 'complete'
@@ -73,10 +82,12 @@ export type UseAssessmentOptions = {
   readonly date: DateSource
   /** `usePracticeEngine`'s `phase` — watched to detect the run reaching the end. */
   readonly phase: TransportState
-  /** Starts the transport; `start()` rewinds with `stop()` first so this always starts at the top. */
-  readonly play: () => void
-  /** Rewinds the transport to the top. Called by `start()` before the run is armed. */
-  readonly stop: () => void
+  /** Returns the instant tick 0 is anchored to; the run uses it as `anchorMs`. */
+  readonly play: () => Millis | undefined
+  /** Called by `start()` before the run is armed — clears any loop and rewinds. */
+  readonly rewindToTop: () => void
+  /** Used by `practiceLoop()` so the loop starts AT its first measure. */
+  readonly playLoop: (loop: LoopRange) => Millis | undefined
   readonly setTempoScale: (scale: number) => void
   readonly setWaitModeEnabled: (enabled: boolean) => void
   readonly setLoop: (loop: LoopRange | undefined) => void
@@ -102,7 +113,12 @@ type Run = {
   readonly tempo: TempoMap
   readonly matcher: NoteMatcher
   readonly tempoBpm: number
-  /** `clock.now()` at the instant this run's `play()` was issued — see the module comment. */
+  /**
+   * The instant tick 0 is anchored to, from `play()`'s return value — see the
+   * module comment. Falls back to `clock.now()` only if `play()` returns
+   * `undefined` (no transport exists yet), which is a worse guess than none
+   * of the run's events lining up at all, but strictly better than crashing.
+   */
   readonly anchorMs: number
 }
 
@@ -157,8 +173,8 @@ export function useAssessment(options: UseAssessmentOptions): UseAssessment {
   // armed — see "Detecting the run's end" in the module comment. `sawPlaying`
   // is armed synchronously in `start()`, at the moment the run is created,
   // rather than inferred from an observed 'playing'/'waiting' phase: React 18
-  // batches `start()`'s own rewind `stop()` and the following `play()` into a
-  // single commit, so when `start()` is invoked while the transport is
+  // batches `start()`'s own rewind `rewindToTop()` and the following `play()`
+  // into a single commit, so when `start()` is invoked while the transport is
   // already playing the `phase` prop never visibly passes through 'stopped'
   // at all (it commits 'playing' -> 'playing'), and an effect that waited to
   // observe 'playing' before arming would never arm.
@@ -188,8 +204,21 @@ export function useAssessment(options: UseAssessmentOptions): UseAssessment {
     // Rewind to the top BEFORE arming the run: `Transport.play()` on an
     // already-playing transport does not rewind, so a run started mid-playback
     // would otherwise anchor tick 0 to "now" while the transport sits wherever
-    // the playhead already was (see the module comment).
-    optionsRef.current.stop()
+    // the playhead already was (see the module comment). `rewindToTop()` also
+    // clears any loop left on the transport itself — REQ-3.3.4 needs the
+    // WHOLE piece, and a stale loop is a stale loop whether it lives in the
+    // score store or on the transport instance.
+    optionsRef.current.rewindToTop()
+    // Fixed tempo and no wait mode (REQ-3.3.4) BEFORE `play()`, so the run
+    // that gets timed is the one actually played, not a scale-1 guess of it.
+    optionsRef.current.setWaitModeEnabled(false)
+    optionsRef.current.setLoop(undefined)
+    optionsRef.current.setTempoScale(1)
+    // The anchor this run's every MIDI event is measured against — the
+    // instant `play()` itself anchored tick 0 to, not a `clock.now()` guessed
+    // before it ran (see the module comment). `clock.now()` is kept as a
+    // fallback only for the case `play()` has no transport to anchor at all.
+    const anchor = optionsRef.current.play()
     const tempo = makeTempoMap(score.tempos)
     const matcher = new NoteMatcher(score, tempo, { hands: optionsRef.current.activeHands })
     runRef.current = {
@@ -197,30 +226,31 @@ export function useAssessment(options: UseAssessmentOptions): UseAssessment {
       tempo,
       matcher,
       tempoBpm: bpmAtTick(tempo, asTicks(0)),
-      anchorMs: optionsRef.current.clock.now(),
+      anchorMs: anchor ?? optionsRef.current.clock.now(),
     }
     // Armed here, not inferred from a later 'playing' sighting — see the
-    // effect above. The rewind `stop()` just above can never itself be
+    // effect above. The rewind `rewindToTop()` above can never itself be
     // mistaken for the run finishing because it runs before this line, while
     // the flag is still `false`.
     sawPlayingRef.current = true
     setResult(undefined)
     setAssessedScore(undefined)
     setPhase('running')
-    // Fixed tempo, no wait mode, and a clean loop-free run top to bottom
-    // (REQ-3.3.4) — a stale loop or wait-mode gate would turn "the piece" into
-    // something other than the whole piece.
-    optionsRef.current.setWaitModeEnabled(false)
-    optionsRef.current.setLoop(undefined)
-    optionsRef.current.setTempoScale(1)
-    optionsRef.current.play()
   }
 
   function practiceLoop(loop: SuggestedLoop): void {
     if (assessedScore === undefined || result === undefined) return
-    optionsRef.current.setLoop(measureRange(assessedScore, loop.startMeasure, loop.endMeasure))
+    const range = measureRange(assessedScore, loop.startMeasure, loop.endMeasure)
+    // `setLoop` still updates the score store — the Loop Range control on
+    // screen reads its `settings.loop`, not the transport, so this is what
+    // keeps that control showing the looped measures after a one-click
+    // suggestion (see e2e/assessment.spec.ts). `playLoop` is the imperative
+    // half: it sets the SAME range on the transport instance and seeks INTO
+    // it before playing, so the first pass actually starts at `range.startTick`
+    // instead of wherever the playhead happened to be sitting (REQ-3.3.5).
+    optionsRef.current.setLoop(range)
     optionsRef.current.setTempoScale(suggestedTempoScale(result))
-    optionsRef.current.play()
+    optionsRef.current.playLoop(range)
   }
 
   const problems = useMemo(() => (result === undefined ? [] : problemMeasures(result)), [result])

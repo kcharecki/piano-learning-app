@@ -44,15 +44,22 @@ vi.mock('@app/score/ScoreViewer.tsx', () => ({
 
 const { PracticeScreen } = await import('./PracticeScreen.tsx')
 
+// A Set, not a single slot: with the recorder wired in (roadmap 2.14),
+// `usePracticeEngine`'s own frame loop and `useRecorder`'s replay loop can
+// both be active on this SAME shared driver at once (e.g. during a replay,
+// the transport is 'playing' while the recorder is 'replaying') — exactly
+// like the real `rafFrameDriver`, where every active `useTransportLoop`
+// caller gets its own independent loop. A single-slot fake would silently
+// drop whichever loop registered first every time `pump()` is called.
 function manualDriver(): { driver: FrameDriver; pump: () => void } {
-  let callback: (() => void) | undefined
+  const callbacks = new Set<() => void>()
   const driver: FrameDriver = (cb) => {
-    callback = cb
+    callbacks.add(cb)
     return () => {
-      callback = undefined
+      callbacks.delete(cb)
     }
   }
-  return { driver, pump: () => callback?.() }
+  return { driver, pump: () => callbacks.forEach((cb) => cb()) }
 }
 
 function resetStore(): void {
@@ -139,7 +146,7 @@ describe('PracticeScreen', () => {
     expect(useScoreStore.getState().settings.metronomeEnabled).toBe(true)
   })
 
-  it('shows live note feedback (REQ-3.3.2) and clears it when the transport stops', async () => {
+  it('shows live note feedback (REQ-3.3.2) and keeps it on screen once the transport stops (roadmap 2.14)', async () => {
     loadSampleScore()
     const user = userEvent.setup()
     const clock = new FakeClock()
@@ -171,8 +178,79 @@ describe('PracticeScreen', () => {
 
     await user.click(screen.getByRole('button', { name: 'Stop' }))
 
-    expect(screen.getByTestId('feedback-correct')).toHaveTextContent('0')
+    // Kills a mutant that restores the old clear-on-stop effect: the run just
+    // ended, but its counters must stay readable on screen — see the module
+    // comment on `useNoteFeedback`'s "Discontinuities" section (roadmap 2.14).
+    expect(screen.getByTestId('feedback-correct')).toHaveTextContent('1')
     expect(screen.getByTestId('feedback-accuracy')).toHaveTextContent('100%')
+  })
+
+  // Kills a mutant that drops the clear() call from the start-of-run
+  // transition entirely (e.g. hardcoding the new effect's `justStarted` to
+  // `false`) — starting a fresh run must wipe the PREVIOUS run's counters,
+  // and must do so on the phase transition itself: this asserts the wipe
+  // immediately after the click that starts the second run, before that run
+  // has pumped a single frame or judged a single note.
+  it('wipes note feedback the instant a new run starts, before its first note is judged (roadmap 2.14)', async () => {
+    loadSampleScore()
+    const user = userEvent.setup()
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const midiInput = new FakeMidiInput()
+    const manual = manualDriver()
+
+    render(
+      <PracticeScreen
+        clock={clock}
+        audioOutput={audio}
+        midiInput={midiInput}
+        frameDriver={manual.driver}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Play' }))
+    act(() => manual.pump())
+    act(() => midiInput.emit({ type: 'noteOn', note: midi(60), velocity: 80, time: millis(0) }))
+    expect(screen.getByTestId('feedback-correct')).toHaveTextContent('1')
+
+    await user.click(screen.getByRole('button', { name: 'Stop' }))
+    expect(screen.getByTestId('feedback-correct')).toHaveTextContent('1') // survives the stop
+
+    await user.click(screen.getByRole('button', { name: 'Play' }))
+    // No pump yet — the wipe already happened, on the phase transition itself.
+    expect(screen.getByTestId('feedback-correct')).toHaveTextContent('0')
+  })
+
+  // Kills a mutant that widens the clear condition to fire on ANY transition
+  // into a running phase (dropping the "previous phase was 'stopped'" guard)
+  // — a resume from 'paused' is explicitly not a new run and must not wipe
+  // the run already in progress.
+  it("does not wipe note feedback on a pause/resume — 'paused' -> 'playing' is not a new run (roadmap 2.14)", async () => {
+    loadSampleScore()
+    const user = userEvent.setup()
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const midiInput = new FakeMidiInput()
+    const manual = manualDriver()
+
+    render(
+      <PracticeScreen
+        clock={clock}
+        audioOutput={audio}
+        midiInput={midiInput}
+        frameDriver={manual.driver}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Play' }))
+    act(() => manual.pump())
+    act(() => midiInput.emit({ type: 'noteOn', note: midi(60), velocity: 80, time: millis(0) }))
+    expect(screen.getByTestId('feedback-correct')).toHaveTextContent('1')
+
+    await user.click(screen.getByRole('button', { name: 'Pause' }))
+    await user.click(screen.getByRole('button', { name: 'Play' })) // resume
+
+    expect(screen.getByTestId('feedback-correct')).toHaveTextContent('1')
   })
 
   it('runs an assessment end to end and shows a clean review on a flawless pass (roadmap 2.11)', async () => {
@@ -300,5 +378,114 @@ describe('PracticeScreen', () => {
     expect(rule).toMatch(/top:\s*0/)
     expect(rule).toMatch(/background:\s*var\(--bg\)/)
     expect(rule).toMatch(/z-index:\s*10/)
+  })
+
+  // Kills a mutant that hardcodes `canRecord` to `true` (or drops the prop,
+  // which defaults RecordPanel's own `disabled` check to enabled) — Record
+  // must actually reflect whether a MIDI keyboard is connected.
+  it('disables Record when no MIDI keyboard is connected (roadmap 2.14)', () => {
+    loadSampleScore()
+    const neverResolves = (): Promise<never> => new Promise(() => {})
+    render(<PracticeScreen connectMidi={neverResolves} />)
+
+    expect(screen.getByRole('button', { name: 'Record' })).toBeDisabled()
+  })
+
+  // Kills a mutant that hardcodes `canRecord` to `false` — the flip side of
+  // the test above; both are needed because `!==` and `===` mutants each only
+  // fail one direction.
+  it('enables Record once a MIDI keyboard is connected (roadmap 2.14)', () => {
+    loadSampleScore()
+    render(<PracticeScreen midiInput={new FakeMidiInput()} />)
+
+    expect(screen.getByRole('button', { name: 'Record' })).toBeEnabled()
+  })
+
+  // Proves `useNoteFeedback` (and, transitively, `usePracticeEngine`) is
+  // wired to `recorder.input`, not the raw live `midi.input` — the swap this
+  // whole task exists to make (roadmap 2.14, REQ-3.9.2). The live `midiInput`
+  // fake is never touched again after the recording is captured; the ONLY way
+  // the second note-on below can move the feedback counter is through the
+  // replay's own re-emission, which is delivered exclusively via the
+  // recorder's fan-out. If `PracticeScreen` were wired back to `midi.input`
+  // directly (the bug this task fixes), the counter would stay at 0 forever
+  // after Replay starts it (the replay's own start-of-run clear), because
+  // nothing calls `midiInput.emit` again.
+  //
+  // What this does NOT prove: it doesn't inspect `recorder.input`'s object
+  // identity directly (an internal of `useRecorder`, not reachable from
+  // outside), and it doesn't cover `usePracticeEngine`'s OWN consumption of
+  // `midiInput` (wait-mode note-on/off) separately from `useNoteFeedback`'s —
+  // both hooks are given the same `recorder.input` value in one prop, so a
+  // mutant that swapped just one of the two call sites back to `midi.input`
+  // would still be caught here only insofar as it broke the ONE call site this
+  // test happens to observe (`useNoteFeedback`, via the accuracy panel).
+  it('feeds live and replayed MIDI to note feedback through the recorder, never the raw live input directly (roadmap 2.14)', async () => {
+    loadSampleScore()
+    const user = userEvent.setup()
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const midiInput = new FakeMidiInput()
+    const manual = manualDriver()
+
+    render(
+      <PracticeScreen
+        clock={clock}
+        date={clock}
+        audioOutput={audio}
+        midiInput={midiInput}
+        frameDriver={manual.driver}
+      />,
+    )
+
+    // Record a single correct note (C4, the scale's first note) starting 50ms
+    // into the take and released 50ms later, plus 200ms of trailing silence —
+    // via the LIVE input, the only place in the test `midiInput.emit` is ever
+    // called. The trailing silence matters: it keeps the recording's total
+    // duration well past the note-on's own restamped time below, so replaying
+    // past the note does not ALSO end the replay (and so clear feedback) in
+    // that same frame.
+    await user.click(screen.getByRole('button', { name: 'Record' }))
+    act(() => manual.pump()) // parks the cursor on tick 0, arming the matcher
+    act(() => clock.advance(50))
+    act(() =>
+      midiInput.emit({ type: 'noteOn', note: midi(60), velocity: 80, time: millis(clock.now()) }),
+    )
+    expect(screen.getByTestId('feedback-correct')).toHaveTextContent('1')
+    act(() => clock.advance(50))
+    act(() => midiInput.emit({ type: 'noteOff', note: midi(60), time: millis(clock.now()) }))
+    act(() => clock.advance(200))
+
+    await user.click(screen.getByRole('button', { name: 'Stop recording' }))
+    // Stopping no longer wipes the take's counters (roadmap 2.14) — the
+    // learner, and the replay comparison below, need to be able to read what
+    // the live take actually scored.
+    expect(screen.getByTestId('feedback-correct')).toHaveTextContent('1')
+    expect(screen.getByTestId('record-event-count')).toHaveTextContent('2')
+
+    // Starting the replay is itself a new run (`rewindToTop` + `play`, same
+    // as the live take's own start) — this wipes the take's counters BEFORE
+    // any replayed note is judged, or they would stack on top of the live
+    // take's and could never end up equal to it.
+    await user.click(screen.getByRole('button', { name: 'Replay' }))
+    expect(screen.getByTestId('feedback-correct')).toHaveTextContent('0')
+
+    // First pump only re-arms the matcher at tick 0 — the recorded note-on
+    // (restamped to 50ms after this replay's own anchor) isn't due yet, so
+    // nothing is emitted on this frame.
+    act(() => manual.pump())
+    expect(screen.getByTestId('feedback-correct')).toHaveTextContent('0')
+
+    // Advancing 50ms makes the replay's own frame loop emit the recorded
+    // note-on (and only that — the note-off is still 50ms further out, and
+    // the recording's own trailing silence keeps the whole replay from ending
+    // on this frame) through the fan-out. `midiInput.emit` is never called
+    // again in this test, so this can only be the recorder's replayed event
+    // reaching feedback.
+    act(() => {
+      clock.advance(50)
+      manual.pump()
+    })
+    expect(screen.getByTestId('feedback-correct')).toHaveTextContent('1')
   })
 })

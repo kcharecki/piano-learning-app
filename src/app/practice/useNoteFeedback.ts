@@ -39,13 +39,22 @@
  * backwards between two `moveCursorTo` calls — the transport has no other way
  * to signal it to a caller that only sees the cursor. On that, the matcher is
  * reset and the score's colouring cleared: the pending verdicts described a
- * pass that just ended. `clear()` does the same for the transport stopping —
+ * pass that just ended.
+ *
+ * The transport simply STOPPING is deliberately NOT handled the same way.
  * `usePracticeEngine` does not pump frames while stopped, so a backward jump
- * can never be observed through `moveCursorTo` for that case; the caller
- * (`PracticeScreen`) calls `clear()` itself when `phase` becomes `'stopped'`.
- * (`phase` cannot be read in here directly: `usePracticeEngine` needs
- * `cursorRef` to construct itself, which needs this hook to exist first — a
- * real circular dependency, not just a type one.)
+ * can never be observed through `moveCursorTo` for that case — but that is
+ * incidental, not the reason: a stop ENDS a run, and the whole point of the
+ * counters is to be readable once it has (roadmap 2.14 needs a replay's
+ * counters to be comparable against the live take's, which is impossible if
+ * the take's result is wiped the instant it stops). So the caller
+ * (`PracticeScreen`) does not call `clear()` on stop at all — it calls it when
+ * the NEXT run STARTS, i.e. when `phase` enters `'playing'` or `'waiting'`
+ * FROM `'stopped'`, which is also what a loop wrap's mid-run reset above is
+ * really standing in for while the run is still live. (`phase` cannot be read
+ * in here directly: `usePracticeEngine` needs `cursorRef` to construct itself,
+ * which needs this hook to exist first — a real circular dependency, not just
+ * a type one.)
  *
  * A rebuilt matcher (new score, or the active hands change) has the same
  * problem in miniature and is handled the same way: clear, then start fresh.
@@ -83,7 +92,11 @@ export type NoteFeedback = {
   readonly summary: MatchSummary
   /** Pass this to `usePracticeEngine`'s `scoreViewerRef` option instead of the real one. */
   readonly cursorRef: RefObject<ScoreViewerHandle | null>
-  /** Forget every verdict and clear the score's colouring. Call when the transport stops. */
+  /**
+   * Forget every verdict and clear the score's colouring. Call when a NEW run
+   * STARTS, not when one ends — see the module comment's "Discontinuities"
+   * section for why the counters must survive a stop.
+   */
   readonly clear: () => void
 }
 

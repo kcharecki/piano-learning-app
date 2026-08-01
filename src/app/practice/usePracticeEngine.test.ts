@@ -379,6 +379,205 @@ describe('usePracticeEngine', () => {
     expect(audio.calls.some((c) => c.kind === 'allNotesOff')).toBe(true) // orphaned chord panicked
   })
 
+  it('play() returns the same instant the transport anchored to, under FakeClock', () => {
+    // Advancing the clock BEFORE play() is what kills a stub that returns
+    // "the clock reading at hook construction" (would be 0) or a stub that
+    // just returns 0: the real anchor must reflect this advance.
+    const clock = new FakeClock()
+    const { result } = renderHook((p: PracticeEngineOptions) => usePracticeEngine(p), {
+      initialProps: makeOptions(clock),
+    })
+    clock.advance(12_345)
+
+    let anchor: number | undefined
+    act(() => {
+      anchor = result.current.play()
+    })
+
+    expect(anchor).toBe(12_345)
+    // And the anchor is exactly what a note played at tick 0 would use: the
+    // instant the transport reports it sounded at through the audio output.
+    expect(clock.now()).toBe(12_345) // sanity: play() itself does not consume time
+  })
+
+  it('play() returns the true anchor at a non-zero position, not a fabricated reconstruction from the current tick', () => {
+    // At tick 0 the correct anchor is numerically identical to clock.now(),
+    // so a test that only checks tick 0 cannot distinguish the real anchor
+    // from a mutant that just returns clock.now() verbatim. Advancing,
+    // pausing (which does NOT reanchor), then advancing further with no pump
+    // before calling play() again proves the returned value is the anchor
+    // from the ORIGINAL play(), not clock.now() at the second call.
+    const clock = new FakeClock()
+    const manual = manualDriver()
+    const { result } = renderHook((p: PracticeEngineOptions) => usePracticeEngine(p), {
+      initialProps: makeOptions(clock, { frameDriver: manual.driver }),
+    })
+
+    act(() => result.current.play())
+    act(() => {
+      clock.advance(700) // position 672 ticks = 700ms at 120bpm
+      manual.pump()
+    })
+    act(() => result.current.pause())
+    act(() => clock.advance(5000)) // no pump: nothing reanchors while paused
+
+    let anchor: number | undefined
+    act(() => {
+      anchor = result.current.play()
+    })
+
+    // True anchor: resuming from tick 672 at clock 5700 anchors tick 0 to
+    // 5700 - 700 = 5000. A mutant that returns `clock.now()` (5700) fails this.
+    expect(anchor).toBe(5000)
+  })
+
+  it('rewindToTop() leaves the position at tick 0, in one synchronous call with no commit in between', () => {
+    const clock = new FakeClock()
+    const manual = manualDriver()
+    const loop = measureRange(C_MAJOR_SCALE_RH, 1, 1) // second measure
+    const { result } = renderHook((p: PracticeEngineOptions) => usePracticeEngine(p), {
+      initialProps: makeOptions(clock, { loop, frameDriver: manual.driver }),
+    })
+    act(() => result.current.play())
+    act(() => {
+      clock.advance(700) // well off tick 0
+      manual.pump()
+    })
+    expect(result.current.position).not.toEqual({ measureNumber: 1, beat: 1, beatsPerMeasure: 4 })
+
+    act(() => result.current.rewindToTop())
+
+    // A single call, synchronous: no `act`-flushed effect had to run for the
+    // position to already read tick 0 here.
+    expect(result.current.position).toEqual({ measureNumber: 1, beat: 1, beatsPerMeasure: 4 })
+    expect(result.current.phase).toBe('stopped')
+  })
+
+  it('rewindToTop() silences whatever is sounding, instead of leaving it to drone', () => {
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const manual = manualDriver()
+    const { result } = renderHook((p: PracticeEngineOptions) => usePracticeEngine(p), {
+      initialProps: makeOptions(clock, { audioOutput: audio, frameDriver: manual.driver }),
+    })
+
+    act(() => result.current.play())
+    act(() => {
+      clock.advance(200) // mid C4, well before its release
+      manual.pump()
+    })
+    expect(audio.calls.some((c) => c.kind === 'allNotesOff')).toBe(false)
+
+    act(() => result.current.rewindToTop())
+
+    // Kills the mutant that drops the `allNotesOff()` panic from `rewindToTop`.
+    expect(audio.calls.at(-1)).toMatchObject({ kind: 'allNotesOff' })
+  })
+
+  it('rewindToTop() resets wait mode, releasing whatever note it was parked on', () => {
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const midiInput = new FakeMidiInput()
+    const manual = manualDriver()
+    const { result } = renderHook((p: PracticeEngineOptions) => usePracticeEngine(p), {
+      initialProps: makeOptions(clock, {
+        audioOutput: audio,
+        midiInput,
+        waitModeEnabled: true,
+        frameDriver: manual.driver,
+      }),
+    })
+
+    act(() => result.current.play())
+    act(() => manual.pump()) // parks on the first onset (C4)
+    expect(result.current.phase).toBe('waiting')
+    expect(result.current.wait?.requiredNotes.map((n) => n.midi)).toEqual([60])
+
+    act(() => result.current.rewindToTop())
+
+    // Kills the mutant that drops the `waitController?.reset()` call from
+    // `rewindToTop`: the controller would still think it is parked on C4.
+    expect(result.current.wait?.requiredNotes).toEqual([])
+  })
+
+  it('rewindToTop() clears the loop on the transport itself, not just the store value', () => {
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const manual = manualDriver()
+    const loop = measureRange(C_MAJOR_SCALE_RH, 0, 0) // first measure only: C4 D4 E4 F4
+    const { result } = renderHook((p: PracticeEngineOptions) => usePracticeEngine(p), {
+      initialProps: makeOptions(clock, { loop, audioOutput: audio, frameDriver: manual.driver }),
+    })
+
+    act(() => result.current.rewindToTop())
+    act(() => result.current.play())
+    act(() => {
+      clock.advance(2500) // past measure 1 (2000ms) into measure 2, if the loop is truly gone
+      manual.pump()
+    })
+
+    // Kills the mutant that calls `transport.stop()` without first calling
+    // `transport.setLoop(null)` (or omits the clear altogether): the OLD loop
+    // (measure 1 only) would still be armed on the transport, so playback
+    // would wrap back to C4 at 2000ms and G4 (measure 2) would never sound.
+    expect(audio.playedNotes).toContain(67) // G4, measure 2
+  })
+
+  it('playLoop(range) leaves the position AT range.startTick, not 0 and not wherever it was', () => {
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const manual = manualDriver()
+    const range = measureRange(C_MAJOR_SCALE_RH, 1, 1) // second measure: G4 A4 B4 C5
+    const { result } = renderHook((p: PracticeEngineOptions) => usePracticeEngine(p), {
+      initialProps: makeOptions(clock, { audioOutput: audio, frameDriver: manual.driver }),
+    })
+    // Start somewhere else first, so landing on range.startTick could only
+    // happen because playLoop actually seeked there.
+    act(() => result.current.play())
+    act(() => {
+      clock.advance(200)
+      manual.pump()
+    })
+    expect(result.current.position).toEqual({ measureNumber: 1, beat: 1, beatsPerMeasure: 4 })
+
+    act(() => result.current.playLoop(range))
+
+    // Kills the mutant that sets the loop and plays without seeking (the
+    // roadmap 2.11a defect): position would stay at measure 1 instead of
+    // jumping into measure 2.
+    expect(result.current.position).toEqual({ measureNumber: 2, beat: 1, beatsPerMeasure: 4 })
+    expect(result.current.phase).toBe('playing')
+
+    act(() => {
+      clock.advance(50)
+      manual.pump()
+    })
+    // The very first note heard after playLoop is the loop's own first note,
+    // not a leftover from wherever the playhead used to be.
+    expect(audio.playedNotes.at(-1)).toBe(67) // G4
+  })
+
+  it('playLoop(range) returns the anchor the transport actually used, under FakeClock', () => {
+    const clock = new FakeClock()
+    const range = measureRange(C_MAJOR_SCALE_RH, 1, 1)
+    const { result } = renderHook((p: PracticeEngineOptions) => usePracticeEngine(p), {
+      initialProps: makeOptions(clock),
+    })
+    clock.advance(9_999)
+
+    let anchor: number | undefined
+    act(() => {
+      anchor = result.current.playLoop(range)
+    })
+
+    // The loop starts at measure 2 (tick 1920, 2000ms at 120bpm), so the
+    // anchor is the instant tick 0 WOULD have sounded — 2000ms before this
+    // seeked-and-playing position, not `clock.now()` itself. Kills the
+    // mutant that returns `clock.now()` verbatim (a subtly wrong anchor:
+    // every event in the run would be timed 2000ms early).
+    expect(anchor).toBe(9_999 - 2_000)
+  })
+
   it('moves the score cursor imperatively through the ref every frame, not through props or state', () => {
     const clock = new FakeClock()
     const audio = new RecordingAudioOutput(clock)

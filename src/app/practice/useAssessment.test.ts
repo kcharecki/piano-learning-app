@@ -58,7 +58,8 @@ function makeOptions(
     date: clock,
     phase: 'stopped',
     play: vi.fn(),
-    stop: vi.fn(),
+    rewindToTop: vi.fn(),
+    playLoop: vi.fn(),
     setTempoScale: vi.fn(),
     setWaitModeEnabled: vi.fn(),
     setLoop: vi.fn(),
@@ -111,7 +112,7 @@ describe('useAssessment — start()', () => {
     expect(options.play).toHaveBeenCalledTimes(1)
   })
 
-  it('rewinds an already-playing transport with stop() before play(), producing the same result as starting from stopped', () => {
+  it('rewinds an already-playing transport with rewindToTop() before play(), producing the same result as starting from stopped', () => {
     // A fresh reference run, started the ordinary way (phase already 'stopped').
     const referenceMidi = new FakeMidiInput()
     const reference = setup(FLAWLESS_SCORE, { midiInput: referenceMidi })
@@ -132,17 +133,17 @@ describe('useAssessment — start()', () => {
 
     act(() => midPlayback.result.current.start())
 
-    // Kills the mutant that drops the `stop()` call, or that calls it after
-    // `play()` instead of before.
-    expect(midPlayback.options.stop).toHaveBeenCalledTimes(1)
-    const stopOrder = vi.mocked(midPlayback.options.stop).mock.invocationCallOrder[0]
+    // Kills the mutant that drops the `rewindToTop()` call, or that calls it
+    // after `play()` instead of before.
+    expect(midPlayback.options.rewindToTop).toHaveBeenCalledTimes(1)
+    const stopOrder = vi.mocked(midPlayback.options.rewindToTop).mock.invocationCallOrder[0]
     const playOrder = vi.mocked(midPlayback.options.play).mock.invocationCallOrder[0]
     expect(stopOrder).toBeDefined()
     expect(playOrder).toBeDefined()
     expect(stopOrder as number).toBeLessThan(playOrder as number)
 
-    // React 18 batches `start()`'s own `stop()` + `play()` into a single
-    // commit, so the phase prop goes 'playing' -> 'playing' with no
+    // React 18 batches `start()`'s own `rewindToTop()` + `play()` into a
+    // single commit, so the phase prop goes 'playing' -> 'playing' with no
     // intervening 'stopped' commit — this is the only sequence real batching
     // can produce (see the module comment's "Detecting the run's end").
     midPlayback.rerender(withPhase(midPlayback.options, 'playing'))
@@ -151,11 +152,15 @@ describe('useAssessment — start()', () => {
     act(() => midPlaybackMidi.emit({ type: 'noteOn', note: midi(64), velocity: 80, time: millis(1000) }))
     midPlayback.rerender(withPhase(midPlayback.options, 'stopped'))
 
-    // NOTE: this does NOT prove the anchor is taken at the right instant —
-    // `FakeClock` never advances in this file, so `anchorMs` is 0 in both
-    // runs regardless of whether it is captured before or after `play()`.
-    // It only proves the run still finalizes into a correct result after the
-    // extra `stop()` call, i.e. that the note events line up the same way.
+    // NOTE: this does NOT prove the anchor is taken from `play()`'s return
+    // value rather than a guessed `clock.now()` — `play` here is the default
+    // mock (`vi.fn()`, returns `undefined`), so `start()` falls back to
+    // `clock.now()`, and `FakeClock` never advances in this file, so
+    // `anchorMs` is 0 in both runs either way. It only proves the run still
+    // finalizes into a correct result after the extra `rewindToTop()` call,
+    // i.e. that the note events line up the same way. The dedicated anchor
+    // test below ("uses the anchor play() returned...") is what actually
+    // exercises `play()`'s return value.
     expect(midPlayback.result.current.result).toEqual(expected)
   })
 })
@@ -267,11 +272,19 @@ describe('useAssessment — practiceLoop() (REQ-3.3.5, the one-click path)', () 
 
     act(() => result.current.practiceLoop(loop))
 
+    // `setLoop` on the store must STILL be called — the Loop Range control
+    // reads the store, not the transport (see e2e/assessment.spec.ts) — in
+    // addition to, not instead of, the new imperative `playLoop`.
     expect(options.setLoop).toHaveBeenLastCalledWith(measureRange(TWO_MEASURE_SCORE, 0, 1))
     expect(options.setTempoScale).toHaveBeenLastCalledWith(suggestedTempoScale(finalResult))
     // A slower loop for THIS run must not be the "no change" scale a flawless run gets.
     expect(suggestedTempoScale(finalResult)).toBeLessThan(1)
-    expect(options.play).toHaveBeenCalledTimes(2) // once for start(), once for the loop
+    expect(options.play).toHaveBeenCalledTimes(1) // only from start()
+    // The one-click path plays through the atomic `playLoop` primitive, not
+    // the plain `play()` — that is what actually seeks into the loop
+    // (REQ-3.3.5); kills the mutant that calls `play()` here instead.
+    expect(options.playLoop).toHaveBeenCalledTimes(1)
+    expect(options.playLoop).toHaveBeenLastCalledWith(measureRange(TWO_MEASURE_SCORE, 0, 1))
   })
 
   it('is a no-op before any assessment has completed', () => {
@@ -284,5 +297,51 @@ describe('useAssessment — practiceLoop() (REQ-3.3.5, the one-click path)', () 
     expect(options.setLoop).not.toHaveBeenCalled()
     expect(options.setTempoScale).not.toHaveBeenCalled()
     expect(options.play).not.toHaveBeenCalled()
+    expect(options.playLoop).not.toHaveBeenCalled()
+  })
+})
+
+describe('useAssessment — start() uses the anchor play() returned, not its own clock.now()', () => {
+  it('scores a note played exactly on time as correct, even though clock.now() moves between the true anchor and when start() returns', () => {
+    // `play()` is stubbed to behave like the real `usePracticeEngine.play()`
+    // firing at the CURRENT instant (the true anchor, captured first) and then
+    // — standing in for whatever runs between the transport re-anchoring and
+    // `start()`'s own trailing statements returning control, e.g. the commit
+    // usePracticeEngine.play() doesn't actually wait on but a real scheduler
+    // might — the clock moves on another 300ms before `start()` is done. Any
+    // code that reads `clock.now()` AFTER calling `play()`, instead of using
+    // the value `play()` itself returned, reads that later 300ms instant
+    // instead of the true anchor.
+    const clock = new FakeClock()
+    const midiInput = new FakeMidiInput()
+    const play = vi.fn(() => {
+      const trueAnchor = clock.now() // 0 — this is the instant tick 0 really anchored to
+      clock.advance(300) // time visibly moves on after the anchor was fixed
+      return trueAnchor
+    })
+    const { result, rerender, options } = setup(FLAWLESS_SCORE, { midiInput, clock, date: clock, play })
+
+    act(() => result.current.start())
+    rerender(withPhase(options, 'playing'))
+
+    // C4/D4/E4 are written at 0/500/1000ms. Timed against the TRUE anchor (0)
+    // they arrive exactly on the beat; timed against the wrong, later anchor
+    // (300, what a `clock.now()`-after-`play()` mutant would use) every one of
+    // them would look like it arrived 300ms EARLY.
+    act(() => midiInput.emit({ type: 'noteOn', note: midi(60), velocity: 80, time: millis(0) }))
+    act(() => midiInput.emit({ type: 'noteOn', note: midi(62), velocity: 80, time: millis(500) }))
+    act(() => midiInput.emit({ type: 'noteOn', note: midi(64), velocity: 80, time: millis(1000) }))
+    rerender(withPhase(options, 'stopped'))
+
+    // Kills the mutant that reads `optionsRef.current.clock.now()` instead of
+    // using `play()`'s return value (defect (b)): that mutant's anchorMs would
+    // be 300, not 0, so every note here would score 300ms early — well outside
+    // the matcher's tolerance — instead of `correct`.
+    expect(result.current.result?.counts).toEqual({
+      correct: 3,
+      wrongPitch: 0,
+      missed: 0,
+      extra: 0,
+    })
   })
 })
