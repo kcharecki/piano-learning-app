@@ -25,5 +25,17 @@
       "PowerShell(git log:*)",
       "PowerShell(git diff:*)"
     ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -Command \"if (git status --porcelain) { 'TREE DIRTY at session start. Recovery is protocol step 0, before any roadmap work: npm run verify; green -> commit leftovers in module-sized slices; red -> fixing it is the next task. See docs/efficiency-guide.md section 5.' }\""
+          }
+        ]
+      }
+    ]
   }
 }

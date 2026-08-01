@@ -6,27 +6,39 @@ Current state and next work item: **[ROADMAP.md](ROADMAP.md)** — this is the s
 
 ## The "Proceed with next steps" protocol
 
-When the user says *"proceed with next steps"* (or anything equivalent), do this, in order,
-without asking for confirmation:
+When the user says *"proceed with next steps"* (or equivalent), do this without asking:
 
-1. **Orient** — read `ROADMAP.md`. The first task that is not `[x]` is the next task.
-   Run `git log --oneline -8` to see where the last session stopped.
-2. **Verify the base is green** — `npm run verify`. If it fails, fixing that is the next task,
-   ahead of anything in the roadmap.
-3. **Implement** the next unchecked task (or the next 2–4 if they are small and independent —
-   fan them out to parallel subagents; see *Delegation* below).
-4. **Test** — every task ships with tests in the same commit. See *Testing rules*.
-5. **Review** — run `/code-review`-style self review on the diff (or spawn `cavecrew-reviewer`).
-   Fix what it finds before committing.
-6. **Checkpoint** — `npm run checkpoint` (runs verify, then commits with a conventional message).
-   Then tick the task in `ROADMAP.md` and commit that too.
-7. **Report** — one short paragraph: what landed, test counts/timing, what is next.
+0. **Recover.** `git status`. Tree dirty → `npm run verify`; green → commit the leftovers in
+   module-sized slices now; red → fixing it is the next task. Never start new work on a dirty
+   tree. A killed workflow's results live in its journal — integrate them, never re-run them.
+1. **Orient.** Read `ROADMAP.md` — the first unchecked task is next. `git log --oneline -8`.
+2. **Contracts first.** Before spawning anything, write each module's interface (types +
+   signatures) and requirement IDs. Builders code to the contract; only the main thread changes it.
+3. **Round = up to 6 modules, one pipelined chain per module** — build → review → fix, no
+   cross-module barrier, no standalone review/fix/re-review workflows afterwards:
+   - BUILD (Sonnet): module + co-located tests, from the pasted brief
+     (`docs/efficiency-guide.md` Appendix A). Never tell an agent to read CLAUDE.md.
+   - REVIEW (Opus, high effort): adversarial, per module; checks reachability first
+     ("what non-test code executes this?"), then correctness, then test strength.
+   - FIX (Sonnet, low effort): applies findings inside the same chain.
+   - Every agent prompt lists the exact files it owns; no two agents share a file.
+   - Agents run only `npx vitest run <their dir>`, never the full suite.
+4. **Integrate + commit per module.** Main thread wires shared files (Shell, routes, stores)
+   itself, serially; runs `npm run verify`; commits that module. One commit per module, as it
+   lands — never hold a round uncommitted.
+5. **Prove the feature.** `npm run verify:full`. Then run the app and perform the task's proof
+   action — the UI path that fails if the feature is inert — and capture evidence (screenshot,
+   console, or a driven e2e asserting behaviour, not presence). Green tests alone are not done.
+6. **Tick + report.** Tick the task in `ROADMAP.md`, commit, report one paragraph with the
+   evidence and what is next.
 
-Loop steps 3–6 while there is budget. Never leave the tree red at the end of a turn.
+Loop 2–6 while budget remains. Standing rules:
+- Main thread writes only integration glue (< ~20 lines per file); anything larger is delegated.
+- Every new roadmap task states its proof action when written, not when tested.
+- Meta pass: main thread, ≤ 5 min; its output must be enforcement (script/lint/hook/one-line
+  protocol edit), or it is not recorded.
 
-**Checkpoint before you fan out.** Commit the green tree *before* launching a round of parallel
-agents, not after. A round that dies half-finished (session limit, crash) otherwise leaves edited
-files with no clean state to return to — this has already happened once.
+Full rationale, telemetry, and agent prompt templates: [docs/efficiency-guide.md](docs/efficiency-guide.md).
 
 ## Leave it better (the meta pass)
 
@@ -36,7 +48,8 @@ from silting up.
 
 - **Delete dead code.** Exports nobody imports, options nobody passes, error branches for inputs that
   cannot occur, abstractions with exactly one implementation and no second one coming. An export used
-  only by its own test is dead. Run `npx knip` if configured; otherwise grep before you assume.
+  only by its own test is dead. Run `npm run knip:prod:all` — it lists production-unreachable files
+  and test-only exports; each is either wired, deleted, or consciously kept with a named future task.
 - **Compact the docs.** `CLAUDE.md` is a contract, not a wiki — keep it under ~150 lines and make
   every line true. If a rule is not being followed, either enforce it in tooling or delete it. Move
   detail to `docs/` only if something actually reads it. Prune `ARCHITECTURE.md` claims that the code
@@ -112,8 +125,10 @@ React, or `@adapters/*`. If you feel the need to break that, you are putting log
 
 Fan independent work out to parallel subagents and keep the main thread for integration:
 - Separate `src/core/<module>/` directories are independent — one agent each, in parallel.
-- Give each agent: the requirement IDs it must satisfy, the file paths it owns, and the rule that
-  it must write tests and leave `npm test` green.
+- Build every agent prompt from the templates in `docs/efficiency-guide.md` (Appendices A–C):
+  pasted rules digest, requirement IDs, exact owned file paths, frozen contract. Never tell an
+  agent to read CLAUDE.md or to explore.
+- Agents run only their scoped tests (`npx vitest run <their dir>`), never the full suite.
 - Never let two agents write the same file in one round.
 
 ## Commands
