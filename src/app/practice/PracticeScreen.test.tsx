@@ -7,6 +7,7 @@
  */
 import { useScoreStore } from '@app/state/scoreStore.ts'
 import { C_MAJOR_SCALE_RH } from '@core/notation/fixtures.ts'
+import { at } from '@core/shared/invariant.ts'
 import { midi, millis } from '@core/shared/units.ts'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -133,5 +134,81 @@ describe('PracticeScreen', () => {
 
     expect(screen.getByTestId('feedback-correct')).toHaveTextContent('0')
     expect(screen.getByTestId('feedback-accuracy')).toHaveTextContent('100%')
+  })
+
+  it('runs an assessment end to end and shows a clean review on a flawless pass (roadmap 2.11)', async () => {
+    loadSampleScore()
+    const user = userEvent.setup()
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const midiInput = new FakeMidiInput()
+    const manual = manualDriver()
+
+    render(
+      <PracticeScreen
+        clock={clock}
+        date={clock}
+        audioOutput={audio}
+        midiInput={midiInput}
+        frameDriver={manual.driver}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Start assessment' }))
+    expect(screen.getByText(/assessment running/i)).toBeInTheDocument()
+    act(() => manual.pump())
+
+    // C_MAJOR_SCALE_RH: 8 quarter notes at 120bpm, 500ms apart, midi 60..72.
+    const scaleMidis = [60, 62, 64, 65, 67, 69, 71, 72]
+    for (let i = 0; i < scaleMidis.length; i++) {
+      if (i > 0) act(() => clock.advance(500))
+      act(() =>
+        midiInput.emit({
+          type: 'noteOn',
+          note: midi(at(scaleMidis, i)),
+          velocity: 80,
+          time: millis(clock.now()),
+        }),
+      )
+      act(() => manual.pump())
+    }
+    // Past the end of the piece (measure 2 ends at 4000ms) — the transport
+    // plays off the end, which is what finishes the assessment run.
+    act(() => clock.advance(1000))
+    act(() => manual.pump())
+
+    expect(screen.getByTestId('assessment-accuracy')).toHaveTextContent('100%')
+    expect(screen.getByTestId('assessment-timing')).toHaveTextContent('100%')
+    expect(screen.getByText(/clean run/i)).toBeInTheDocument()
+  })
+
+  it('an assessment run cannot be paused or stopped once started (REQ-3.3.4)', async () => {
+    loadSampleScore()
+    const user = userEvent.setup()
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const midiInput = new FakeMidiInput()
+    const manual = manualDriver()
+
+    render(
+      <PracticeScreen
+        clock={clock}
+        date={clock}
+        audioOutput={audio}
+        midiInput={midiInput}
+        frameDriver={manual.driver}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Start assessment' }))
+    act(() => manual.pump())
+
+    await user.click(screen.getByRole('button', { name: 'Stop' }))
+    await user.click(screen.getByRole('button', { name: 'Pause' }))
+
+    // Still running: neither click actually stopped or paused the transport,
+    // so the Play button — disabled only while playing/waiting — stays disabled.
+    expect(screen.getByText(/assessment running/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Play' })).toBeDisabled()
   })
 })

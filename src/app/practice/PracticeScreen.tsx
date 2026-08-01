@@ -11,17 +11,20 @@
  */
 import { ScoreViewer, type ScoreViewerHandle } from '@app/score/ScoreViewer.tsx'
 import { useScoreStore } from '@app/state/scoreStore.ts'
-import type { AudioOutput, Clock, MidiInput } from '@core/ports/index.ts'
+import type { AudioOutput, Clock, DateSource, MidiInput } from '@core/ports/index.ts'
 import type { Subdivision } from '@core/timing/metronome.ts'
 import { useEffect, useRef, useState } from 'react'
+import { AssessmentPanel } from './AssessmentPanel.tsx'
 import { createBrowserClock } from './clock.ts'
 import { createDefaultAudioOutput } from './createDefaultAudioOutput.ts'
 import { HandMuteControl } from './HandMuteControl.tsx'
 import { LoopRangeControl } from './LoopRangeControl.tsx'
 import { MetronomeControl } from './MetronomeControl.tsx'
 import { MidiDeviceStatus } from './MidiDeviceStatus.tsx'
+import { ReviewOverlay } from './ReviewOverlay.tsx'
 import { TempoControl } from './TempoControl.tsx'
 import { TransportControls } from './TransportControls.tsx'
+import { useAssessment } from './useAssessment.ts'
 import { useMidiConnection, type ConnectMidi } from './useMidiConnection.ts'
 import { useNoteFeedback } from './useNoteFeedback.ts'
 import { usePracticeEngine } from './usePracticeEngine.ts'
@@ -31,6 +34,7 @@ import { WaitModeControl } from './WaitModeControl.tsx'
 export type PracticeScreenProps = {
   /** Injection seams for tests; each defaults to the real browser adapter. */
   readonly clock?: Clock
+  readonly date?: DateSource
   readonly audioOutput?: AudioOutput
   readonly midiInput?: MidiInput
   readonly connectMidi?: ConnectMidi
@@ -48,6 +52,7 @@ export function PracticeScreen(props: PracticeScreenProps) {
   const [subdivision, setSubdivision] = useState<Subdivision>(1)
   const [waitModeEnabled, setWaitModeEnabled] = useState(false)
   const [clock] = useState<Clock>(() => props.clock ?? createBrowserClock())
+  const [date] = useState<DateSource>(() => props.date ?? { epochMillis: () => Date.now() })
   const [audioOutput, setAudioOutput] = useState<AudioOutput | undefined>(props.audioOutput)
 
   const midi = useMidiConnection(
@@ -99,6 +104,24 @@ export function PracticeScreen(props: PracticeScreenProps) {
     engine.play()
   }
 
+  // The end-of-run story (roadmap 2.11, REQ-3.3.4/3.3.5): a fixed-tempo,
+  // no-wait-mode pass, reduced once it finishes into the review screen's
+  // problem measures and one-click loops. `handlePlay` is reused so an
+  // assessment run gets the same lazy audio-output setup ordinary play does.
+  const assessment = useAssessment({
+    score: loaded?.score,
+    activeHands: settings.activeHands,
+    midiInput: midi.input,
+    clock,
+    date,
+    phase: engine.phase,
+    play: handlePlay,
+    setTempoScale,
+    setWaitModeEnabled,
+    setLoop,
+  })
+  const assessmentRunning = assessment.phase === 'running'
+
   if (loaded === undefined) {
     return <p>Load a score on the Practice tab to start practising.</p>
   }
@@ -130,9 +153,23 @@ export function PracticeScreen(props: PracticeScreenProps) {
         phase={engine.phase}
         position={engine.position}
         onPlay={handlePlay}
-        onPause={engine.pause}
-        onStop={engine.stop}
+        // REQ-3.3.4: an assessment run cannot be paused or stopped once started.
+        onPause={assessmentRunning ? () => {} : engine.pause}
+        onStop={assessmentRunning ? () => {} : engine.stop}
       />
+      <AssessmentPanel
+        phase={assessment.phase}
+        result={assessment.result}
+        canStart
+        onStart={assessment.start}
+      />
+      {assessment.phase === 'complete' && (
+        <ReviewOverlay
+          problems={assessment.problems}
+          loops={assessment.loops}
+          onPracticeLoop={assessment.practiceLoop}
+        />
+      )}
       <TempoControl
         tempoScale={settings.tempoScale}
         onChange={setTempoScale}
