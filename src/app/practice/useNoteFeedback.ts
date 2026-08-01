@@ -50,11 +50,10 @@
  * A rebuilt matcher (new score, or the active hands change) has the same
  * problem in miniature and is handled the same way: clear, then start fresh.
  *
- * One known simplification: a loop that repeats a range in the MIDDLE of the
- * score makes every note before the loop's start report `missed` the instant
- * the matcher is reset and next advanced, because `NoteMatcher.reset()` has
- * no notion of "skip to here" — it always rewinds to the first expected note.
- * Teaching the matcher a partial start is out of scope for wiring REQ-3.3.2.
+ * A loop over a range in the MIDDLE of the score restarts the matcher AT the
+ * tick jumped to (roadmap 1.22): `reset(fromTick)` retires everything written
+ * before the loop start silently, so a wrap does not report every note in the
+ * bars ahead of the loop as `missed` in one batch.
  */
 import type { ScoreViewerHandle } from '@app/score/ScoreViewer.tsx'
 import type { Hand, Score } from '@core/notation/score.ts'
@@ -189,8 +188,10 @@ export function useNoteFeedback(options: NoteFeedbackOptions): NoteFeedback {
           const matcherMs = tickToMs(tempo, asTicks(tick))
           if (tick < lastTickRef.current) {
             // A backward jump: a loop wrap, or a future seek. The pass that
-            // was in progress is over — see the module comment.
-            matcher.reset()
+            // was in progress is over — see the module comment. Restarting AT
+            // the destination tick, not at bar one, is what stops a loop over
+            // bars 3-4 charging the learner for bars 1-2 on every wrap.
+            matcher.reset(asTicks(tick))
             scoreViewerRef.current?.clearNoteColors()
             setSummary(EMPTY_SUMMARY)
           } else {

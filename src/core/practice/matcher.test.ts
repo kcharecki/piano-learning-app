@@ -6,7 +6,7 @@ import {
   TIED_NOTES,
   TWO_HAND_CHORDS,
   type TestNote,
-} from '@core/notation/fixtures.ts'
+} from '@test/fixtures.ts'
 import type { Hand, Score } from '@core/notation/score.ts'
 import { InvariantError, at } from '@core/shared/invariant.ts'
 import {
@@ -16,8 +16,10 @@ import {
   WHOLE,
   midi as asMidi,
   millis as asMillis,
+  ticks as asTicks,
   type Midi,
   type Millis,
+  type Ticks,
 } from '@core/shared/units.ts'
 import { makeTempoMap, tickToMs, type TempoMap } from '@core/timing/tempo.ts'
 import {
@@ -743,6 +745,197 @@ describe('NoteMatcher — state, reset and held keys', () => {
   })
 })
 
+// ========================================================== reset(fromTick)
+
+/**
+ * Loop-wrap support (roadmap 1.22, REQ-3.3.2): `reset(fromTick)` must behave exactly like a fresh
+ * matcher constructed over a score that starts at `fromTick`, so a loop wrap never charges the
+ * learner for bars it just finished playing.
+ */
+describe('NoteMatcher — reset(fromTick), the loop-wrap rewind', () => {
+  // C4 D4 E4 F4 | G4 A4 B4 C5 at 120 bpm: ticks 0 480 960 1440 1920 2400 2880 3360,
+  // ms 0 500 1000 1500 2000 2500 3000 3500. fromTick = 1920 retires the first four notes.
+  const FROM_TICK = asTicks(4 * QUARTER)
+  const FROM_MS = 2000
+
+  it('reset() with no argument keeps its old meaning: back to bar one', () => {
+    const matcher = matcherFor(C_MAJOR_SCALE_RH)
+    press(matcher, 61, 0)
+    matcher.advanceTo(asMillis(10_000))
+    matcher.reset()
+    expect(matcher.pendingNotes()).toHaveLength(8)
+    expect(matcher.nextPending()?.midi).toBe(60)
+    expect(matcher.summary()).toEqual({
+      correct: 0,
+      wrongPitch: 0,
+      missed: 0,
+      extra: 0,
+      accuracy: 1,
+      meanAbsDeviationMs: 0,
+    })
+  })
+
+  it('clears every counter, verdict, held key and recent-press record like reset()', () => {
+    const matcher = matcherFor(C_MAJOR_SCALE_RH)
+    press(matcher, 60, 0) // correct, and held
+    press(matcher, 66, 500) // wrongPitch against D4
+    matcher.reset(FROM_TICK)
+    expect(matcher.results).toHaveLength(0)
+    expect(matcher.heldNotes).toHaveLength(0)
+    expect(matcher.scanSteps).toBe(0)
+    expect(matcher.summary()).toEqual({
+      correct: 0,
+      wrongPitch: 0,
+      missed: 0,
+      extra: 0,
+      accuracy: 1,
+      meanAbsDeviationMs: 0,
+    })
+
+    // The recent-press record is rebuilt too: a stale entry would let `wasJustPlayed`
+    // treat the second post-reset press as a stutter and swallow it silently, instead of
+    // scoring it `extra`. 67 is the first pending note at FROM_TICK.
+    const first = verdictOf(matcher, 67, FROM_MS)
+    expect(first.verdict).toBe('correct')
+    const second = verdictOf(matcher, 67, FROM_MS)
+    expect(second.verdict).toBe('extra')
+  })
+
+  it('retires notes before fromTick silently: never pending, never missed, however the clock moves', () => {
+    const matcher = matcherFor(C_MAJOR_SCALE_RH)
+    matcher.reset(FROM_TICK)
+    // The four retired notes (60 62 64 65) are gone from every query, up front...
+    expect(matcher.pendingNotes().map((n) => n.midi)).toEqual([67, 69, 71, 72])
+    expect(matcher.nextPending()?.midi).toBe(67)
+    // ...and pressing one of them lands nowhere — it is not expected, so it is an extra.
+    // (Played well before the next pending note's window, so it cannot be mistaken for a
+    // wrongPitch charge against that note either.)
+    expect(verdictOf(matcher, 60, 100).verdict).toBe('extra')
+    // ...and even flooding the clock forward never produces a `missed` for them.
+    matcher.advanceTo(asMillis(FROM_MS + 10_000))
+    expect(matcher.results.some((r) => r.expected !== undefined && r.expected.midi < 67)).toBe(
+      false,
+    )
+    expect(matcher.summary().missed).toBe(4) // only 67 69 71 72, dropped since nothing played them
+    expect(matcher.pendingNotes()).toHaveLength(0)
+  })
+
+  it('leaves notes at or after fromTick fully pending: correct, wrongPitch and missed all still work', () => {
+    // correct
+    const correctMatcher = matcherFor(C_MAJOR_SCALE_RH)
+    correctMatcher.reset(FROM_TICK)
+    const hit = verdictOf(correctMatcher, 67, FROM_MS)
+    expect(hit.verdict).toBe('correct')
+    expect(hit.timing).toBe('onTime')
+    expect(hit.expected?.midi).toBe(67)
+
+    // wrongPitch, then corrected — same two-verdict shape as a fresh matcher
+    const fumbleMatcher = matcherFor(C_MAJOR_SCALE_RH)
+    fumbleMatcher.reset(FROM_TICK)
+    const fumble = verdictOf(fumbleMatcher, 66, FROM_MS)
+    expect(fumble.verdict).toBe('wrongPitch')
+    expect(fumble.expected?.midi).toBe(67)
+    const fixed = verdictOf(fumbleMatcher, 67, FROM_MS + 40)
+    expect(fixed.verdict).toBe('correct')
+    expect(fixed.expected?.id).toBe(fumble.expected?.id)
+
+    // missed
+    const missedMatcher = matcherFor(C_MAJOR_SCALE_RH)
+    missedMatcher.reset(FROM_TICK)
+    const produced = missedMatcher.advanceTo(asMillis(FROM_MS + 10_000))
+    expect(verdicts(produced)).toEqual(['missed', 'missed', 'missed', 'missed'])
+    expect(produced.map((r) => r.expected?.midi)).toEqual([67, 69, 71, 72])
+  })
+
+  it('skips muted notes before fromTick without losing the ones still ahead', () => {
+    // TWO_HAND_CHORDS, right hand only: bar 0 is a C major triad (48 52 55) at ms 0,
+    // bar 1 is F major (41 45 48) at ms 2000. fromTick lands on bar 1's start.
+    // Two independent matchers, so an out-of-order timestamp on one can't smuggle its
+    // clamped clock into the other's assertion.
+    const stillMuted = matcherFor(TWO_HAND_CHORDS, { hands: ['right'] })
+    stillMuted.reset(asTicks(WHOLE))
+    // Bar 1's triad (still ahead of the loop start) is genuinely muted: no verdict at all.
+    expect(press(stillMuted, 48, 2000)).toHaveLength(0)
+    expect(press(stillMuted, 41, 2000)).toHaveLength(0)
+
+    const retired = matcherFor(TWO_HAND_CHORDS, { hands: ['right'] })
+    retired.reset(asTicks(WHOLE))
+    // Bar 0's triad shares pitch 48 with bar 1's, but bar 0 was retired: at bar 0's own
+    // time it is no longer recognised as muted, so the press is an ordinary extra (there
+    // is no pending right-hand note anywhere near ms 10).
+    expect(verdictOf(retired, 48, 10).verdict).toBe('extra')
+  })
+
+  it('resets the internal clock: nothing at or after fromTick closes on the first advanceTo', () => {
+    const matcher = matcherFor(C_MAJOR_SCALE_RH)
+    matcher.reset(FROM_TICK)
+    // Landing exactly on the new first onset must not immediately close its own window.
+    expect(matcher.advanceTo(asMillis(FROM_MS))).toHaveLength(0)
+    expect(matcher.pendingNotes()).toHaveLength(4)
+  })
+
+  it('treats fromTick 0 exactly like reset() — nothing retires', () => {
+    const matcher = matcherFor(C_MAJOR_SCALE_RH)
+    press(matcher, 60, 0)
+    matcher.reset(asTicks(0))
+    expect(matcher.pendingNotes()).toHaveLength(8)
+    expect(matcher.nextPending()?.midi).toBe(60)
+  })
+
+  it('leaves nothing pending when fromTick is past the last note', () => {
+    const matcher = matcherFor(C_MAJOR_SCALE_RH)
+    matcher.reset(asTicks(100_000))
+    expect(matcher.nextPending()).toBeUndefined()
+    expect(matcher.pendingNotes()).toHaveLength(0)
+    expect(matcher.advanceTo(asMillis(200_000))).toHaveLength(0)
+    expect(matcher.summary()).toEqual({
+      correct: 0,
+      wrongPitch: 0,
+      missed: 0,
+      extra: 0,
+      accuracy: 1,
+      meanAbsDeviationMs: 0,
+    })
+  })
+
+  it('rejects a non-finite or negative fromTick as programmer error', () => {
+    const matcher = matcherFor(C_MAJOR_SCALE_RH)
+    expect(() => matcher.reset(Number.NaN as unknown as Ticks)).toThrow(InvariantError)
+    expect(() => matcher.reset(Number.POSITIVE_INFINITY as unknown as Ticks)).toThrow(
+      InvariantError,
+    )
+    expect(() => matcher.reset(asTicks(-1))).toThrow(InvariantError)
+  })
+
+  it('zeroes scanSteps and skips at a cost proportional to what was retired, not the whole score', () => {
+    const COUNT = 5000
+    const pitches = [60, 62, 64, 65, 67, 69, 71, 72]
+    const notes: TestNote[] = Array.from({ length: COUNT }, (_, i) => ({
+      midi: at(pitches, i % pitches.length),
+      startTick: i * 120,
+      durationTicks: 120,
+    }))
+    const score = buildTestScore(notes, { id: 'reset-cost-model' })
+    const tempo = makeTempoMap(score.tempos)
+    const matcher = new NoteMatcher(score, tempo)
+    for (const note of score.notes) matcher.noteOn(note.midi, tickToMs(tempo, note.startTick))
+    expect(matcher.scanSteps).toBeGreaterThan(0)
+
+    // Rewind to the halfway point: 2500 notes retire silently.
+    const halfway = asTicks(2500 * 120)
+    matcher.reset(halfway)
+    expect(matcher.scanSteps).toBe(0)
+    expect(matcher.pendingNotes().length).toBe(2500)
+
+    // Playing the remaining half costs the same per-event budget as a fresh matcher would —
+    // not inflated by the 2500 notes that were skipped over.
+    const remaining = score.notes.filter((n) => n.startTick >= halfway)
+    for (const note of remaining) matcher.noteOn(note.midi, tickToMs(tempo, note.startTick))
+    expect(matcher.summary()).toMatchObject({ correct: 2500, missed: 0, extra: 0, wrongPitch: 0 })
+    expect(matcher.scanSteps).toBeLessThan(8 * remaining.length)
+  })
+})
+
 // ============================================================= pending cursor
 
 describe('NoteMatcher — the pending cursor', () => {
@@ -977,6 +1170,58 @@ describe('NoteMatcher — properties', () => {
         expect(s.correct).toBe(results.filter((r) => r.verdict === 'correct').length)
         expect(s.accuracy).toBeCloseTo(s.correct / Math.max(1, results.length), 10)
       }),
+    )
+  })
+
+  it('reset(fromTick) then a perfect tail replay matches a fresh matcher over just that tail', () => {
+    const resultShape = (r: MatchResult) => ({
+      verdict: r.verdict,
+      playedMidi: r.playedMidi,
+      timing: r.timing,
+      deviationMs: r.deviationMs,
+      expectedStartTick: r.expected?.startTick,
+      expectedMidi: r.expected?.midi,
+    })
+    fc.assert(
+      fc.property(
+        scoreArb,
+        fc.integer({ min: 0, max: SLOTS * EIGHTH }),
+        fc.subarray(['left', 'right'] as Hand[], { minLength: 1 }),
+        (score, fromTickRaw, hands) => {
+          const fromTick = asTicks(fromTickRaw)
+          const tempo = makeTempoMap(score.tempos)
+
+          // Give the matcher real history — a perfect first pass — before rewinding it.
+          const matcher = new NoteMatcher(score, tempo, { hands })
+          replayExactly(score, tempo, matcher)
+          matcher.reset(fromTick)
+
+          const tail = score.notes.filter((n) => n.startTick >= fromTick)
+          for (const note of tail) matcher.noteOn(note.midi, tickToMs(tempo, note.startTick))
+          matcher.advanceTo(asMillis(tickToMs(tempo, asTicks(SLOTS * EIGHTH)) + 10_000))
+
+          const tailScore = buildTestScore(
+            tail.map(
+              (n): TestNote => ({
+                midi: n.midi,
+                startTick: n.startTick,
+                durationTicks: n.durationTicks,
+                hand: n.hand,
+              }),
+            ),
+            { id: 'tail-score' },
+          )
+          const tailTempo = makeTempoMap(tailScore.tempos)
+          const freshMatcher = new NoteMatcher(tailScore, tailTempo, { hands })
+          replayExactly(tailScore, tailTempo, freshMatcher)
+
+          // Same verdict stream and summary, modulo which ScoreNote object each verdict names.
+          expect(matcher.results.map(resultShape)).toEqual(freshMatcher.results.map(resultShape))
+          expect(matcher.summary()).toEqual(freshMatcher.summary())
+          expect(matcher.results.some((r) => r.verdict === 'missed')).toBe(false)
+          expect(matcher.pendingNotes()).toHaveLength(0)
+        },
+      ),
     )
   })
 })

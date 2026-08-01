@@ -15,6 +15,7 @@
  */
 import type { ScoreViewerHandle } from '@app/score/ScoreViewer.tsx'
 import { makeScore, type Score } from '@core/notation/score.ts'
+import { at } from '@core/shared/invariant.ts'
 import { midi, millis } from '@core/shared/units.ts'
 import { act, renderHook } from '@testing-library/react'
 import { FakeClock, FakeMidiInput } from '@test/fakes.ts'
@@ -171,6 +172,30 @@ describe('useNoteFeedback', () => {
     // C4 is matchable again after the wrap.
     act(() => midiInput.emit({ type: 'noteOn', note: midi(60), velocity: 80, time: millis(0) }))
     expect(result.current.summary.correct).toBe(1)
+  })
+
+  it('a wrap into a mid-score loop does not report the notes before the loop start as missed', () => {
+    // roadmap 1.22. Looping bar-half two (tick 480 onwards): the wrap restarts
+    // the matcher AT tick 480, so C4 at tick 0 is retired silently. Before
+    // `reset(fromTick)` existed this rewound to bar one and the very next
+    // cursor move reported EVERY earlier note as missed, once per wrap.
+    const { result, score, scoreViewerRef } = setup()
+    const [c4, d4] = [at(score?.notes ?? [], 0), at(score?.notes ?? [], 1)]
+
+    act(() => result.current.cursorRef.current?.moveCursorTo(0, 480))
+    act(() => result.current.cursorRef.current?.moveCursorTo(0, 960))
+    // The transport wrapped back to the loop start — a backward jump.
+    act(() => result.current.cursorRef.current?.moveCursorTo(0, 480))
+    expect(result.current.summary.missed).toBe(0)
+    scoreViewerRef.current.setNoteColor.mockClear()
+
+    // Play nothing and let the loop run to its end: only D4, inside the loop,
+    // can be missed. C4 lies before the loop start and is no longer expected.
+    act(() => result.current.cursorRef.current?.moveCursorTo(0, 960))
+
+    expect(result.current.summary.missed).toBe(1)
+    expect(scoreViewerRef.current.setNoteColor).toHaveBeenCalledWith(d4.id, MISSED_COLOR)
+    expect(scoreViewerRef.current.setNoteColor).not.toHaveBeenCalledWith(c4.id, MISSED_COLOR)
   })
 
   it('does not judge a MIDI press before the cursor has advanced even once', () => {

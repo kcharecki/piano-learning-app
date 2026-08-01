@@ -67,7 +67,13 @@
  */
 import type { Hand, Score, ScoreNote } from '@core/notation/score.ts'
 import { at, invariant } from '@core/shared/invariant.ts'
-import { isValidMidi, millis as asMillis, type Midi, type Millis } from '@core/shared/units.ts'
+import {
+  isValidMidi,
+  millis as asMillis,
+  type Midi,
+  type Millis,
+  type Ticks,
+} from '@core/shared/units.ts'
 import { tickToMs, type TempoMap } from '@core/timing/tempo.ts'
 
 export type NoteVerdict = 'correct' | 'wrongPitch' | 'missed' | 'extra'
@@ -170,6 +176,7 @@ function buildExpected(notes: readonly ScoreNote[], tempo: TempoMap): readonly E
 }
 
 export class NoteMatcher {
+  private readonly tempo: TempoMap
   private readonly tolerance: number
   private readonly onTime: number
   private readonly chordWindow: number
@@ -198,6 +205,7 @@ export class NoteMatcher {
   private steps = 0
 
   constructor(score: Score, tempo: TempoMap, settings: MatcherSettings = {}) {
+    this.tempo = tempo
     this.tolerance = requireNonNegative(
       settings.toleranceMs ?? MATCHER_DEFAULTS.toleranceMs,
       'toleranceMs',
@@ -314,8 +322,19 @@ export class NoteMatcher {
     }
   }
 
-  /** Back to bar one: every note pending again, every counter zero. */
-  reset(): void {
+  /**
+   * Rewind. With no argument, back to bar one. With `fromTick`, the matcher restarts as if the
+   * performance began there: expected notes written before it retire silently, so a loop wrap does
+   * not charge the learner for everything before the loop start.
+   */
+  reset(fromTick?: Ticks): void {
+    if (fromTick !== undefined) {
+      invariant(
+        Number.isFinite(fromTick) && fromTick >= 0,
+        `reset: fromTick must be a finite tick >= 0, got ${fromTick}`,
+      )
+    }
+
     this.decided.fill(false)
     this.charged.fill(false)
     this.out.length = 0
@@ -332,6 +351,22 @@ export class NoteMatcher {
     this.deviationSum = 0
     this.deviationCount = 0
     this.steps = 0
+
+    if (fromTick === undefined) return
+    // Retire everything strictly before `fromTick`, silently: no `missed` verdict, no trace in
+    // `results`. A chord's members share one `startTick`, so a chord is never split by this — the
+    // threshold either clears the whole group or none of it. `lo`/`mutedLo` move forward only, so
+    // the skip costs exactly the number of retired notes, never a rescan of the score.
+    const thresholdMs = tickToMs(this.tempo, fromTick)
+    while (this.lo < this.expected.length && at(this.expected, this.lo).ms < thresholdMs) {
+      // defensive: no reader can observe this — every reader starts scanning from `this.lo`,
+      // which this loop is about to advance past index `this.lo` anyway.
+      this.decided[this.lo] = true
+      this.lo += 1
+    }
+    while (this.mutedLo < this.muted.length && at(this.muted, this.mutedLo).ms < thresholdMs) {
+      this.mutedLo += 1
+    }
   }
 
   // ---------------------------------------------------------------- internals
