@@ -35,15 +35,16 @@
  * ## Detecting the run's end
  *
  * The transport has no "I reached the end" callback reachable from here — only
- * `usePracticeEngine`'s `phase`. A run in progress can only reach `'stopped'`
- * by playing off the end of the score (the transport's own `end` event, which
- * is what flips `runState` to `'stopped'` — see `transport.ts`), because
- * `start()` clears any loop and the practice screen does not offer Pause/Stop
- * while an assessment is running (REQ-3.3.4's "no stopping"). So a
- * `phase === 'stopped'` transition while a run is in flight IS the run
- * finishing; `finalizeRun` closes every still-open matcher window (a trailing
- * note nobody pressed must count as `missed`, not vanish) and reduces the
- * result.
+ * `usePracticeEngine`'s `phase`. Rather than treat any `'stopped'` sighting as
+ * "the run finished" (a `'stopped'` phase can also just mean "hasn't started
+ * playing yet" — e.g. `start()`'s own `stop()` rewind, below), each `Run`
+ * tracks whether it has ever actually been observed `'playing'` or
+ * `'waiting'`. Only a `'stopped'` transition AFTER that has happened counts as
+ * the run finishing (in practice: the transport playing off the end of the
+ * score, since `start()` clears any loop and the practice screen offers no
+ * Pause/Stop while an assessment is running — REQ-3.3.4's "no stopping").
+ * `finalizeRun` then closes every still-open matcher window (a trailing note
+ * nobody pressed must count as `missed`, not vanish) and reduces the result.
  */
 import type { Hand, Score } from '@core/notation/score.ts'
 import { measureRange, scoreDurationTicks } from '@core/notation/score.ts'
@@ -72,8 +73,10 @@ export type UseAssessmentOptions = {
   readonly date: DateSource
   /** `usePracticeEngine`'s `phase` — watched to detect the run reaching the end. */
   readonly phase: TransportState
-  /** Starts the transport from the top; a fresh `play()` from `'stopped'` always is. */
+  /** Starts the transport; `start()` rewinds with `stop()` first so this always starts at the top. */
   readonly play: () => void
+  /** Rewinds the transport to the top. Called by `start()` before the run is armed. */
+  readonly stop: () => void
   readonly setTempoScale: (scale: number) => void
   readonly setWaitModeEnabled: (enabled: boolean) => void
   readonly setLoop: (loop: LoopRange | undefined) => void
@@ -108,6 +111,11 @@ export function useAssessment(options: UseAssessmentOptions): UseAssessment {
   const [result, setResult] = useState<AssessmentResult | undefined>(undefined)
   const [assessedScore, setAssessedScore] = useState<Score | undefined>(undefined)
   const runRef = useRef<Run | undefined>(undefined)
+  // Armed the instant a run is created (see start()) — kept as its own ref,
+  // not a mutated field on `Run`, so the run's own type can stay entirely
+  // `readonly`. See "Detecting the run's end" in the module comment for why
+  // this needs to be armed at all rather than just checking `phase === 'stopped'`.
+  const sawPlayingRef = useRef(false)
   const optionsRef = useRef(options)
   optionsRef.current = options
 
@@ -116,6 +124,7 @@ export function useAssessment(options: UseAssessmentOptions): UseAssessment {
   // one on screen.
   useEffect(() => {
     runRef.current = undefined
+    sawPlayingRef.current = false
     setPhase('idle')
     setResult(undefined)
     setAssessedScore(undefined)
@@ -138,15 +147,27 @@ export function useAssessment(options: UseAssessmentOptions): UseAssessment {
       scoreId: run.score.id,
     })
     runRef.current = undefined
+    sawPlayingRef.current = false
     setResult(assessed)
     setAssessedScore(run.score)
     setPhase('complete')
   }
 
-  // The only reachable way `phase` becomes `'stopped'` while a run is in
-  // flight is the transport playing off the end — see the module comment.
+  // A run only finishes on a 'stopped' phase transition once it has been
+  // armed — see "Detecting the run's end" in the module comment. `sawPlaying`
+  // is armed synchronously in `start()`, at the moment the run is created,
+  // rather than inferred from an observed 'playing'/'waiting' phase: React 18
+  // batches `start()`'s own rewind `stop()` and the following `play()` into a
+  // single commit, so when `start()` is invoked while the transport is
+  // already playing the `phase` prop never visibly passes through 'stopped'
+  // at all (it commits 'playing' -> 'playing'), and an effect that waited to
+  // observe 'playing' before arming would never arm.
   useEffect(() => {
-    if (options.phase === 'stopped') finalizeRun()
+    const run = runRef.current
+    if (run === undefined) return
+    if (options.phase === 'stopped' && sawPlayingRef.current) {
+      finalizeRun()
+    }
   }, [options.phase])
 
   // Feed the assessment's own matcher, independent of useNoteFeedback's.
@@ -164,6 +185,11 @@ export function useAssessment(options: UseAssessmentOptions): UseAssessment {
   function start(): void {
     const score = optionsRef.current.score
     if (score === undefined || runRef.current !== undefined) return
+    // Rewind to the top BEFORE arming the run: `Transport.play()` on an
+    // already-playing transport does not rewind, so a run started mid-playback
+    // would otherwise anchor tick 0 to "now" while the transport sits wherever
+    // the playhead already was (see the module comment).
+    optionsRef.current.stop()
     const tempo = makeTempoMap(score.tempos)
     const matcher = new NoteMatcher(score, tempo, { hands: optionsRef.current.activeHands })
     runRef.current = {
@@ -173,6 +199,11 @@ export function useAssessment(options: UseAssessmentOptions): UseAssessment {
       tempoBpm: bpmAtTick(tempo, asTicks(0)),
       anchorMs: optionsRef.current.clock.now(),
     }
+    // Armed here, not inferred from a later 'playing' sighting — see the
+    // effect above. The rewind `stop()` just above can never itself be
+    // mistaken for the run finishing because it runs before this line, while
+    // the flag is still `false`.
+    sawPlayingRef.current = true
     setResult(undefined)
     setAssessedScore(undefined)
     setPhase('running')

@@ -123,6 +123,7 @@ export function PracticeScreen(props: PracticeScreenProps) {
     date,
     phase: engine.phase,
     play: handlePlay,
+    stop: engine.stop,
     setTempoScale,
     setWaitModeEnabled,
     setLoop,

@@ -58,6 +58,7 @@ function makeOptions(
     date: clock,
     phase: 'stopped',
     play: vi.fn(),
+    stop: vi.fn(),
     setTempoScale: vi.fn(),
     setWaitModeEnabled: vi.fn(),
     setLoop: vi.fn(),
@@ -109,7 +110,65 @@ describe('useAssessment — start()', () => {
 
     expect(options.play).toHaveBeenCalledTimes(1)
   })
+
+  it('rewinds an already-playing transport with stop() before play(), producing the same result as starting from stopped', () => {
+    // A fresh reference run, started the ordinary way (phase already 'stopped').
+    const referenceMidi = new FakeMidiInput()
+    const reference = setup(FLAWLESS_SCORE, { midiInput: referenceMidi })
+    act(() => reference.result.current.start())
+    reference.rerender(withPhase(reference.options, 'playing'))
+    act(() => referenceMidi.emit({ type: 'noteOn', note: midi(60), velocity: 80, time: millis(0) }))
+    act(() => referenceMidi.emit({ type: 'noteOn', note: midi(62), velocity: 80, time: millis(500) }))
+    act(() => referenceMidi.emit({ type: 'noteOn', note: midi(64), velocity: 80, time: millis(1000) }))
+    reference.rerender(withPhase(reference.options, 'stopped'))
+    const expected = reference.result.current.result
+    expect(expected).not.toBeUndefined()
+
+    // The "Start assessment" button is enabled while the transport is already
+    // playing (AssessmentPanel disables it only for phase === 'running') — so
+    // `start()` is invoked with the transport mid-piece, phase 'playing'.
+    const midPlaybackMidi = new FakeMidiInput()
+    const midPlayback = setup(FLAWLESS_SCORE, { midiInput: midPlaybackMidi, phase: 'playing' })
+
+    act(() => midPlayback.result.current.start())
+
+    // Kills the mutant that drops the `stop()` call, or that calls it after
+    // `play()` instead of before.
+    expect(midPlayback.options.stop).toHaveBeenCalledTimes(1)
+    const stopOrder = vi.mocked(midPlayback.options.stop).mock.invocationCallOrder[0]
+    const playOrder = vi.mocked(midPlayback.options.play).mock.invocationCallOrder[0]
+    expect(stopOrder).toBeDefined()
+    expect(playOrder).toBeDefined()
+    expect(stopOrder as number).toBeLessThan(playOrder as number)
+
+    // React 18 batches `start()`'s own `stop()` + `play()` into a single
+    // commit, so the phase prop goes 'playing' -> 'playing' with no
+    // intervening 'stopped' commit — this is the only sequence real batching
+    // can produce (see the module comment's "Detecting the run's end").
+    midPlayback.rerender(withPhase(midPlayback.options, 'playing'))
+    act(() => midPlaybackMidi.emit({ type: 'noteOn', note: midi(60), velocity: 80, time: millis(0) }))
+    act(() => midPlaybackMidi.emit({ type: 'noteOn', note: midi(62), velocity: 80, time: millis(500) }))
+    act(() => midPlaybackMidi.emit({ type: 'noteOn', note: midi(64), velocity: 80, time: millis(1000) }))
+    midPlayback.rerender(withPhase(midPlayback.options, 'stopped'))
+
+    // NOTE: this does NOT prove the anchor is taken at the right instant —
+    // `FakeClock` never advances in this file, so `anchorMs` is 0 in both
+    // runs regardless of whether it is captured before or after `play()`.
+    // It only proves the run still finalizes into a correct result after the
+    // extra `stop()` call, i.e. that the note events line up the same way.
+    expect(midPlayback.result.current.result).toEqual(expected)
+  })
 })
+
+// The old "a 'stopped' phase arriving before the run was ever seen playing
+// does not finalize" test is gone: it simulated `start()`'s own rewind
+// `stop()` committing as a separate, observable 'stopped' phase before
+// `play()` — a sequence React 18's batching of `start()`'s `stop()` + `play()`
+// into one commit never actually produces (see the "rewinds an already-
+// playing transport" test above, and the module comment's "Detecting the
+// run's end"). `sawPlaying` is now armed synchronously in `start()` itself
+// rather than inferred from a later 'playing' sighting, so there is no
+// window in which a genuine 'stopped' commit should be ignored.
 
 describe('useAssessment — reducing a finished run', () => {
   it('turns a flawless pass into a perfect AssessmentResult with no problem measures', () => {
@@ -123,7 +182,9 @@ describe('useAssessment — reducing a finished run', () => {
     act(() => midiInput.emit({ type: 'noteOn', note: midi(62), velocity: 80, time: millis(500) }))
     act(() => midiInput.emit({ type: 'noteOn', note: midi(64), velocity: 80, time: millis(1000) }))
 
-    // The transport plays off the end of the score — REQ-3.3.4's run finishing.
+    // The transport plays off the end of the score — REQ-3.3.4's run
+    // finishing. Kills the mutant that never arms `sawPlaying` in `start()`
+    // (which would make this normal path never finalize).
     rerender(withPhase(options, 'stopped'))
 
     expect(result.current.phase).toBe('complete')

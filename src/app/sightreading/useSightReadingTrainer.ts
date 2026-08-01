@@ -161,6 +161,7 @@ export function useSightReadingTrainer(
     date,
     phase: engine.phase,
     play: engine.play,
+    stop: engine.stop,
     // Sight reading fixes tempo, loop and wait mode — there is no slider for
     // any of them here, but `useAssessment.start()` sets all three anyway.
     setTempoScale: () => {},
