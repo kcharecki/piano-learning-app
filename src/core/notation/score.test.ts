@@ -30,7 +30,7 @@ import {
   TEMPO_CHANGE,
   TIED_NOTES,
   TWO_HAND_CHORDS,
-} from './fixtures.ts'
+} from '@test/fixtures.ts'
 import { at } from '@core/shared/invariant.ts'
 import { bpm, ticks, type Midi, type Ticks } from '@core/shared/units.ts'
 

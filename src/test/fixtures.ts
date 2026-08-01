@@ -18,7 +18,7 @@ import {
   type Score,
   type ScoreNoteInput,
   type TimeSignature,
-} from './score.ts'
+} from '@core/notation/score.ts'
 import { at } from '@core/shared/invariant.ts'
 import { EIGHTH, HALF, QUARTER, TICKS_PER_QUARTER, WHOLE, dotted } from '@core/shared/units.ts'
 

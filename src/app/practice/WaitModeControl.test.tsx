@@ -1,4 +1,4 @@
-import { C_MAJOR_SCALE_RH } from '@core/notation/fixtures.ts'
+import { C_MAJOR_SCALE_RH } from '@test/fixtures.ts'
 import { at } from '@core/shared/invariant.ts'
 import type { WaitState } from '@core/practice/waitmode.ts'
 import { cleanup, render, screen } from '@testing-library/react'

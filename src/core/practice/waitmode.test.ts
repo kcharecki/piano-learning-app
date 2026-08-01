@@ -5,7 +5,7 @@ import {
   C_MAJOR_SCALE_RH,
   TIED_NOTES,
   TWO_HAND_CHORDS,
-} from '@core/notation/fixtures.ts'
+} from '@test/fixtures.ts'
 import type { Hand, Score } from '@core/notation/score.ts'
 import { InvariantError, at } from '@core/shared/invariant.ts'
 import {

@@ -2,7 +2,7 @@
  * `NoteListPreview` (roadmap 2.12) renders real generated notes, honestly
  * labelled as not being engraved notation — see the module comment.
  */
-import { buildTestScore } from '@core/notation/fixtures.ts'
+import { buildTestScore } from '@test/fixtures.ts'
 import { QUARTER } from '@core/shared/units.ts'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'

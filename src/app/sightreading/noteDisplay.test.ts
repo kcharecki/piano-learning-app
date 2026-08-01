@@ -2,7 +2,7 @@
  * `noteDisplay.ts` (roadmap 2.12) — the pure grouping/label logic behind
  * `NoteListPreview.tsx`, testable without a DOM.
  */
-import { buildTestScore } from '@core/notation/fixtures.ts'
+import { buildTestScore } from '@test/fixtures.ts'
 import { EIGHTH, HALF, QUARTER, WHOLE } from '@core/shared/units.ts'
 import { describe, expect, it } from 'vitest'
 import { durationLabel, groupByHandAndMeasure, noteLabel } from './noteDisplay.ts'

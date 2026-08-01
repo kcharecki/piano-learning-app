@@ -1,6 +1,6 @@
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
-import { TEMPO_CHANGE } from '@core/notation/fixtures.ts'
+import { TEMPO_CHANGE } from '@test/fixtures.ts'
 import type { TimeSignature } from '@core/notation/score.ts'
 import { at, InvariantError } from '@core/shared/invariant.ts'
 import { bpm as asBpm, ticks as asTicks, type Bpm } from '@core/shared/units.ts'

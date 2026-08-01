@@ -22,7 +22,7 @@ import {
   TEMPO_CHANGE,
   TIED_NOTES,
   TWO_HAND_CHORDS,
-} from './fixtures.ts'
+} from '@test/fixtures.ts'
 import { at } from '@core/shared/invariant.ts'
 import { unwrap } from '@core/shared/result.ts'
 

@@ -9,7 +9,7 @@ import {
   TIED_NOTES,
   TWO_HAND_CHORDS,
   type TestNote,
-} from '@core/notation/fixtures.ts'
+} from '@test/fixtures.ts'
 import type { Score } from '@core/notation/score.ts'
 import type { Clock } from '@core/ports/index.ts'
 import { InvariantError } from '@core/shared/invariant.ts'

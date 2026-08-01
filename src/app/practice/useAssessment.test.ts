@@ -7,7 +7,7 @@
  * starting playback are all driven end to end here, the way
  * `usePracticeEngine`'s `phase` and a real `FakeMidiInput` would drive them.
  */
-import { buildTestScore } from '@core/notation/fixtures.ts'
+import { buildTestScore } from '@test/fixtures.ts'
 import { measureRange, type Score } from '@core/notation/score.ts'
 import { at } from '@core/shared/invariant.ts'
 import { midi, millis, QUARTER, WHOLE } from '@core/shared/units.ts'

@@ -7,7 +7,7 @@
  * `metronome.test.ts`) — this file only asserts the engine calls it correctly.
  */
 import type { ScoreViewerHandle } from '@app/score/ScoreViewer.tsx'
-import { C_MAJOR_SCALE_RH, TWO_HAND_CHORDS } from '@core/notation/fixtures.ts'
+import { C_MAJOR_SCALE_RH, TWO_HAND_CHORDS } from '@test/fixtures.ts'
 import { measureRange } from '@core/notation/score.ts'
 import { midi } from '@core/shared/units.ts'
 import { act, renderHook } from '@testing-library/react'

@@ -1,4 +1,4 @@
-import { C_MAJOR_SCALE_RH } from '@core/notation/fixtures.ts'
+import { C_MAJOR_SCALE_RH } from '@test/fixtures.ts'
 import { measureRange } from '@core/notation/score.ts'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'

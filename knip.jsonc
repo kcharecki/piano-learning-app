@@ -1,0 +1,28 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": ["scripts/*.mjs"],
+  "project": [
+    "src/**/*.{ts,tsx}!",
+    "!src/**/*.test.{ts,tsx}!",
+    "!src/test/**!",
+    "scripts/**/*.mjs"
+  ],
+  "ignoreExportsUsedInFile": true,
+  "rules": {
+    "types": "off"
+  },
+  // Domain modules that are finished and tested but that no screen renders YET. Every entry names
+  // the roadmap task that will wire it: when that task lands, DELETE the line — a permanent entry
+  // here is how "green tests, never executed" hides. Nothing may be added without a task id.
+  "ignore": [
+    // roadmap 2.13 — rhythm tapping drill screen
+    "src/core/generator/rhythm.ts",
+    // roadmap 2.14 — record & replay panel
+    "src/core/practice/recorder.ts",
+    // roadmap 4.7 — dashboard (practice log, streaks, trends)
+    "src/core/progress/log.ts",
+    // roadmap 3.1 / 3.9 — harmony, and the always-available chord & scale reference
+    "src/core/theory/chords.ts",
+    "src/core/theory/chord-recognition.ts"
+  ]
+}

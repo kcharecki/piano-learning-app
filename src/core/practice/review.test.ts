@@ -1,6 +1,6 @@
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
-import { buildTestScore } from '@core/notation/fixtures.ts'
+import { buildTestScore } from '@test/fixtures.ts'
 import type { Score, ScoreNote } from '@core/notation/score.ts'
 import { at } from '@core/shared/invariant.ts'
 import { QUARTER, millis as asMillis } from '@core/shared/units.ts'

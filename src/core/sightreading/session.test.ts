@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import fc from 'fast-check'
 import { FakeClock } from '@test/fakes.ts'
-import { buildTestScore } from '@core/notation/fixtures.ts'
+import { buildTestScore } from '@test/fixtures.ts'
 import type { AssessmentResult } from '@core/practice/assessment.ts'
 import { isRetired, retire, SightReadingSession, type SightReadingRecord } from './session.ts'
 
