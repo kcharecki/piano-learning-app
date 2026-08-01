@@ -3,6 +3,13 @@
  * engine (`usePracticeEngine`) with the transport, tempo, loop, hand-mute,
  * metronome, wait-mode and MIDI-status controls below it.
  *
+ * Roadmap 1.21 (REQ-4.6): the MIDI status, transport, tempo and live-accuracy
+ * controls are lifted into `.practice-controls`, a sticky strip rendered
+ * ABOVE `ScoreViewer` (see `styles.css`) — a real score is several screens
+ * tall, and those controls must stay reachable while the learner scrolls
+ * through it. Setup controls (assessment, review, loop/hand/metronome/wait)
+ * stay below the score, unchanged.
+ *
  * Everything with browser/IO dependencies is an injection seam with a real
  * default, exactly like `ScoreViewer`'s `createEngraver`: `clock`,
  * `audioOutput`, `midiInput`/`connectMidi`, `frameDriver`. Tests pass fakes;
@@ -128,35 +135,43 @@ export function PracticeScreen(props: PracticeScreenProps) {
 
   return (
     <div className="practice-screen">
-      <MidiDeviceStatus
-        connected={midi.input !== undefined}
-        devices={midi.devices}
-        selectedDeviceId={midi.selectedDeviceId}
-        connectionError={midi.connectionError}
-      />
+      <div className="practice-controls">
+        <MidiDeviceStatus
+          connected={midi.input !== undefined}
+          devices={midi.devices}
+          selectedDeviceId={midi.selectedDeviceId}
+          connectionError={midi.connectionError}
+        />
+        <TransportControls
+          phase={engine.phase}
+          position={engine.position}
+          onPlay={handlePlay}
+          // REQ-3.3.4: an assessment run cannot be paused or stopped once started.
+          onPause={assessmentRunning ? () => {} : engine.pause}
+          onStop={assessmentRunning ? () => {} : engine.stop}
+        />
+        <TempoControl
+          tempoScale={settings.tempoScale}
+          onChange={setTempoScale}
+          writtenBpm={engine.writtenBpm}
+          effectiveBpm={engine.effectiveBpm}
+        />
+        <dl className="note-feedback" role="status" aria-live="polite" aria-label="Note feedback">
+          <dt>Accuracy</dt>
+          <dd data-testid="feedback-accuracy">{Math.round(feedback.summary.accuracy * 100)}%</dd>
+          <dt>Correct</dt>
+          <dd data-testid="feedback-correct">{feedback.summary.correct}</dd>
+          <dt>Wrong pitch</dt>
+          <dd data-testid="feedback-wrong-pitch">{feedback.summary.wrongPitch}</dd>
+          <dt>Missed</dt>
+          <dd data-testid="feedback-missed">{feedback.summary.missed}</dd>
+          <dt>Extra</dt>
+          <dd data-testid="feedback-extra">{feedback.summary.extra}</dd>
+        </dl>
+      </div>
       {loaded.musicXml !== undefined && (
         <ScoreViewer ref={scoreViewerRef} musicXml={loaded.musicXml} score={loaded.score} />
       )}
-      <dl className="note-feedback" role="status" aria-live="polite" aria-label="Note feedback">
-        <dt>Accuracy</dt>
-        <dd data-testid="feedback-accuracy">{Math.round(feedback.summary.accuracy * 100)}%</dd>
-        <dt>Correct</dt>
-        <dd data-testid="feedback-correct">{feedback.summary.correct}</dd>
-        <dt>Wrong pitch</dt>
-        <dd data-testid="feedback-wrong-pitch">{feedback.summary.wrongPitch}</dd>
-        <dt>Missed</dt>
-        <dd data-testid="feedback-missed">{feedback.summary.missed}</dd>
-        <dt>Extra</dt>
-        <dd data-testid="feedback-extra">{feedback.summary.extra}</dd>
-      </dl>
-      <TransportControls
-        phase={engine.phase}
-        position={engine.position}
-        onPlay={handlePlay}
-        // REQ-3.3.4: an assessment run cannot be paused or stopped once started.
-        onPause={assessmentRunning ? () => {} : engine.pause}
-        onStop={assessmentRunning ? () => {} : engine.stop}
-      />
       <AssessmentPanel
         phase={assessment.phase}
         result={assessment.result}
@@ -170,12 +185,6 @@ export function PracticeScreen(props: PracticeScreenProps) {
           onPracticeLoop={assessment.practiceLoop}
         />
       )}
-      <TempoControl
-        tempoScale={settings.tempoScale}
-        onChange={setTempoScale}
-        writtenBpm={engine.writtenBpm}
-        effectiveBpm={engine.effectiveBpm}
-      />
       <LoopRangeControl score={loaded.score} loop={settings.loop} onChange={setLoop} />
       <HandMuteControl activeHands={settings.activeHands} onChange={setActiveHands} />
       <MetronomeControl

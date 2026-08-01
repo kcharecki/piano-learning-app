@@ -6,15 +6,43 @@
  * between them.
  */
 import { useScoreStore } from '@app/state/scoreStore.ts'
-import { C_MAJOR_SCALE_RH } from '@core/notation/fixtures.ts'
-import { at } from '@core/shared/invariant.ts'
+import { C_MAJOR_SCALE_RH } from '@test/fixtures.ts'
+import { at, invariant } from '@core/shared/invariant.ts'
 import { midi, millis } from '@core/shared/units.ts'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FakeClock, FakeMidiInput, RecordingAudioOutput } from '@test/fakes.ts'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { PracticeScreen } from './PracticeScreen.tsx'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { forwardRef, useImperativeHandle } from 'react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ScoreViewerHandle } from '@app/score/ScoreViewer.tsx'
 import type { FrameDriver } from './useTransportLoop.ts'
+
+// `ScoreViewer` wraps OSMD, which does not run in happy-dom (see
+// ScoreScreen.test.tsx) — mocked out here too, only for the DOM-order test
+// below that needs an actual score-viewer element to compare positions
+// against. Every other test in this file loads a score with `musicXml:
+// undefined`, so the branch that renders `ScoreViewer` never runs for them
+// and this mock changes nothing about their behaviour. The forwarded ref is
+// wired to a minimal handle matching `ScoreViewerHandle` so a future test
+// that presses Play with a loaded score exercises the same call surface the
+// real component does, instead of silently hitting a null ref.
+vi.mock('@app/score/ScoreViewer.tsx', () => ({
+  ScoreViewer: forwardRef(function MockScoreViewer(
+    _props: { readonly musicXml: string },
+    ref: React.ForwardedRef<ScoreViewerHandle>,
+  ) {
+    useImperativeHandle(ref, () => ({
+      moveCursorTo: () => {},
+      setNoteColor: () => {},
+      clearNoteColors: () => {},
+    }))
+    return <div data-testid="mock-score-viewer" className="score-viewer" />
+  }),
+}))
+
+const { PracticeScreen } = await import('./PracticeScreen.tsx')
 
 function manualDriver(): { driver: FrameDriver; pump: () => void } {
   let callback: (() => void) | undefined
@@ -48,6 +76,17 @@ function loadSampleScore(): void {
     .loadScore({ score: C_MAJOR_SCALE_RH, sourceName: 'Test Score', musicXml: undefined })
 }
 
+// The mocked `ScoreViewer` above only renders when `musicXml` is defined —
+// needed for the DOM-order test, which must have an actual score-viewer
+// element in the tree to compare positions against.
+function loadSampleScoreWithMusicXml(): void {
+  useScoreStore.getState().loadScore({
+    score: C_MAJOR_SCALE_RH,
+    sourceName: 'Test Score',
+    musicXml: '<score-partwise/>',
+  })
+}
+
 beforeEach(resetStore)
 afterEach(() => {
   cleanup()
@@ -66,7 +105,7 @@ describe('PracticeScreen', () => {
     const neverResolves = (): Promise<never> => new Promise(() => {})
     render(<PracticeScreen connectMidi={neverResolves} />)
 
-    expect(screen.getByText(/no MIDI keyboard connected/i)).toBeInTheDocument()
+    expect(screen.getByText(/^No MIDI keyboard connected/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Play' })).toBeEnabled()
   })
 
@@ -87,7 +126,7 @@ describe('PracticeScreen', () => {
       />,
     )
 
-    expect(screen.getByText(/MIDI keyboard connected: Fake Digital Piano/i)).toBeInTheDocument()
+    expect(screen.getByText(/^MIDI keyboard connected: Fake Digital Piano/)).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Play' }))
     act(() => manual.pump())
@@ -210,5 +249,56 @@ describe('PracticeScreen', () => {
     // so the Play button — disabled only while playing/waiting — stays disabled.
     expect(screen.getByText(/assessment running/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Play' })).toBeDisabled()
+  })
+
+  it('lifts the playing controls into one strip above the score (roadmap 1.21, REQ-4.6)', () => {
+    loadSampleScoreWithMusicXml()
+    render(<PracticeScreen midiInput={new FakeMidiInput()} />)
+
+    const controls = document.querySelector('.practice-controls')
+    invariant(controls instanceof HTMLElement, '.practice-controls missing')
+
+    // The MIDI status, transport, tempo and live accuracy readout all live
+    // inside the sticky strip — not scattered across the screen.
+    expect(controls).toContainElement(screen.getByText(/^MIDI keyboard connected:/))
+    expect(controls).toContainElement(screen.getByRole('group', { name: 'Transport' }))
+    expect(controls).toContainElement(screen.getByLabelText('Tempo'))
+    expect(controls).toContainElement(screen.getByTestId('feedback-accuracy'))
+
+    // The strip precedes the score in actual DOM order — this fails if
+    // someone moves the controls back below the score, even though both
+    // elements would still exist. It also fails if the score is instead
+    // nested INSIDE the sticky strip (which would make the whole score
+    // sticky too): `compareDocumentPosition` reports a contained descendant
+    // as both FOLLOWING and NOT PRECEDING, so the two direction checks alone
+    // pass for that mutant — the explicit `not.toContainElement` below is
+    // what catches it.
+    const scoreViewer = screen.getByTestId('mock-score-viewer')
+    const relation = controls.compareDocumentPosition(scoreViewer)
+    expect(relation & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(relation & Node.DOCUMENT_POSITION_PRECEDING).toBeFalsy()
+    expect(controls).not.toContainElement(scoreViewer)
+
+    // The setup controls stay below the score, outside the sticky strip.
+    const startAssessment = screen.getByRole('button', { name: 'Start assessment' })
+    expect(controls).not.toContainElement(startAssessment)
+  })
+
+  it('keeps .practice-controls pinned on screen while the score scrolls (roadmap 1.21, REQ-4.6)', () => {
+    // styles.css is never loaded by the vitest/happy-dom module graph (no
+    // setup file imports CSS), so nothing above would fail if the sticky
+    // rule were deleted. Read the stylesheet directly and pin its content —
+    // this fails if `position: sticky`, `top: 0`, `background` or `z-index`
+    // are removed from `.practice-controls`.
+    const cssPath = join(process.cwd(), 'src', 'styles.css')
+    const css = readFileSync(cssPath, 'utf-8')
+    const ruleMatch = /\.practice-controls\s*\{([^}]*)\}/.exec(css)
+    invariant(ruleMatch !== null, '.practice-controls rule missing from styles.css')
+    const rule = at(ruleMatch, 1)
+
+    expect(rule).toMatch(/position:\s*sticky/)
+    expect(rule).toMatch(/top:\s*0/)
+    expect(rule).toMatch(/background:\s*var\(--bg\)/)
+    expect(rule).toMatch(/z-index:\s*10/)
   })
 })

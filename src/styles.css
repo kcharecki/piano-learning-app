@@ -81,3 +81,33 @@ main {
 .score-viewer-error {
   color: var(--error);
 }
+
+/* Roadmap 1.21, REQ-4.6: the playing controls (MIDI status, transport,
+   tempo, live accuracy) stay on screen while the score scrolls underneath —
+   a real score is several screens tall, so these must not scroll away. */
+.practice-controls {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg);
+  padding: 0.75rem 0;
+  border-bottom: 1px solid #2a2d33;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+}
+
+.practice-controls > * {
+  margin: 0;
+}
+
+.practice-controls .note-feedback {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.5rem;
+}
+
+.practice-controls .note-feedback dd {
+  margin: 0;
+}
