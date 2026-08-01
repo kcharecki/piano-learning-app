@@ -14,14 +14,28 @@
  * just asserted on.
  */
 import type { ScoreViewerHandle } from '@app/score/ScoreViewer.tsx'
-import { makeScore, type Score } from '@core/notation/score.ts'
+import { makeScore, type Hand, type Score } from '@core/notation/score.ts'
 import { at } from '@core/shared/invariant.ts'
-import { midi, millis } from '@core/shared/units.ts'
+import { midi, millis, ticks } from '@core/shared/units.ts'
 import { act, renderHook } from '@testing-library/react'
 import { FakeClock, FakeMidiInput } from '@test/fakes.ts'
 import type { RefObject } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { useNoteFeedback, type NoteFeedbackOptions } from './useNoteFeedback.ts'
+import { usePracticeEngine } from './usePracticeEngine.ts'
+import type { FrameDriver } from './useTransportLoop.ts'
+
+/** Same shape as `usePracticeEngine.test.ts`'s helper: a manually-pumped `FrameDriver`. */
+function manualDriver(): { driver: FrameDriver; pump: () => void } {
+  let callback: (() => void) | undefined
+  const driver: FrameDriver = (cb) => {
+    callback = cb
+    return () => {
+      callback = undefined
+    }
+  }
+  return { driver, pump: () => callback?.() }
+}
 
 const CORRECT_COLOR = '#4caf50'
 const WRONG_PITCH_COLOR = '#ef5350'
@@ -218,5 +232,123 @@ describe('useNoteFeedback', () => {
     expect(scoreViewerRef.current.setNoteColor).not.toHaveBeenCalled()
     expect(result.current.summary.correct).toBe(0)
     expect(result.current.summary.extra).toBe(0)
+  })
+
+  // These two drive `cursorRef` through a REAL `usePracticeEngine`, wired to
+  // this hook's `cursorRef` exactly as `PracticeScreen` wires them, instead of
+  // hand-feeding ticks — so a fix to `usePracticeEngine.onFrame`'s stop-race
+  // guard (roadmap: the record-replay counters race) that is scoped too
+  // broadly, and swallows a legitimate backward tick along with the rewound
+  // one, fails here even though it would pass every hand-fed-tick test above.
+  describe('integration with the real usePracticeEngine (the stop-race guard must not be too broad)', () => {
+    it('a genuine loop wrap while playing still resets the matcher, through the real engine', () => {
+      const clock = new FakeClock()
+      const score = testScore()
+      const scoreViewerRef = fakeScoreViewerRef()
+      const manual = manualDriver()
+      const loop = { startTick: ticks(0), endTick: ticks(960) } // C4 and D4 only
+      // Hoisted OUTSIDE the render callback, like `score`/`loop` above: a
+      // fresh array literal on every render would defeat usePracticeEngine's
+      // `filteredScore` memo and rebuild the transport on every render,
+      // looping forever — see that hook's module comment.
+      const activeHands: readonly Hand[] = ['right']
+      const { result } = renderHook(() => {
+        const feedback = useNoteFeedback({
+          score,
+          activeHands,
+          midiInput: undefined,
+          clock,
+          scoreViewerRef,
+        })
+        const engine = usePracticeEngine({
+          score,
+          activeHands,
+          tempoScale: 1,
+          loop,
+          metronomeEnabled: false,
+          metronomeSubdivision: 1,
+          waitModeEnabled: false,
+          clock,
+          audioOutput: undefined,
+          midiInput: undefined,
+          scoreViewerRef: feedback.cursorRef,
+          frameDriver: manual.driver,
+        })
+        return { feedback, engine }
+      })
+
+      act(() => result.current.engine.play())
+      act(() => manual.pump()) // anchors the matcher at tick 0
+
+      act(() => {
+        clock.advance(700) // past C4's (150ms) and D4's (650ms) windows: both missed
+        manual.pump()
+      })
+      expect(result.current.feedback.summary.missed).toBe(2)
+
+      act(() => {
+        clock.advance(400) // crosses the loop end (960 ticks / 1000ms): a real wrap
+        manual.pump()
+      })
+
+      // The wrap reported itself to useNoteFeedback as a real backward tick,
+      // exactly as the hand-fed one above does — resetting the summary. The
+      // transport's own `state` stays `'playing'` throughout a wrap, so the
+      // stop-race guard in `onFrame` must not have suppressed this frame.
+      expect(result.current.feedback.summary.missed).toBe(0)
+    })
+
+    it('a genuine seek backwards while playing (playLoop) still resets the matcher, through the real engine', () => {
+      const clock = new FakeClock()
+      const score = testScore()
+      const scoreViewerRef = fakeScoreViewerRef()
+      const manual = manualDriver()
+      // See the comment on the identical line in the test above.
+      const activeHands: readonly Hand[] = ['right']
+      const { result } = renderHook(() => {
+        const feedback = useNoteFeedback({
+          score,
+          activeHands,
+          midiInput: undefined,
+          clock,
+          scoreViewerRef,
+        })
+        const engine = usePracticeEngine({
+          score,
+          activeHands,
+          tempoScale: 1,
+          loop: undefined,
+          metronomeEnabled: false,
+          metronomeSubdivision: 1,
+          waitModeEnabled: false,
+          clock,
+          audioOutput: undefined,
+          midiInput: undefined,
+          scoreViewerRef: feedback.cursorRef,
+          frameDriver: manual.driver,
+        })
+        return { feedback, engine }
+      })
+
+      act(() => result.current.engine.play())
+      act(() => manual.pump())
+      act(() => {
+        clock.advance(700) // past C4's and D4's windows: both missed, nothing played
+        manual.pump()
+      })
+      expect(result.current.feedback.summary.missed).toBe(2)
+
+      // A seek backward WHILE the transport keeps running — `playLoop` seeks
+      // to `range.startTick` and plays, atomically, on the SAME transport
+      // instance; `Transport.state` never touches `'stopped'` here, unlike
+      // `stop()`/`rewindToTop()`.
+      act(() => result.current.engine.playLoop({ startTick: ticks(0), endTick: ticks(480) }))
+      act(() => manual.pump())
+
+      // The seek reported itself as a backward tick just like the loop wrap
+      // above, proving the guard in `onFrame` is scoped to an
+      // actually-stopped transport, not to "the tick decreased."
+      expect(result.current.feedback.summary.missed).toBe(0)
+    })
   })
 })

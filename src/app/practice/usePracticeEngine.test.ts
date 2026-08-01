@@ -602,4 +602,69 @@ describe('usePracticeEngine', () => {
 
     expect(moveCursorTo).toHaveBeenCalledWith(0, 672)
   })
+
+  it('a frame that runs after the transport has already stopped does not move the cursor to the rewound tick', () => {
+    // Reproduces the roadmap-2.14 replay race: a sibling `useTransportLoop`
+    // subscriber (in production, `useRecorder`'s replay-end path) calls this
+    // engine's `stop()` synchronously, and THIS already-scheduled frame then
+    // runs in the SAME animation frame, before React has re-rendered and
+    // torn the pump down. Calling `stop()` and pumping inside the same `act`
+    // reproduces exactly that ordering: `manual.pump()` still invokes the
+    // closure captured while `active` was true, exactly as an already-queued
+    // rAF callback would in the browser.
+    //
+    // Kills the mutant that deletes the `transport.state !== 'playing' &&
+    // transport.state !== 'waiting'` guard at the top of `onFrame`: without
+    // it, `moveCursorTo` is called with the just-rewound tick 0.
+    const clock = new FakeClock()
+    const manual = manualDriver()
+    const moveCursorTo = vi.fn()
+    const scoreViewerRef: RefObject<ScoreViewerHandle | null> = {
+      current: { moveCursorTo, setNoteColor: vi.fn(), clearNoteColors: vi.fn() },
+    }
+    const { result } = renderHook((p: PracticeEngineOptions) => usePracticeEngine(p), {
+      initialProps: makeOptions(clock, { frameDriver: manual.driver, scoreViewerRef }),
+    })
+
+    act(() => result.current.play())
+    act(() => {
+      clock.advance(700)
+      manual.pump()
+    })
+    expect(result.current.position).not.toEqual({ measureNumber: 1, beat: 1, beatsPerMeasure: 4 })
+    moveCursorTo.mockClear()
+
+    act(() => {
+      result.current.stop()
+      manual.pump()
+    })
+
+    expect(moveCursorTo).not.toHaveBeenCalled()
+  })
+
+  it('a stop this frame\'s OWN tick() causes (reaching the end of the piece) still reports the final position', () => {
+    // The guard above reads `transport.state` ONCE, before this frame's own
+    // `tick()` — so a stop this very pump causes by reaching the end of the
+    // score must still move the cursor to the final position. Kills a
+    // mutant that widens the guard to check `transport.state` AFTER `tick()`
+    // instead of before, which would wrongly swallow this legitimate frame.
+    const clock = new FakeClock()
+    const manual = manualDriver()
+    const moveCursorTo = vi.fn()
+    const scoreViewerRef: RefObject<ScoreViewerHandle | null> = {
+      current: { moveCursorTo, setNoteColor: vi.fn(), clearNoteColors: vi.fn() },
+    }
+    const { result } = renderHook((p: PracticeEngineOptions) => usePracticeEngine(p), {
+      initialProps: makeOptions(clock, { frameDriver: manual.driver, scoreViewerRef }),
+    })
+
+    act(() => result.current.play())
+    act(() => {
+      clock.advance(10_000) // well past the end of C_MAJOR_SCALE_RH
+      manual.pump()
+    })
+
+    expect(result.current.phase).toBe('stopped')
+    expect(moveCursorTo).toHaveBeenCalled()
+  })
 })

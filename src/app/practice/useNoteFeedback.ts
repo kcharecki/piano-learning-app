@@ -56,6 +56,17 @@
  * which needs this hook to exist first — a real circular dependency, not just
  * a type one.)
  *
+ * "Does not pump frames while stopped" held only up to roadmap 2.14's replay
+ * feature: `useRecorder`'s replay-end path calls the engine's `stop()`
+ * synchronously from ITS OWN `useTransportLoop` frame, which can land in the
+ * SAME animation frame as this engine's own already-scheduled `onFrame` —
+ * `Transport.stop()` rewinds `positionTicks` before that second callback
+ * reads it, so `moveCursorTo` WAS still being called, with tick 0, after a
+ * stop. `usePracticeEngine`'s `onFrame` now guards against exactly that (see
+ * its module comment), which is what makes the claim above true rather than
+ * merely intended; this hook still cannot see `phase` to defend itself, so
+ * the guard has to live on the other side of the ref.
+ *
  * A rebuilt matcher (new score, or the active hands change) has the same
  * problem in miniature and is handled the same way: clear, then start fresh.
  *

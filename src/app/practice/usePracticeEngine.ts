@@ -18,6 +18,23 @@
  *    ref every frame, never through props or state, so following the cursor
  *    never re-renders — see the module comment on `useTransportLoop`.
  *
+ * `onFrame` guards against a same-frame race with any sibling
+ * `useTransportLoop` subscriber on the same driver (`useRecorder`'s
+ * replay-end path is the concrete case, roadmap 2.14): such a subscriber can
+ * call this engine's own `stop()`/`pause()` synchronously, mid-frame, before
+ * this callback runs — `Transport.stop()` rewinds `positionTicks` immediately,
+ * with no React commit in between, so `active` does not go false until the
+ * NEXT render. If that happens before this frame's own `tick()`, the position
+ * on the transport is leftover from whatever else just stopped it, not
+ * something THIS pump produced; reporting it anyway would move the cursor to
+ * the rewound tick and feed `useNoteFeedback`'s backward-jump detector a fake
+ * loop wrap or seek, wiping a just-finished run's summary the instant it
+ * finishes. `onFrame` checks `transport.state` BEFORE calling `tick()` and
+ * bails when it is already not `'playing'`/`'waiting'` — see the guard at the
+ * top of `onFrame` below. A stop or pause THIS pump's own `tick()` causes (the
+ * end of the piece, or a barrier) is unaffected: the state is only read once,
+ * before `tick()` runs, so that transition still reports normally.
+ *
  * Hand mute (REQ-3.2.3) is `filterHands` applied to the score BEFORE it is
  * handed to the transport: a muted hand's notes are not merely skipped when
  * scheduling sound, they are not in the score the transport plays, so they
@@ -390,6 +407,16 @@ export function usePracticeEngine(options: PracticeEngineOptions): PracticeEngin
 
   function onFrame(): void {
     if (transport === undefined) return
+    // Read BEFORE this frame's own `tick()`: a sibling `useTransportLoop`
+    // subscriber sharing this driver may already have stopped or paused the
+    // transport earlier in this SAME animation frame (see the module
+    // comment). If so, `positionTicks` is leftover state this pump did not
+    // produce — bail without moving the cursor or touching `lastTickRef`, so
+    // neither this frame nor the next run is corrupted by a rewound tick. A
+    // stop this frame's OWN `tick()` causes (reaching the end of the piece)
+    // is unaffected, because `transport.state` is read here, once, before
+    // that call.
+    if (transport.state !== 'playing' && transport.state !== 'waiting') return
     const prevTick = lastTickRef.current
     const events = waitController !== undefined ? waitController.update().events : transport.tick()
     const newTick = transport.positionTicks

@@ -161,5 +161,26 @@ test('assessment run driven end to end: play it, review lists problem measures, 
   await expect(loopRange.getByLabel('From measure')).toHaveValue(String(startMeasureIndex + 1))
   await expect(loopRange.getByLabel('to measure')).toHaveValue(String(endMeasureIndex + 1))
 
+  // roadmap 2.11a: the one-click loop must START at its first measure, not
+  // merely end up there after a wrap. `practiceLoop` used to set the loop
+  // through React state and call `play()` in the same handler, so the
+  // transport played on from wherever the playhead sat — measure 1 — until the
+  // loop end wrapped it. `playLoop` sets the loop and seeks to its start
+  // atomically on the transport instance, so the playhead is inside the looped
+  // bars on the very first beat. Sampling repeatedly (rather than once) is what
+  // makes this catch the old behaviour: a single late read would find the
+  // position inside the loop either way.
+  const position = page.getByRole('group', { name: 'Transport' }).getByLabel('Position')
+  const sampled: number[] = []
+  const deadline = Date.now() + 2_000
+  while (Date.now() < deadline) {
+    const measure = /Measure (\d+)/.exec((await position.textContent()) ?? '')?.[1]
+    if (measure !== undefined) sampled.push(Number(measure))
+    await page.waitForTimeout(50)
+  }
+  expect(sampled.length).toBeGreaterThan(5)
+  expect(Math.min(...sampled)).toBeGreaterThanOrEqual(startMeasureIndex + 1)
+  expect(Math.max(...sampled)).toBeLessThanOrEqual(endMeasureIndex + 1)
+
   expect(errors).toEqual([])
 })

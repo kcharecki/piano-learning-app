@@ -95,25 +95,35 @@ recovered it commit by commit and recorded the evidence each box was ticked on.
       while every earlier one still passes.*
       Two defects closed on the way: the loop range control never displayed a loop set from outside
       itself, and `useAssessment.start()` did not rewind the transport.
-- [ ] 2.11a `app/practice`: three findings from 2.11's review that need a new primitive in
-      `usePracticeEngine`, which no agent owned that round. All three are the same shape — a
-      transport mutation that only reaches the transport on the NEXT React commit, after `play()`
-      has already run: (a) `useAssessment.start()` calls `stop()` while a stale loop is still set on
-      the transport, (b) it reads `anchorMs` from the clock before the transport re-anchors in its
-      effect, (c) `practiceLoop()` sets a loop but never seeks into it, so the first pass plays from
-      wherever the playhead sits until the loop end wraps it. Add `rewindToTop()` and `playLoop()`
-      to `usePracticeEngine` that do the mutation and the play/stop atomically on the transport
-      instance, and have them report the anchor they used.
-      *Proof: an e2e that clicks a suggested loop and asserts the position readout is inside the
-      looped bars on the FIRST beat after the click, not after a wrap.*
+- [x] 2.11a `app/practice`: three findings from 2.11's review, all the same shape — a transport
+      mutation that only reached the transport on the NEXT React commit, after `play()` had already
+      run. `usePracticeEngine` now offers `rewindToTop()` and `playLoop(range)`, which mutate and
+      play atomically on the transport instance, and `play()`/`playLoop()` return the instant the
+      transport actually anchored tick 0 to, so callers stop guessing it.
+      *Proved in `e2e/assessment.spec.ts`: after clicking the suggested loop, the position readout
+      is sampled every 50ms for 2s and every sample lies within the looped bars. Replacing
+      `playLoop(range)` with the old `play()` makes it fail with `Received: 1` — playback starting
+      at measure 1 and walking to the loop end before wrapping, which is exactly the bug.*
 - [x] 2.12 `app`: sight-reading trainer screen, flashcard drill screen
       *Proved by e2e: both reached through the shell's own nav, driven to a grade.*
-- [ ] 2.13 `app`: rhythm tapping drill screen — the only consumer `core/generator/rhythm` will ever
-      have. Until it exists, that module is production-unreachable and knip-ignored.
-      *Proof: tap a rhythm on the keyboard/spacebar, the screen scores the tapped pattern.*
-- [ ] 2.14 `app`: record & replay panel — the only consumer `core/practice/recorder` will ever have.
-      Until it exists, that module is production-unreachable and knip-ignored.
-      *Proof: record a short performance, replay it, the score colours the same notes it coloured live.*
+- [x] 2.13 `app`: rhythm tapping drill screen — the only consumer `core/generator/rhythm` will ever
+      have. The knip ignore is deleted.
+      *Proved by `e2e/rhythm.spec.ts`: reaches the screen through the shell's own nav, starts a
+      drill, taps the generated pattern deliberately imperfectly, and asserts `matched + missed`
+      equals the pattern's real non-rest onset count with accuracy strictly between 0 and 1 — so
+      neither a stub returning 0 nor one returning 1 can pass.*
+- [x] 2.14 `app`: record & replay panel — the only consumer `core/practice/recorder` will ever have.
+      The knip ignore is deleted.
+      *Proved by `e2e/record-replay.spec.ts`: records a live take through the fake MIDI keyboard
+      (3 correct, 1 deliberately missed), then replays it with NO further input and asserts the note
+      feedback counters end at the same values. Those counters come from the same `NoteMatcher` that
+      colours the notes, and both sides are asserted nonzero first, so "equal" cannot be satisfied by
+      both being empty.*
+      Two real defects found only by driving this in a browser, neither visible to the unit suite:
+      the clear-on-stop effect wiped the counters the instant a take ended, and a frame that ran
+      after `transport.stop()` had rewound the position reported tick 0, which `useNoteFeedback`
+      read as a loop wrap and reset the matcher on. The second was latent before this task and was
+      being masked by the first.
 - [ ] 2.15 M2 acceptance pass
 
 ## Phase 3 — Milestone M3: theory & ears
