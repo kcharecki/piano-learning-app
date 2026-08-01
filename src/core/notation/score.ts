@@ -33,7 +33,6 @@ export type Hand = 'left' | 'right'
 export const HANDS = ['left', 'right'] as const
 
 export type Clef = 'treble' | 'bass' | 'alto' | 'tenor'
-export const CLEFS = ['treble', 'bass', 'alto', 'tenor'] as const
 
 /**
  * 6/8 is `{ beats: 6, beatType: 8 }`.

@@ -49,6 +49,11 @@ export interface MidiInput {
 /**
  * Output side: preferred sound source per REQ-4.7 — send notes to the digital
  * piano and let the instrument make the sound, avoiding synthesis latency.
+ *
+ * NOT a domain port. Domain code uses `AudioOutput` and never imports this;
+ * this is the interface the MIDI-out implementation of `AudioOutput` is written
+ * against, declared here because it describes the same device as `MidiInput`.
+ * A domain caller appearing here is a design mistake, not a feature.
  */
 export interface MidiOutput {
   listDevices(): readonly MidiDevice[]

@@ -29,7 +29,26 @@ export default tseslint.config(
         { prefer: 'type-imports', fixStyle: 'inline-type-imports' },
       ],
       'no-console': ['warn', { allow: ['warn', 'error'] }],
+      // A size ceiling that is actually enforced, rather than an aspirational
+      // number in a doc that eight files quietly ignored. Blank lines and
+      // comments are excluded so that explaining the music theory is never the
+      // thing that pushes a file over.
+      'max-lines': ['error', { max: 500, skipBlankLines: true, skipComments: true }],
     },
+  },
+  {
+    // The two format parsers are long because the formats are: MusicXML and SMF
+    // each need their own reader plus the whole tag/event vocabulary, and
+    // splitting the event loop away from the state it walks would make both
+    // harder to follow, not easier. Reviewed and accepted at this size.
+    files: ['src/core/notation/musicxml.ts', 'src/core/notation/midifile.ts'],
+    rules: { 'max-lines': ['error', { max: 620, skipBlankLines: true, skipComments: true }] },
+  },
+  {
+    // Tests are allowed to be long: one file per module, and the cases are the
+    // documentation. Capped only to catch a file that has become a dumping ground.
+    files: ['**/*.test.ts', '**/*.test.tsx'],
+    rules: { 'max-lines': ['error', { max: 1400, skipBlankLines: true, skipComments: true }] },
   },
   // The domain core must stay pure: no DOM, no browser APIs, no framework.
   // This rule is the automated enforcement of the architecture boundary

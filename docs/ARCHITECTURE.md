@@ -51,19 +51,19 @@ deterministic under test. There are no `await sleep(100)` calls anywhere in the 
 
 ## Core modules
 
-| Module | Responsibility | Key requirements |
-|--------|---------------|------------------|
-| `core/theory` | pitch, intervals, scales, keys, chords, roman numerals | REQ-3.5.x |
-| `core/notation` | MusicXML/MIDI parse → internal `Score` model; tick timeline | REQ-3.2.1, 3.2.5 |
-| `core/timing` | transport, metronome, tempo mapping, tick↔ms | REQ-3.9.1, 4.1 |
-| `core/practice` | note matcher (practice/wait/assessment), scoring, problem measures | REQ-3.3.x |
-| `core/generator` | parameterised sight-reading generation | REQ-3.4.2, 5.3 |
-| `core/srs` | shared spaced-repetition scheduler | REQ-3.9.4 |
-| `core/curriculum` | levels, units, lessons, exit criteria, practice-session builder | REQ-3.1.x, 2.x |
-| `core/progress` | practice log, trends, level advancement, export | REQ-3.10.x |
+| Module | Status | Responsibility | Key requirements |
+|--------|--------|---------------|------------------|
+| `core/theory` | built | pitch, intervals, scales, keys, chords, chord recognition | REQ-3.5.x |
+| `core/notation` | built | MusicXML/MIDI parse → internal `Score` model; tick timeline | REQ-3.2.1, 3.2.5 |
+| `core/timing` | built | transport, metronome, tempo mapping, tick↔ms | REQ-3.9.1, 4.1 |
+| `core/practice` | built | note matcher, wait mode | REQ-3.3.x |
+| `core/generator` | planned | parameterised sight-reading generation | REQ-3.4.2, 5.3 |
+| `core/srs` | planned | shared spaced-repetition scheduler | REQ-3.9.4 |
+| `core/curriculum` | planned | levels, units, lessons, exit criteria, session builder | REQ-3.1.x, 2.x |
+| `core/progress` | planned | practice log, trends, level advancement, export | REQ-3.10.x |
 
-Each module owns a directory with `index.ts` (public surface), implementation files, and
-co-located `*.test.ts`.
+Each module is a directory of implementation files with co-located `*.test.ts`. Only `core/ports`
+has an `index.ts` barrel; the rest are imported by file, which keeps the import graph legible.
 
 ## The internal score model
 
@@ -93,7 +93,12 @@ Preference order at runtime:
 1. **MIDI out to the connected digital piano** — zero synthesis latency, best sound.
 2. **Web Audio + sampled soundfont** — fallback when no output device is available.
 
-Both sit behind the `AudioOutput` port, so the domain never knows which is active.
+**`AudioOutput` is the only sound port the domain may use.** `MidiOutput` (in `core/ports/midi.ts`)
+is *not* a second domain port and domain code must not import it — it is the interface the MIDI-out
+implementation of `AudioOutput` is written against, declared next to `MidiInput` because the two
+describe the same device. If it ever grows a domain caller, that is a design mistake, not a feature.
+
+`MidiInput`, by contrast, genuinely is a domain port: the matcher and wait mode consume its events.
 
 ## Testing strategy
 

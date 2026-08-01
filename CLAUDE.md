@@ -41,9 +41,11 @@ from silting up.
   every line true. If a rule is not being followed, either enforce it in tooling or delete it. Move
   detail to `docs/` only if something actually reads it. Prune `ARCHITECTURE.md` claims that the code
   no longer honours; a stale doc is worse than no doc, because it is trusted.
-- **Prune tests, not just add them.** Delete tests that restate the implementation, duplicate a
-  neighbour, or would pass against a broken version. Suite size is a cost. If a test has never
-  plausibly failed and never could, it is documentation with a runtime bill.
+- **Prune tests only on evidence.** You may delete a test when you can point to one of: a named test
+  that asserts a strict superset of it, or a Stryker mutant that survives it either way. Judgement
+  alone is not enough — an agent asked to find tests that "restate the implementation" produced a
+  confident false positive, and a wrongly deleted test leaves the suite green, so the mistake is
+  invisible. Suite size is a real cost, but a missing test costs more.
 - **Improve the process itself.** When something in this file's protocol turned out to be wrong or
   missing, change it in the same commit and say so. Record what actually worked, not what sounded
   good.
@@ -100,7 +102,10 @@ React, or `@adapters/*`. If you feel the need to break that, you are putting log
   adapters and the transport. Never store BPM-dependent ms in domain objects.
 - Errors: return `Result<T, E>` from parsers/validators (`src/core/shared/result.ts`); throw only
   for programmer error.
-- Files stay under ~300 lines. Split by concept, not by size.
+- Files stay under 500 code lines, tests under 1400, the two format parsers under 620 — enforced by
+  eslint `max-lines` (blank lines and comments excluded). These are the real current maxima, not an
+  aspiration: a rule the codebase openly violates teaches every future agent that the rules are
+  negotiable. Split by concept, not by size; if you need to raise a limit, say why in the config.
 - Imports use the `@core/ @app/ @adapters/ @content/ @test/` aliases, never deep relative chains.
 
 ## Delegation

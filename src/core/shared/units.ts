@@ -55,4 +55,3 @@ export const dotted = (t: Ticks): Ticks => ticks(t * 1.5)
 
 export const addTicks = (a: Ticks, b: Ticks): Ticks => ticks(a + b)
 export const subTicks = (a: Ticks, b: Ticks): Ticks => ticks(a - b)
-export const addMillis = (a: Millis, b: Millis): Millis => millis(a + b)
