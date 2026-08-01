@@ -1,15 +1,24 @@
 /**
  * App shell (roadmap 1.17, REQ-4.6): a left nav and a main area. A single-user
- * app with four destinations doesn't need a router library — `useState` is
+ * app with five destinations doesn't need a router library — `useState` is
  * the boring, maintainable choice.
+ *
+ * Sight reading and Flashcards (roadmap 2.12, REQ-3.4.1/3/4/5/6) are real
+ * screens, not placeholders — see `@app/sightreading/SightReadingScreen.tsx`
+ * and `@app/drills/FlashcardScreen.tsx`. Flashcards did not fit any existing
+ * nav item (it is not the practice screen, and it is not sight reading), so
+ * it gets its own.
  */
 import { ScoreScreen } from '@app/score/ScoreScreen.tsx'
+import { FlashcardScreen } from '@app/drills/FlashcardScreen.tsx'
+import { SightReadingScreen } from '@app/sightreading/SightReadingScreen.tsx'
 import { useState } from 'react'
 import { NotBuiltPanel } from './NotBuiltPanel.tsx'
 
 const NAV_ITEMS = [
   { id: 'practice', label: 'Practice' },
   { id: 'sight-reading', label: 'Sight reading' },
+  { id: 'flashcards', label: 'Flashcards' },
   { id: 'theory', label: 'Theory' },
   { id: 'progress', label: 'Progress' },
 ] as const
@@ -21,7 +30,9 @@ function renderScreen(screen: ScreenId) {
     case 'practice':
       return <ScoreScreen />
     case 'sight-reading':
-      return <NotBuiltPanel label="Sight reading" roadmapTask="2.12" />
+      return <SightReadingScreen />
+    case 'flashcards':
+      return <FlashcardScreen />
     case 'theory':
       return <NotBuiltPanel label="Theory" roadmapTask="3.8" />
     case 'progress':

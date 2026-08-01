@@ -129,3 +129,62 @@ test('the app stays usable with no MIDI keyboard connected', async ({ page }) =>
 
   expect(errors).toEqual([])
 })
+
+test('the Sight reading nav destination renders the real trainer, plays a full exercise, and grades it (roadmap 2.12)', async ({
+  page,
+}) => {
+  // Regression test for the same class of defect `smoke.spec.ts` already
+  // guards against for Practice (roadmap-1.18): a screen built and unit
+  // tested in isolation but never mounted by the shell is unreachable. This
+  // drives the whole discipline for real — preview, play, grade — the way a
+  // learner actually would, through the nav button, not a direct mount.
+  test.setTimeout(30_000)
+  const errors = collectErrors(page)
+
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Sight reading', exact: true }).click()
+
+  await expect(page.getByRole('heading', { name: 'Sight reading' })).toBeVisible()
+  await expect(page.getByTestId('sight-reading-level')).toHaveText('Level 1')
+
+  await page.getByRole('button', { name: 'Start exercise' }).click()
+  await expect(page.getByTestId('preview-countdown')).toBeVisible()
+  // A fresh level-1 exercise is right-hand only — REQ-3.4.2's easiest tier.
+  await expect(page.getByRole('heading', { name: 'Right hand' })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Begin now' }).click()
+  await expect(page.getByTestId('playing-status')).toBeVisible()
+
+  // A level-1 exercise is always 4 bars of 4/4 at 120bpm (defaultParamsForLevel
+  // fixes the shape; only the rng-drawn pitches vary) — exactly 8s, so the run
+  // finishes and is graded well inside this test's own timeout.
+  await expect(page.getByTestId('sight-reading-accuracy')).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByRole('button', { name: 'Next exercise' })).toBeVisible()
+
+  expect(errors).toEqual([])
+})
+
+test('the Flashcards nav destination renders a real, unlabelled staff prompt and grades an on-screen answer (roadmap 2.12)', async ({
+  page,
+}) => {
+  const errors = collectErrors(page)
+
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Flashcards', exact: true }).click()
+
+  await expect(page.getByRole('heading', { name: 'Flashcards' })).toBeVisible()
+  const staffNote = page.getByTestId('staff-note')
+  await expect(staffNote).toBeVisible()
+  // Real, computed notation — not text naming the answer.
+  await expect(staffNote).not.toContainText(/[A-G]/)
+
+  const keyboard = page.getByRole('group', { name: 'On-screen keyboard' })
+  const firstKey = keyboard.getByRole('button').first()
+  await expect(firstKey).toHaveText('')
+  await firstKey.click()
+
+  await expect(page.getByTestId('flashcard-feedback')).toBeVisible()
+  await expect(page.getByTestId('flashcard-stats-total')).toHaveText('1')
+
+  expect(errors).toEqual([])
+})
