@@ -116,6 +116,55 @@ test('setting a loop range and enabling looping is reflected in the UI', async (
   await expect(loopToggle).toBeChecked()
 })
 
+test('looping bars 3-4 does not report the bars before the loop as missed on every wrap (roadmap 1.22)', async ({
+  page,
+}) => {
+  // The proof action for 1.22, and the only place it can be proved end to end:
+  // it needs a real running transport (requestAnimationFrame) driving a real
+  // matcher. Before `reset(fromTick)`, every wrap rewound the matcher to bar one
+  // and the next cursor move closed the windows of ALL of bars 1-2 in a single
+  // batch — the missed count jumped by a whole prefix of the score, once per
+  // repetition, and the accuracy readout collapsed.
+  test.setTimeout(45_000)
+
+  await page.goto('/')
+
+  const loopRange = page.getByRole('group', { name: 'Loop range' })
+  await loopRange.getByLabel('From measure').fill('3')
+  await loopRange.getByLabel('to measure').fill('4')
+  await loopRange.getByRole('checkbox', { name: 'Loop' }).check()
+
+  const transport = page.getByRole('group', { name: 'Transport' })
+  const position = transport.getByLabel('Position')
+  const missed = page.getByTestId('feedback-missed')
+
+  await transport.getByRole('button', { name: 'Play', exact: true }).click()
+
+  // Sample position and missed together until two wraps have been observed. A
+  // wrap is the position going back to measure 3 after reaching measure 4.
+  const samplesAfterWrap: number[] = []
+  let previousMeasure = 3
+  let wraps = 0
+  const deadline = Date.now() + 30_000
+  while (wraps < 2 && Date.now() < deadline) {
+    const text = (await position.textContent()) ?? ''
+    const measure = Number(text.match(/Measure (\d+)/)?.[1] ?? '0')
+    if (previousMeasure === 4 && measure === 3) {
+      wraps += 1
+      samplesAfterWrap.push(Number((await missed.textContent()) ?? '0'))
+    }
+    previousMeasure = measure
+    await page.waitForTimeout(100)
+  }
+
+  expect(wraps, 'the loop never wrapped — the transport was not running').toBe(2)
+  // Bars 1-2 of the bundled sample hold 7 notes, so the old behaviour showed at
+  // least 7 the instant a wrap happened. Nothing is being played, so the loop's
+  // own notes accrue at one per 600ms beat: within 100ms of the wrap at most one
+  // of them can legitimately have closed. 4 sits clear of both.
+  for (const value of samplesAfterWrap) expect(value).toBeLessThan(4)
+})
+
 test('the app stays usable with no MIDI keyboard connected', async ({ page }) => {
   // Playwright's Chromium has no MIDI device attached, so the app's own
   // "no hardware" fallback is exactly what a real, honest run exercises —

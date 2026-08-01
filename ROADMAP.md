@@ -51,27 +51,55 @@ metronome.
 - [x] 1.18 `app`: practice screen — transport controls, loop range, hand mute, tempo, metronome
 - [x] 1.19 e2e smoke: app boots, load bundled score, start playback
 - [x] 1.20 M1 acceptance pass: reviewed; gaps found and fixed (see below)
-- [ ] 1.21 UX: the transport controls sit below a long scrolling score, so they are off-screen while
+- [x] 1.21 UX: the transport controls sit below a long scrolling score, so they are off-screen while
       reading. Make the control strip sticky, or put it above the score.
-- [ ] 1.22 `core/practice/matcher`: add a way to start matching from a tick other than the first note.
+      *Proved in the browser: scrolled 272px down the sample score, `.practice-controls` stays
+      pinned at viewport top 0 (`position: sticky`) with the Play button fully visible.*
+- [x] 1.22 `core/practice/matcher`: add a way to start matching from a tick other than the first note.
       Looping a sub-range currently reports every note before the loop start as `missed` in one batch
       on the wrap, because `reset()` always rewinds to the first expected note.
+      *Proved by a driven e2e (`e2e/smoke.spec.ts`) looping bars 3–4 through two wraps: missed
+      stays below 4 right after each wrap. Reverting the one-line wiring makes it report 13.*
+- [x] 1.23 `app`: nothing constructs the IndexedDB store, so 1.16 is production-unreachable —
+      `knip:prod` fails on it. Persist the loaded score and the practice settings through the
+      `Store` port and restore them on start.
+      *Proved in the browser: set 75% tempo, right hand only and looping, reloaded the page — all
+      three came back from the `piano-learning-app` IndexedDB database. `knip:prod` is clean.*
 
 ## Phase 2 — Milestone M2: feedback & reading
 
-- [ ] 2.1 `core/practice/assessment`: fixed-tempo run, accuracy %, timing consistency, per-measure (REQ-3.3.4)
-- [ ] 2.2 `core/practice/review`: worst-measure detection → suggested loops (REQ-3.3.5)
-- [ ] 2.3 ‖ `core/generator/melody`: parameterised sight-reading generation (key, range, rhythm, hands, accidentals) (REQ-3.4.2)
-- [ ] 2.4 ‖ `core/generator/rhythm`: rhythm-only patterns for tapping drills
-- [ ] 2.5 `core/sightreading/session`: preview timer, no-stopping rule, retirement pool (REQ-3.4.1/3/4)
-- [ ] 2.6 `core/sightreading/adaptive`: difficulty adaptation to 80–90% accuracy band (REQ-3.4.6)
-- [ ] 2.7 `core/srs`: spaced repetition scheduler, deterministic, shared by all drill types (REQ-3.9.4)
-- [ ] 2.8 ‖ `core/drills/flashcards`: staff→key note naming, interval recognition on staff (REQ-3.4.5)
-- [ ] 2.9 ‖ `core/progress/log`: practice session log, timer, what/how long/tempo/accuracy (REQ-3.9.5)
-- [ ] 2.10 `core/practice/recorder`: MIDI capture, replay against score (REQ-3.9.2)
-- [ ] 2.11 `app`: feedback overlay on score (correct/wrong/missed colouring), review overlay
-- [ ] 2.12 `app`: sight-reading trainer screen, flashcard drill screen
-- [ ] 2.13 M2 acceptance pass
+Everything below through 2.12 was built by the session that died before committing; this session
+recovered it commit by commit and recorded the evidence each box was ticked on.
+
+- [x] 2.1 `core/practice/assessment`: fixed-tempo run, accuracy %, timing consistency, per-measure (REQ-3.3.4)
+- [x] 2.2 `core/practice/review`: worst-measure detection → suggested loops (REQ-3.3.5)
+- [x] 2.3 ‖ `core/generator/melody`: parameterised sight-reading generation (key, range, rhythm, hands, accidentals) (REQ-3.4.2)
+      *Proved by e2e: the sight-reading screen generates, plays and grades a full level-1 exercise.*
+- [x] 2.4 ‖ `core/generator/rhythm`: rhythm-only patterns for tapping drills — core only; wired by 2.13
+- [x] 2.5 `core/sightreading/session`: preview timer, no-stopping rule, retirement pool (REQ-3.4.1/3/4)
+      *Proved by e2e: preview countdown, "Begin now", the run cannot be stopped, then a grade.*
+- [x] 2.6 `core/sightreading/adaptive`: difficulty adaptation to 80–90% accuracy band (REQ-3.4.6)
+- [x] 2.7 `core/srs`: spaced repetition scheduler, deterministic, shared by all drill types (REQ-3.9.4)
+- [x] 2.8 ‖ `core/drills/flashcards`: staff→key note naming, interval recognition on staff (REQ-3.4.5)
+      *Proved by e2e: a computed, unlabelled staff prompt graded from an on-screen keyboard answer.*
+- [x] 2.9 ‖ `core/progress/log`: practice session log, timer, what/how long/tempo/accuracy (REQ-3.9.5)
+      — core only; wired by the 4.7 dashboard
+- [x] 2.10 `core/practice/recorder`: MIDI capture, replay against score (REQ-3.9.2) — core only; wired by 2.14
+- [ ] 2.11 `app`: feedback overlay on score (correct/wrong/missed colouring), review overlay.
+      Note-colour feedback is proved (unit + the 1.22 e2e reads the live missed counter), and the
+      assessment panel and review overlay render on the practice screen — but an assessment RUN has
+      never been driven end to end, so the box stays open.
+      *Proof: start an assessment, play it out, the review overlay lists problem measures and its
+      one-click loop actually sets the loop range.*
+- [x] 2.12 `app`: sight-reading trainer screen, flashcard drill screen
+      *Proved by e2e: both reached through the shell's own nav, driven to a grade.*
+- [ ] 2.13 `app`: rhythm tapping drill screen — the only consumer `core/generator/rhythm` will ever
+      have. Until it exists, that module is production-unreachable and knip-ignored.
+      *Proof: tap a rhythm on the keyboard/spacebar, the screen scores the tapped pattern.*
+- [ ] 2.14 `app`: record & replay panel — the only consumer `core/practice/recorder` will ever have.
+      Until it exists, that module is production-unreachable and knip-ignored.
+      *Proof: record a short performance, replay it, the score colours the same notes it coloured live.*
+- [ ] 2.15 M2 acceptance pass
 
 ## Phase 3 — Milestone M3: theory & ears
 
@@ -117,4 +145,11 @@ Append one line per session: date, what landed, anything the next session must k
 - 2026-07-31 — Phase 0 done. Scaffold, dual vitest projects, eslint core-purity gate, ports + deterministic fakes, shared Result/invariant/units. 66 tests, <1s.
 - 2026-08-01 - Phase 1 core domain landed (theory, notation, timing, practice): 1328 tests, core suite 1.1s. Two adversarial review rounds; ~30 real defects fixed, several found despite 100% line coverage. Outstanding: 1.13b (wait-mode barrier rewrite) and 1.13c (re-review of the fix round, which died on a session limit). Next up after those: adapters (1.14-1.16).
 - 2026-08-01 - M1 core domain complete and hardened through three review rounds (build, fix, re-review + fix). 1367 tests, core suite ~0.9s, 0 failures in 12 consecutive runs. Next: adapters 1.14-1.16 (Web MIDI, audio, IndexedDB), then the app shell and score viewer 1.17-1.19.
+- 2026-08-01 - Recovery session. The previous session died with the whole of M2 uncommitted; it was
+  committed in 12 module-sized slices, then 1.21/1.22/1.23 were built as one pipelined round
+  (build -> adversarial review -> fix, 3 modules, 9 agents, 26 findings). Two "built but never
+  executed" defects closed: the IndexedDB adapter that nothing constructed, and `fixtures.ts` living
+  in production core. `knip:prod` is now part of `verify:full` and every ignore names the roadmap
+  task that will delete it. 1948 unit tests + 9 e2e, core suite 1.1s. Next: 2.11's proof action,
+  then 2.13/2.14 or the M2 acceptance pass (2.15).
 - 2026-08-01 - Phase 1 complete. Adapters, shell, OSMD viewer, practice screen, note feedback, e2e. Opus review found the practice screen was built but never rendered by the shell, and that `checkpoint` did not run e2e (the only suite that caught it) - `checkpoint` now runs `verify:full`. Also fixed: stop/pause left notes ringing forever on MIDI-out, the pump discarded every time the domain computed, the two AudioOutputs disagreed on clock epoch, hand mute mid-playback rewound to bar 1, and the seam tests survived deleting the tempo map (9 of 10 passed). 1567 tests + 6 e2e.
