@@ -85,12 +85,27 @@ recovered it commit by commit and recorded the evidence each box was ticked on.
 - [x] 2.9 ‖ `core/progress/log`: practice session log, timer, what/how long/tempo/accuracy (REQ-3.9.5)
       — core only; wired by the 4.7 dashboard
 - [x] 2.10 `core/practice/recorder`: MIDI capture, replay against score (REQ-3.9.2) — core only; wired by 2.14
-- [ ] 2.11 `app`: feedback overlay on score (correct/wrong/missed colouring), review overlay.
-      Note-colour feedback is proved (unit + the 1.22 e2e reads the live missed counter), and the
-      assessment panel and review overlay render on the practice screen — but an assessment RUN has
-      never been driven end to end, so the box stays open.
-      *Proof: start an assessment, play it out, the review overlay lists problem measures and its
-      one-click loop actually sets the loop range.*
+- [x] 2.11 `app`: feedback overlay on score (correct/wrong/missed colouring), review overlay.
+      *Proved by a driven e2e (`e2e/assessment.spec.ts`) with a fake Web MIDI keyboard
+      (`e2e/fake-midi.ts`): imports a six-bar fixture, starts an assessment, plays measures 1–3
+      correctly and 4–6 not at all, lets the transport run off the end, then asserts accuracy lands
+      strictly between 0% and 100%, the review overlay names measures 3/4/5 and NOT measure 0, and
+      the one-click "Practice measures 2–5" button sets the loop range control to 3..6 and checks
+      Loop. Voiding the loop-reflection line in `LoopRangeControl` makes that last assertion fail
+      while every earlier one still passes.*
+      Two defects closed on the way: the loop range control never displayed a loop set from outside
+      itself, and `useAssessment.start()` did not rewind the transport.
+- [ ] 2.11a `app/practice`: three findings from 2.11's review that need a new primitive in
+      `usePracticeEngine`, which no agent owned that round. All three are the same shape — a
+      transport mutation that only reaches the transport on the NEXT React commit, after `play()`
+      has already run: (a) `useAssessment.start()` calls `stop()` while a stale loop is still set on
+      the transport, (b) it reads `anchorMs` from the clock before the transport re-anchors in its
+      effect, (c) `practiceLoop()` sets a loop but never seeks into it, so the first pass plays from
+      wherever the playhead sits until the loop end wraps it. Add `rewindToTop()` and `playLoop()`
+      to `usePracticeEngine` that do the mutation and the play/stop atomically on the transport
+      instance, and have them report the anchor they used.
+      *Proof: an e2e that clicks a suggested loop and asserts the position readout is inside the
+      looped bars on the FIRST beat after the click, not after a wrap.*
 - [x] 2.12 `app`: sight-reading trainer screen, flashcard drill screen
       *Proved by e2e: both reached through the shell's own nav, driven to a grade.*
 - [ ] 2.13 `app`: rhythm tapping drill screen — the only consumer `core/generator/rhythm` will ever
