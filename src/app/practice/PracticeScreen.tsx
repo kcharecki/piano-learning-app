@@ -31,7 +31,7 @@ import { ScoreViewer, type ScoreViewerHandle } from '@app/score/ScoreViewer.tsx'
 import { useScoreStore } from '@app/state/scoreStore.ts'
 import type { AudioOutput, Clock, DateSource, MidiInput } from '@core/ports/index.ts'
 import type { Subdivision } from '@core/timing/metronome.ts'
-import type { Millis } from '@core/shared/units.ts'
+import { bpm, type Millis } from '@core/shared/units.ts'
 import { useEffect, useRef, useState } from 'react'
 import { AssessmentPanel } from './AssessmentPanel.tsx'
 import { createBrowserClock } from './clock.ts'
@@ -43,7 +43,9 @@ import { MidiDeviceStatus } from './MidiDeviceStatus.tsx'
 import { RecordPanel } from './RecordPanel.tsx'
 import { ReviewOverlay } from './ReviewOverlay.tsx'
 import { TempoControl } from './TempoControl.tsx'
+import { TempoRampControl } from './TempoRampControl.tsx'
 import { TimingFeedback } from './TimingFeedback.tsx'
+import { useTempoRamp } from './useTempoRamp.ts'
 import { TransportControls } from './TransportControls.tsx'
 import { useAssessment } from './useAssessment.ts'
 import { usePracticeLog } from './usePracticeLog.ts'
@@ -53,6 +55,11 @@ import { usePracticeEngine, type PracticeEngine } from './usePracticeEngine.ts'
 import { useRecorder } from './useRecorder.ts'
 import type { FrameDriver } from './useTransportLoop.ts'
 import { WaitModeControl } from './WaitModeControl.tsx'
+
+/** Note accuracy at or above which a completed pass counts as a clean repetition (REQ-3.9.1). */
+const CLEAN_ACCURACY = 0.95
+/** Clean passes needed at a rung before the ramp steps up. */
+const RAMP_REPS_PER_STEP = 1
 
 export type PracticeScreenProps = {
   /** Injection seams for tests; each defaults to the real browser adapter. */
@@ -73,6 +80,9 @@ export function PracticeScreen(props: PracticeScreenProps) {
   const setLoop = useScoreStore((s) => s.setLoop)
 
   const [subdivision, setSubdivision] = useState<Subdivision>(1)
+  const [rampFromBpm, setRampFromBpm] = useState(60)
+  const [rampToBpm, setRampToBpm] = useState(80)
+  const [rampStepBpm, setRampStepBpm] = useState(2)
   const [waitModeEnabled, setWaitModeEnabled] = useState(false)
   const [clock] = useState<Clock>(() => props.clock ?? createBrowserClock())
   const [date] = useState<DateSource>(() => props.date ?? { epochMillis: () => Date.now() })
@@ -184,6 +194,18 @@ export function PracticeScreen(props: PracticeScreenProps) {
   const practiceLogRef = useRef(practiceLog)
   practiceLogRef.current = practiceLog
 
+  // REQ-3.9.1 tempo ramping (roadmap 2.27). The ramp owns the bpm ladder; the
+  // screen owns the form fields it is started from, and pushes the ramp's
+  // scale into the same `tempoScale` the slider writes, so there is still
+  // exactly one number the transport reads.
+  const ramp = useTempoRamp(engine.writtenBpm)
+  const rampRef = useRef(ramp)
+  rampRef.current = ramp
+  const rampScale = ramp.tempoScale
+  useEffect(() => {
+    if (rampScale !== undefined) setTempoScale(rampScale)
+  }, [rampScale, setTempoScale])
+
   const clearFeedback = feedback.clear
   const previousPhaseRef = useRef(engine.phase)
   const accuracyRef = useRef(feedback.summary.accuracy)
@@ -213,6 +235,11 @@ export function PracticeScreen(props: PracticeScreenProps) {
         accuracy: accuracyRef.current,
         ...(bpm === undefined ? {} : { tempoBpm: bpm }),
       })
+      // REQ-3.9.1's "+2 BPM per clean repetition": a completed pass is one
+      // repetition, and it counts as clean at or above CLEAN_ACCURACY. A
+      // failed pass is reported too — `useTempoRamp` never lowers the tempo
+      // for one, it just does not advance.
+      rampRef.current.reportRepetition(accuracyRef.current >= CLEAN_ACCURACY)
     }
   }, [engine.phase, clearFeedback])
 
@@ -295,6 +322,31 @@ export function PracticeScreen(props: PracticeScreenProps) {
           lastJudgement={feedback.lastJudgement}
           meanAbsDeviationMs={feedback.summary.meanAbsDeviationMs}
         />
+        <TempoRampControl
+          enabled={ramp.enabled}
+          onToggle={(on) => {
+            if (on) {
+              ramp.start({
+                startBpm: bpm(rampFromBpm),
+                targetBpm: bpm(rampToBpm),
+                stepBpm: rampStepBpm,
+                repsPerStep: RAMP_REPS_PER_STEP,
+              })
+            } else {
+              ramp.stop()
+            }
+          }}
+          fromBpm={rampFromBpm}
+          onFromBpmChange={setRampFromBpm}
+          toBpm={rampToBpm}
+          onToBpmChange={setRampToBpm}
+          stepBpm={rampStepBpm}
+          onStepBpmChange={setRampStepBpm}
+          repsPerStep={ramp.repsPerStep ?? RAMP_REPS_PER_STEP}
+          state={ramp.state}
+          nextBpm={ramp.nextBpm}
+          disabled={assessmentRunning}
+        />
       </div>
       {loaded.musicXml !== undefined && (
         <ScoreViewer ref={scoreViewerRef} musicXml={loaded.musicXml} score={loaded.score} />
@@ -317,7 +369,12 @@ export function PracticeScreen(props: PracticeScreenProps) {
           inside it, which is the only lever available without touching that
           file. */}
       <fieldset disabled={assessmentRunning}>
-        <LoopRangeControl score={loaded.score} loop={settings.loop} onChange={setLoop} />
+        <LoopRangeControl
+          score={loaded.score}
+          loop={settings.loop}
+          onChange={setLoop}
+          tempoScale={settings.tempoScale}
+        />
       </fieldset>
       <HandMuteControl
         activeHands={settings.activeHands}

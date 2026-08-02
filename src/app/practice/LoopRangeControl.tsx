@@ -18,6 +18,15 @@
  * caused (its own `onChange` echoed back through `loop`) is a no-op here.
  * When `loop` goes back to `undefined`, the numbers stay exactly where the
  * last active loop (external or picked) left them.
+ *
+ * Roadmap 2.29 (REQ-3.9.3): tempo is now remembered PER loop range in
+ * `scoreStore` (see that module's comment) — `tempoScale` here is always
+ * whichever scale is currently in effect (the active loop's own scale, or the
+ * whole-piece scale while unlooped), passed straight through from
+ * `settings.tempoScale`. This control only displays it, next to the range it
+ * belongs to, so that coupling is visible instead of surprising a learner who
+ * slows down bars 5-8 and finds the whole piece slowed on unchecking Loop.
+ * Nothing here decides what the number IS — that stays in `scoreStore`.
  */
 import { measureRange, type Score } from '@core/notation/score.ts'
 import { measuresInRange } from '@core/notation/measures.ts'
@@ -28,6 +37,9 @@ export type LoopRangeControlProps = {
   readonly score: Score
   readonly loop: LoopRange | undefined
   readonly onChange: (loop: LoopRange | undefined) => void
+  /** The tempo scale currently in effect for `loop` (or the whole-piece scale
+   * while `loop` is `undefined`) — see the module comment. Display only. */
+  readonly tempoScale: number
 }
 
 function sameRange(a: LoopRange | undefined, b: LoopRange | undefined): boolean {
@@ -35,7 +47,7 @@ function sameRange(a: LoopRange | undefined, b: LoopRange | undefined): boolean 
   return a.startTick === b.startTick && a.endTick === b.endTick
 }
 
-export function LoopRangeControl({ score, loop, onChange }: LoopRangeControlProps) {
+export function LoopRangeControl({ score, loop, onChange, tempoScale }: LoopRangeControlProps) {
   const lastMeasure = score.measures.length - 1
   const [startMeasure, setStartMeasure] = useState(0)
   const [endMeasure, setEndMeasure] = useState(lastMeasure)
@@ -96,6 +108,9 @@ export function LoopRangeControl({ score, loop, onChange }: LoopRangeControlProp
         />
         Loop
       </label>
+      <span className="loop-tempo" data-testid="loop-tempo">
+        {enabled ? 'Loop tempo' : 'Tempo'}: {Math.round(tempoScale * 100)}%
+      </span>
     </div>
   )
 }

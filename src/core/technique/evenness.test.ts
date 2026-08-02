@@ -104,7 +104,13 @@ describe('evennessOf', () => {
           // has not already bottomed out at 0, the scores must genuinely
           // differ too — this kills a constant-1 (or constant-anything) stub,
           // which would otherwise trivially satisfy "hi <= lo".
-          if (sHi > sLo + 1e-6 && lo > 1e-9) {
+          // The guard is RELATIVE to the gap, not absolute: the score moves
+          // by roughly ((sHi - sLo) / gapBase) * mean(|d|), so an absolute
+          // threshold on `s` says nothing about how far the score moved. With
+          // gapBase ~4000ms, an absolute 1e-6 difference in `s` shifts the
+          // score by ~3e-10 — below the 1e-9 strictness demanded here, which
+          // made this property fail roughly one run in twenty.
+          if (sHi - sLo > gapBase * 1e-6 && lo > 1e-9) {
             expect(hi).toBeLessThan(lo - 1e-9)
           }
         },

@@ -446,10 +446,18 @@ export async function restoreSession(store: Store): Promise<boolean> {
         sourceName: session.sourceName,
         musicXml: session.musicXml,
       })
+      // ORDER MATTERS since roadmap 2.29 made the tempo scale per-loop: the
+      // restored `tempoScale` belongs to the restored LOOP, and `setTempoScale`
+      // writes to whichever home is currently in effect. Setting the loop
+      // second would file the restored tempo under "no loop" and then read the
+      // loop's own (absent, therefore default) scale back out — a session saved
+      // at 50% inside a loop came back at 100%. Only the active scale is
+      // persisted, not the whole per-loop map, so this is the one moment that
+      // association can be re-established.
+      setLoop(session.settings.loop)
       setTempoScale(session.settings.tempoScale)
       setActiveHands(session.settings.activeHands)
       setMetronomeEnabled(session.settings.metronomeEnabled)
-      setLoop(session.settings.loop)
     },
   )
 

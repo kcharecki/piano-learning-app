@@ -9,7 +9,14 @@ afterEach(cleanup)
 
 describe('LoopRangeControl', () => {
   it('starts unchecked and covering the whole score', () => {
-    render(<LoopRangeControl score={C_MAJOR_SCALE_RH} loop={undefined} onChange={() => {}} />)
+    render(
+      <LoopRangeControl
+        score={C_MAJOR_SCALE_RH}
+        loop={undefined}
+        onChange={() => {}}
+        tempoScale={1}
+      />,
+    )
     expect(screen.getByRole('checkbox', { name: 'Loop' })).not.toBeChecked()
     expect(screen.getByLabelText('From measure')).toHaveValue(1)
     expect(screen.getByLabelText('to measure')).toHaveValue(C_MAJOR_SCALE_RH.measures.length)
@@ -18,7 +25,14 @@ describe('LoopRangeControl', () => {
   it('checking the box turns the current measure range on', async () => {
     const user = userEvent.setup()
     const onChange = vi.fn()
-    render(<LoopRangeControl score={C_MAJOR_SCALE_RH} loop={undefined} onChange={onChange} />)
+    render(
+      <LoopRangeControl
+        score={C_MAJOR_SCALE_RH}
+        loop={undefined}
+        onChange={onChange}
+        tempoScale={1}
+      />,
+    )
 
     await user.click(screen.getByRole('checkbox', { name: 'Loop' }))
 
@@ -31,11 +45,23 @@ describe('LoopRangeControl', () => {
     const user = userEvent.setup()
     const onChange = vi.fn()
     const { rerender } = render(
-      <LoopRangeControl score={C_MAJOR_SCALE_RH} loop={undefined} onChange={onChange} />,
+      <LoopRangeControl
+        score={C_MAJOR_SCALE_RH}
+        loop={undefined}
+        onChange={onChange}
+        tempoScale={1}
+      />,
     )
     await user.click(screen.getByRole('checkbox', { name: 'Loop' }))
     const active = onChange.mock.calls[0]?.[0]
-    rerender(<LoopRangeControl score={C_MAJOR_SCALE_RH} loop={active} onChange={onChange} />)
+    rerender(
+      <LoopRangeControl
+        score={C_MAJOR_SCALE_RH}
+        loop={active}
+        onChange={onChange}
+        tempoScale={1}
+      />,
+    )
 
     await user.click(screen.getByRole('checkbox', { name: 'Loop' }))
     expect(onChange).toHaveBeenLastCalledWith(undefined)
@@ -45,11 +71,23 @@ describe('LoopRangeControl', () => {
     const user = userEvent.setup()
     const onChange = vi.fn()
     const { rerender } = render(
-      <LoopRangeControl score={C_MAJOR_SCALE_RH} loop={undefined} onChange={onChange} />,
+      <LoopRangeControl
+        score={C_MAJOR_SCALE_RH}
+        loop={undefined}
+        onChange={onChange}
+        tempoScale={1}
+      />,
     )
     await user.click(screen.getByRole('checkbox', { name: 'Loop' }))
     const active = onChange.mock.calls[0]?.[0]
-    rerender(<LoopRangeControl score={C_MAJOR_SCALE_RH} loop={active} onChange={onChange} />)
+    rerender(
+      <LoopRangeControl
+        score={C_MAJOR_SCALE_RH}
+        loop={active}
+        onChange={onChange}
+        tempoScale={1}
+      />,
+    )
 
     const endField = screen.getByLabelText('to measure')
     await user.clear(endField)
@@ -65,7 +103,12 @@ describe('LoopRangeControl', () => {
     // assertion too.
     const externalLoop = measureRange(TWO_HAND_CHORDS, 1, 2)
     render(
-      <LoopRangeControl score={TWO_HAND_CHORDS} loop={externalLoop} onChange={() => {}} />,
+      <LoopRangeControl
+        score={TWO_HAND_CHORDS}
+        loop={externalLoop}
+        onChange={() => {}}
+        tempoScale={1}
+      />,
     )
 
     expect(screen.getByRole('checkbox', { name: 'Loop' })).toBeChecked()
@@ -76,11 +119,23 @@ describe('LoopRangeControl', () => {
   it('loop going back to undefined leaves the numbers where they were', () => {
     const externalLoop = measureRange(TWO_HAND_CHORDS, 1, 2)
     const { rerender } = render(
-      <LoopRangeControl score={TWO_HAND_CHORDS} loop={externalLoop} onChange={() => {}} />,
+      <LoopRangeControl
+        score={TWO_HAND_CHORDS}
+        loop={externalLoop}
+        onChange={() => {}}
+        tempoScale={1}
+      />,
     )
     expect(screen.getByLabelText('From measure')).toHaveValue(2)
 
-    rerender(<LoopRangeControl score={TWO_HAND_CHORDS} loop={undefined} onChange={() => {}} />)
+    rerender(
+      <LoopRangeControl
+        score={TWO_HAND_CHORDS}
+        loop={undefined}
+        onChange={() => {}}
+        tempoScale={1}
+      />,
+    )
 
     // The checkbox reflects `loop` directly and goes off, but the numbers
     // stay at the measures that were just looping — same "remembers where it
@@ -99,7 +154,12 @@ describe('LoopRangeControl', () => {
     // endMeasure was actually derived from `loop` rather than defaulted.
     const externalLoop = measureRange(TWO_HAND_CHORDS, 0, 2)
     render(
-      <LoopRangeControl score={TWO_HAND_CHORDS} loop={externalLoop} onChange={onChange} />,
+      <LoopRangeControl
+        score={TWO_HAND_CHORDS}
+        loop={externalLoop}
+        onChange={onChange}
+        tempoScale={1}
+      />,
     )
 
     const startField = screen.getByLabelText('From measure')
@@ -118,18 +178,80 @@ describe('LoopRangeControl', () => {
     // kept showing 1..2 forever.
     const wholeScore = measureRange(TWO_HAND_CHORDS, 0, 3)
     const { rerender } = render(
-      <LoopRangeControl score={TWO_HAND_CHORDS} loop={wholeScore} onChange={() => {}} />,
+      <LoopRangeControl
+        score={TWO_HAND_CHORDS}
+        loop={wholeScore}
+        onChange={() => {}}
+        tempoScale={1}
+      />,
     )
     expect(screen.getByLabelText('From measure')).toHaveValue(1)
     expect(screen.getByLabelText('to measure')).toHaveValue(4)
 
     const middleRange = measureRange(TWO_HAND_CHORDS, 1, 2)
-    rerender(<LoopRangeControl score={TWO_HAND_CHORDS} loop={middleRange} onChange={() => {}} />)
+    rerender(
+      <LoopRangeControl
+        score={TWO_HAND_CHORDS}
+        loop={middleRange}
+        onChange={() => {}}
+        tempoScale={1}
+      />,
+    )
     expect(screen.getByLabelText('From measure')).toHaveValue(2)
     expect(screen.getByLabelText('to measure')).toHaveValue(3)
 
-    rerender(<LoopRangeControl score={TWO_HAND_CHORDS} loop={wholeScore} onChange={() => {}} />)
+    rerender(
+      <LoopRangeControl
+        score={TWO_HAND_CHORDS}
+        loop={wholeScore}
+        onChange={() => {}}
+        tempoScale={1}
+      />,
+    )
     expect(screen.getByLabelText('From measure')).toHaveValue(1)
     expect(screen.getByLabelText('to measure')).toHaveValue(4)
+  })
+
+  // Roadmap 2.29 (REQ-3.9.3): the tempo shown belongs to whatever `tempoScale`
+  // the caller passes in — this control never computes it, only displays it —
+  // so the coupling between the selected range and its own tempo is visible.
+  describe('per-loop tempo display (roadmap 2.29, REQ-3.9.3)', () => {
+    it('shows the whole-piece tempo while no loop is active', () => {
+      render(
+        <LoopRangeControl
+          score={C_MAJOR_SCALE_RH}
+          loop={undefined}
+          onChange={() => {}}
+          tempoScale={1}
+        />,
+      )
+      expect(screen.getByTestId('loop-tempo')).toHaveTextContent('Tempo: 100%')
+    })
+
+    it('shows the active loop\'s own tempo, and updates when the caller passes a different one', () => {
+      const loop = measureRange(C_MAJOR_SCALE_RH, 0, 1)
+      const { rerender } = render(
+        <LoopRangeControl
+          score={C_MAJOR_SCALE_RH}
+          loop={loop}
+          onChange={() => {}}
+          tempoScale={0.6}
+        />,
+      )
+      expect(screen.getByTestId('loop-tempo')).toHaveTextContent('Loop tempo: 60%')
+
+      // Switching to a different loop's own remembered scale (simulating the
+      // parent re-rendering after `scoreStore.setLoop` restored it) changes
+      // only the displayed number, not the range fields' own sync logic.
+      rerender(
+        <LoopRangeControl
+          score={C_MAJOR_SCALE_RH}
+          loop={loop}
+          onChange={() => {}}
+          tempoScale={0.9}
+        />,
+      )
+      expect(screen.getByTestId('loop-tempo')).toHaveTextContent('Loop tempo: 90%')
+    })
   })
 })
