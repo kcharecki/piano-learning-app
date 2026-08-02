@@ -91,6 +91,9 @@ export type PositionDisplay = {
   readonly beatsPerMeasure: number
 }
 
+/** Where the transport's playhead is now, for moving the score cursor directly. */
+export type CursorTarget = { readonly measureIndex: number; readonly tick: Ticks }
+
 export type PracticeEngineOptions = {
   readonly score: Score | undefined
   readonly activeHands: readonly Hand[]
@@ -120,12 +123,20 @@ export type PracticeEngine = {
    */
   readonly play: () => Millis | undefined
   readonly pause: () => void
-  readonly stop: () => void
+  /**
+   * Stops and rewinds. Returns where the playhead landed so the caller can move
+   * the score cursor there through the RAW ScoreViewerHandle - see PracticeScreen.
+   * `undefined` when there is no transport.
+   */
+  readonly stop: () => CursorTarget | undefined
   /**
    * Rewinds to tick 0 with any loop cleared, atomically on the transport
    * instance — no React commit in between, so a caller may `play()` straight
    * after and be certain it starts at the top of the whole piece (REQ-3.3.4).
    * Does NOT touch the score store; the caller owns the store's loop state.
+   * Unlike `stop()`, this reports nothing: every caller rewinds only to
+   * `play()` immediately afterwards, so the cursor is about to be driven by
+   * the frame pump anyway and there is no target worth handing back.
    */
   readonly rewindToTop: () => void
   /**
@@ -536,8 +547,8 @@ export function usePracticeEngine(options: PracticeEngineOptions): PracticeEngin
     setDisplay(computeDisplay(transport, waitController, filteredScore))
   }
 
-  function stop(): void {
-    if (transport === undefined) return
+  function stop(): CursorTarget | undefined {
+    if (transport === undefined) return undefined
     transport.stop()
     // `Transport.stop` queues its releases into a private pending list that
     // only the NEXT `tick()` drains — and stopping is exactly what stops the
@@ -549,6 +560,7 @@ export function usePracticeEngine(options: PracticeEngineOptions): PracticeEngin
     waitController?.reset()
     lastTickRef.current = transport.positionTicks
     setDisplay(computeDisplay(transport, waitController, filteredScore))
+    return { measureIndex: transport.currentMeasure, tick: transport.positionTicks }
   }
 
   return {

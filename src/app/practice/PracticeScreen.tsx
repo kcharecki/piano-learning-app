@@ -131,7 +131,7 @@ export function PracticeScreen(props: PracticeScreenProps) {
       ensureAudioOutput()
       return engineRef.current?.play()
     },
-    stop: () => engineRef.current?.stop(),
+    stop: handleStop,
     ...(props.frameDriver === undefined ? {} : { frameDriver: props.frameDriver }),
   })
 
@@ -251,6 +251,18 @@ export function PracticeScreen(props: PracticeScreenProps) {
     return engine.play()
   }
 
+  // Stop must move the score cursor to where the playhead landed through the
+  // RAW `scoreViewerRef`, bypassing `useNoteFeedback`'s intercepting
+  // `feedback.cursorRef` that `usePracticeEngine` is wired to above — a
+  // backward move through THAT ref reads as a loop wrap and wipes the run's
+  // just-finished counters (see `useNoteFeedback`'s module comment). Reading
+  // `engineRef.current`, not the closed-over `engine`, because `useRecorder`'s
+  // `stop:` option (above) is built before `engine` exists on this render.
+  function handleStop(): void {
+    const at = engineRef.current?.stop()
+    if (at !== undefined) scoreViewerRef.current?.moveCursorTo(at.measureIndex, at.tick)
+  }
+
   // The end-of-run story (roadmap 2.11, REQ-3.3.4/3.3.5): a fixed-tempo,
   // no-wait-mode pass, reduced once it finishes into the review screen's
   // problem measures and one-click loops. `handlePlay` is reused so an
@@ -296,7 +308,7 @@ export function PracticeScreen(props: PracticeScreenProps) {
           // not by swallowing the click in a no-op handler, so a click during
           // a run visibly does nothing instead of silently doing nothing.
           onPause={engine.pause}
-          onStop={engine.stop}
+          onStop={handleStop}
           disabled={assessmentRunning}
         />
         <TempoControl

@@ -8,6 +8,7 @@
 import { useScoreStore } from '@app/state/scoreStore.ts'
 import { C_MAJOR_SCALE_RH } from '@test/fixtures.ts'
 import { at, invariant } from '@core/shared/invariant.ts'
+import { measureRange } from '@core/notation/score.ts'
 import { midi, millis } from '@core/shared/units.ts'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -28,13 +29,21 @@ import type { FrameDriver } from './useTransportLoop.ts'
 // wired to a minimal handle matching `ScoreViewerHandle` so a future test
 // that presses Play with a loaded score exercises the same call surface the
 // real component does, instead of silently hitting a null ref.
+//
+// `moveCursorToSpy` is hoisted so both the mock factory (which runs before
+// this module's own top-level code, per `vi.mock`'s hoisting) and the tests
+// below can share the exact same function identity — it is what the
+// roadmap-2.20a stop-cursor test reads to prove `PracticeScreen` moves the
+// cursor through this RAW handle, not through `useNoteFeedback`'s
+// intercepting `cursorRef`.
+const { moveCursorToSpy } = vi.hoisted(() => ({ moveCursorToSpy: vi.fn() }))
 vi.mock('@app/score/ScoreViewer.tsx', () => ({
   ScoreViewer: forwardRef(function MockScoreViewer(
     _props: { readonly musicXml: string },
     ref: React.ForwardedRef<ScoreViewerHandle>,
   ) {
     useImperativeHandle(ref, () => ({
-      moveCursorTo: () => {},
+      moveCursorTo: moveCursorToSpy,
       setNoteColor: () => {},
       clearNoteColors: () => {},
     }))
@@ -98,6 +107,7 @@ beforeEach(resetStore)
 afterEach(() => {
   cleanup()
   resetStore()
+  moveCursorToSpy.mockClear()
 })
 
 describe('PracticeScreen', () => {
@@ -603,5 +613,99 @@ describe('PracticeScreen', () => {
       manual.pump()
     })
     expect(screen.getByTestId('feedback-correct')).toHaveTextContent('1')
+  })
+
+  // Roadmap 2.20a: after Stop, the score cursor must land where the
+  // transport actually stopped, not stay wherever it last was while the
+  // position readout has already rewound to bar 1. The obvious fix — moving
+  // the cursor from inside `usePracticeEngine.stop()` through
+  // `feedback.cursorRef` (the ref `usePracticeEngine` is actually given,
+  // above) — was reverted: that ref reads ANY backward cursor move as a loop
+  // wrap and resets `useNoteFeedback`'s matcher, wiping the run's counters.
+  // This is the regression guard for exactly that: a test that only checked
+  // the cursor moved would still pass the broken implementation.
+  it('Stop moves the score cursor through the RAW handle to the rewound position, without resetting the note-feedback counters (roadmap 2.20a)', async () => {
+    loadSampleScoreWithMusicXml()
+    const user = userEvent.setup()
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const midiInput = new FakeMidiInput()
+    const manual = manualDriver()
+
+    render(
+      <PracticeScreen
+        clock={clock}
+        audioOutput={audio}
+        midiInput={midiInput}
+        frameDriver={manual.driver}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Play' }))
+    act(() => manual.pump()) // parks the cursor on tick 0, arming the matcher
+
+    // C_MAJOR_SCALE_RH's first note is C4 (60) at tick 0.
+    act(() => midiInput.emit({ type: 'noteOn', note: midi(60), velocity: 80, time: millis(0) }))
+    expect(screen.getByTestId('feedback-correct')).toHaveTextContent('1')
+
+    act(() => {
+      clock.advance(700) // well off tick 0, so a real rewind is observable
+      manual.pump()
+    })
+
+    // Only the call Stop itself makes matters here — clear out every prior
+    // forwarded call from `useNoteFeedback`'s interception during the pumps
+    // above.
+    moveCursorToSpy.mockClear()
+
+    await user.click(screen.getByRole('button', { name: 'Stop' }))
+
+    // The cursor was moved, through the raw handle, to exactly where the
+    // transport's playhead landed: tick 0, measure index 0 (no loop armed).
+    expect(moveCursorToSpy).toHaveBeenCalledWith(0, 0)
+
+    // The regression guard: the run's counters survive the stop. If the
+    // naive fix (routing this move through `feedback.cursorRef`) were used
+    // instead, the backward jump to tick 0 would read as a loop wrap and
+    // reset the matcher, wiping this to 0.
+    expect(screen.getByTestId('feedback-correct')).toHaveTextContent('1')
+  })
+
+  // Kills the mutant that hardcodes `handleStop` to
+  // `scoreViewerRef.current?.moveCursorTo(0, 0)` regardless of `at`: with a
+  // loop armed, `Transport.stop()` rewinds to `loopRange.startTick`, not tick
+  // 0, so the cursor must follow it there.
+  it('Stop with a loop armed moves the score cursor to the loop start, not bar 1 (roadmap 2.20a)', async () => {
+    loadSampleScoreWithMusicXml()
+    const loop = measureRange(C_MAJOR_SCALE_RH, 1, 1) // second measure: tick 1920
+    useScoreStore.setState((prev) => ({
+      settings: { ...prev.settings, loop },
+    }))
+    const user = userEvent.setup()
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const midiInput = new FakeMidiInput()
+    const manual = manualDriver()
+
+    render(
+      <PracticeScreen
+        clock={clock}
+        audioOutput={audio}
+        midiInput={midiInput}
+        frameDriver={manual.driver}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Play' }))
+    act(() => {
+      clock.advance(2200) // into the loop, off its start tick
+      manual.pump()
+    })
+
+    moveCursorToSpy.mockClear()
+
+    await user.click(screen.getByRole('button', { name: 'Stop' }))
+
+    expect(moveCursorToSpy).toHaveBeenCalledWith(1, loop.startTick)
   })
 })

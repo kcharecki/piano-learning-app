@@ -642,7 +642,68 @@ describe('usePracticeEngine', () => {
     expect(moveCursorTo).not.toHaveBeenCalled()
   })
 
-  it('a stop this frame\'s OWN tick() causes (reaching the end of the piece) still reports the final position', () => {
+  it('stop() returns undefined with no score', () => {
+    const clock = new FakeClock()
+    const { result } = renderHook((p: PracticeEngineOptions) => usePracticeEngine(p), {
+      initialProps: makeOptions(clock, { score: undefined }),
+    })
+
+    let target: { measureIndex: number; tick: number } | undefined
+    act(() => {
+      target = result.current.stop()
+    })
+
+    expect(target).toBeUndefined()
+  })
+
+  it('stop() returns measureIndex 0 / tick 0 after the transport has advanced into a later measure', () => {
+    const clock = new FakeClock()
+    const manual = manualDriver()
+    const { result } = renderHook((p: PracticeEngineOptions) => usePracticeEngine(p), {
+      initialProps: makeOptions(clock, { frameDriver: manual.driver }),
+    })
+
+    act(() => result.current.play())
+    act(() => {
+      clock.advance(2500) // well into measure 2 of C_MAJOR_SCALE_RH
+      manual.pump()
+    })
+    expect(result.current.position?.measureNumber).toBeGreaterThan(1)
+
+    let target: { measureIndex: number; tick: number } | undefined
+    act(() => {
+      target = result.current.stop()
+    })
+
+    // `Transport.stop()` with no loop rewinds to tick 0, measure index 0 —
+    // kills a mutant that reports the PRE-stop position instead of reading
+    // `transport.currentMeasure`/`positionTicks` AFTER `stop()` ran.
+    expect(target).toEqual({ measureIndex: 0, tick: 0 })
+  })
+
+  it("stop() returns the loop's start when a loop is armed — Transport.stop() rewinds to loopRange.startTick, not 0", () => {
+    const clock = new FakeClock()
+    const manual = manualDriver()
+    const loop = measureRange(C_MAJOR_SCALE_RH, 1, 1) // second measure: tick 1920
+    const { result } = renderHook((p: PracticeEngineOptions) => usePracticeEngine(p), {
+      initialProps: makeOptions(clock, { loop, frameDriver: manual.driver }),
+    })
+
+    act(() => result.current.play())
+    act(() => {
+      clock.advance(2200) // into the loop, off its start tick
+      manual.pump()
+    })
+
+    let target: { measureIndex: number; tick: number } | undefined
+    act(() => {
+      target = result.current.stop()
+    })
+
+    expect(target).toEqual({ measureIndex: 1, tick: loop.startTick })
+  })
+
+  it("a stop this frame's OWN tick() causes (reaching the end of the piece) still reports the final position", () => {
     // The guard above reads `transport.state` ONCE, before this frame's own
     // `tick()` — so a stop this very pump causes by reaching the end of the
     // score must still move the cursor to the final position. Kills a
