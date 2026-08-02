@@ -1,15 +1,17 @@
 /**
- * File import (REQ-3.2.5): MusicXML or Standard MIDI File, parsed with the
- * core parsers. A bad file is a normal case — the user downloaded it off the
- * internet — so the parser's `Err` is shown as readable text, never a console
- * log or a crash.
+ * File import (REQ-3.2.5): MusicXML (plain or compressed `.mxl`) or Standard
+ * MIDI File, parsed with the core parsers. A bad file is a normal case — the
+ * user downloaded it off the internet — so the parser's (or unpacker's) `Err`
+ * is shown as readable text, never a console log or a crash.
  */
 import { parseMidiFile } from '@core/notation/midifile.ts'
 import { parseMusicXml } from '@core/notation/musicxml.ts'
+import { unpackMxl } from '@core/notation/mxl.ts'
 import { useScoreStore } from '@app/state/scoreStore.ts'
 import { useId, useState } from 'react'
 
 const XML_EXTENSIONS = new Set(['.musicxml', '.xml'])
+const MXL_EXTENSIONS = new Set(['.mxl'])
 const MIDI_EXTENSIONS = new Set(['.mid', '.midi'])
 
 function extensionOf(fileName: string): string {
@@ -38,6 +40,19 @@ export function ImportPanel() {
           return
         }
         loadScore({ score: result.value, sourceName: file.name, musicXml: text })
+      } else if (MXL_EXTENSIONS.has(extension)) {
+        const bytes = new Uint8Array(await file.arrayBuffer())
+        const unpacked = unpackMxl(bytes)
+        if (!unpacked.ok) {
+          setImportError(`Could not read "${file.name}": ${unpacked.error}`)
+          return
+        }
+        const result = parseMusicXml(unpacked.value)
+        if (!result.ok) {
+          setImportError(`Could not read "${file.name}": ${result.error}`)
+          return
+        }
+        loadScore({ score: result.value, sourceName: file.name, musicXml: unpacked.value })
       } else if (MIDI_EXTENSIONS.has(extension)) {
         const bytes = new Uint8Array(await file.arrayBuffer())
         const result = parseMidiFile(bytes)
@@ -48,7 +63,7 @@ export function ImportPanel() {
         loadScore({ score: result.value, sourceName: file.name, musicXml: undefined })
       } else {
         setImportError(
-          `"${file.name}" is not a file this app can open — use .musicxml, .xml, .mid or .midi.`,
+          `"${file.name}" is not a file this app can open — use .musicxml, .xml, .mxl, .mid or .midi.`,
         )
       }
     } catch (reason) {
@@ -61,11 +76,11 @@ export function ImportPanel() {
 
   return (
     <div className="import-panel">
-      <label htmlFor={inputId}>Import a score (.musicxml, .xml, .mid, .midi)</label>
+      <label htmlFor={inputId}>Import a score (.musicxml, .xml, .mxl, .mid, .midi)</label>
       <input
         id={inputId}
         type="file"
-        accept=".musicxml,.xml,.mid,.midi"
+        accept=".musicxml,.xml,.mxl,.mid,.midi"
         disabled={busy}
         onChange={(event) => {
           const file = event.target.files?.[0]

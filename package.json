@@ -30,6 +30,7 @@
     "checkpoint": "node scripts/checkpoint.mjs"
   },
   "dependencies": {
+    "fflate": "^0.8.3",
     "idb": "^8.0.3",
     "opensheetmusicdisplay": "^1.9.0",
     "react": "^19.1.1",

@@ -180,6 +180,13 @@ recovered it commit by commit and recorded the evidence each box was ticked on.
 
 ### M2 follow-ups — recorded, not blocking, may be taken in Phase 3
 
+- [ ] 2.19a `core/notation`: support `.mxl`, the compressed MusicXML format (REQ-3.2.5). Requested by
+      the user. An `.mxl` is a ZIP whose `META-INF/container.xml` names the real MusicXML rootfile —
+      it is what most publishers and MuseScore actually hand out, so "import MusicXML" is only half
+      true without it. Unpack it and feed the existing `parseMusicXml`; because the result is real
+      MusicXML text, it engraves in OSMD like any other `.musicxml`, unlike a MIDI import (2.20b).
+      *Proof: e2e — import a `.mxl` and assert the score container renders real noteheads.*
+
 - [ ] 2.20 `core/notation`: a `Score` → MusicXML writer. **Two consumers, not one — this is the
       highest-value item in this list.**
       (a) Generated sight-reading exercises. `SightReadingScreen` renders `NoteListPreview`, a TEXT
