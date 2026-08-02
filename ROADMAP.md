@@ -180,14 +180,25 @@ recovered it commit by commit and recorded the evidence each box was ticked on.
 
 ### M2 follow-ups — recorded, not blocking, may be taken in Phase 3
 
-- [ ] 2.20 `core/notation`: a `Score` → MusicXML writer, so generated sight-reading exercises can be
-      engraved by the existing OSMD `ScoreViewer`. Today `SightReadingScreen` renders
-      `NoteListPreview`, a TEXT list reading "C4 (quarter), D4 (quarter)" — in both the preview and
-      the playing phase. That trains no staff decoding and hands the learner the answer in letters;
-      the 30-second "scan the key, time and patterns" preview shows no key signature, no time
-      signature and no bar lines. The engraver already works — the only missing piece is an input.
-      *Proof: e2e — Sight reading → Start exercise → an OSMD `<svg>` with real noteheads is present
-      and the preview contains no text matching `/[A-G][0-9]/`.*
+- [ ] 2.20 `core/notation`: a `Score` → MusicXML writer. **Two consumers, not one — this is the
+      highest-value item in this list.**
+      (a) Generated sight-reading exercises. `SightReadingScreen` renders `NoteListPreview`, a TEXT
+      list reading "C4 (quarter), D4 (quarter)", in both the preview and the playing phase. That
+      trains no staff decoding and hands the learner the answer in letters; the 30-second "scan the
+      key, time and patterns" preview shows no key signature, no time signature and no bar lines.
+      (b) **Every imported MIDI file.** Reported by the user: importing a `.mid` shows no notation
+      at all. `parseMidiFile` handles them fine — a real 87-measure, 1258-note 6/8 file parsed with
+      both hands split correctly — but `ImportPanel` sets `musicXml: undefined` for MIDI, and
+      `PracticeScreen.tsx:255` only mounts the OSMD viewer when `musicXml` is defined. So MIDI
+      import is playback-only, and REQ-3.2.5 ("import MusicXML **or** MIDI") is met for playing and
+      not for reading. The on-screen explanation at `ScoreScreen.tsx:46` was not noticed next to a
+      blank space where a score should be — whatever else happens, that message needs to be where
+      the notation would have gone.
+      The engraver already works in both cases; the only missing piece is an input.
+      *Proof: e2e — (a) Sight reading → Start exercise → an OSMD `<svg>` with real noteheads is
+      present and the preview contains no text matching `/[A-G][0-9]/`; (b) import a `.mid` fixture
+      and assert the same score container renders noteheads, with the measure count matching what
+      `parseMidiFile` reported.*
 - [ ] 2.20a `app/practice`: after Stop, the score highlight stays where playback stopped while the
       position readout has already rewound. It self-corrects on the next Play, so it is cosmetic —
       but the obvious fix does NOT work, and that is worth knowing before anyone tries it.
