@@ -12,6 +12,19 @@
  * robust than trying to reproduce OSMD's pitch encoding. If a measure's counts
  * ever disagree — a future OSMD version, an edge case in the matching — that
  * measure's notes are simply left uncoloured rather than mismatched or thrown.
+ *
+ * ## Batched rendering (roadmap 2.21, REQ-3.3.6)
+ *
+ * `osmd.render()` re-engraves the ENTIRE score synchronously — expensive
+ * enough that calling it once per judged note (four times for a four-note
+ * chord, all on the incoming MIDI event's own task) blew the 100ms visual
+ * budget. `setNoteColor`/`clearNoteColors` now only mutate `NoteheadColor` on
+ * the affected `Note` objects and call `requestRender()`, which coalesces any
+ * number of calls within one task into exactly one `render()`, scheduled via
+ * the injectable `scheduleRender` (real `requestAnimationFrame` by default).
+ * Because `render()` always draws whatever the note objects currently hold,
+ * coalescing never drops a mutation — the frame that eventually fires always
+ * sees the LAST colour written, even if a dozen calls raced ahead of it.
  */
 import type { Score, ScoreNote } from '@core/notation/score.ts'
 import { TICKS_PER_QUARTER } from '@core/shared/units.ts'
@@ -26,6 +39,39 @@ type EngravedRawNote = EngravedNote & { readonly halfTone: number; isRest(): boo
 type EngravedVoiceEntry = { readonly Notes: readonly EngravedRawNote[] }
 type EngravedStaffEntry = { readonly VoiceEntries: readonly EngravedVoiceEntry[] }
 type EngravedContainer = { readonly StaffEntries: readonly EngravedStaffEntry[] }
+type EngravedSourceMeasure = {
+  readonly VerticalSourceStaffEntryContainers: readonly EngravedContainer[]
+}
+
+/** The slice of OSMD's cursor this file actually touches. */
+type OsmdCursorIterator = {
+  readonly EndReached: boolean
+  readonly CurrentSourceTimestamp: { readonly RealValue: number }
+}
+type OsmdCursor = {
+  readonly iterator: OsmdCursorIterator
+  reset(): void
+  next(): void
+  nextMeasure(): void
+  update(): void
+  show(): void
+}
+
+/**
+ * The narrow structural slice of OpenSheetMusicDisplay this file depends on —
+ * `createOsmd` (an option to `createOsmdEngraver`) can hand back a fake
+ * implementing exactly this, so `osmdEngraver.test.ts` can drive the id
+ * mapping, colouring and batching logic without a browser. The real
+ * `OpenSheetMusicDisplay` satisfies this structurally; the default factory
+ * below is the only place that touches the real library.
+ */
+export type OsmdLike = {
+  readonly Sheet: { readonly SourceMeasures: readonly EngravedSourceMeasure[] }
+  readonly cursor: OsmdCursor
+  load(musicXml: string): Promise<void>
+  render(): void
+  clear(): void
+}
 
 /**
  * OSMD engraves in black by default, which is invisible on this app's dark
@@ -35,8 +81,37 @@ type EngravedContainer = { readonly StaffEntries: readonly EngravedStaffEntry[] 
  * hex, so a CSS variable cannot be handed to it directly.
  */
 const SCORE_INK = '#e8e6e3'
-const DEFAULT_NOTE_COLOR = SCORE_INK
+/** Exported for `osmdEngraver.test.ts` — the colour `clearNoteColors` restores. */
+export const DEFAULT_NOTE_COLOR = SCORE_INK
 const MAX_CURSOR_STEPS = 10_000
+
+const DEFAULT_OSMD_OPTIONS = {
+  autoResize: true,
+  drawTitle: true,
+  followCursor: true,
+  defaultColorMusic: SCORE_INK,
+  defaultColorNotehead: SCORE_INK,
+  defaultColorStem: SCORE_INK,
+  defaultColorRest: SCORE_INK,
+  defaultColorLabel: SCORE_INK,
+  defaultColorTitle: SCORE_INK,
+}
+
+/** The only place the real OSMD library is constructed. */
+function defaultCreateOsmd(container: HTMLElement): OsmdLike {
+  return new OpenSheetMusicDisplay(container, DEFAULT_OSMD_OPTIONS) as unknown as OsmdLike
+}
+
+/**
+ * `requestAnimationFrame` is not defined outside a DOM (e.g. a plain node
+ * vitest environment), so batching still works in tests that inject nothing:
+ * falls back to a 0ms timeout, which still coalesces every call made within
+ * the current task into one flush on the next tick.
+ */
+function defaultScheduleRender(run: () => void): void {
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run)
+  else setTimeout(run, 0)
+}
 
 function groupNotesByMeasure(notes: readonly ScoreNote[]): Map<number, ScoreNote[]> {
   const byMeasure = new Map<number, ScoreNote[]>()
@@ -67,14 +142,11 @@ function flattenMeasureNotes(containers: readonly EngravedContainer[]): Engraved
 }
 
 /** Best-effort id → OSMD note lookup. Never throws — a failed mapping just leaves colouring inert. */
-function buildNoteIdMap(osmd: OpenSheetMusicDisplay, score: Score): Map<string, EngravedNote> {
+function buildNoteIdMap(osmd: OsmdLike, score: Score): Map<string, EngravedNote> {
   const map = new Map<string, EngravedNote>()
   try {
     const ourNotesByMeasure = groupNotesByMeasure(score.notes)
-    const sourceMeasures = osmd.Sheet.SourceMeasures as unknown as {
-      VerticalSourceStaffEntryContainers: EngravedContainer[]
-    }[]
-    sourceMeasures.forEach((measure, measureIndex) => {
+    osmd.Sheet.SourceMeasures.forEach((measure, measureIndex) => {
       const ours = ourNotesByMeasure.get(measureIndex)
       if (ours === undefined || ours.length === 0) return
       const theirs = flattenMeasureNotes(measure.VerticalSourceStaffEntryContainers)
@@ -91,7 +163,7 @@ function buildNoteIdMap(osmd: OpenSheetMusicDisplay, score: Score): Map<string, 
 }
 
 /** Wind a freshly-reset cursor forward to the start of `measureIndex`. */
-function seekMeasure(cursor: OpenSheetMusicDisplay['cursor'], measureIndex: number): void {
+function seekMeasure(cursor: OsmdCursor, measureIndex: number): void {
   cursor.reset()
   for (let i = 0; i < measureIndex && !cursor.iterator.EndReached; i++) cursor.nextMeasure()
 }
@@ -114,7 +186,7 @@ function seekMeasure(cursor: OpenSheetMusicDisplay['cursor'], measureIndex: numb
  * Stepping until we overshoot and trying to back off is not possible with
  * this API, hence the replay.
  */
-function moveCursor(osmd: OpenSheetMusicDisplay, measureIndex: number, tick: number): void {
+function moveCursor(osmd: OsmdLike, measureIndex: number, tick: number): void {
   const cursor = osmd.cursor
   const tickOf = (): number =>
     cursor.iterator.CurrentSourceTimestamp.RealValue * 4 * TICKS_PER_QUARTER
@@ -142,24 +214,45 @@ function moveCursor(osmd: OpenSheetMusicDisplay, measureIndex: number, tick: num
   cursor.show()
 }
 
-export function createOsmdEngraver(): ScoreEngraver {
-  let osmd: OpenSheetMusicDisplay | undefined
+export type OsmdEngraverOptions = {
+  /**
+   * Runs `run` once, later — real `requestAnimationFrame` by default (falling
+   * back to a 0ms timeout outside a DOM). Injected so tests can control
+   * exactly when a batched render flushes instead of racing a real frame.
+   */
+  readonly scheduleRender?: (run: () => void) => void
+  /** Injection seam for tests — defaults to the real `OpenSheetMusicDisplay`. */
+  readonly createOsmd?: (container: HTMLElement) => OsmdLike
+}
+
+export function createOsmdEngraver(opts?: OsmdEngraverOptions): ScoreEngraver {
+  const scheduleRender = opts?.scheduleRender ?? defaultScheduleRender
+  const createOsmd = opts?.createOsmd ?? defaultCreateOsmd
+
+  let osmd: OsmdLike | undefined
   let noteById = new Map<string, EngravedNote>()
   const coloredIds = new Set<string>()
+  let renderPending = false
+
+  /**
+   * Coalesces any number of calls made before the next flush into exactly one
+   * `render()`. `osmd?.render()` (rather than capturing `osmd` up front) is
+   * what makes `destroy()` neutralise a pending flush: once `destroy` sets
+   * `osmd` back to `undefined`, a flush that fires afterwards is a no-op
+   * instead of rendering into a cleared instance.
+   */
+  function requestRender(): void {
+    if (renderPending) return
+    renderPending = true
+    scheduleRender(() => {
+      renderPending = false
+      osmd?.render()
+    })
+  }
 
   return {
     async load(container, musicXml, score) {
-      const instance = new OpenSheetMusicDisplay(container, {
-        autoResize: true,
-        drawTitle: true,
-        followCursor: true,
-        defaultColorMusic: SCORE_INK,
-        defaultColorNotehead: SCORE_INK,
-        defaultColorStem: SCORE_INK,
-        defaultColorRest: SCORE_INK,
-        defaultColorLabel: SCORE_INK,
-        defaultColorTitle: SCORE_INK,
-      })
+      const instance = createOsmd(container)
       await instance.load(musicXml)
       instance.render()
       instance.cursor.show()
@@ -178,7 +271,7 @@ export function createOsmdEngraver(): ScoreEngraver {
       if (note === undefined || osmd === undefined) return
       note.NoteheadColor = color
       coloredIds.add(noteId)
-      osmd.render()
+      requestRender()
     },
 
     clearNoteColors() {
@@ -188,7 +281,7 @@ export function createOsmdEngraver(): ScoreEngraver {
         if (note !== undefined) note.NoteheadColor = DEFAULT_NOTE_COLOR
       }
       coloredIds.clear()
-      osmd.render()
+      requestRender()
     },
 
     destroy() {
@@ -196,6 +289,7 @@ export function createOsmdEngraver(): ScoreEngraver {
       osmd = undefined
       noteById = new Map()
       coloredIds.clear()
+      renderPending = false
     },
   }
 }
