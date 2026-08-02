@@ -8,6 +8,7 @@
 import { useProgressStore, type StoredAssessment } from '@app/state/progressStore.ts'
 import { useFlashcardStore } from '@app/state/flashcardStore.ts'
 import { useSightReadingStore } from '@app/state/sightReadingStore.ts'
+import { useTechniqueStore } from '@app/state/techniqueStore.ts'
 import {
   MIN_LEVEL as SIGHT_READING_MIN_LEVEL,
   MAX_LEVEL as SIGHT_READING_MAX_LEVEL,
@@ -15,6 +16,7 @@ import {
 import type { Card } from '@core/srs/scheduler.ts'
 import type { PracticeEntry } from '@core/progress/log.ts'
 import type { SightReadingRecord } from '@core/sightreading/session.ts'
+import type { TechniqueAttempt } from '@core/technique/evenness.ts'
 import { FakeClock } from '@test/fakes.ts'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { gatherProgressSnapshot, applyProgressSnapshot, SIGHT_READING_LEVEL_KEY } from './snapshot.ts'
@@ -23,6 +25,7 @@ function resetStores(): void {
   useProgressStore.setState({ assessments: [], recordings: [], practiceEntries: [] })
   useFlashcardStore.setState({ cardsById: {} })
   useSightReadingStore.setState({ level: SIGHT_READING_MIN_LEVEL, history: [] })
+  useTechniqueStore.setState({ attempts: [] })
 }
 
 beforeEach(resetStores)
@@ -84,12 +87,22 @@ const assessment: StoredAssessment = {
   },
 }
 
+const techniqueAttempt: TechniqueAttempt = {
+  drillId: 'scale-c-major-2oct-hands-together',
+  at: 4_000,
+  bpm: 84,
+  evenness: 0.9,
+  accuracy: 1,
+  clean: true,
+}
+
 function seedStores(): void {
   useProgressStore.getState().addPracticeEntry(practiceEntry)
   useProgressStore.getState().addAssessment(assessment)
   useFlashcardStore.getState().upsertCard(card)
   useSightReadingStore.getState().setLevel(4)
   useSightReadingStore.getState().addRecord(sightReadingRecord)
+  useTechniqueStore.getState().addAttempt(techniqueAttempt)
 }
 
 describe('gatherProgressSnapshot', () => {
@@ -114,7 +127,7 @@ describe('gatherProgressSnapshot', () => {
 })
 
 describe('gather -> clear -> apply round trip', () => {
-  it('restores practiceEntries, srsCards, sightReadingHistory and the sight-reading level exactly', () => {
+  it('restores practiceEntries, srsCards, sightReadingHistory, techniqueAttempts and the sight-reading level exactly', () => {
     seedStores()
     const snapshot = gatherProgressSnapshot(new FakeClock(9_999))
 
@@ -122,6 +135,7 @@ describe('gather -> clear -> apply round trip', () => {
     expect(useProgressStore.getState().practiceEntries).toEqual([])
     expect(useFlashcardStore.getState().cardsById).toEqual({})
     expect(useSightReadingStore.getState().history).toEqual([])
+    expect(useTechniqueStore.getState().attempts).toEqual([])
 
     applyProgressSnapshot(snapshot)
 
@@ -129,6 +143,7 @@ describe('gather -> clear -> apply round trip', () => {
     expect(useFlashcardStore.getState().cardsById).toEqual({ [card.id]: card })
     expect(useSightReadingStore.getState().history).toEqual([sightReadingRecord])
     expect(useSightReadingStore.getState().level).toBe(4)
+    expect(useTechniqueStore.getState().attempts).toEqual([techniqueAttempt])
   })
 
   it('restores an assessment\'s recoverable fields (id, at, accuracy, scoreId, scoreTitle) — not the full AssessmentResult', () => {

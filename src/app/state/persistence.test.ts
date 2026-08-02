@@ -8,6 +8,7 @@ import type { Card } from '@core/srs/scheduler.ts'
 import type { AssessmentResult } from '@core/practice/assessment.ts'
 import type { Recording } from '@core/practice/recorder.ts'
 import type { PracticeEntry } from '@core/progress/log.ts'
+import type { TechniqueAttempt } from '@core/technique/evenness.ts'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   FLASHCARDS_COLLECTION,
@@ -24,17 +25,21 @@ import {
   SIGHT_READING_COLLECTION,
   SIGHT_READING_KEY,
   startPersisting,
+  TECHNIQUE_COLLECTION,
+  TECHNIQUE_KEY,
   type PersistedAssessments,
   type PersistedFlashcards,
   type PersistedPracticeLog,
   type PersistedRecordings,
   type PersistedSession,
   type PersistedSightReadingHistory,
+  type PersistedTechniqueHistory,
 } from './persistence.ts'
 import { useScoreStore, type ScoreStore } from './scoreStore.ts'
 import { useSightReadingStore } from './sightReadingStore.ts'
 import { useFlashcardStore } from './flashcardStore.ts'
 import { useProgressStore, type StoredAssessment } from './progressStore.ts'
+import { useTechniqueStore } from './techniqueStore.ts'
 
 const INITIAL_STATE: ScoreStore = useScoreStore.getState()
 
@@ -58,6 +63,7 @@ function resetStore(): void {
   useSightReadingStore.setState({ level: MIN_LEVEL, history: [] })
   useFlashcardStore.setState({ cardsById: {} })
   useProgressStore.setState({ assessments: [], recordings: [], practiceEntries: [] })
+  useTechniqueStore.setState({ attempts: [] })
 }
 
 /** Waits for the internal write queue to drain: a handful of microtask turns is always enough. */
@@ -882,6 +888,76 @@ describe('persistence', () => {
       const store = new CountingStore()
       const saved: PersistedPracticeLog = { practiceEntries: [ENTRY_A] }
       await store.put(PRACTICE_LOG_COLLECTION, PRACTICE_LOG_KEY, saved)
+      store.putCount = 0
+
+      persist(store)
+      await restoreSession(store)
+      await flush()
+
+      expect(store.putCount).toBe(0)
+    })
+  })
+
+  describe('technique drill history persistence (roadmap 4.4b, REQ-3.7.2/3.7.3)', () => {
+    const ATTEMPT_A: TechniqueAttempt = {
+      drillId: 'scale-c-major-2oct-hands-together',
+      at: 1000,
+      bpm: 84,
+      evenness: 0.9,
+      accuracy: 1,
+      clean: true,
+    }
+
+    it('round-trips attempts via startPersisting / restoreSession', async () => {
+      const store = new MemoryStore()
+      const unsubscribe = persist(store)
+
+      useTechniqueStore.getState().addAttempt(ATTEMPT_A)
+      await flush()
+      unsubscribe()
+
+      resetStore()
+      expect(useTechniqueStore.getState().attempts).toEqual([])
+
+      await restoreSession(store)
+      expect(useTechniqueStore.getState().attempts).toEqual([ATTEMPT_A])
+    })
+
+    it.each([
+      ['not an object', 'nope'],
+      ['attempts missing', {}],
+      ['attempts not an array', { attempts: 'nope' }],
+      [
+        'an attempt missing a required field',
+        { attempts: [{ drillId: 'x', at: 1, bpm: 80, evenness: 1 }] },
+      ],
+      ['an attempt with a non-finite bpm', { attempts: [{ ...ATTEMPT_A, bpm: Number.NaN }] }],
+      ['an attempt with a non-boolean clean', { attempts: [{ ...ATTEMPT_A, clean: 'yes' }] }],
+    ])('degrades to an empty attempts list on a corrupt payload: %s', async (_label, payload) => {
+      const store = new MemoryStore()
+      await store.put(TECHNIQUE_COLLECTION, TECHNIQUE_KEY, payload)
+      // A sibling collection with a VALID payload, to prove the corrupt
+      // technique collection does not prevent it from restoring — see the
+      // assessments suite's identical comment above.
+      const entry: PracticeEntry = {
+        id: 'sibling-pe-2',
+        startedAt: 1,
+        endedAt: 2,
+        kind: 'warmup',
+        itemName: 'Sibling',
+      }
+      await store.put(PRACTICE_LOG_COLLECTION, PRACTICE_LOG_KEY, { practiceEntries: [entry] })
+
+      await restoreSession(store)
+
+      expect(useTechniqueStore.getState().attempts).toEqual([])
+      expect(useProgressStore.getState().practiceEntries).toEqual([entry])
+    })
+
+    it('does not immediately re-save what it just restored (no write amplification)', async () => {
+      const store = new CountingStore()
+      const saved: PersistedTechniqueHistory = { attempts: [ATTEMPT_A] }
+      await store.put(TECHNIQUE_COLLECTION, TECHNIQUE_KEY, saved)
       store.putCount = 0
 
       persist(store)

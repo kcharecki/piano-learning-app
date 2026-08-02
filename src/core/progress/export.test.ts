@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { ActivityKind, PracticeEntry } from '@core/progress/log.ts'
 import type { Card } from '@core/srs/scheduler.ts'
 import type { SightReadingRecord } from '@core/sightreading/session.ts'
+import type { TechniqueAttempt } from '@core/technique/evenness.ts'
 import {
   exportCsv,
   exportJson,
@@ -123,6 +124,15 @@ const arbStoredAssessmentLike: fc.Arbitrary<StoredAssessmentLike> = fc
     ...(itemId === undefined ? {} : { itemId }),
   }))
 
+const arbTechniqueAttempt: fc.Arbitrary<TechniqueAttempt> = fc.record({
+  drillId: arbId,
+  at: arbFiniteNumber(0, 2_000_000_000_000),
+  bpm: arbFiniteNumber(20, 300),
+  evenness: arbFiniteNumber(0, 1),
+  accuracy: arbFiniteNumber(0, 1),
+  clean: fc.boolean(),
+})
+
 const arbLevels: fc.Arbitrary<Readonly<Record<string, number>>> = fc.dictionary(
   fc.string({ minLength: 1, maxLength: 10 }),
   fc.integer({ min: 0, max: 20 }),
@@ -137,6 +147,12 @@ const arbSnapshot: fc.Arbitrary<ProgressSnapshot> = fc
     levels: arbLevels,
     repertoire: fc.array(arbRepertoirePieceLike, { maxLength: 5 }),
     assessments: fc.array(arbStoredAssessmentLike, { maxLength: 5 }),
+    // minLength: 1 (not the maxLength-only: 5 every sibling array above uses)
+    // is deliberate: this arbitrary must actually POPULATE techniqueAttempts
+    // on every run, or this property would pass even against an
+    // implementation that silently drops the field on import — which is
+    // exactly the bug this field closes.
+    techniqueAttempts: fc.array(arbTechniqueAttempt, { minLength: 1, maxLength: 5 }),
   })
   .map(
     ({
@@ -147,6 +163,7 @@ const arbSnapshot: fc.Arbitrary<ProgressSnapshot> = fc
       levels,
       repertoire,
       assessments,
+      techniqueAttempts,
     }): ProgressSnapshot => ({
       version: 1,
       exportedAt,
@@ -156,6 +173,7 @@ const arbSnapshot: fc.Arbitrary<ProgressSnapshot> = fc
       levels,
       repertoire,
       assessments,
+      techniqueAttempts,
     }),
   )
 
@@ -202,6 +220,7 @@ describe('round trip', () => {
           secretField: 'should not survive export',
         } as unknown as { readonly id: string; readonly at: number; readonly accuracy: number },
       ],
+      techniqueAttempts: [],
     }
     const json = exportJson(snapshot)
     expect(json).not.toContain('secretField')
@@ -218,6 +237,7 @@ describe('round trip', () => {
       levels: {},
       repertoire: [],
       assessments: [{ id: 'a-1', at: 0, accuracy: NaN }],
+      techniqueAttempts: [],
     }
     expect(() => exportJson(snapshot)).toThrow(/non-finite/)
   })
@@ -232,9 +252,86 @@ describe('round trip', () => {
       levels: {},
       repertoire: [],
       assessments: [],
+      techniqueAttempts: [],
     }
     const result = importProgress(exportJson(snapshot))
     expect(result).toEqual({ ok: true, value: snapshot })
+  })
+
+  it('round-trips a non-empty techniqueAttempts through exportJson -> importProgress (regression: exportJson spreads it in, but importProgress used to build a fresh object from only its own declared fields and silently drop it back out)', () => {
+    const attempt: TechniqueAttempt = {
+      drillId: 'scale-c-major-2oct-hands-together',
+      at: 4_000,
+      bpm: 84,
+      evenness: 0.9,
+      accuracy: 1,
+      clean: true,
+    }
+    const snapshot: ProgressSnapshot = {
+      version: 1,
+      exportedAt: 0,
+      practiceEntries: [],
+      srsCards: [],
+      sightReadingHistory: [],
+      levels: {},
+      repertoire: [],
+      assessments: [],
+      techniqueAttempts: [attempt],
+    }
+    const result = importProgress(exportJson(snapshot))
+    expect(result).toEqual({ ok: true, value: snapshot })
+  })
+
+  it('tolerates an older export file with no techniqueAttempts field at all, defaulting it to empty', () => {
+    // Deliberately built WITHOUT a techniqueAttempts key — exactly what a file
+    // exported before this field existed looks like. Must still import
+    // successfully, not fail as if a required collection were missing.
+    const olderExport = JSON.stringify({
+      version: 1,
+      exportedAt: 0,
+      practiceEntries: [],
+      srsCards: [],
+      sightReadingHistory: [],
+      levels: {},
+      repertoire: [],
+      assessments: [],
+    })
+    const result = importProgress(olderExport)
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        version: 1,
+        exportedAt: 0,
+        practiceEntries: [],
+        srsCards: [],
+        sightReadingHistory: [],
+        levels: {},
+        repertoire: [],
+        assessments: [],
+        techniqueAttempts: [],
+      },
+    })
+  })
+
+  it('rejects a techniqueAttempts entry missing a required field, naming the field', () => {
+    const result = importProgress(
+      JSON.stringify({
+        version: 1,
+        exportedAt: 0,
+        practiceEntries: [],
+        srsCards: [],
+        sightReadingHistory: [],
+        levels: {},
+        repertoire: [],
+        assessments: [],
+        techniqueAttempts: [{ drillId: 'scale-c-major', at: 0, bpm: 80, evenness: 0.9 }], // missing accuracy/clean
+      }),
+    )
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error).toMatch(/techniqueAttempts\[0\]/)
+      expect(result.error).toMatch(/accuracy/)
+    }
   })
 })
 
@@ -411,6 +508,7 @@ describe('importProgress: corruption', () => {
         levels: {},
         repertoire: [],
         assessments: [],
+        techniqueAttempts: [],
       },
     })
   })
@@ -430,6 +528,7 @@ describe('exportCsv', () => {
     levels: {},
     repertoire: [],
     assessments: [],
+    techniqueAttempts: [],
   }
 
   it('emits one CSV per collection', () => {

@@ -9,6 +9,7 @@
 import { useProgressStore, type StoredAssessment } from '@app/state/progressStore.ts'
 import { useFlashcardStore } from '@app/state/flashcardStore.ts'
 import { useSightReadingStore } from '@app/state/sightReadingStore.ts'
+import { useTechniqueStore } from '@app/state/techniqueStore.ts'
 import { MIN_LEVEL as SIGHT_READING_MIN_LEVEL } from '@core/sightreading/adaptive.ts'
 import { exportCsv, exportJson, importProgress, type ProgressSnapshot } from '@core/progress/export.ts'
 import type { Card } from '@core/srs/scheduler.ts'
@@ -23,6 +24,7 @@ import { gatherProgressSnapshot, SIGHT_READING_LEVEL_KEY } from './snapshot.ts'
 
 function resetStores(): void {
   useProgressStore.setState({ assessments: [], recordings: [], practiceEntries: [] })
+  useTechniqueStore.setState({ attempts: [] })
   useFlashcardStore.setState({ cardsById: {} })
   useSightReadingStore.setState({ level: SIGHT_READING_MIN_LEVEL, history: [] })
 }
@@ -93,6 +95,7 @@ function importableSnapshot(): ProgressSnapshot {
     levels: { [SIGHT_READING_LEVEL_KEY]: 2 },
     repertoire: [],
     assessments: [],
+    techniqueAttempts: [],
   }
 }
 
@@ -153,6 +156,7 @@ describe('ExportPanel downloads', () => {
         sightReadingHistory: [],
         levels: { [SIGHT_READING_LEVEL_KEY]: 3 },
         repertoire: [],
+        techniqueAttempts: [],
         assessments: [
           {
             id: existingAssessment.id,

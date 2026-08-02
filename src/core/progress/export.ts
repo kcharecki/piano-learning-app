@@ -25,6 +25,7 @@
 import { ACTIVITY_KINDS, toCsv, type ActivityKind, type PracticeEntry } from '@core/progress/log.ts'
 import type { Card } from '@core/srs/scheduler.ts'
 import type { SightReadingRecord } from '@core/sightreading/session.ts'
+import type { TechniqueAttempt } from '@core/technique/evenness.ts'
 import { err, ok, type Result } from '@core/shared/result.ts'
 import { invariant } from '@core/shared/invariant.ts'
 
@@ -71,6 +72,20 @@ export type ProgressSnapshot = {
   readonly levels: Readonly<Record<string, number>>
   readonly repertoire: readonly RepertoirePieceLike[]
   readonly assessments: readonly StoredAssessmentLike[]
+  /**
+   * `TechniqueAttempt` is imported directly from `@core/technique/evenness.ts`
+   * (unlike `RepertoirePieceLike`/`StoredAssessmentLike`, it is not a
+   * structural minimum — that type is owned by this same layer, not an
+   * in-flight app store type, so there is nothing to project down to).
+   *
+   * A field an OLDER exported file (written before this field existed) will
+   * be missing entirely. Rather than mark this field optional on the type
+   * (which would force every reader to re-check presence forever),
+   * `importProgress` gives every caller a real, always-present array by
+   * explicitly defaulting a missing `techniqueAttempts` to `[]` at parse
+   * time — see the comment above its parse site.
+   */
+  readonly techniqueAttempts: readonly TechniqueAttempt[]
 }
 
 /** One CSV per collection — a single flat CSV cannot represent this without lying. */
@@ -184,6 +199,16 @@ function optionalFiniteNumber(
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return err(`${path}.${key}: expected finite number, got ${typeOf(value)}`)
   }
+  return ok(value)
+}
+
+function requireBoolean(
+  obj: Record<string, unknown>,
+  key: string,
+  path: string,
+): Result<boolean, string> {
+  const value = obj[key]
+  if (typeof value !== 'boolean') return err(`${path}.${key}: expected boolean, got ${typeOf(value)}`)
   return ok(value)
 }
 
@@ -331,6 +356,30 @@ function parseStoredAssessmentLike(item: unknown, path: string): Result<StoredAs
   })
 }
 
+function parseTechniqueAttempt(item: unknown, path: string): Result<TechniqueAttempt, string> {
+  if (!isRecord(item)) return err(`${path}: expected object, got ${typeOf(item)}`)
+  const drillId = requireString(item, 'drillId', path)
+  if (!drillId.ok) return drillId
+  const atMs = requireFiniteNumber(item, 'at', path)
+  if (!atMs.ok) return atMs
+  const bpm = requireFiniteNumber(item, 'bpm', path)
+  if (!bpm.ok) return bpm
+  const evenness = requireFiniteNumber(item, 'evenness', path)
+  if (!evenness.ok) return evenness
+  const accuracy = requireFiniteNumber(item, 'accuracy', path)
+  if (!accuracy.ok) return accuracy
+  const clean = requireBoolean(item, 'clean', path)
+  if (!clean.ok) return clean
+  return ok({
+    drillId: drillId.value,
+    at: atMs.value,
+    bpm: bpm.value,
+    evenness: evenness.value,
+    accuracy: accuracy.value,
+    clean: clean.value,
+  })
+}
+
 function parseLevels(value: unknown, path: string): Result<Readonly<Record<string, number>>, string> {
   if (!isRecord(value)) return err(`${path}: expected object, got ${typeOf(value)}`)
   const entries: [string, number][] = []
@@ -394,6 +443,18 @@ export function importProgress(text: string): Result<ProgressSnapshot, string> {
   const assessments = parseArray(raw['assessments'], 'assessments', parseStoredAssessmentLike)
   if (!assessments.ok) return assessments
 
+  // Unlike every other collection above, a missing `techniqueAttempts` is NOT
+  // an error: this field did not exist in older exported files, and an older
+  // file must still import successfully, with the technique history simply
+  // empty (see the type's own doc comment). A *present but malformed*
+  // `techniqueAttempts` is still reported exactly like every other field.
+  const rawTechniqueAttempts = raw['techniqueAttempts']
+  const techniqueAttempts: Result<readonly TechniqueAttempt[], string> =
+    rawTechniqueAttempts === undefined
+      ? ok([])
+      : parseArray(rawTechniqueAttempts, 'techniqueAttempts', parseTechniqueAttempt)
+  if (!techniqueAttempts.ok) return techniqueAttempts
+
   return ok({
     version: 1,
     exportedAt: exportedAt.value,
@@ -403,6 +464,7 @@ export function importProgress(text: string): Result<ProgressSnapshot, string> {
     levels: levels.value,
     repertoire: repertoire.value,
     assessments: assessments.value,
+    techniqueAttempts: techniqueAttempts.value,
   })
 }
 

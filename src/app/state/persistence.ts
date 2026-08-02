@@ -6,7 +6,7 @@
  * `Store` port, so it is exercised in tests with an in-memory fake and the
  * real zustand stores, never a browser database.
  *
- * Six independent slices are persisted, each following the same shape
+ * Eight independent slices are persisted, each following the same shape
  * (validate → `restoreSlice` on the way in, `createWriteQueue` +  a
  * `subscribe` on the way out):
  *  - the score session (`useScoreStore`) — the original roadmap-1.23 slice.
@@ -16,16 +16,21 @@
  *    accumulate past whatever a single page life manages.
  *  - the SRS flashcard state (`useFlashcardStore`, REQ-3.9.4). Without this
  *    every card, ease factor and due date is lost on reload.
+ *  - the score annotations (`useAnnotationStore`, roadmap 4.8, REQ-3.2.6) —
+ *    every score's highlights/notes, keyed by score id.
  *  - stored assessment results, MIDI recordings and the practice log
  *    (`useProgressStore`, roadmap 2.24, REQ-3.3.4/3.9.2/3.9.5) — three
  *    further collections on the SAME store, each restored and persisted
  *    independently via `hydrate`'s partial-state contract (see that store's
  *    module comment), because each has its own validation and can fail
  *    without disturbing the other two.
+ *  - the technique drill tempo history (`useTechniqueStore`, roadmap 4.4b,
+ *    REQ-3.7.2/3.7.3). Without this, REQ-3.7.3's per-drill clean-tempo
+ *    history — "currently clean at ♩=88" — resets to nothing on every reload.
  *
  * Each slice's write queue is fully independent — its own collection, its own
  * key, its own in-flight `put` — so a slow write to one can never block or
- * reorder a write to another. `startPersisting` just wires up all six and
+ * reorder a write to another. `startPersisting` just wires up all eight and
  * returns one combined unsubscribe.
  *
  * CALL ORDER IS MANDATORY, for every slice: `await restoreSession(store)`
@@ -48,6 +53,7 @@ import {
   MAX_STORED_RECORDINGS,
   MAX_STORED_PRACTICE_ENTRIES,
 } from '@app/state/progressStore.ts'
+import { useTechniqueStore, MAX_STORED_TECHNIQUE_ATTEMPTS } from '@app/state/techniqueStore.ts'
 import {
   isValidAnnotations,
   isValidAssessments,
@@ -56,6 +62,7 @@ import {
   isValidRecordings,
   isValidSession,
   isValidSightReadingHistory,
+  isValidTechniqueHistory,
   type PersistedAnnotations,
   type PersistedAssessments,
   type PersistedFlashcards,
@@ -63,6 +70,7 @@ import {
   type PersistedRecordings,
   type PersistedSession,
   type PersistedSightReadingHistory,
+  type PersistedTechniqueHistory,
 } from '@app/state/persistedShapes.ts'
 
 // The persisted shapes moved to `persistedShapes.ts` (this file outgrew the
@@ -76,6 +84,7 @@ export type {
   PersistedRecordings,
   PersistedSession,
   PersistedSightReadingHistory,
+  PersistedTechniqueHistory,
 } from '@app/state/persistedShapes.ts'
 
 /** Collection + key the score session lives under. */
@@ -105,6 +114,10 @@ export const RECORDINGS_KEY = 'recordings'
 export const PRACTICE_LOG_COLLECTION = COLLECTIONS.practiceLog
 export const PRACTICE_LOG_KEY = 'practiceLog'
 
+/** Collection + key the technique drill tempo history lives under (roadmap 4.4b, REQ-3.7.2/3.7.3). */
+export const TECHNIQUE_COLLECTION = COLLECTIONS.techniqueHistory
+export const TECHNIQUE_KEY = 'techniqueHistory'
+
 // ----------------------------------------------------------------- restore
 
 /**
@@ -124,6 +137,7 @@ let applyingRestoredAnnotations = false
 let applyingRestoredAssessments = false
 let applyingRestoredRecordings = false
 let applyingRestoredPracticeLog = false
+let applyingRestoredTechniqueHistory = false
 
 /**
  * Reads `key` from `collection`, validates it, and — only if valid — applies
@@ -259,6 +273,20 @@ export async function restoreSession(store: Store): Promise<boolean> {
       applyingRestoredPracticeLog = guarding
     },
     (data) => useProgressStore.getState().hydrate({ practiceEntries: data.practiceEntries.slice(0, MAX_STORED_PRACTICE_ENTRIES) }),
+  )
+
+  await restoreSlice(
+    store,
+    TECHNIQUE_COLLECTION,
+    TECHNIQUE_KEY,
+    isValidTechniqueHistory,
+    (guarding) => {
+      applyingRestoredTechniqueHistory = guarding
+    },
+    (data) =>
+      useTechniqueStore
+        .getState()
+        .hydrate({ attempts: data.attempts.slice(0, MAX_STORED_TECHNIQUE_ATTEMPTS) }),
   )
 
   return scoreRestored
@@ -426,8 +454,22 @@ function persistPracticeLog(store: Store): () => void {
   })
 }
 
+/** Subscribes to the technique store and writes `attempts` on every change. */
+function persistTechniqueHistory(store: Store): () => void {
+  const write = createWriteQueue<PersistedTechniqueHistory>(
+    store,
+    TECHNIQUE_COLLECTION,
+    TECHNIQUE_KEY,
+  )
+  return useTechniqueStore.subscribe((state, prevState) => {
+    if (applyingRestoredTechniqueHistory) return
+    if (state.attempts === prevState.attempts) return
+    write({ attempts: state.attempts })
+  })
+}
+
 /**
- * Starts persisting all seven slices and returns one combined unsubscribe. See
+ * Starts persisting all eight slices and returns one combined unsubscribe. See
  * the module comment for the mandatory `restoreSession` → `startPersisting`
  * call order.
  */
@@ -440,6 +482,7 @@ export function startPersisting(store: Store): () => void {
     persistAssessments(store),
     persistRecordings(store),
     persistPracticeLog(store),
+    persistTechniqueHistory(store),
   ]
   return () => {
     for (const unsubscribe of unsubscribers) unsubscribe()

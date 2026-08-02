@@ -20,6 +20,7 @@ import type { AssessmentResult, MeasureScore } from '@core/practice/assessment.t
 import type { Recording } from '@core/practice/recorder.ts'
 import { ACTIVITY_KINDS, type ActivityKind, type PracticeEntry } from '@core/progress/log.ts'
 import { validateAnnotations, type ScoreAnnotations } from '@core/notation/annotations.ts'
+import type { TechniqueAttempt } from '@core/technique/evenness.ts'
 import type { PracticeSettings } from '@app/state/scoreStore.ts'
 import type { StoredAssessment } from '@app/state/progressStore.ts'
 
@@ -53,6 +54,10 @@ export type PersistedRecordings = {
 
 export type PersistedPracticeLog = {
   readonly practiceEntries: readonly PracticeEntry[]
+}
+
+export type PersistedTechniqueHistory = {
+  readonly attempts: readonly TechniqueAttempt[]
 }
 
 // --------------------------------------------------------------- validation
@@ -333,4 +338,27 @@ export function isValidPracticeLog(value: unknown): value is PersistedPracticeLo
   if (typeof value !== 'object' || value === null) return false
   const v = value as Record<string, unknown>
   return Array.isArray(v.practiceEntries) && v.practiceEntries.every(isValidPracticeEntry)
+}
+
+export function isValidTechniqueAttempt(value: unknown): value is TechniqueAttempt {
+  if (typeof value !== 'object' || value === null) return false
+  const a = value as Record<string, unknown>
+  return (
+    typeof a.drillId === 'string' &&
+    typeof a.at === 'number' &&
+    Number.isFinite(a.at) &&
+    typeof a.bpm === 'number' &&
+    Number.isFinite(a.bpm) &&
+    typeof a.evenness === 'number' &&
+    Number.isFinite(a.evenness) &&
+    typeof a.accuracy === 'number' &&
+    Number.isFinite(a.accuracy) &&
+    typeof a.clean === 'boolean'
+  )
+}
+
+export function isValidTechniqueHistory(value: unknown): value is PersistedTechniqueHistory {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return Array.isArray(v.attempts) && v.attempts.every(isValidTechniqueAttempt)
 }

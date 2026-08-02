@@ -31,6 +31,14 @@
  *    reconstruction carrying just the recovered `accuracy` — timing
  *    consistency, per-measure breakdown and tempo are NOT preserved by this
  *    export format. `scoreTitle`/`scoreId` round-trip via `kind`/`itemId`.
+ *  - `techniqueAttempts` — `useTechniqueStore().attempts` (roadmap 4.4b,
+ *    REQ-3.7.2/3.7.3), exactly. This IS a first-class, required field of
+ *    `@core/progress/export.ts`'s own `ProgressSnapshot` type, so it round-trips
+ *    through a real exported JSON file exactly like every other collection:
+ *    `exportJson` writes it and `importProgress` restores it, including for a
+ *    file exported before this field existed (`importProgress` defaults a
+ *    missing `techniqueAttempts` to `[]` — see that module's doc comment).
+ *    Nothing here needs to widen `ProgressSnapshot` locally any more.
  */
 import {
   useProgressStore,
@@ -40,6 +48,7 @@ import {
 } from '@app/state/progressStore.ts'
 import { useFlashcardStore } from '@app/state/flashcardStore.ts'
 import { useSightReadingStore } from '@app/state/sightReadingStore.ts'
+import { useTechniqueStore, MAX_STORED_TECHNIQUE_ATTEMPTS } from '@app/state/techniqueStore.ts'
 import {
   MIN_LEVEL as SIGHT_READING_MIN_LEVEL,
   MAX_LEVEL as SIGHT_READING_MAX_LEVEL,
@@ -95,6 +104,7 @@ export function gatherProgressSnapshot(date: DateSource): ProgressSnapshot {
   const progress = useProgressStore.getState()
   const flashcards = useFlashcardStore.getState()
   const sightReading = useSightReadingStore.getState()
+  const technique = useTechniqueStore.getState()
 
   return {
     version: 1,
@@ -105,6 +115,7 @@ export function gatherProgressSnapshot(date: DateSource): ProgressSnapshot {
     levels: { [SIGHT_READING_LEVEL_KEY]: sightReading.level },
     repertoire: [],
     assessments: progress.assessments.map(toStoredAssessmentLike),
+    techniqueAttempts: technique.attempts,
   }
 }
 
@@ -129,4 +140,8 @@ export function applyProgressSnapshot(snapshot: ProgressSnapshot): void {
     Math.max(SIGHT_READING_MIN_LEVEL, Math.round(rawLevel)),
   )
   useSightReadingStore.getState().hydrate(restoredLevel, snapshot.sightReadingHistory)
+
+  useTechniqueStore.getState().hydrate({
+    attempts: snapshot.techniqueAttempts.slice(0, MAX_STORED_TECHNIQUE_ATTEMPTS),
+  })
 }
