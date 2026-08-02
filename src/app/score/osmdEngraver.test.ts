@@ -68,6 +68,54 @@ function makeFakeOsmd(measures: readonly FakeMeasure[]): FakeOsmd {
   }
 }
 
+/**
+ * A cursor double that walks a fixed list of onset ticks, counting every call.
+ * `load()` walks it once to cache the onsets, so the counters are zeroed after
+ * that and every later number is per-frame cursor work — which is exactly what
+ * the two bugs reported from the running app were made of.
+ */
+function makeFakeCursor(onsetTicks: readonly number[]): {
+  readonly cursor: OsmdLike['cursor']
+  calls: { reset: number; next: number; update: number; show: number }
+  index: number
+} {
+  const state = {
+    index: 0,
+    calls: { reset: 0, next: 0, update: 0, show: 0 },
+    cursor: {
+      iterator: {
+        get EndReached() {
+          return state.index >= onsetTicks.length
+        },
+        CurrentSourceTimestamp: {
+          // OSMD reports whole notes; the engraver multiplies by 4 * TPQ.
+          get RealValue() {
+            return (onsetTicks[Math.min(state.index, onsetTicks.length - 1)] ?? 0) / (4 * 480)
+          },
+        },
+      },
+      reset: () => {
+        state.calls.reset += 1
+        state.index = 0
+      },
+      next: () => {
+        state.calls.next += 1
+        state.index += 1
+      },
+      nextMeasure: () => {
+        state.index += 1
+      },
+      update: () => {
+        state.calls.update += 1
+      },
+      show: () => {
+        state.calls.show += 1
+      },
+    },
+  }
+  return state
+}
+
 /** A `scheduleRender` double that captures each pending flush instead of running it. */
 function makeFakeScheduler(): {
   readonly scheduleRender: (run: () => void) => void
@@ -391,5 +439,80 @@ describe('createOsmdEngraver: batched rendering (roadmap 2.21)', () => {
       globalThis.requestAnimationFrame = original
       vi.useRealTimers()
     }
+  })
+})
+
+describe('cursor movement', () => {
+  /**
+   * Reported from the running app on an 87-measure MIDI import: the page
+   * juddered up and down for as long as playback ran, and the sound lagged.
+   * Both came from `moveCursorTo` rewinding the cursor to bar 1 and walking
+   * forward again on EVERY frame — `followCursor` scrolls the page to wherever
+   * the cursor is, and the walk is O(how far into the piece you are).
+   *
+   * These tests pin the two properties that fix it: a frame that does not
+   * change which onset is sounding must touch the cursor not at all, and a
+   * frame that advances must step FORWARD rather than reset.
+   */
+  const ONSETS = [0, 480, 960, 1440, 1920]
+
+  async function loadWithCursor(): Promise<{
+    engraver: ScoreEngraver
+    cursor: ReturnType<typeof makeFakeCursor>
+  }> {
+    const cursor = makeFakeCursor(ONSETS)
+    const fakeOsmd = makeFakeOsmd([measureOf(containerOf(note(60)))])
+    const withCursor: OsmdLike = { ...fakeOsmd, cursor: cursor.cursor }
+    const engraver = createOsmdEngraver({ createOsmd: () => withCursor })
+    await engraver.load(document.createElement('div'), '<xml/>', singleNoteScore())
+    cursor.calls = { reset: 0, next: 0, update: 0, show: 0 }
+    return { engraver, cursor }
+  }
+
+  it('does nothing at all on a frame that lands inside the onset already shown', async () => {
+    const { engraver, cursor } = await loadWithCursor()
+
+    engraver.moveCursorTo(0, 490)
+    const afterFirst = { ...cursor.calls }
+    // Sixty more frames inside the same quarter note — at 60fps this is one
+    // second of playback, and it must cost nothing.
+    for (let tick = 491; tick < 551; tick++) engraver.moveCursorTo(0, tick)
+
+    expect(cursor.calls).toEqual(afterFirst)
+  })
+
+  it('steps forward, never rewinding, as the playhead advances', async () => {
+    const { engraver, cursor } = await loadWithCursor()
+
+    engraver.moveCursorTo(0, 500)
+    engraver.moveCursorTo(0, 1000)
+    engraver.moveCursorTo(1, 1930)
+
+    // Onsets 0 -> 1 -> 2 -> 4 is four forward steps and no rewind. The old
+    // implementation issued two resets and up to eight steps per call.
+    expect(cursor.calls.next).toBe(4)
+    expect(cursor.calls.reset).toBe(0)
+  })
+
+  it('rewinds only when the playhead goes backwards, as a loop wrap does', async () => {
+    const { engraver, cursor } = await loadWithCursor()
+
+    engraver.moveCursorTo(1, 1930)
+    expect(cursor.calls.reset).toBe(0)
+
+    engraver.moveCursorTo(0, 10)
+
+    expect(cursor.calls.reset).toBe(1)
+    expect(cursor.index).toBe(0)
+  })
+
+  it('parks on the sounding onset, not the one about to be reached', async () => {
+    const { engraver, cursor } = await loadWithCursor()
+
+    // A frame lands a few ticks past the 960 onset: the note AT 960 is
+    // sounding, so the cursor belongs on it (index 2), not on 1440.
+    engraver.moveCursorTo(0, 965)
+
+    expect(cursor.index).toBe(2)
   })
 })

@@ -162,56 +162,52 @@ function buildNoteIdMap(osmd: OsmdLike, score: Score): Map<string, EngravedNote>
   return map
 }
 
-/** Wind a freshly-reset cursor forward to the start of `measureIndex`. */
-function seekMeasure(cursor: OsmdCursor, measureIndex: number): void {
+/**
+ * Every onset the cursor will visit, in visiting order, as absolute ticks —
+ * walked ONCE at load and cached.
+ *
+ * It used to be walked on every frame, and rewound to the start of the measure
+ * twice per frame to do it. On a two-line sample that was invisible; on a real
+ * 87-measure import it was the cause of two bugs reported from the running
+ * app. `cursor.reset()` puts the cursor at bar 1, and OSMD's `followCursor`
+ * scrolls the page to wherever the cursor is — so every single frame yanked
+ * the view to the top of the piece and then back down, which reads as the page
+ * juddering up and down for as long as playback runs. The same walk is O(how
+ * far into the piece you are), so it also blocked the main thread for
+ * increasingly long stretches — measured at 231ms — and a main thread stuck
+ * inside OSMD is a main thread not scheduling audio, which is heard as the
+ * playback lagging.
+ */
+function collectOnsetTicks(cursor: OsmdCursor): readonly number[] {
+  const onsetTicks: number[] = []
   cursor.reset()
-  for (let i = 0; i < measureIndex && !cursor.iterator.EndReached; i++) cursor.nextMeasure()
+  while (!cursor.iterator.EndReached && onsetTicks.length < MAX_CURSOR_STEPS) {
+    onsetTicks.push(cursor.iterator.CurrentSourceTimestamp.RealValue * 4 * TICKS_PER_QUARTER)
+    cursor.next()
+  }
+  cursor.reset()
+  return onsetTicks
 }
 
 /**
- * Park the cursor on the onset the playhead is currently SOUNDING — the last
- * onset at or before `tick` — and never on the one it is about to reach.
+ * Move the cursor to the onset index `stepsToOnsetAtOrBefore` chose, from
+ * wherever it already is. Returns the index it now sits on.
  *
- * The obvious loop ("step until `currentTick >= tick`, then stop") is wrong by
- * a whole note, and wrong from the very first frame: a frame lands the
- * transport a few ticks past 0, so onset 1 at tick 0 fails `0 >= 13` and the
- * cursor steps to onset 2, where it stays one note ahead of the audio for the
- * rest of the piece. Reported from the running app: a note sounds while the
- * highlight sits on the following rest.
- *
- * OSMD's cursor can only step forward, so finding the last onset at or before
- * `tick` takes two passes: walk once to collect every onset's tick, hand that
- * to `stepsToOnsetAtOrBefore` (the pure decision, unit-tested in
- * `cursorSteps.test.ts`), then reset and replay exactly that many steps.
- * Stepping until we overshoot and trying to back off is not possible with
- * this API, hence the replay.
+ * Forward is one `next()` per onset crossed — the ordinary case, and usually
+ * zero of them. Backward (a seek, a loop wrap, Stop) is the only case that
+ * pays for a `reset()` and a replay, because the OSMD cursor cannot step back.
  */
-function moveCursor(osmd: OsmdLike, measureIndex: number, tick: number): void {
-  const cursor = osmd.cursor
-  const tickOf = (): number =>
-    cursor.iterator.CurrentSourceTimestamp.RealValue * 4 * TICKS_PER_QUARTER
-
-  seekMeasure(cursor, measureIndex)
-  const onsetTicks: number[] = []
-  let steps = 0
-  while (!cursor.iterator.EndReached && steps < MAX_CURSOR_STEPS) {
-    const onset = tickOf()
-    onsetTicks.push(onset)
-    // Stop at the FIRST onset past the playhead. One past is all
-    // `stepsToOnsetAtOrBefore` needs to know it has gone far enough, and this
-    // runs every frame — collecting the whole score each time would make the
-    // per-frame cost grow with the length of the piece rather than with how
-    // far into it the playhead is.
-    if (onset > tick) break
-    cursor.next()
-    steps += 1
+function moveCursorToIndex(cursor: OsmdCursor, from: number, to: number): number {
+  if (to === from) return from
+  if (to < from) {
+    cursor.reset()
+    for (let i = 0; i < to && !cursor.iterator.EndReached; i++) cursor.next()
+  } else {
+    for (let i = from; i < to && !cursor.iterator.EndReached; i++) cursor.next()
   }
-  const stepsToTake = stepsToOnsetAtOrBefore(onsetTicks, tick)
-
-  seekMeasure(cursor, measureIndex)
-  for (let i = 0; i < stepsToTake && !cursor.iterator.EndReached; i++) cursor.next()
   cursor.update()
   cursor.show()
+  return to
 }
 
 export type OsmdEngraverOptions = {
@@ -233,6 +229,10 @@ export function createOsmdEngraver(opts?: OsmdEngraverOptions): ScoreEngraver {
   let noteById = new Map<string, EngravedNote>()
   const coloredIds = new Set<string>()
   let renderPending = false
+  /** Every onset the cursor visits, walked once at load — see `collectOnsetTicks`. */
+  let onsetTicks: readonly number[] = []
+  /** Which of those the cursor is parked on, so a frame that changes nothing costs nothing. */
+  let cursorIndex = 0
 
   /**
    * Coalesces any number of calls made before the next flush into exactly one
@@ -255,15 +255,22 @@ export function createOsmdEngraver(opts?: OsmdEngraverOptions): ScoreEngraver {
       const instance = createOsmd(container)
       await instance.load(musicXml)
       instance.render()
+      onsetTicks = collectOnsetTicks(instance.cursor)
+      cursorIndex = 0
       instance.cursor.show()
       osmd = instance
       noteById = buildNoteIdMap(instance, score)
       coloredIds.clear()
     },
 
-    moveCursorTo(measureIndex, tick) {
+    // `measureIndex` is no longer needed to find the onset — `onsetTicks` is
+    // absolute across the score — but it stays in the `ScoreEngraver`
+    // contract, which other implementations (and the tests' fakes) are written
+    // against.
+    moveCursorTo(_measureIndex, tick) {
       if (osmd === undefined) return
-      moveCursor(osmd, measureIndex, tick)
+      const target = stepsToOnsetAtOrBefore(onsetTicks, tick)
+      cursorIndex = moveCursorToIndex(osmd.cursor, cursorIndex, target)
     },
 
     setNoteColor(noteId, color) {
