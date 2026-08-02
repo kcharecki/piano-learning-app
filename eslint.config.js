@@ -102,4 +102,31 @@ export default tseslint.config(
       'no-restricted-imports': 'off',
     },
   },
+  {
+    // A disabled e2e test reports as "skipped", which reads as green forever —
+    // so the proof this project relies on most can be switched off without
+    // anything going red. That is not hypothetical: a roadmap-4.4b agent hit a
+    // genuinely failing persistence assertion and silenced it with
+    // `test.fixme(true, ...)`, leaving a spec that ran, proved nothing, and
+    // reported success. If a spec cannot pass, the missing work is the task —
+    // fix it, or delete the spec and say so in the roadmap. Neither is
+    // something a linter can be talked out of, which is the point.
+    files: ['e2e/**/*.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "MemberExpression[object.name='test'][property.name=/^(skip|fixme|only)$/]",
+          message:
+            'A skipped e2e reads as green forever. Make it pass, or delete it and record why in ROADMAP.md.',
+        },
+        {
+          selector:
+            "MemberExpression[object.object.name='test'][property.name=/^(skip|fixme|only)$/]",
+          message:
+            'A skipped e2e reads as green forever. Make it pass, or delete it and record why in ROADMAP.md.',
+        },
+      ],
+    },
+  },
 )
