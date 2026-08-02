@@ -16,6 +16,7 @@
 import type { Score, ScoreNote } from '@core/notation/score.ts'
 import { TICKS_PER_QUARTER } from '@core/shared/units.ts'
 import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
+import { stepsToOnsetAtOrBefore } from './cursorSteps.ts'
 import type { ScoreEngraver } from './engraver.ts'
 
 /** The slice of OSMD's `Note` this file actually touches. */
@@ -89,18 +90,54 @@ function buildNoteIdMap(osmd: OpenSheetMusicDisplay, score: Score): Map<string, 
   return map
 }
 
-/** Advance the cursor to `measureIndex`, then as close to `tick` as a note onset allows. */
-function moveCursor(osmd: OpenSheetMusicDisplay, measureIndex: number, tick: number): void {
-  const cursor = osmd.cursor
+/** Wind a freshly-reset cursor forward to the start of `measureIndex`. */
+function seekMeasure(cursor: OpenSheetMusicDisplay['cursor'], measureIndex: number): void {
   cursor.reset()
   for (let i = 0; i < measureIndex && !cursor.iterator.EndReached; i++) cursor.nextMeasure()
+}
+
+/**
+ * Park the cursor on the onset the playhead is currently SOUNDING — the last
+ * onset at or before `tick` — and never on the one it is about to reach.
+ *
+ * The obvious loop ("step until `currentTick >= tick`, then stop") is wrong by
+ * a whole note, and wrong from the very first frame: a frame lands the
+ * transport a few ticks past 0, so onset 1 at tick 0 fails `0 >= 13` and the
+ * cursor steps to onset 2, where it stays one note ahead of the audio for the
+ * rest of the piece. Reported from the running app: a note sounds while the
+ * highlight sits on the following rest.
+ *
+ * OSMD's cursor can only step forward, so finding the last onset at or before
+ * `tick` takes two passes: walk once to collect every onset's tick, hand that
+ * to `stepsToOnsetAtOrBefore` (the pure decision, unit-tested in
+ * `cursorSteps.test.ts`), then reset and replay exactly that many steps.
+ * Stepping until we overshoot and trying to back off is not possible with
+ * this API, hence the replay.
+ */
+function moveCursor(osmd: OpenSheetMusicDisplay, measureIndex: number, tick: number): void {
+  const cursor = osmd.cursor
+  const tickOf = (): number =>
+    cursor.iterator.CurrentSourceTimestamp.RealValue * 4 * TICKS_PER_QUARTER
+
+  seekMeasure(cursor, measureIndex)
+  const onsetTicks: number[] = []
   let steps = 0
   while (!cursor.iterator.EndReached && steps < MAX_CURSOR_STEPS) {
-    const currentTick = cursor.iterator.CurrentSourceTimestamp.RealValue * 4 * TICKS_PER_QUARTER
-    if (currentTick >= tick) break
+    const onset = tickOf()
+    onsetTicks.push(onset)
+    // Stop at the FIRST onset past the playhead. One past is all
+    // `stepsToOnsetAtOrBefore` needs to know it has gone far enough, and this
+    // runs every frame — collecting the whole score each time would make the
+    // per-frame cost grow with the length of the piece rather than with how
+    // far into it the playhead is.
+    if (onset > tick) break
     cursor.next()
     steps += 1
   }
+  const stepsToTake = stepsToOnsetAtOrBefore(onsetTicks, tick)
+
+  seekMeasure(cursor, measureIndex)
+  for (let i = 0; i < stepsToTake && !cursor.iterator.EndReached; i++) cursor.next()
   cursor.update()
   cursor.show()
 }

@@ -39,7 +39,10 @@ export function PatternPreview({ pattern }: PatternPreviewProps) {
       <ol className="pattern-preview-bars">
         {bars.map((bar) => (
           <li key={bar.barIndex} data-testid={`pattern-bar-${bar.barIndex}`}>
-            <span className="pattern-preview-bar-number">Bar {bar.barIndex + 1}</span>
+            {/* The separator is markup, not CSS: this line is read aloud by a
+                screen reader and scraped by e2e, and without it the bar number
+                runs straight into the first onset — "Bar 1half rest". */}
+            <span className="pattern-preview-bar-number">Bar {bar.barIndex + 1}: </span>
             <span className="pattern-preview-onsets">
               {bar.onsets.map((onset, onsetIndex) => (
                 <span key={onset.tick}>

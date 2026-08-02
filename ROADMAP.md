@@ -188,6 +188,19 @@ recovered it commit by commit and recorded the evidence each box was ticked on.
       signature and no bar lines. The engraver already works — the only missing piece is an input.
       *Proof: e2e — Sight reading → Start exercise → an OSMD `<svg>` with real noteheads is present
       and the preview contains no text matching `/[A-G][0-9]/`.*
+- [ ] 2.20a `app/practice`: after Stop, the score highlight stays where playback stopped while the
+      position readout has already rewound. It self-corrects on the next Play, so it is cosmetic —
+      but the obvious fix does NOT work, and that is worth knowing before anyone tries it.
+      Moving the cursor from `usePracticeEngine.stop()` was attempted and reverted: the only cursor
+      ref that hook holds is `useNoteFeedback`'s intercepting one, and a backward cursor move is
+      exactly what that hook reads as a loop wrap, so it resets the matcher and wipes the run's
+      counters — deterministically failing `e2e/record-replay.spec.ts`. It is the same tension the
+      2.14 clear-on-stop fix hit: `useNoteFeedback` cannot see `phase`, by design.
+      A real fix needs the cursor moved through a path that bypasses the feedback interception (the
+      raw `ScoreViewerHandle`, which only `PracticeScreen` has), or `useNoteFeedback` given an
+      explicit "this jump was a seek, not a wrap" signal.
+      *Proof: press Stop mid-piece, assert the highlight returns to the rewound position AND that
+      `e2e/record-replay.spec.ts` still reports equal non-zero counters.*
 - [ ] 2.21 `app/practice`: batch `osmd.render()` to once per animation frame. `osmdEngraver.ts`
       calls a full re-engrave of the entire score synchronously inside `setNoteColor`, once per
       judged note, on the MIDI event's own task — a four-note chord is four full re-renders. Fine on
