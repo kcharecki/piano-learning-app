@@ -30,7 +30,9 @@ test('the Theory destination drives the reference from the circle of fifths (roa
   await page.goto('/')
   await nav(page, 'Theory').click()
 
-  await expect(page.getByRole('heading', { name: 'Theory' })).toBeVisible()
+  // `exact` because the Theory destination now also holds the "Theory drills"
+  // panel (roadmap 3.3), and a substring match resolves to both headings.
+  await expect(page.getByRole('heading', { name: 'Theory', exact: true })).toBeVisible()
 
   // C major is the default: its scale has no accidentals. Selecting G major on
   // the circle must change what the reference below shows — asserting the
@@ -81,7 +83,9 @@ test('the Progress dashboard shows honest zeros before any practice (roadmap 4.7
   await page.goto('/')
   await nav(page, 'Progress').click()
 
-  await expect(page.getByRole('heading', { name: 'Progress' })).toBeVisible()
+  // `exact` because the dashboard now also holds "Export & restore progress"
+  // (roadmap 4.6a).
+  await expect(page.getByRole('heading', { name: 'Progress', exact: true })).toBeVisible()
   // REQ-3.10.1's six sections must all be present and populated with real
   // numbers — a blank panel or a fabricated placeholder is the failure mode.
   for (const section of [/level/i, /streak/i, /sight.read/i, /technique/i, /retention|theory/i, /repertoire/i]) {

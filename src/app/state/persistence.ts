@@ -36,25 +36,47 @@
  * subsequent read then returns the wrong (or no) saved value, silently
  * discarding it.
  */
-import type { Hand, Score } from '@core/notation/score.ts'
-import type { MidiEvent, Store } from '@core/ports/index.ts'
+import type { Store } from '@core/ports/index.ts'
 import { COLLECTIONS } from '@core/ports/store.ts'
-import { MAX_TEMPO_SCALE, MIN_TEMPO_SCALE } from '@core/timing/tempo.ts'
-import type { LoopRange } from '@core/timing/transport.ts'
-import { MAX_LEVEL, MIN_LEVEL } from '@core/sightreading/adaptive.ts'
-import type { SightReadingRecord } from '@core/sightreading/session.ts'
-import type { Card } from '@core/srs/scheduler.ts'
-import type { AssessmentResult, MeasureScore } from '@core/practice/assessment.ts'
-import type { Recording } from '@core/practice/recorder.ts'
-import { ACTIVITY_KINDS, type ActivityKind, type PracticeEntry } from '@core/progress/log.ts'
-import {
-  useScoreStore,
-  type PracticeSettings,
-  type ScoreStoreState,
-} from '@app/state/scoreStore.ts'
+import { useScoreStore, type ScoreStoreState } from '@app/state/scoreStore.ts'
 import { useSightReadingStore } from '@app/state/sightReadingStore.ts'
 import { useFlashcardStore } from '@app/state/flashcardStore.ts'
-import { useProgressStore, MAX_STORED_ASSESSMENTS, MAX_STORED_RECORDINGS, MAX_STORED_PRACTICE_ENTRIES, type StoredAssessment } from '@app/state/progressStore.ts'
+import { useAnnotationStore } from '@app/state/annotationStore.ts'
+import {
+  useProgressStore,
+  MAX_STORED_ASSESSMENTS,
+  MAX_STORED_RECORDINGS,
+  MAX_STORED_PRACTICE_ENTRIES,
+} from '@app/state/progressStore.ts'
+import {
+  isValidAnnotations,
+  isValidAssessments,
+  isValidFlashcards,
+  isValidPracticeLog,
+  isValidRecordings,
+  isValidSession,
+  isValidSightReadingHistory,
+  type PersistedAnnotations,
+  type PersistedAssessments,
+  type PersistedFlashcards,
+  type PersistedPracticeLog,
+  type PersistedRecordings,
+  type PersistedSession,
+  type PersistedSightReadingHistory,
+} from '@app/state/persistedShapes.ts'
+
+// The persisted shapes moved to `persistedShapes.ts` (this file outgrew the
+// 500-line limit); re-exported here so every existing importer — and every
+// test — keeps its single, obvious import site for "what persistence deals in".
+export type {
+  PersistedAnnotations,
+  PersistedAssessments,
+  PersistedFlashcards,
+  PersistedPracticeLog,
+  PersistedRecordings,
+  PersistedSession,
+  PersistedSightReadingHistory,
+} from '@app/state/persistedShapes.ts'
 
 /** Collection + key the score session lives under. */
 export const SESSION_COLLECTION = COLLECTIONS.settings
@@ -68,6 +90,9 @@ export const SIGHT_READING_KEY = 'sightReadingHistory'
 export const FLASHCARDS_COLLECTION = COLLECTIONS.srsCards
 export const FLASHCARDS_KEY = 'srsCards'
 
+export const ANNOTATIONS_COLLECTION = COLLECTIONS.annotations
+export const ANNOTATIONS_KEY = 'annotations'
+
 /** Collection + key the stored assessment results live under (roadmap 2.24, REQ-3.3.4). */
 export const PROGRESS_COLLECTION = COLLECTIONS.progress
 export const PROGRESS_KEY = 'assessments'
@@ -79,298 +104,6 @@ export const RECORDINGS_KEY = 'recordings'
 /** Collection + key the practice log lives under (roadmap 2.24, REQ-3.9.5). */
 export const PRACTICE_LOG_COLLECTION = COLLECTIONS.practiceLog
 export const PRACTICE_LOG_KEY = 'practiceLog'
-
-export type PersistedSession = {
-  readonly score: Score
-  readonly sourceName: string
-  readonly musicXml: string | undefined
-  readonly settings: PracticeSettings
-}
-
-export type PersistedSightReadingHistory = {
-  readonly level: number
-  readonly history: readonly SightReadingRecord[]
-}
-
-export type PersistedFlashcards = {
-  readonly cardsById: Readonly<Record<string, Card>>
-}
-
-export type PersistedAssessments = {
-  readonly assessments: readonly StoredAssessment[]
-}
-
-export type PersistedRecordings = {
-  readonly recordings: readonly Recording[]
-}
-
-export type PersistedPracticeLog = {
-  readonly practiceEntries: readonly PracticeEntry[]
-}
-
-// --------------------------------------------------------------- validation
-
-function isHand(value: unknown): value is Hand {
-  return value === 'left' || value === 'right'
-}
-
-function isValidLoop(value: unknown): value is LoopRange | undefined {
-  if (value === undefined) return true
-  if (typeof value !== 'object' || value === null) return false
-  const loop = value as Record<string, unknown>
-  return (
-    typeof loop.startTick === 'number' &&
-    Number.isFinite(loop.startTick) &&
-    loop.startTick >= 0 &&
-    typeof loop.endTick === 'number' &&
-    Number.isFinite(loop.endTick) &&
-    loop.endTick > loop.startTick
-  )
-}
-
-function isValidSettings(value: unknown): value is PracticeSettings {
-  if (typeof value !== 'object' || value === null) return false
-  const s = value as Record<string, unknown>
-  return (
-    typeof s.tempoScale === 'number' &&
-    Number.isFinite(s.tempoScale) &&
-    s.tempoScale >= MIN_TEMPO_SCALE &&
-    s.tempoScale <= MAX_TEMPO_SCALE &&
-    Array.isArray(s.activeHands) &&
-    s.activeHands.every(isHand) &&
-    typeof s.metronomeEnabled === 'boolean' &&
-    isValidLoop(s.loop)
-  )
-}
-
-/**
- * Structural validation only — deliberately not `validateScore`, which enforces
- * invariants a parser must guarantee (sort order, tie shape, and so on). Those
- * can only be violated by a programmer error in code that wrote the save, not
- * by a learner's browser storage getting corrupted, and re-deriving them here
- * would make a save written by an older, stricter version of the score model
- * unreadable. What DOES vary with storage corruption — wrong types, truncated
- * writes, a manually edited IndexedDB entry — is exactly what this checks.
- * The same reasoning applies to every other `isValidXxx` below.
- */
-function isValidScore(value: unknown): value is Score {
-  if (typeof value !== 'object' || value === null) return false
-  const s = value as Record<string, unknown>
-  if (!Array.isArray(s.notes)) return false
-  if (typeof s.meta !== 'object' || s.meta === null) return false
-  if (typeof (s.meta as Record<string, unknown>).title !== 'string') return false
-  if (!Array.isArray(s.measures)) return false
-  if (!Array.isArray(s.tempos)) return false
-  if (!Array.isArray(s.staves)) return false
-  return Number.isFinite(s.maxNoteDurationTicks)
-}
-
-function isValidSession(value: unknown): value is PersistedSession {
-  if (typeof value !== 'object' || value === null) return false
-  const v = value as Record<string, unknown>
-  if (!isValidScore(v.score)) return false
-  if (typeof v.sourceName !== 'string') return false
-  if (v.musicXml !== undefined && typeof v.musicXml !== 'string') return false
-  return isValidSettings(v.settings)
-}
-
-function isValidSightReadingRecord(value: unknown): value is SightReadingRecord {
-  if (typeof value !== 'object' || value === null) return false
-  const r = value as Record<string, unknown>
-  return (
-    typeof r.pieceId === 'string' &&
-    typeof r.readAt === 'number' &&
-    Number.isFinite(r.readAt) &&
-    typeof r.accuracy === 'number' &&
-    Number.isFinite(r.accuracy) &&
-    typeof r.level === 'number' &&
-    Number.isFinite(r.level)
-  )
-}
-
-function isValidSightReadingHistory(value: unknown): value is PersistedSightReadingHistory {
-  if (typeof value !== 'object' || value === null) return false
-  const v = value as Record<string, unknown>
-  return (
-    typeof v.level === 'number' &&
-    Number.isFinite(v.level) &&
-    v.level >= MIN_LEVEL &&
-    v.level <= MAX_LEVEL &&
-    Array.isArray(v.history) &&
-    v.history.every(isValidSightReadingRecord)
-  )
-}
-
-function isValidCard(value: unknown): value is Card {
-  if (typeof value !== 'object' || value === null) return false
-  const c = value as Record<string, unknown>
-  return (
-    typeof c.id === 'string' &&
-    typeof c.due === 'number' &&
-    Number.isFinite(c.due) &&
-    typeof c.intervalDays === 'number' &&
-    Number.isFinite(c.intervalDays) &&
-    typeof c.ease === 'number' &&
-    Number.isFinite(c.ease) &&
-    typeof c.reps === 'number' &&
-    Number.isFinite(c.reps) &&
-    typeof c.lapses === 'number' &&
-    Number.isFinite(c.lapses) &&
-    typeof c.introducedAt === 'number' &&
-    Number.isFinite(c.introducedAt)
-  )
-}
-
-function isValidFlashcards(value: unknown): value is PersistedFlashcards {
-  if (typeof value !== 'object' || value === null) return false
-  const v = value as Record<string, unknown>
-  if (typeof v.cardsById !== 'object' || v.cardsById === null) return false
-  return Object.values(v.cardsById as Record<string, unknown>).every(isValidCard)
-}
-
-function isValidMeasureScore(value: unknown): value is MeasureScore {
-  if (typeof value !== 'object' || value === null) return false
-  const m = value as Record<string, unknown>
-  return (
-    typeof m.measureIndex === 'number' &&
-    Number.isFinite(m.measureIndex) &&
-    typeof m.expected === 'number' &&
-    Number.isFinite(m.expected) &&
-    typeof m.correct === 'number' &&
-    Number.isFinite(m.correct) &&
-    typeof m.wrongPitch === 'number' &&
-    Number.isFinite(m.wrongPitch) &&
-    typeof m.missed === 'number' &&
-    Number.isFinite(m.missed) &&
-    typeof m.extra === 'number' &&
-    Number.isFinite(m.extra) &&
-    typeof m.accuracy === 'number' &&
-    Number.isFinite(m.accuracy) &&
-    typeof m.meanAbsDeviationMs === 'number' &&
-    Number.isFinite(m.meanAbsDeviationMs)
-  )
-}
-
-function isValidAssessmentCounts(value: unknown): value is AssessmentResult['counts'] {
-  if (typeof value !== 'object' || value === null) return false
-  const c = value as Record<string, unknown>
-  return (
-    typeof c.correct === 'number' &&
-    Number.isFinite(c.correct) &&
-    typeof c.wrongPitch === 'number' &&
-    Number.isFinite(c.wrongPitch) &&
-    typeof c.missed === 'number' &&
-    Number.isFinite(c.missed) &&
-    typeof c.extra === 'number' &&
-    Number.isFinite(c.extra)
-  )
-}
-
-function isValidAssessmentResult(value: unknown): value is AssessmentResult {
-  if (typeof value !== 'object' || value === null) return false
-  const r = value as Record<string, unknown>
-  return (
-    typeof r.scoreId === 'string' &&
-    typeof r.accuracy === 'number' &&
-    Number.isFinite(r.accuracy) &&
-    typeof r.timingConsistency === 'number' &&
-    Number.isFinite(r.timingConsistency) &&
-    typeof r.meanAbsDeviationMs === 'number' &&
-    Number.isFinite(r.meanAbsDeviationMs) &&
-    typeof r.tempoBpm === 'number' &&
-    Number.isFinite(r.tempoBpm) &&
-    Array.isArray(r.measures) &&
-    r.measures.every(isValidMeasureScore) &&
-    isValidAssessmentCounts(r.counts) &&
-    typeof r.completedAt === 'number' &&
-    Number.isFinite(r.completedAt)
-  )
-}
-
-function isValidStoredAssessment(value: unknown): value is StoredAssessment {
-  if (typeof value !== 'object' || value === null) return false
-  const a = value as Record<string, unknown>
-  return (
-    typeof a.id === 'string' &&
-    typeof a.scoreId === 'string' &&
-    typeof a.scoreTitle === 'string' &&
-    typeof a.at === 'number' &&
-    Number.isFinite(a.at) &&
-    isValidAssessmentResult(a.result)
-  )
-}
-
-function isValidAssessments(value: unknown): value is PersistedAssessments {
-  if (typeof value !== 'object' || value === null) return false
-  const v = value as Record<string, unknown>
-  return Array.isArray(v.assessments) && v.assessments.every(isValidStoredAssessment)
-}
-
-function isValidMidiEvent(value: unknown): value is MidiEvent {
-  if (typeof value !== 'object' || value === null) return false
-  const e = value as Record<string, unknown>
-  if (typeof e.time !== 'number' || !Number.isFinite(e.time)) return false
-  if (e.type === 'noteOn') {
-    return (
-      typeof e.note === 'number' &&
-      Number.isFinite(e.note) &&
-      typeof e.velocity === 'number' &&
-      Number.isFinite(e.velocity)
-    )
-  }
-  if (e.type === 'noteOff') return typeof e.note === 'number' && Number.isFinite(e.note)
-  if (e.type === 'sustain') return typeof e.down === 'boolean'
-  return false
-}
-
-function isValidRecording(value: unknown): value is Recording {
-  if (typeof value !== 'object' || value === null) return false
-  const r = value as Record<string, unknown>
-  if (typeof r.id !== 'string') return false
-  if (r.scoreId !== undefined && typeof r.scoreId !== 'string') return false
-  if (typeof r.recordedAt !== 'number' || !Number.isFinite(r.recordedAt)) return false
-  if (typeof r.durationMs !== 'number' || !Number.isFinite(r.durationMs)) return false
-  if (!Array.isArray(r.events) || !r.events.every(isValidMidiEvent)) return false
-  if (r.tempoBpm !== undefined && (typeof r.tempoBpm !== 'number' || !Number.isFinite(r.tempoBpm))) {
-    return false
-  }
-  return true
-}
-
-function isValidRecordings(value: unknown): value is PersistedRecordings {
-  if (typeof value !== 'object' || value === null) return false
-  const v = value as Record<string, unknown>
-  return Array.isArray(v.recordings) && v.recordings.every(isValidRecording)
-}
-
-function isValidActivityKind(value: unknown): value is ActivityKind {
-  return typeof value === 'string' && (ACTIVITY_KINDS as readonly string[]).includes(value)
-}
-
-function isValidPracticeEntry(value: unknown): value is PracticeEntry {
-  if (typeof value !== 'object' || value === null) return false
-  const e = value as Record<string, unknown>
-  if (typeof e.id !== 'string') return false
-  if (typeof e.startedAt !== 'number' || !Number.isFinite(e.startedAt)) return false
-  if (typeof e.endedAt !== 'number' || !Number.isFinite(e.endedAt)) return false
-  if (!isValidActivityKind(e.kind)) return false
-  if (e.itemId !== undefined && typeof e.itemId !== 'string') return false
-  if (typeof e.itemName !== 'string') return false
-  if (e.tempoBpm !== undefined && (typeof e.tempoBpm !== 'number' || !Number.isFinite(e.tempoBpm))) {
-    return false
-  }
-  if (e.accuracy !== undefined && (typeof e.accuracy !== 'number' || !Number.isFinite(e.accuracy))) {
-    return false
-  }
-  if (e.note !== undefined && typeof e.note !== 'string') return false
-  return true
-}
-
-function isValidPracticeLog(value: unknown): value is PersistedPracticeLog {
-  if (typeof value !== 'object' || value === null) return false
-  const v = value as Record<string, unknown>
-  return Array.isArray(v.practiceEntries) && v.practiceEntries.every(isValidPracticeEntry)
-}
 
 // ----------------------------------------------------------------- restore
 
@@ -387,6 +120,7 @@ function isValidPracticeLog(value: unknown): value is PersistedPracticeLog {
 let applyingRestoredScoreSession = false
 let applyingRestoredSightReadingHistory = false
 let applyingRestoredFlashcards = false
+let applyingRestoredAnnotations = false
 let applyingRestoredAssessments = false
 let applyingRestoredRecordings = false
 let applyingRestoredPracticeLog = false
@@ -481,6 +215,17 @@ export async function restoreSession(store: Store): Promise<boolean> {
       applyingRestoredFlashcards = guarding
     },
     (data) => useFlashcardStore.getState().hydrate(data.cardsById),
+  )
+
+  await restoreSlice(
+    store,
+    ANNOTATIONS_COLLECTION,
+    ANNOTATIONS_KEY,
+    isValidAnnotations,
+    (guarding) => {
+      applyingRestoredAnnotations = guarding
+    },
+    (data) => useAnnotationStore.getState().hydrate(data.byScoreId),
   )
 
   await restoreSlice(
@@ -620,6 +365,24 @@ function persistSightReadingHistory(store: Store): () => void {
 }
 
 /** Subscribes to the flashcard store and writes `cardsById` on every change. */
+/**
+ * Subscribes to the annotation store and writes every score's annotations
+ * (roadmap 4.8, REQ-3.2.6). `COLLECTIONS.annotations` was the last declared
+ * collection nothing wrote.
+ */
+function persistAnnotations(store: Store): () => void {
+  const write = createWriteQueue<PersistedAnnotations>(
+    store,
+    ANNOTATIONS_COLLECTION,
+    ANNOTATIONS_KEY,
+  )
+  return useAnnotationStore.subscribe((state, prevState) => {
+    if (applyingRestoredAnnotations) return
+    if (state.byScoreId === prevState.byScoreId) return
+    write({ byScoreId: state.byScoreId })
+  })
+}
+
 function persistFlashcards(store: Store): () => void {
   const write = createWriteQueue<PersistedFlashcards>(store, FLASHCARDS_COLLECTION, FLASHCARDS_KEY)
   return useFlashcardStore.subscribe((state, prevState) => {
@@ -664,7 +427,7 @@ function persistPracticeLog(store: Store): () => void {
 }
 
 /**
- * Starts persisting all six slices and returns one combined unsubscribe. See
+ * Starts persisting all seven slices and returns one combined unsubscribe. See
  * the module comment for the mandatory `restoreSession` → `startPersisting`
  * call order.
  */
@@ -673,6 +436,7 @@ export function startPersisting(store: Store): () => void {
     persistScoreSession(store),
     persistSightReadingHistory(store),
     persistFlashcards(store),
+    persistAnnotations(store),
     persistAssessments(store),
     persistRecordings(store),
     persistPracticeLog(store),

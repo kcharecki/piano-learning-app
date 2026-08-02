@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { makeScore } from '@core/notation/score.ts'
 import type { LoadedScore } from '@app/state/scoreStore.ts'
+import { techniqueDrillById } from '@core/technique/library.ts'
 import { sessionCandidates } from './candidates.ts'
 
 function loadedScore(sourceName: string): LoadedScore {
@@ -12,11 +13,33 @@ function loadedScore(sourceName: string): LoadedScore {
 }
 
 describe('sessionCandidates', () => {
-  it('technique candidates are always empty — no technique screen exists to open one', () => {
+  it('offers the level\'s real technique drills, each carrying the id the screen opens', () => {
+    // Before roadmap 4.4a this segment was deliberately empty, because no
+    // screen could open a technique exercise. Now it must carry the drill id
+    // through, or the Technique screen has nothing to select.
     for (const level of [0, 1, 3, 5, 99]) {
-      const result = sessionCandidates({ sightReadingLevel: level, loadedScore: undefined })
-      expect(result.technique).toEqual([])
+      const result = sessionCandidates({
+        sightReadingLevel: 1,
+        loadedScore: undefined,
+        techniqueLevel: level,
+      })
+      expect(result.technique.length).toBeGreaterThan(0)
+      for (const exercise of result.technique) {
+        expect(exercise.kind).toBe('technique')
+        expect(typeof exercise.params?.drillId).toBe('string')
+        expect(techniqueDrillById(String(exercise.params?.drillId))).toBeDefined()
+      }
     }
+  })
+
+  it('defaults the technique level to level 1 when none is given', () => {
+    const withDefault = sessionCandidates({ sightReadingLevel: 3, loadedScore: undefined })
+    const explicit = sessionCandidates({
+      sightReadingLevel: 3,
+      loadedScore: undefined,
+      techniqueLevel: 1,
+    })
+    expect(withDefault.technique).toEqual(explicit.technique)
   })
 
   it('offers exactly one sight-reading candidate, pointing at the current level', () => {

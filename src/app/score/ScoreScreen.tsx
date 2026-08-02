@@ -14,6 +14,7 @@ import { useScoreStore } from '@app/state/scoreStore.ts'
 import { PracticeScreen } from '@app/practice/PracticeScreen.tsx'
 import sampleMusicXml from '@content/scores/twinkle-twinkle-little-star.musicxml?raw'
 import { useEffect } from 'react'
+import { AnalysisPanel } from './AnalysisPanel.tsx'
 import { ImportPanel } from './ImportPanel.tsx'
 
 const SAMPLE_SCORE_SOURCE_NAME = 'Twinkle, Twinkle, Little Star (bundled sample)'
@@ -54,6 +55,9 @@ export function ScoreScreen() {
           {loaded.musicXml === undefined && (
             <p>There is no notation to engrave for this score — playback still works.</p>
           )}
+          {/* REQ-3.5.5: the roman-numeral analysis of the piece being played,
+              under it (roadmap 3.2a). */}
+          <AnalysisPanel score={loaded.score} />
         </section>
       )}
     </div>

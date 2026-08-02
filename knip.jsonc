@@ -16,15 +16,8 @@
   // here is how "green tests, never executed" hides. Nothing may be added without a task id.
   "ignore": [
     // roadmap 4.9 — the shipped curriculum content this validates. Nothing
-    // authors a Curriculum yet, so nothing calls the validator.
-    "src/core/curriculum/model.ts",
-    // roadmap 4.6a — the export/import screen (a file picker and a download button)
-    "src/core/progress/export.ts",
-    // roadmap 4.4a — the technique drill screen. `candidates.ts` deliberately
-    // emits no technique exercise until it exists, rather than planning a
-    // session item nothing can open.
-    "src/core/technique/library.ts",
-    // roadmap 3.2a — showing the roman-numeral analysis under the score
-    "src/core/theory/analysis.ts"
+    // authors a Curriculum yet, so nothing calls the validator. This is the
+    // LAST entry in this list; when 4.9 lands, delete it and the list with it.
+    "src/core/curriculum/model.ts"
   ]
 }

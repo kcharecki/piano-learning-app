@@ -17,6 +17,7 @@ import { MetronomeScreen } from '@app/metronome/MetronomeScreen.tsx'
 import { RhythmScreen } from '@app/rhythm/RhythmScreen.tsx'
 import { SessionPlanScreen } from '@app/session/SessionPlanScreen.tsx'
 import { SightReadingScreen } from '@app/sightreading/SightReadingScreen.tsx'
+import { TechniqueScreen } from '@app/technique/TechniqueScreen.tsx'
 import { TheoryScreen } from '@app/theory/TheoryScreen.tsx'
 import type { Exercise } from '@core/curriculum/types.ts'
 import { useState } from 'react'
@@ -28,6 +29,7 @@ const NAV_ITEMS = [
   { id: 'flashcards', label: 'Flashcards' },
   { id: 'ear-training', label: 'Ear training' },
   { id: 'rhythm', label: 'Rhythm' },
+  { id: 'technique', label: 'Technique' },
   { id: 'metronome', label: 'Metronome' },
   { id: 'theory', label: 'Theory' },
   { id: 'progress', label: 'Progress' },
@@ -50,6 +52,7 @@ function destinationFor(exercise: Exercise): ScreenId {
     case 'ear-training':
       return 'ear-training'
     case 'technique':
+      return 'technique'
     case 'play':
     case 'repertoire':
       return 'practice'
@@ -70,6 +73,8 @@ function renderScreen(screen: ScreenId, open: (exercise: Exercise) => void) {
       return <EarTrainingScreen />
     case 'rhythm':
       return <RhythmScreen />
+    case 'technique':
+      return <TechniqueScreen />
     case 'metronome':
       return <MetronomeScreen />
     case 'theory':

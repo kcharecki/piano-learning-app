@@ -88,19 +88,20 @@ describe('SessionPlanScreen', () => {
     }
   })
 
-  it('splits the segments proportionally, redistributing technique\'s share (it never has candidates)', async () => {
+  it('splits 30 minutes as REQ-3.1.4\'s 20/20/40/20, now that every segment has candidates', async () => {
     const user = userEvent.setup()
     loadAScore()
     render(<SessionPlanScreen onOpen={() => {}} />)
 
     await user.click(screen.getByRole('button', { name: '30 min' }))
 
-    // technique has no candidates (candidates.ts), so its 20% is
-    // redistributed proportionally over sight-reading/lesson/theory-ear.
-    expect(segmentMinutes('technique')).toBe(0)
-    expect(segmentMinutes('sight-reading')).toBe(8)
-    expect(segmentMinutes('lesson')).toBe(15)
-    expect(segmentMinutes('theory-ear')).toBe(7)
+    // Before roadmap 4.4a the technique segment had no candidates and its 20%
+    // was redistributed; the Technique screen means it can be filled, so this
+    // is now the requirement's own mix, literally.
+    expect(segmentMinutes('technique')).toBe(6)
+    expect(segmentMinutes('sight-reading')).toBe(6)
+    expect(segmentMinutes('lesson')).toBe(12)
+    expect(segmentMinutes('theory-ear')).toBe(6)
   })
 
   it('calls onOpen with the clicked item\'s own exercise, identified exactly, not just the first row', async () => {

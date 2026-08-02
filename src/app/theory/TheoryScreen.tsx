@@ -15,6 +15,7 @@ import type { ScaleType } from '@core/theory/scales.ts'
 import { useState } from 'react'
 import { ChordScaleReference } from './ChordScaleReference.tsx'
 import { CircleOfFifths } from './CircleOfFifths.tsx'
+import { TheoryDrillPanel } from './TheoryDrillPanel.tsx'
 
 const DEFAULT_KEY = keyFromFifths(0, 'major')
 
@@ -49,6 +50,7 @@ export function TheoryScreen() {
   return (
     <div className="theory-screen">
       <h1>Theory</h1>
+      <TheoryDrillPanel />
       <section aria-label="Circle of fifths explorer">
         {selectedKey === undefined ? (
           <CircleOfFifths onSelect={handleSelectKey} />

@@ -130,9 +130,8 @@ describe('useSessionPlan', () => {
       })
     })
 
-    // technique has no candidates (candidates.ts), so its 20% share is
-    // redistributed over sight-reading/lesson/theory-ear: lesson's 40% of
-    // the remaining 80% is 50%, i.e. 15 of the 30-minute default budget.
-    expect(result.current.plan?.bySegment.lesson).toBe(15)
+    // Every segment has candidates since roadmap 4.4a, so the lesson segment
+    // gets REQ-3.1.4's plain 40% of the 30-minute default budget.
+    expect(result.current.plan?.bySegment.lesson).toBe(12)
   })
 })

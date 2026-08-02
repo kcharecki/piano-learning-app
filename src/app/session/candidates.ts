@@ -40,11 +40,14 @@
 import { MAX_LEVEL, MIN_LEVEL, type Exercise } from '@core/curriculum/types.ts'
 import type { SessionSegmentKind } from '@core/curriculum/session.ts'
 import type { LoadedScore } from '@app/state/scoreStore.ts'
+import { techniqueLibrary } from '@core/technique/library.ts'
 
 /** Moderate estimate for one flashcard-deck sitting — large enough that a
  * short segment reasonably shows just one pass, small enough that a longer
  * segment cycles through it a few times. */
 const FLASHCARD_DECK_MINUTES = 10
+/** A technique drill is a short, repeatable block — several fit in one warm-up. */
+const TECHNIQUE_DRILL_MINUTES = 5
 
 /**
  * Sight-reading and the loaded score are each a single, open-ended
@@ -61,11 +64,20 @@ function clampLevel(level: number): number {
   return Math.min(MAX_LEVEL, Math.max(MIN_LEVEL, Math.floor(level)))
 }
 
-function techniqueCandidates(): readonly Exercise[] {
-  // No technique-drill screen exists in the app yet — do not emit an
-  // Exercise nothing can open. `planSession` redistributes this segment's
-  // share over the other three segments when it has no candidates.
-  return []
+/**
+ * The level's technique drills, in the library's own order (REQ-3.7.1). The
+ * Technique screen (roadmap 4.4a) is what opens them; before it existed this
+ * returned nothing on purpose, because a planned item nothing can open is
+ * worse than a redistributed segment.
+ */
+function techniqueCandidates(level: number): readonly Exercise[] {
+  return techniqueLibrary(clampLevel(level)).map((drill) => ({
+    id: `technique-${drill.id}`,
+    kind: 'technique',
+    title: drill.title,
+    estimatedMinutes: TECHNIQUE_DRILL_MINUTES,
+    params: { drillId: drill.id, targetBpm: drill.targetBpm },
+  }))
 }
 
 function sightReadingCandidates(sightReadingLevel: number): readonly Exercise[] {
@@ -112,6 +124,8 @@ function lessonCandidates(loadedScore: LoadedScore | undefined): readonly Exerci
 export type SessionCandidatesInput = {
   readonly sightReadingLevel: number
   readonly loadedScore: LoadedScore | undefined
+  /** The playing-track level the technique drills are drawn from. Defaults to level 1. */
+  readonly techniqueLevel?: number
 }
 
 /** Builds `planSession`'s `candidates` option from what the app can offer today. */
@@ -119,7 +133,7 @@ export function sessionCandidates(
   input: SessionCandidatesInput,
 ): Record<SessionSegmentKind, readonly Exercise[]> {
   return {
-    technique: techniqueCandidates(),
+    technique: techniqueCandidates(input.techniqueLevel ?? MIN_LEVEL),
     'sight-reading': sightReadingCandidates(input.sightReadingLevel),
     lesson: lessonCandidates(input.loadedScore),
     'theory-ear': theoryEarCandidates(),

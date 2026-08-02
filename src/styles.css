@@ -111,3 +111,23 @@ main {
 .practice-controls .note-feedback dd {
   margin: 0;
 }
+
+/* Harmonic analysis (roadmap 3.2a): a measure, its roman numerals and any
+   cadence, laid out as one readable row. Without this the spans run together
+   and a measure reads "m.1I" rather than "m.1  I". */
+.analysis-measures {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.analysis-measures li {
+  display: flex;
+  gap: 0.75rem;
+  align-items: baseline;
+}
+
+.analysis-measures .analysis-cadence {
+  font-style: italic;
+  opacity: 0.8;
+}

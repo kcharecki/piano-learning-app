@@ -27,6 +27,8 @@
  * the shell (owned by another agent — see the roadmap-1.18 report) renders
  * this with no props at all.
  */
+import { AnnotationPanel } from '@app/annotations/AnnotationPanel.tsx'
+import { useAnnotations } from '@app/annotations/useAnnotations.ts'
 import { ScoreViewer, type ScoreViewerHandle } from '@app/score/ScoreViewer.tsx'
 import { useScoreStore } from '@app/state/scoreStore.ts'
 import type { AudioOutput, Clock, DateSource, MidiInput } from '@core/ports/index.ts'
@@ -190,6 +192,7 @@ export function PracticeScreen(props: PracticeScreenProps) {
   // returns a fresh object each render and this effect must fire on the PHASE
   // edge only — putting the hook's own identity in the dependency list would
   // restart the timer on every unrelated re-render.
+  const annotations = useAnnotations()
   const practiceLog = usePracticeLog({ clock, date })
   const practiceLogRef = useRef(practiceLog)
   practiceLogRef.current = practiceLog
@@ -349,8 +352,20 @@ export function PracticeScreen(props: PracticeScreenProps) {
         />
       </div>
       {loaded.musicXml !== undefined && (
-        <ScoreViewer ref={scoreViewerRef} musicXml={loaded.musicXml} score={loaded.score} />
+        <ScoreViewer
+          ref={scoreViewerRef}
+          musicXml={loaded.musicXml}
+          // REQ-3.2.6: the viewer draws the score WITH the learner's fingering
+          // edits applied, not the imported one — an annotation the engraver
+          // ignores is not an annotation (roadmap 4.8).
+          score={annotations.annotatedScore ?? loaded.score}
+        />
       )}
+      {/* Per-measure notes attach to wherever the playhead is; fingering and
+          highlight edits need a selected note, and nothing selects one yet —
+          those controls render disabled until roadmap 4.8a adds click-to-select
+          in the viewer. */}
+      <AnnotationPanel measureIndex={Math.max(0, (engine.position?.measureNumber ?? 1) - 1)} />
       <AssessmentPanel
         phase={assessment.phase}
         result={assessment.result}

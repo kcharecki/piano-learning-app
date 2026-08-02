@@ -6,6 +6,7 @@
  * empty state (never a blank panel, never a fabricated number) wherever the
  * hook reports there is nothing to show yet.
  */
+import { ExportPanel } from '@app/progress/ExportPanel.tsx'
 import { ACTIVITY_KINDS } from '@core/progress/log.ts'
 import type { Track } from '@core/curriculum/types.ts'
 import { TrendChart, type TrendChartPoint } from './TrendChart.tsx'
@@ -165,6 +166,10 @@ export function DashboardScreen(props: DashboardScreenProps) {
           Nothing recorded yet — no repertoire pieces have been added.
         </p>
       </section>
+
+      {/* REQ-3.10.4: the learner owns this data locally, which means being able
+          to take it out and put it back (roadmap 4.6a). */}
+      <ExportPanel />
     </div>
   )
 }
