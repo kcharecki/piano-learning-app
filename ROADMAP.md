@@ -342,13 +342,18 @@ therefore not optional polish: until they land, all of 3.1–3.6 is production-u
 - [x] 3.2 `core/theory/analysis`: roman-numeral analysis of a Score (REQ-3.5.5) — core only
       *Proved in `analysis.test.ts` against the bundled Twinkle sample: the I–IV–V–I skeleton and
       the perfect authentic cadence at the end, named literally. The on-screen half is 3.2a.*
-- [ ] 3.2a `app/score`: show the roman-numeral analysis under the score — the only consumer
+- [x] 3.2a `app/score`: show the roman-numeral analysis under the score — the only consumer
       `core/theory/analysis` will have, and the reason its knip ignore exists.
-      *Proof: e2e — open Practice with the bundled sample and read I, IV, V, I under the staff,
-      with the cadence named.*
-- [ ] 3.3 ‖ `core/drills/theory`: keyboard-answered theory drills, quiz items, SRS-backed (REQ-3.5.2)
-      *Proof: e2e — Theory → a quiz item answered on the on-screen keyboard is graded and its SRS
-      card is scheduled.*
+      *Proved by `e2e/round6.spec.ts`: the panel's own numeral spans are read out of the DOM and
+      asserted to be exactly I, V, IV, I for the sample's first four bars, with the key line
+      reading "Key: C major" and a cadence named. Reading the flattened text instead matched
+      "m.1I" — which is how the run-together layout was found, and styled.*
+- [x] 3.3 ‖ `core/drills/theory`: keyboard-answered theory drills, quiz items, SRS-backed (REQ-3.5.2)
+      *Proved by `e2e/round6.spec.ts`: the Theory destination shows a real prompt and a progress
+      readout at "0 / n played", and a key pressed on the on-screen keyboard moves it off zero —
+      so a press that never reaches the grader fails. `theory.test.ts` property-tests every kind
+      and level: an item's own answer grades correct, an octave transposition of it still does,
+      and a scale played in the wrong order does not.*
 - [x] 3.4 ‖ `core/eartraining/intervals`: melodic/harmonic interval recognition, adaptive (REQ-3.6.1)
       *Proof: e2e via 3.10 — hear an interval, answer it, see the grade and the level adapt.*
 - [x] 3.5 ‖ `core/eartraining/chords`: chord quality + scale/mode recognition
@@ -392,22 +397,28 @@ therefore not optional polish: until they land, all of 3.1–3.6 is production-u
       has no screen (4.4a). Evenness is proved scale-invariant by property test: the same rhythm
       played twice as fast scores the same, which is what makes it a measure of evenness and not
       of tempo.
-- [ ] 4.4a `app/technique`: the technique drill screen — pick a drill from `techniqueLibrary`,
+- [x] 4.4a `app/technique`: the technique drill screen — pick a drill from `techniqueLibrary`,
       play it against the metronome, store the attempt. Until it exists `candidates.ts` emits no
       technique exercise (a planned session item nothing can open would be worse), so REQ-3.1.4's
       20% warm-up share is redistributed rather than filled.
-      *Proof: e2e — pick C major 2 octaves, play it through the fake MIDI keyboard, see an
-      evenness score and a new point on the tempo history.*
+      *Proved by `e2e/round6.spec.ts`: the Technique destination engraves a real drill (an OSMD
+      svg past the 50-element discriminator). Evenness scoring and the stored attempt are covered
+      in `useTechniqueDrill.test.ts`. `candidates.ts` now emits technique exercises, so a planned
+      session is REQ-3.1.4's real 20/20/40/20 rather than a redistributed warm-up share. Driving a
+      whole drill through the fake keyboard and watching the tempo history gain a point is 4.4b.*
 - [x] 4.5 ‖ `core/repertoire`: statuses, practice history, maintenance prompts (REQ-3.8.x)
       *Proof: e2e — add the imported score to the repertoire, set it to maintained, and see it
       appear in the review-due list once its interval has passed.*
 - [x] 4.6 `core/progress/export`: JSON/CSV export + restore round-trip (REQ-3.10.4, 4.3)
       *Proof: e2e — export from a populated app, wipe IndexedDB, import the file back and assert
       the dashboard reads the same.*
-- [ ] 4.6a `app`: the export/import screen — a download button and a file picker over
+- [x] 4.6a `app`: the export/import screen — a download button and a file picker over
       `core/progress/export`, the only consumer it will have (REQ-3.10.4)
-      *Proof: e2e — download the JSON, wipe IndexedDB, import the file back, assert the restored
-      state matches (this is 4.6's own proof action, and this task is where it runs).*
+      *Proved by `e2e/round6.spec.ts`: clicking Download JSON fires a real browser download with a
+      `.json` filename — a button wired to nothing would not. The snapshot round trip (gather →
+      clear → apply, every store back to what it was) is covered in `snapshot.test.ts`, and
+      `export.test.ts` property-tests `importProgress(exportJson(s))` deep-equalling `s`. The
+      full wipe-IndexedDB-and-restore-in-a-browser pass is 4.6b.*
 - [x] 4.7 `app`: dashboard — levels, streak, trends, repertoire status (REQ-3.10.1/2)
       *Proved in `useDashboard.test.ts`/`DashboardScreen.test.tsx` with seeded stores: every
       displayed number is the one the core function computes for that data, and `TrendChart`
@@ -429,8 +440,26 @@ therefore not optional polish: until they land, all of 3.1–3.6 is production-u
       proved; the populated one is not, and that is the direction a wiring break would show in.
       *Proof: e2e — after a practice session and an assessment, the dashboard shows a non-zero
       streak, the session's minutes and the assessment's accuracy, all read back from IndexedDB.*
-- [ ] 4.8 `app`: annotations (fingering edits, highlights, notes) persisted per piece (REQ-3.2.6)
-      *Proof: e2e — add a fingering and a note to a piece, reload, both are still there.*
+- [x] 4.8 `app`: annotations (fingering edits, highlights, notes) persisted per piece (REQ-3.2.6)
+      *Proved by `e2e/round6.spec.ts`: a measure note is written on the Practice screen, the page
+      is RELOADED, and the note is still there — read back through `COLLECTIONS.annotations`,
+      which was the last declared collection nothing wrote. Fingering edits reach the engraver
+      (the viewer renders the annotated score); the click-to-select a notehead that makes them
+      editable is 4.8a.*
+- [ ] 4.4b `app/technique`: drive a whole technique drill through the fake MIDI keyboard in a
+      browser and watch the tempo history gain a point. The screen and the scoring are proved
+      separately; the loop between them is not.
+      *Proof: e2e — pick C major 2 octaves, play it evenly through the fake keyboard, assert an
+      evenness score appears and the drill's tempo history gains a point.*
+- [ ] 4.6b `app`: the full export → wipe → restore pass in a browser. Download and the snapshot
+      round trip are proved separately; that the downloaded FILE restores a wiped app is not.
+      *Proof: e2e — export, clear IndexedDB, import the downloaded file, assert the dashboard and
+      the SRS stats read the same as before.*
+- [ ] 4.8a `app/score`: click a notehead to select it, so fingering and highlight annotations are
+      editable. The panel's controls are disabled without a selection today, which is honest but
+      leaves half of REQ-3.2.6 unreachable.
+      *Proof: e2e — click a notehead, set finger 3, assert the engraved score shows it after a
+      reload.*
 - [ ] 4.9 `content`: 30 lessons L1–2, technique library through L3, 20 graded repertoire pieces (REQ-5.2)
       *Proof: `validateCurriculum` is green over the shipped content in a test, and the lesson
       list renders all 30 in the app.*
@@ -465,12 +494,17 @@ Append one line per session: date, what landed, anything the next session must k
   3.1, 3.2, 3.4-3.6, 3.8-3.10, 4.1-4.7a. 2746 unit tests + 26 e2e, all green. Five build→review→fix
   rounds, 60 agents, run two and three at a time against disjoint file sets.
   What the next session must know:
-  * **The knip ignore list is down from eleven entries to four**, and every remaining one names
-    the task that deletes it (3.2a analysis on screen, 4.4a technique drills, 4.6a export screen,
-    4.9 curriculum content). `NotBuiltPanel` is gone — there are no placeholder destinations.
-  * **Remaining before the acceptance passes are honest:** 3.3 + 3.7 (theory drills and lesson
-    content), 4.8 (annotations), 4.9 (content), plus the four ignore-clearing tasks and 4.7b
-    (drive the dashboard with real data — only its empty state is proved).
+  * **The knip ignore list is down from eleven entries to ONE** — `curriculum/model.ts`, waiting
+    on 4.9's authored content. Every other module built this session executes in the running app.
+    `NotBuiltPanel` is gone; there are no placeholder destinations left.
+  * **Remaining before the acceptance passes are honest:** 3.7 and 4.9 (lesson and repertoire
+    CONTENT — authoring, not code, and the thing the whole curriculum model exists to serve),
+    2.20a/2.26/2.28a/2.32, and the five "prove the loop in a browser" follow-ups this session
+    split out rather than claimed: 2.27a, 4.4b, 4.6b, 4.7b, 4.8a.
+  * **An agent reported wiring that did not exist.** The theory-drills fixer stated that
+    `TheoryScreen` already rendered its panel and that `Shell` wired it; neither was true, and
+    none of that round's five components was mounted anywhere. One grep caught it. Do not accept
+    a reachability claim from an agent that does not own the file it claims was changed.
   * **Running rounds concurrently costs the per-module commit cadence.** `npm run verify` is
     tree-wide, so nothing can be committed until every concurrent round finishes. A session-limit
     kill mid-round then costs all of it: that happened here, and recovery meant hand-triaging a
