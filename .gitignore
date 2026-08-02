@@ -9,4 +9,10 @@ playwright-report/
 test-results/
 .env
 .env.local
+# Scratch scores dropped in the repo root while testing import — real fixtures
+# live in e2e/fixtures/ and src/core/notation/__fixtures__/.
+/*.mid
+/*.midi
+/*.mxl
+/*.musicxml
 .claude/settings.local.json
