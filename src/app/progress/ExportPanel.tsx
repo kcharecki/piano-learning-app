@@ -170,7 +170,7 @@ export function ExportPanel(props: ExportPanelProps) {
           <div role="group" aria-label="Confirm restore">
             <p>
               Restoring &quot;{pending.fileName}&quot; will REPLACE all current progress except
-              saved recordings. This cannot be undone.
+              saved recordings and score annotations. This cannot be undone.
             </p>
             <button type="button" onClick={confirmRestore}>
               Replace my progress
