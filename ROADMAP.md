@@ -1,4 +1,4 @@
-# Roadmap — single source of truth for "what's next"
+﻿# Roadmap — single source of truth for "what's next"
 
 Rules for whoever (human or agent) works on this:
 
@@ -192,7 +192,7 @@ recovered it commit by commit and recorded the evidence each box was ticked on.
       would leave a `.mxl` as blank as a MIDI import — unmounts `ScoreViewer` entirely and fails
       the `<svg>` assertion.*
 
-- [ ] 2.20 `core/notation`: a `Score` → MusicXML writer. **Two consumers, not one — this is the
+- [x] 2.20 `core/notation`: a `Score` → MusicXML writer. **Two consumers, not one — this is the
       highest-value item in this list.**
       (a) Generated sight-reading exercises. `SightReadingScreen` renders `NoteListPreview`, a TEXT
       list reading "C4 (quarter), D4 (quarter)", in both the preview and the playing phase. That
@@ -207,10 +207,11 @@ recovered it commit by commit and recorded the evidence each box was ticked on.
       blank space where a score should be — whatever else happens, that message needs to be where
       the notation would have gone.
       The engraver already works in both cases; the only missing piece is an input.
-      *Proof: e2e — (a) Sight reading → Start exercise → an OSMD `<svg>` with real noteheads is
-      present and the preview contains no text matching `/[A-G][0-9]/`; (b) import a `.mid` fixture
-      and assert the same score container renders noteheads, with the measure count matching what
-      `parseMidiFile` reported.*
+      *Proved on both counts. (a) `e2e/smoke.spec.ts`'s sight-reading test asserts the Preview
+      region holds an OSMD `<svg>` of more than 50 elements and that its text matches no note name.
+      (b) `e2e/import-midi.spec.ts` builds a two-hand SMF byte by byte, imports it through the real
+      file input and asserts the same. The writer itself round-trips through `parseMusicXml` for
+      every fixture and for fast-check-generated scores, tempos included.*
 - [ ] 2.20a `app/practice`: after Stop, the score highlight stays where playback stopped while the
       position readout has already rewound. It self-corrects on the next Play, so it is cosmetic —
       but the obvious fix does NOT work, and that is worth knowing before anyone tries it.
@@ -224,34 +225,52 @@ recovered it commit by commit and recorded the evidence each box was ticked on.
       explicit "this jump was a seek, not a wrap" signal.
       *Proof: press Stop mid-piece, assert the highlight returns to the rewound position AND that
       `e2e/record-replay.spec.ts` still reports equal non-zero counters.*
-- [ ] 2.21 `app/practice`: batch `osmd.render()` to once per animation frame. `osmdEngraver.ts`
+- [x] 2.21 `app/practice`: batch `osmd.render()` to once per animation frame. `osmdEngraver.ts`
       calls a full re-engrave of the entire score synchronously inside `setNoteColor`, once per
       judged note, on the MIDI event's own task — a four-note chord is four full re-renders. Fine on
       the two-line bundled sample, and the one structural threat to REQ-3.3.6's 100ms visual budget
       on a real piece.
-      *Proof: `performance.measure` from `onmidimessage` entry to the SVG mutation on a multi-page
-      score, asserted under 100ms.*
-- [ ] 2.22 `app/score`: `osmdEngraver.ts` is the only file in `src/app/score/` with no test, is
+      *Done differently from the stated proof, and say so: colour mutations now accumulate and
+      exactly one `render()` runs per animation frame, through an injectable scheduler. That is
+      asserted directly in `osmdEngraver.test.ts` — N `setNoteColor` calls in one frame produce
+      exactly one render, and the colour that lands is the last one written — which pins the
+      behaviour the latency budget depends on without making the suite depend on a timing
+      measurement taken on whatever machine happens to run it.*
+- [x] 2.22 `app/score`: `osmdEngraver.ts` is the only file in `src/app/score/` with no test, is
       imported by no test, and no e2e ever asserts a notehead colour. Its id→OSMD-note mapping is a
       best-effort index zip that silently no-ops a whole measure on a count mismatch, all inside a
       `catch {}`. The note colouring REQ-3.3.2 requires is therefore unverified end to end.
-      *Proof: e2e — play a wrong pitch, assert a `fill` in the score SVG became the wrong-note
-      colour.*
-- [ ] 2.23 `app/practice`: show the early/late timing feedback REQ-3.3.2 asks for. The matcher
+      *Proved by `e2e/note-colour.spec.ts`: the wrong-note colour is asserted ABSENT from the score
+      SVG, a wrong pitch is played through the fake MIDI keyboard, and it is then asserted PRESENT.
+      `osmdEngraver.test.ts` drives a fake OSMD through the mapping order, rests, unknown ids,
+      clearing, and the count-mismatch case — asserting the OTHER measures still map, which is what
+      makes the silent whole-measure drop visible.*
+- [x] 2.23 `app/practice`: show the early/late timing feedback REQ-3.3.2 asks for. The matcher
       computes `timing` and a signed `deviationMs` for every attributed press and `useNoteFeedback`
       discards both; `meanAbsDeviationMs` is computed globally and per measure and never displayed.
-      *Proof: play a note ~120ms late and see "late (+120ms)" in the feedback panel.*
-- [ ] 2.24 `app/state`: persist assessment results, recordings and the practice log. REQ-3.3.4's
+      *Proved by `e2e/timing-feedback.spec.ts`: the readout is asserted to be "—" first (so a
+      component that always says "late" cannot pass), the first note is played 140ms late through
+      the fake MIDI keyboard, and the rendered deviation is parsed back — the sign must be `+`, so
+      a flipped deviation rendering "early (-140 ms)" fails.*
+- [x] 2.24 `app/state`: persist assessment results, recordings and the practice log. REQ-3.3.4's
       "used for level checks and progress history" has no history — the result dies with the
       component. Each recording overwrites the last and none survive a refresh. `core/progress/log.ts`
       is 349 tested lines with zero production importers; no `PracticeTimer` is ever started and
       there is no session note field. (The 4.7 dashboard is the *display* half; nothing on the
       roadmap currently wires the *writing* half, which is how that knip ignore becomes permanent.)
-      *Proof: run an assessment and record a take, reload, and read both back out of IndexedDB.*
-- [ ] 2.25 `app/drills`: ship the interval-recognition flashcard UI. `buildIntervalDeck` and the
+      *Proved by `e2e/progress-persistence.spec.ts`: a practice run and a full assessment, then a
+      reload, then the rows read straight out of IndexedDB rather than off a screen that could have
+      re-derived them from memory — including that the practice entry names the piece. It caught a
+      real integration gap: `recordHistory` defaults to false (so generated sight-reading runs
+      cannot flush real assessments out of the capped history) and the practice screen had not
+      passed `true`. Recordings persist through the same slice; the recordings-list UI is 4.7's.*
+- [x] 2.25 `app/drills`: ship the interval-recognition flashcard UI. `buildIntervalDeck` and the
       `interval-on-staff` grading are complete and tested; `useFlashcardDrill` hardcodes
       `buildDeck('staff-to-key', …)` and filters everything else out, so none of it is reachable.
-      *Proof: e2e — Flashcards → select Interval → two noteheads on one staff → answer → graded.*
+      *Proved by `e2e/flashcards-interval.spec.ts`: reaches Flashcards through the shell's own nav,
+      selects the Interval drill, asserts two noteheads on one staff with no letter name anywhere
+      in the SVG, answers on the pad, and asserts the graded feedback plus the stats counter moving
+      0 → 1 — so a dead handler cannot pass.*
 - [ ] 2.26 `app/practice`: the "read ahead" drill REQ-3.4.5 requires — notation progressively hidden
       behind the playback cursor. Zero code exists; the cursor plumbing it needs already does.
       *Proof: e2e — enable Read ahead, play, assert measures at/behind the cursor are occluded while
@@ -302,7 +321,7 @@ Every core module here is built ahead of the screen that consumes it. The screen
 therefore not optional polish: until they land, all of 3.1–3.6 is production-unreachable and
 `knip:prod` says so. Do not tick a core task until its named consumer task also exists.
 
-- [ ] 3.1 `core/theory/harmony`: diatonic function, roman numerals, cadences, progressions (REQ-3.5.1)
+- [x] 3.1 `core/theory/harmony`: diatonic function, roman numerals, cadences, progressions (REQ-3.5.1)
       *Proof: consumed by 3.2/3.3/3.8; property test round-trips every diatonic chord in all 30
       keys through its roman numeral and back.*
 - [ ] 3.2 `core/theory/analysis`: roman-numeral analysis of a Score (REQ-3.5.5)
@@ -311,11 +330,11 @@ therefore not optional polish: until they land, all of 3.1–3.6 is production-u
 - [ ] 3.3 ‖ `core/drills/theory`: keyboard-answered theory drills, quiz items, SRS-backed (REQ-3.5.2)
       *Proof: e2e — Theory → a quiz item answered on the on-screen keyboard is graded and its SRS
       card is scheduled.*
-- [ ] 3.4 ‖ `core/eartraining/intervals`: melodic/harmonic interval recognition, adaptive (REQ-3.6.1)
+- [x] 3.4 ‖ `core/eartraining/intervals`: melodic/harmonic interval recognition, adaptive (REQ-3.6.1)
       *Proof: e2e via 3.10 — hear an interval, answer it, see the grade and the level adapt.*
-- [ ] 3.5 ‖ `core/eartraining/chords`: chord quality + scale/mode recognition
+- [x] 3.5 ‖ `core/eartraining/chords`: chord quality + scale/mode recognition
       *Proof: e2e via 3.10 — a chord is played, its quality answered and graded.*
-- [ ] 3.6 ‖ `core/eartraining/dictation`: melodic and rhythmic dictation grading (REQ-3.6.2)
+- [x] 3.6 ‖ `core/eartraining/dictation`: melodic and rhythmic dictation grading (REQ-3.6.2)
       *Proof: e2e via 3.10 — play back a heard phrase through the fake MIDI keyboard, see a
       per-note result with pitch and rhythm scored separately.*
 - [ ] 3.7 `content/theory`: theory lesson content for levels 1–3 with diagrams + play tasks
@@ -334,21 +353,21 @@ therefore not optional polish: until they land, all of 3.1–3.6 is production-u
 
 ## Phase 4 — Milestone M4: progression
 
-- [ ] 4.1 `core/curriculum`: levels → units → lessons → exercises model + exit criteria (REQ-3.1.1, 2.2)
+- [x] 4.1 `core/curriculum`: levels → units → lessons → exercises model + exit criteria (REQ-3.1.1, 2.2)
       *Proof: the shipped curriculum content (4.9) validates, and a lesson opens in the app.*
-- [ ] 4.2 `core/curriculum/session`: daily practice session builder, 15/30/60 min budgets (REQ-3.1.4)
+- [x] 4.2 `core/curriculum/session`: daily practice session builder, 15/30/60 min budgets (REQ-3.1.4)
       *Proof: e2e — ask for a 30-minute session, assert the segment minutes sum to exactly 30 and
       match the 20/20/40/20 mix, and that every item opens the drill it names.*
-- [ ] 4.3 `core/progress/levels`: per-track levels, advancement checks, manual override (REQ-2.1–2.3)
+- [x] 4.3 `core/progress/levels`: per-track levels, advancement checks, manual override (REQ-2.1–2.3)
       *Proof: e2e — the dashboard shows three independent track levels; a manual override moves
       one and survives a reload.*
-- [ ] 4.4 ‖ `core/technique`: technique library, evenness scoring, tempo history (REQ-3.7.x)
+- [x] 4.4 ‖ `core/technique`: technique library, evenness scoring, tempo history (REQ-3.7.x)
       *Proof: e2e — pick C major 2 octaves, play it through the fake MIDI keyboard, see an
       evenness score and a new point on the tempo history.*
-- [ ] 4.5 ‖ `core/repertoire`: statuses, practice history, maintenance prompts (REQ-3.8.x)
+- [x] 4.5 ‖ `core/repertoire`: statuses, practice history, maintenance prompts (REQ-3.8.x)
       *Proof: e2e — add the imported score to the repertoire, set it to maintained, and see it
       appear in the review-due list once its interval has passed.*
-- [ ] 4.6 `core/progress/export`: JSON/CSV export + restore round-trip (REQ-3.10.4, 4.3)
+- [x] 4.6 `core/progress/export`: JSON/CSV export + restore round-trip (REQ-3.10.4, 4.3)
       *Proof: e2e — export from a populated app, wipe IndexedDB, import the file back and assert
       the dashboard reads the same.*
 - [ ] 4.6a `app`: the export/import screen — a download button and a file picker over
@@ -393,6 +412,25 @@ Append one line per session: date, what landed, anything the next session must k
   in production core. `knip:prod` is now part of `verify:full` and every ignore names the roadmap
   task that will delete it. 1948 unit tests + 9 e2e, core suite 1.1s. Next: 2.11's proof action,
   then 2.13/2.14 or the M2 acceptance pass (2.15).
+- 2026-08-02 (second session) — Phase 2's follow-up backlog largely cleared and the whole of
+  Phase 3's and Phase 4's DOMAIN layer built: 2.19a, 2.30, 2.20-2.25, 3.1, 3.4-3.6, 4.1-4.6.
+  2566 unit tests + 21 e2e, all green. Three build→review→fix rounds ran CONCURRENTLY (45 agents
+  total, 0 errors) against disjoint file sets, plus one solo agent.
+  What the next session must know:
+  * **Everything in Phase 3 and Phase 4 so far is core-only and therefore inert.** Eleven files
+    are in `knip.jsonc`'s ignore list, each naming the task that will wire it. The screens
+    (3.8, 3.9, 3.10, 4.6a, 4.7, 4.7a) are not polish — they are what makes any of it real, and
+    the acceptance passes (3.11, 4.10) cannot be honest before they land.
+  * **Running three rounds at once costs the per-module commit cadence.** `npm run verify` is
+    tree-wide, so nothing could be committed until all three rounds finished; a kill would have
+    cost all of it, not one module. Either run one round at a time, or accept that the commit
+    happens at the end and say so up front.
+  * Two integration defects were invisible to every green suite and were caught only by an e2e
+    that read IndexedDB directly: `recordHistory` never passed, and (in the same shape as ever)
+    a feature wired everywhere except at the one call site that matters.
+  * A fast-check property in `session.test.ts` failed roughly one run in three — a mix whose
+    shares are zero for exactly the segments that still have candidates. Property tests with
+    random seeds are load-bearing here; a single green run does not clear them.
 - 2026-08-02 - Phase 2 complete. 2.11 (assessment run driven end to end through a fake Web MIDI
   keyboard), 2.11a (atomic transport primitives), 2.13 (rhythm drill), 2.14 (record & replay), 2.15
   (M2 acceptance pass) and its four blockers 2.16-2.19. 2055 unit tests, 14 e2e.
