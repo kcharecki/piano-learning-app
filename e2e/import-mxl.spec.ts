@@ -96,17 +96,18 @@ test('importing a .mxl file through the real file input renders real notation, n
 
   await expect(page.getByRole('heading', { name: FIXTURE_TITLE })).toBeVisible()
 
-  // The direct proof this is a real engraving, not an inert container: OSMD
-  // draws the score as SVG, and a genuine render of 8 notes across two
-  // measures (staff lines, clef, noteheads, stems, beams, barlines) produces
-  // well over a container-only handful of elements. A wrongly-`undefined`
-  // `musicXml` (the exact bug this spec guards against) would leave
-  // `ScoreViewer` unmounted entirely, so no `<svg>` would exist at all — that
-  // fails the `toBeVisible` assertion below before the count is ever reached.
+  // The direct proof this is a real engraving, not an inert container. A
+  // wrongly-`undefined` `musicXml` — the exact bug this spec guards against —
+  // leaves `ScoreViewer` unmounted, so no `<svg>` exists at all.
   const container = page.getByTestId('score-container')
   await expect(container.locator('svg')).toBeVisible()
-  const renderedElementCount = await container.locator('svg *').count()
-  expect(renderedElementCount).toBeGreaterThan(30)
+
+  // Count NOTEHEADS, not SVG elements. The fixture has 8 quarter notes across
+  // two measures, so exactly 8 must be drawn. A total-element count is a much
+  // weaker claim: staff lines, clef, time signature and barlines alone clear
+  // any such threshold, so an engraving of an EMPTY score — the plausible
+  // failure if the unpacked MusicXML lost its notes — would still pass it.
+  await expect(container.locator('.vf-notehead')).toHaveCount(8)
 
   expect(errors).toEqual([])
 })
