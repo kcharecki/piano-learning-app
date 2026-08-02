@@ -222,6 +222,109 @@ describe('useNoteFeedback', () => {
     expect(result.current.summary.correct).toBe(0)
   })
 
+  describe('lastJudgement (roadmap 2.23, REQ-3.3.2 timing feedback)', () => {
+    it('a late press produces a positive deviationMs and reports "late"', () => {
+      const midiInput = new FakeMidiInput()
+      const { result } = setup({ midiInput })
+
+      act(() => result.current.cursorRef.current?.moveCursorTo(0, 0))
+      // D4 is due at 500ms (tick 480, 120bpm); played 120ms behind it, still
+      // inside the 150ms tolerance window.
+      act(() => midiInput.emit({ type: 'noteOn', note: midi(62), velocity: 80, time: millis(620) }))
+
+      expect(result.current.lastJudgement).toEqual({
+        midi: midi(62),
+        timing: 'late',
+        deviationMs: 120,
+        correct: true,
+      })
+    })
+
+    it('an early press produces the mirror-image negative deviationMs and reports "early"', () => {
+      const midiInput = new FakeMidiInput()
+      const { result } = setup({ midiInput })
+
+      act(() => result.current.cursorRef.current?.moveCursorTo(0, 0))
+      // E4 is due at 1000ms (tick 960); played 120ms ahead of it.
+      act(() => midiInput.emit({ type: 'noteOn', note: midi(64), velocity: 80, time: millis(880) }))
+
+      expect(result.current.lastJudgement).toEqual({
+        midi: midi(64),
+        timing: 'early',
+        deviationMs: -120,
+        correct: true,
+      })
+    })
+
+    it('a wrong-pitch press does not silently become an on-time correct one', () => {
+      const midiInput = new FakeMidiInput()
+      const { result } = setup({ midiInput })
+
+      act(() => result.current.cursorRef.current?.moveCursorTo(0, 0))
+      // C4 (60) was due, dead on time; the learner played C#4 (61) instead.
+      act(() => midiInput.emit({ type: 'noteOn', note: midi(61), velocity: 80, time: millis(0) }))
+
+      // The timing band alone says "on-time" — only `correct: false` proves this
+      // was a wrong-pitch charge, not a clean hit that happened to land on time.
+      expect(result.current.lastJudgement).toEqual({
+        midi: midi(61),
+        timing: 'on-time',
+        deviationMs: 0,
+        correct: false,
+      })
+    })
+
+    it('is undefined before any press is judged', () => {
+      const { result } = setup()
+      expect(result.current.lastJudgement).toBeUndefined()
+    })
+
+    it('clear() forgets the last judgement along with the counters', () => {
+      const midiInput = new FakeMidiInput()
+      const { result } = setup({ midiInput })
+
+      act(() => result.current.cursorRef.current?.moveCursorTo(0, 0))
+      act(() => midiInput.emit({ type: 'noteOn', note: midi(60), velocity: 80, time: millis(0) }))
+      expect(result.current.lastJudgement).toBeDefined()
+
+      act(() => result.current.clear())
+
+      expect(result.current.lastJudgement).toBeUndefined()
+    })
+
+    it('clears on a loop wrap (a backward tick jump), exactly as the counters do', () => {
+      const midiInput = new FakeMidiInput()
+      const { result } = setup({ midiInput })
+
+      act(() => result.current.cursorRef.current?.moveCursorTo(0, 0))
+      act(() => midiInput.emit({ type: 'noteOn', note: midi(60), velocity: 80, time: millis(0) }))
+      expect(result.current.lastJudgement).toBeDefined()
+
+      act(() => result.current.cursorRef.current?.moveCursorTo(0, 960))
+      // The transport wrapped back to tick 0 — a backward jump.
+      act(() => result.current.cursorRef.current?.moveCursorTo(0, 0))
+
+      expect(result.current.lastJudgement).toBeUndefined()
+    })
+
+    it('a missed note alone does not overwrite a prior judgement', () => {
+      const midiInput = new FakeMidiInput()
+      const { result } = setup({ midiInput })
+
+      act(() => result.current.cursorRef.current?.moveCursorTo(0, 0))
+      act(() => midiInput.emit({ type: 'noteOn', note: midi(60), velocity: 80, time: millis(0) }))
+      const afterCorrect = result.current.lastJudgement
+      expect(afterCorrect).toBeDefined()
+
+      // Advance well past D4's window with no press: only a `missed` verdict is
+      // produced, which must leave the last attributed judgement untouched.
+      act(() => result.current.cursorRef.current?.moveCursorTo(0, 700))
+
+      expect(result.current.lastJudgement).toEqual(afterCorrect)
+      expect(result.current.summary.missed).toBe(1)
+    })
+  })
+
   it('a press on a muted hand produces no verdict at all', () => {
     const midiInput = new FakeMidiInput()
     const { result, scoreViewerRef } = setup({ midiInput, activeHands: ['left'] })

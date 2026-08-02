@@ -1,27 +1,40 @@
 import type { Store } from '@core/ports/index.ts'
 import { C_MAJOR_SCALE_RH, SINGLE_NOTE } from '@test/fixtures.ts'
 import { MemoryStore } from '@test/fakes.ts'
-import { ticks } from '@core/shared/units.ts'
+import { midi, millis, ticks } from '@core/shared/units.ts'
 import { MIN_LEVEL } from '@core/sightreading/adaptive.ts'
 import type { SightReadingRecord } from '@core/sightreading/session.ts'
 import type { Card } from '@core/srs/scheduler.ts'
+import type { AssessmentResult } from '@core/practice/assessment.ts'
+import type { Recording } from '@core/practice/recorder.ts'
+import type { PracticeEntry } from '@core/progress/log.ts'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   FLASHCARDS_COLLECTION,
   FLASHCARDS_KEY,
+  PRACTICE_LOG_COLLECTION,
+  PRACTICE_LOG_KEY,
+  PROGRESS_COLLECTION,
+  PROGRESS_KEY,
+  RECORDINGS_COLLECTION,
+  RECORDINGS_KEY,
   restoreSession,
   SESSION_COLLECTION,
   SESSION_KEY,
   SIGHT_READING_COLLECTION,
   SIGHT_READING_KEY,
   startPersisting,
+  type PersistedAssessments,
   type PersistedFlashcards,
+  type PersistedPracticeLog,
+  type PersistedRecordings,
   type PersistedSession,
   type PersistedSightReadingHistory,
 } from './persistence.ts'
 import { useScoreStore, type ScoreStore } from './scoreStore.ts'
 import { useSightReadingStore } from './sightReadingStore.ts'
 import { useFlashcardStore } from './flashcardStore.ts'
+import { useProgressStore, type StoredAssessment } from './progressStore.ts'
 
 const INITIAL_STATE: ScoreStore = useScoreStore.getState()
 
@@ -44,6 +57,7 @@ function resetStore(): void {
   useScoreStore.setState(INITIAL_STATE, true)
   useSightReadingStore.setState({ level: MIN_LEVEL, history: [] })
   useFlashcardStore.setState({ cardsById: {} })
+  useProgressStore.setState({ assessments: [], recordings: [], practiceEntries: [] })
 }
 
 /** Waits for the internal write queue to drain: a handful of microtask turns is always enough. */
@@ -647,7 +661,261 @@ describe('persistence', () => {
       expect(store.putCount).toBe(0)
     })
   })
+
+  describe('assessment results persistence (roadmap 2.24, REQ-3.3.4)', () => {
+    const ASSESSMENT_A: StoredAssessment = storedAssessment('assess-1')
+
+    it('round-trips assessments via startPersisting / restoreSession', async () => {
+      const store = new MemoryStore()
+      const unsubscribe = persist(store)
+
+      useProgressStore.getState().addAssessment(ASSESSMENT_A)
+      await flush()
+      unsubscribe()
+
+      resetStore()
+      expect(useProgressStore.getState().assessments).toEqual([])
+
+      await restoreSession(store)
+      expect(useProgressStore.getState().assessments).toEqual([ASSESSMENT_A])
+    })
+
+    it.each([
+      ['not an object', 'nope'],
+      ['assessments missing', {}],
+      ['assessments not an array', { assessments: 'nope' }],
+      [
+        'an assessment missing a required field',
+        { assessments: [{ id: 'x', scoreId: 'x', scoreTitle: 'x' }] },
+      ],
+      [
+        "an assessment's result with a non-finite accuracy",
+        {
+          assessments: [
+            { ...ASSESSMENT_A, result: { ...ASSESSMENT_A.result, accuracy: Number.NaN } },
+          ],
+        },
+      ],
+      [
+        "an assessment's result with a malformed measure",
+        {
+          assessments: [
+            {
+              ...ASSESSMENT_A,
+              result: { ...ASSESSMENT_A.result, measures: [{ measureIndex: 0 }] },
+            },
+          ],
+        },
+      ],
+    ])('degrades to an empty assessments list on a corrupt payload: %s', async (_label, payload) => {
+      const store = new MemoryStore()
+      await store.put(PROGRESS_COLLECTION, PROGRESS_KEY, payload)
+      // A sibling collection with a VALID payload, to prove the corrupt
+      // assessments collection does not prevent it from restoring — kills a
+      // mutant that hardwires the validator to `false` or shares one guard
+      // flag across all three collections.
+      const recording: Recording = {
+        id: 'sibling-rec',
+        recordedAt: 1,
+        durationMs: 10,
+        events: [],
+      }
+      await store.put(RECORDINGS_COLLECTION, RECORDINGS_KEY, { recordings: [recording] })
+
+      await restoreSession(store)
+
+      expect(useProgressStore.getState().assessments).toEqual([])
+      expect(useProgressStore.getState().recordings).toEqual([recording])
+    })
+
+    it('does not immediately re-save what it just restored (no write amplification)', async () => {
+      const store = new CountingStore()
+      const saved: PersistedAssessments = { assessments: [ASSESSMENT_A] }
+      await store.put(PROGRESS_COLLECTION, PROGRESS_KEY, saved)
+      store.putCount = 0
+
+      persist(store)
+      await restoreSession(store)
+      await flush()
+
+      expect(store.putCount).toBe(0)
+    })
+  })
+
+  describe('recordings persistence (roadmap 2.24, REQ-3.9.2)', () => {
+    const RECORDING_A: Recording = {
+      id: 'rec-1',
+      recordedAt: 1000,
+      durationMs: 150,
+      events: [
+        { type: 'noteOn', note: midi(60), velocity: 80, time: millis(0) },
+        { type: 'noteOff', note: midi(60), time: millis(150) },
+      ],
+    }
+
+    it('round-trips recordings via startPersisting / restoreSession', async () => {
+      const store = new MemoryStore()
+      const unsubscribe = persist(store)
+
+      useProgressStore.getState().addRecording(RECORDING_A)
+      await flush()
+      unsubscribe()
+
+      resetStore()
+      expect(useProgressStore.getState().recordings).toEqual([])
+
+      await restoreSession(store)
+      expect(useProgressStore.getState().recordings).toEqual([RECORDING_A])
+    })
+
+    it.each([
+      ['not an object', 'nope'],
+      ['recordings missing', {}],
+      ['recordings not an array', { recordings: 'nope' }],
+      [
+        'a recording missing durationMs',
+        { recordings: [{ id: 'x', recordedAt: 1, events: [] }] },
+      ],
+      [
+        'a recording with an event of an unrecognised type',
+        { recordings: [{ ...RECORDING_A, events: [{ type: 'pedal', time: 0 }] }] },
+      ],
+      [
+        'a recording with a noteOn event missing velocity',
+        {
+          recordings: [
+            { ...RECORDING_A, events: [{ type: 'noteOn', note: 60, time: 0 }] },
+          ],
+        },
+      ],
+    ])('degrades to an empty recordings list on a corrupt payload: %s', async (_label, payload) => {
+      const store = new MemoryStore()
+      await store.put(RECORDINGS_COLLECTION, RECORDINGS_KEY, payload)
+      // A sibling collection with a VALID payload, to prove the corrupt
+      // recordings collection does not prevent it from restoring — see the
+      // assessments suite's identical comment above.
+      const entry: PracticeEntry = {
+        id: 'sibling-pe',
+        startedAt: 1,
+        endedAt: 2,
+        kind: 'warmup',
+        itemName: 'Sibling',
+      }
+      await store.put(PRACTICE_LOG_COLLECTION, PRACTICE_LOG_KEY, { practiceEntries: [entry] })
+
+      await restoreSession(store)
+
+      expect(useProgressStore.getState().recordings).toEqual([])
+      expect(useProgressStore.getState().practiceEntries).toEqual([entry])
+    })
+
+    it('does not immediately re-save what it just restored (no write amplification)', async () => {
+      const store = new CountingStore()
+      const saved: PersistedRecordings = { recordings: [RECORDING_A] }
+      await store.put(RECORDINGS_COLLECTION, RECORDINGS_KEY, saved)
+      store.putCount = 0
+
+      persist(store)
+      await restoreSession(store)
+      await flush()
+
+      expect(store.putCount).toBe(0)
+    })
+  })
+
+  describe('practice log persistence (roadmap 2.24, REQ-3.9.5)', () => {
+    const ENTRY_A: PracticeEntry = {
+      id: 'pe-1',
+      startedAt: 1000,
+      endedAt: 2000,
+      kind: 'repertoire',
+      itemName: 'Test Piece',
+    }
+
+    it('round-trips practiceEntries via startPersisting / restoreSession', async () => {
+      const store = new MemoryStore()
+      const unsubscribe = persist(store)
+
+      useProgressStore.getState().addPracticeEntry(ENTRY_A)
+      await flush()
+      unsubscribe()
+
+      resetStore()
+      expect(useProgressStore.getState().practiceEntries).toEqual([])
+
+      await restoreSession(store)
+      expect(useProgressStore.getState().practiceEntries).toEqual([ENTRY_A])
+    })
+
+    it.each([
+      ['not an object', 'nope'],
+      ['practiceEntries missing', {}],
+      ['practiceEntries not an array', { practiceEntries: 'nope' }],
+      [
+        'an entry with an invalid kind',
+        { practiceEntries: [{ ...ENTRY_A, kind: 'not-a-kind' }] },
+      ],
+      ['an entry missing itemName', { practiceEntries: [{ ...ENTRY_A, itemName: undefined }] }],
+      [
+        'an entry with a non-finite endedAt',
+        { practiceEntries: [{ ...ENTRY_A, endedAt: Number.NaN }] },
+      ],
+    ])(
+      'degrades to an empty practiceEntries list on a corrupt payload: %s',
+      async (_label, payload) => {
+        const store = new MemoryStore()
+        await store.put(PRACTICE_LOG_COLLECTION, PRACTICE_LOG_KEY, payload)
+        // A sibling collection with a VALID payload, to prove the corrupt
+        // practiceEntries collection does not prevent it from restoring —
+        // see the assessments suite's identical comment above.
+        const assessment = storedAssessment('sibling-assess')
+        await store.put(PROGRESS_COLLECTION, PROGRESS_KEY, { assessments: [assessment] })
+
+        await restoreSession(store)
+
+        expect(useProgressStore.getState().practiceEntries).toEqual([])
+        expect(useProgressStore.getState().assessments).toEqual([assessment])
+      },
+    )
+
+    it('does not immediately re-save what it just restored (no write amplification)', async () => {
+      const store = new CountingStore()
+      const saved: PersistedPracticeLog = { practiceEntries: [ENTRY_A] }
+      await store.put(PRACTICE_LOG_COLLECTION, PRACTICE_LOG_KEY, saved)
+      store.putCount = 0
+
+      persist(store)
+      await restoreSession(store)
+      await flush()
+
+      expect(store.putCount).toBe(0)
+    })
+  })
 })
+
+function assessmentResult(overrides: Partial<AssessmentResult> = {}): AssessmentResult {
+  return {
+    scoreId: 'score-a',
+    accuracy: 1,
+    timingConsistency: 1,
+    meanAbsDeviationMs: 0,
+    tempoBpm: 120,
+    measures: [],
+    counts: { correct: 3, wrongPitch: 0, missed: 0, extra: 0 },
+    completedAt: 1000,
+    ...overrides,
+  }
+}
+
+function storedAssessment(id: string): StoredAssessment {
+  return {
+    id,
+    scoreId: 'score-a',
+    scoreTitle: 'Test Score',
+    at: 1000,
+    result: assessmentResult(),
+  }
+}
 
 function validSettings(): PersistedSession['settings'] {
   return {

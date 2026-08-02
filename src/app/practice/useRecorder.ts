@@ -40,11 +40,20 @@
  * unless idle, `startReplay` is a no-op unless idle AND a recording exists, so
  * the two can never run at once — there is only ever one thing driving
  * `options.rewindToTop`/`play`/`stop`.
+ *
+ * ## Persistence (roadmap 2.24, REQ-3.9.2)
+ *
+ * `stopRecording` appends the completed take to `useProgressStore` in
+ * addition to holding it as `recording` (the last take, kept for replay) —
+ * `recordings` exposes the store's full, capped, newest-first list so every
+ * take a learner records in a session survives past this component's own
+ * lifetime instead of being overwritten by the next one.
  */
 import type { Clock, DateSource, MidiDevice, MidiEvent, MidiInput, Unsubscribe } from '@core/ports/index.ts'
 import { MidiRecorder, type Recording, type RecorderStartOptions } from '@core/practice/recorder.ts'
 import { millis, type Millis } from '@core/shared/units.ts'
 import { useEffect, useRef, useState } from 'react'
+import { useProgressStore } from '@app/state/progressStore.ts'
 import { useTransportLoop, type FrameDriver } from './useTransportLoop.ts'
 
 export type RecorderUiPhase = 'idle' | 'recording' | 'replaying'
@@ -69,6 +78,8 @@ export type UseRecorder = {
   readonly phase: RecorderUiPhase
   /** The last completed recording, if any. */
   readonly recording: Recording | undefined
+  /** Every completed recording still held by `useProgressStore`, newest first (roadmap 2.24, REQ-3.9.2). */
+  readonly recordings: readonly Recording[]
   /**
    * Live events, plus replayed ones restamped onto the current clock. Every
    * consumer of MIDI on the practice screen subscribes HERE, not to `source` —
@@ -84,6 +95,13 @@ export type UseRecorder = {
   readonly startReplay: () => void
   /** No-op unless phase is 'replaying'. */
   readonly stopReplay: () => void
+  /**
+   * Makes `id` the `recording` replay targets — how a take restored from
+   * `recordings` after a reload becomes selectable, since `recording` is
+   * otherwise seeded only from this session's own last take. No-op if `id`
+   * is not in `recordings`.
+   */
+  readonly selectRecording: (id: string) => void
 }
 
 /**
@@ -156,7 +174,15 @@ export function useRecorder(options: UseRecorderOptions): UseRecorder {
   // themselves already stable for the lifetime of the practice screen.
   const [recorder] = useState<MidiRecorder>(() => new MidiRecorder(options.clock, options.date))
   const [phase, setPhase] = useState<RecorderUiPhase>('idle')
-  const [recording, setRecording] = useState<Recording | undefined>(undefined)
+  // Seeded from whatever `useProgressStore` already holds (its newest take,
+  // if any) rather than always starting `undefined` — otherwise a take
+  // restored from IndexedDB on reload exists in the store but can never be
+  // selected or replayed (roadmap 2.24, REQ-3.9.2).
+  const [recording, setRecording] = useState<Recording | undefined>(
+    () => useProgressStore.getState().recordings[0],
+  )
+  const recordings = useProgressStore((s) => s.recordings)
+  const addRecording = useProgressStore((s) => s.addRecording)
 
   const recordUnsubscribeRef = useRef<Unsubscribe | undefined>(undefined)
   const replayAnchorRef = useRef<Millis | undefined>(undefined)
@@ -211,7 +237,10 @@ export function useRecorder(options: UseRecorderOptions): UseRecorder {
     recordUnsubscribeRef.current = undefined
     const done = recorder.stop()
     options.stop()
-    if (done !== undefined) setRecording(done)
+    if (done !== undefined) {
+      setRecording(done)
+      addRecording(done)
+    }
     setPhase('idle')
   }
 
@@ -236,6 +265,11 @@ export function useRecorder(options: UseRecorderOptions): UseRecorder {
   function stopReplay(): void {
     if (phase !== 'replaying') return
     endReplay()
+  }
+
+  function selectRecording(id: string): void {
+    const found = recordings.find((r) => r.id === id)
+    if (found !== undefined) setRecording(found)
   }
 
   function onReplayFrame(): void {
@@ -265,10 +299,12 @@ export function useRecorder(options: UseRecorderOptions): UseRecorder {
   return {
     phase,
     recording,
+    recordings,
     input: fanout,
     startRecording,
     stopRecording,
     startReplay,
     stopReplay,
+    selectRecording,
   }
 }

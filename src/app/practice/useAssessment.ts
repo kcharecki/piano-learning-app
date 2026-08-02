@@ -54,6 +54,14 @@
  * Pause/Stop while an assessment is running — REQ-3.3.4's "no stopping").
  * `finalizeRun` then closes every still-open matcher window (a trailing note
  * nobody pressed must count as `missed`, not vanish) and reduces the result.
+ *
+ * `finalizeRun` also appends the finished `AssessmentResult` to
+ * `useProgressStore` (roadmap 2.24, REQ-3.3.4), so it survives past this
+ * component's lifetime instead of dying with it. Because a run's `runRef` is
+ * cleared inside `finalizeRun` itself, and the effect that calls it bails out
+ * whenever `runRef.current` is already `undefined`, a re-render observing the
+ * same finished 'stopped' phase can never call `finalizeRun` — and therefore
+ * never `addAssessment` — a second time for one run.
  */
 import type { Hand, Score } from '@core/notation/score.ts'
 import { measureRange, scoreDurationTicks } from '@core/notation/score.ts'
@@ -71,6 +79,7 @@ import { bpmAtTick, makeTempoMap, tickToMs, type TempoMap } from '@core/timing/t
 import type { LoopRange, TransportState } from '@core/timing/transport.ts'
 import { millis as asMillis, ticks as asTicks, type Millis } from '@core/shared/units.ts'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useProgressStore } from '@app/state/progressStore.ts'
 
 export type AssessmentRunPhase = 'idle' | 'running' | 'complete'
 
@@ -91,6 +100,15 @@ export type UseAssessmentOptions = {
   readonly setTempoScale: (scale: number) => void
   readonly setWaitModeEnabled: (enabled: boolean) => void
   readonly setLoop: (loop: LoopRange | undefined) => void
+  /**
+   * Whether a finished run is appended to `useProgressStore`'s assessment
+   * history (roadmap 2.24, REQ-3.3.4). Defaults to `false` so exercises that
+   * reuse this hook for other purposes (e.g. `useSightReadingTrainer`, whose
+   * generated scores share duplicate ids and blank titles) do not flush real
+   * repertoire assessments out of the capped history. The practice screen
+   * passes `true`.
+   */
+  readonly recordHistory?: boolean
 }
 
 export type UseAssessment = {
@@ -134,6 +152,10 @@ export function useAssessment(options: UseAssessmentOptions): UseAssessment {
   const sawPlayingRef = useRef(false)
   const optionsRef = useRef(options)
   optionsRef.current = options
+  // Ids only need to be unique for the lifetime of this hook instance, not
+  // globally — a per-instance counter alongside the finish timestamp, same
+  // reasoning as `PracticeTimer`'s own `nextSeq` (`core/progress/log.ts`).
+  const nextAssessmentSeqRef = useRef(1)
 
   // A different (or unloaded) score makes an in-flight run and a finished
   // result equally meaningless — both are about a piece that is no longer the
@@ -167,6 +189,28 @@ export function useAssessment(options: UseAssessmentOptions): UseAssessment {
     setResult(assessed)
     setAssessedScore(run.score)
     setPhase('complete')
+    // Persisted exactly once per run: `runRef.current` is cleared just above,
+    // so a later render observing the same 'stopped' phase returns early
+    // (`if (run === undefined) return` in the effect below) instead of
+    // finalizing — and therefore instead of storing — a second time.
+    //
+    // `.getState()`, not the reactive `useProgressStore(selector)` hook: this
+    // runs from inside `finalizeRun`, an imperative call, not a render — the
+    // same imperative style `persistence.ts`'s `restoreSession` uses for
+    // one-off store actions. Reading through the selector hook instead would
+    // make `finalizeRun` close over a value ESLint's `exhaustive-deps` cannot
+    // prove stable, which would then demand it (transitively) in the deps
+    // array of the 'stopped'-phase effect below — for a value that, in
+    // truth, never changes.
+    if (optionsRef.current.recordHistory === true) {
+      useProgressStore.getState().addAssessment({
+        id: `assess-${run.score.id}-${assessed.completedAt}-${nextAssessmentSeqRef.current++}`,
+        scoreId: run.score.id,
+        scoreTitle: run.score.meta.title,
+        at: assessed.completedAt,
+        result: assessed,
+      })
+    }
   }
 
   // A run only finishes on a 'stopped' phase transition once it has been

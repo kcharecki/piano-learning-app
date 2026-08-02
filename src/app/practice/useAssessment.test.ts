@@ -15,8 +15,13 @@ import { suggestedTempoScale } from '@core/practice/review.ts'
 import type { TransportState } from '@core/timing/transport.ts'
 import { act, renderHook } from '@testing-library/react'
 import { FakeClock, FakeMidiInput } from '@test/fakes.ts'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { useProgressStore } from '@app/state/progressStore.ts'
 import { useAssessment, type UseAssessmentOptions } from './useAssessment.ts'
+
+afterEach(() => {
+  useProgressStore.setState({ assessments: [], recordings: [], practiceEntries: [] })
+})
 
 /** One 4/4 bar, right hand, 120bpm: C4@0ms, D4@500ms, E4@1000ms. */
 const FLAWLESS_SCORE: Score = buildTestScore(
@@ -63,6 +68,7 @@ function makeOptions(
     setTempoScale: vi.fn(),
     setWaitModeEnabled: vi.fn(),
     setLoop: vi.fn(),
+    recordHistory: true,
     ...overrides,
   }
 }
@@ -221,6 +227,40 @@ describe('useAssessment — reducing a finished run', () => {
       missed: 2,
       extra: 0,
     })
+  })
+
+  it('stores the finished result in useProgressStore exactly once, even across a later re-render of the same finished phase', () => {
+    const midiInput = new FakeMidiInput()
+    const { result, rerender, options } = setup(FLAWLESS_SCORE, { midiInput })
+
+    act(() => result.current.start())
+    rerender(withPhase(options, 'playing'))
+    act(() => midiInput.emit({ type: 'noteOn', note: midi(60), velocity: 80, time: millis(0) }))
+    act(() => midiInput.emit({ type: 'noteOn', note: midi(62), velocity: 80, time: millis(500) }))
+    act(() => midiInput.emit({ type: 'noteOn', note: midi(64), velocity: 80, time: millis(1000) }))
+    rerender(withPhase(options, 'stopped'))
+
+    expect(useProgressStore.getState().assessments).toHaveLength(1)
+    const stored = useProgressStore.getState().assessments[0]
+    expect(stored?.scoreId).toBe(FLAWLESS_SCORE.id)
+    expect(stored?.scoreTitle).toBe(FLAWLESS_SCORE.meta.title)
+    expect(stored?.result).toEqual(result.current.result)
+    expect(stored?.at).toBe(result.current.result?.completedAt)
+
+    // A later render observing the SAME finished 'stopped' phase (e.g. a
+    // sibling prop changing) must not re-finalize the run and so must not
+    // duplicate the store entry.
+    rerender(withPhase(options, 'stopped'))
+    expect(useProgressStore.getState().assessments).toHaveLength(1)
+
+    // Force the finalize effect to actually re-run — a genuine re-entry into
+    // 'stopped' after the run already finished (`runRef.current` cleared) —
+    // rather than a same-value render React would skip. `finalizeRun` must
+    // still bail out (`if (run === undefined) return`) instead of appending
+    // a second entry.
+    rerender(withPhase(options, 'playing'))
+    rerender(withPhase(options, 'stopped'))
+    expect(useProgressStore.getState().assessments).toHaveLength(1)
   })
 
   it('resets to idle, clearing any run or result, when the score changes', () => {

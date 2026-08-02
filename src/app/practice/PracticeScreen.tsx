@@ -43,8 +43,10 @@ import { MidiDeviceStatus } from './MidiDeviceStatus.tsx'
 import { RecordPanel } from './RecordPanel.tsx'
 import { ReviewOverlay } from './ReviewOverlay.tsx'
 import { TempoControl } from './TempoControl.tsx'
+import { TimingFeedback } from './TimingFeedback.tsx'
 import { TransportControls } from './TransportControls.tsx'
 import { useAssessment } from './useAssessment.ts'
+import { usePracticeLog } from './usePracticeLog.ts'
 import { useMidiConnection, type ConnectMidi } from './useMidiConnection.ts'
 import { useNoteFeedback } from './useNoteFeedback.ts'
 import { usePracticeEngine, type PracticeEngine } from './usePracticeEngine.ts'
@@ -172,14 +174,46 @@ export function PracticeScreen(props: PracticeScreenProps) {
   // cannot fire until the browser's next paint, strictly after every effect
   // in this commit, including this one, has already run. See the module
   // comment on `useNoteFeedback` for the other half of this story.
+  // REQ-3.9.5: the same start/stop edge that clears the feedback also opens and
+  // closes a practice-log session, so what/how long/tempo/accuracy is recorded
+  // without the learner pressing anything extra. Held in a ref because the hook
+  // returns a fresh object each render and this effect must fire on the PHASE
+  // edge only — putting the hook's own identity in the dependency list would
+  // restart the timer on every unrelated re-render.
+  const practiceLog = usePracticeLog({ clock, date })
+  const practiceLogRef = useRef(practiceLog)
+  practiceLogRef.current = practiceLog
+
   const clearFeedback = feedback.clear
   const previousPhaseRef = useRef(engine.phase)
+  const accuracyRef = useRef(feedback.summary.accuracy)
+  accuracyRef.current = feedback.summary.accuracy
+  const bpmRef = useRef(engine.effectiveBpm)
+  bpmRef.current = engine.effectiveBpm
+  const itemRef = useRef(loaded)
+  itemRef.current = loaded
   useEffect(() => {
     const previousPhase = previousPhaseRef.current
     previousPhaseRef.current = engine.phase
     const justStarted =
       previousPhase === 'stopped' && (engine.phase === 'playing' || engine.phase === 'waiting')
-    if (justStarted) clearFeedback()
+    const justStopped = previousPhase !== 'stopped' && engine.phase === 'stopped'
+    if (justStarted) {
+      clearFeedback()
+      const item = itemRef.current
+      if (item !== undefined) {
+        const title =
+          item.score.meta.title.length > 0 ? item.score.meta.title : item.sourceName
+        practiceLogRef.current.start('repertoire', title, { itemId: item.score.id })
+      }
+    }
+    if (justStopped) {
+      const bpm = bpmRef.current
+      practiceLogRef.current.stop({
+        accuracy: accuracyRef.current,
+        ...(bpm === undefined ? {} : { tempoBpm: bpm }),
+      })
+    }
   }, [engine.phase, clearFeedback])
 
   function handlePlay(): Millis | undefined {
@@ -203,6 +237,9 @@ export function PracticeScreen(props: PracticeScreenProps) {
     playLoop: engine.playLoop,
     setTempoScale,
     setWaitModeEnabled,
+    // REQ-3.3.4's "used for level checks and progress history": this is the
+    // one caller whose runs are real repertoire assessments worth keeping.
+    recordHistory: true,
     setLoop,
   })
   const assessmentRunning = assessment.phase === 'running'
@@ -251,6 +288,13 @@ export function PracticeScreen(props: PracticeScreenProps) {
           <dt>Extra</dt>
           <dd data-testid="feedback-extra">{feedback.summary.extra}</dd>
         </dl>
+        {/* REQ-3.3.2's other half: the matcher has always computed early/late
+            and a signed deviation for every attributed press, and until now
+            nothing displayed either (roadmap 2.23). */}
+        <TimingFeedback
+          lastJudgement={feedback.lastJudgement}
+          meanAbsDeviationMs={feedback.summary.meanAbsDeviationMs}
+        />
       </div>
       {loaded.musicXml !== undefined && (
         <ScoreViewer ref={scoreViewerRef} musicXml={loaded.musicXml} score={loaded.score} />

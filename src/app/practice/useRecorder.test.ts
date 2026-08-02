@@ -10,9 +10,14 @@ import type { MidiEvent, MidiInput } from '@core/ports/index.ts'
 import { midi, millis } from '@core/shared/units.ts'
 import { act, renderHook } from '@testing-library/react'
 import { FakeClock, FakeMidiInput } from '@test/fakes.ts'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { useProgressStore } from '@app/state/progressStore.ts'
 import { useRecorder, type UseRecorderOptions } from './useRecorder.ts'
 import type { FrameDriver } from './useTransportLoop.ts'
+
+afterEach(() => {
+  useProgressStore.setState({ assessments: [], recordings: [], practiceEntries: [] })
+})
 
 function manualDriver(): { driver: FrameDriver; pump: () => void } {
   let callback: (() => void) | undefined
@@ -174,6 +179,98 @@ describe('useRecorder', () => {
       { type: 'noteOff', note: 60, time: 150 },
     ])
     expect(result.current.recording?.durationMs).toBe(150)
+  })
+
+  it('stopRecording appends the completed take to useProgressStore and it is exposed as recordings', () => {
+    const clock = new FakeClock()
+    const source = new FakeMidiInput()
+    const { result } = renderHook((p: UseRecorderOptions) => useRecorder(p), {
+      initialProps: makeOptions(clock, source),
+    })
+
+    expect(result.current.recordings).toEqual([])
+
+    act(() => result.current.startRecording())
+    act(() => source.emit({ type: 'noteOn', note: midi(60), velocity: 80, time: millis(0) }))
+    act(() => source.emit({ type: 'noteOff', note: midi(60), time: millis(0) }))
+    act(() => result.current.stopRecording())
+
+    expect(result.current.recordings).toHaveLength(1)
+    expect(result.current.recordings[0]).toEqual(result.current.recording)
+    expect(useProgressStore.getState().recordings).toEqual(result.current.recordings)
+  })
+
+  it('seeds recording from useProgressStore on mount, so a take restored from a reload is selectable and replayable', () => {
+    const restored: MidiEvent[] = [
+      { type: 'noteOn', note: midi(60), velocity: 80, time: millis(0) },
+      { type: 'noteOff', note: midi(60), time: millis(100) },
+    ]
+    useProgressStore.getState().addRecording({
+      id: 'restored-take',
+      recordedAt: 0,
+      durationMs: 100,
+      events: restored,
+    })
+
+    const clock = new FakeClock()
+    const source = new FakeMidiInput()
+    const { result } = renderHook((p: UseRecorderOptions) => useRecorder(p), {
+      initialProps: makeOptions(clock, source),
+    })
+
+    expect(result.current.recording?.id).toBe('restored-take')
+  })
+
+  it('selectRecording makes an existing recordings entry the active recording; a no-op for an unknown id', () => {
+    const clock = new FakeClock()
+    const source = new FakeMidiInput()
+    const { result } = renderHook((p: UseRecorderOptions) => useRecorder(p), {
+      initialProps: makeOptions(clock, source),
+    })
+
+    act(() => result.current.startRecording())
+    act(() => source.emit({ type: 'noteOn', note: midi(60), velocity: 80, time: millis(0) }))
+    act(() => source.emit({ type: 'noteOff', note: midi(60), time: millis(0) }))
+    act(() => result.current.stopRecording())
+    const first = result.current.recording
+
+    act(() => clock.advance(10))
+    act(() => result.current.startRecording())
+    act(() => source.emit({ type: 'noteOn', note: midi(64), velocity: 80, time: millis(clock.now()) }))
+    act(() => source.emit({ type: 'noteOff', note: midi(64), time: millis(clock.now()) }))
+    act(() => result.current.stopRecording())
+    const second = result.current.recording
+
+    expect(result.current.recording).toEqual(second)
+
+    act(() => result.current.selectRecording('unknown-id'))
+    expect(result.current.recording).toEqual(second)
+
+    act(() => result.current.selectRecording(first?.id ?? ''))
+    expect(result.current.recording).toEqual(first)
+  })
+
+  it('a second take is prepended in useProgressStore, newest first, without dropping the first', () => {
+    const clock = new FakeClock()
+    const source = new FakeMidiInput()
+    const { result } = renderHook((p: UseRecorderOptions) => useRecorder(p), {
+      initialProps: makeOptions(clock, source),
+    })
+
+    act(() => result.current.startRecording())
+    act(() => source.emit({ type: 'noteOn', note: midi(60), velocity: 80, time: millis(0) }))
+    act(() => source.emit({ type: 'noteOff', note: midi(60), time: millis(0) }))
+    act(() => result.current.stopRecording())
+    const first = result.current.recording
+
+    act(() => clock.advance(10))
+    act(() => result.current.startRecording())
+    act(() => source.emit({ type: 'noteOn', note: midi(64), velocity: 80, time: millis(clock.now()) }))
+    act(() => source.emit({ type: 'noteOff', note: midi(64), time: millis(clock.now()) }))
+    act(() => result.current.stopRecording())
+    const second = result.current.recording
+
+    expect(result.current.recordings).toEqual([second, first])
   })
 
   it('the fan-out forwards live events to input subscribers even while idle', () => {

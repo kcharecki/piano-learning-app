@@ -1,12 +1,12 @@
 /**
- * Session persistence over the `Store` port (roadmap 1.23/1.24, REQ-3.10.4/4.3,
- * REQ-3.4.3/3.4.6, REQ-3.9.4).
+ * Session persistence over the `Store` port (roadmap 1.23/1.24/2.24,
+ * REQ-3.10.4/4.3, REQ-3.4.3/3.4.6, REQ-3.9.4, REQ-3.3.4/3.9.2/3.9.5).
  *
  * Nothing here touches IndexedDB directly — it reads and writes through the
  * `Store` port, so it is exercised in tests with an in-memory fake and the
  * real zustand stores, never a browser database.
  *
- * Three independent slices are persisted, each following the same shape
+ * Six independent slices are persisted, each following the same shape
  * (validate → `restoreSlice` on the way in, `createWriteQueue` +  a
  * `subscribe` on the way out):
  *  - the score session (`useScoreStore`) — the original roadmap-1.23 slice.
@@ -16,13 +16,19 @@
  *    accumulate past whatever a single page life manages.
  *  - the SRS flashcard state (`useFlashcardStore`, REQ-3.9.4). Without this
  *    every card, ease factor and due date is lost on reload.
+ *  - stored assessment results, MIDI recordings and the practice log
+ *    (`useProgressStore`, roadmap 2.24, REQ-3.3.4/3.9.2/3.9.5) — three
+ *    further collections on the SAME store, each restored and persisted
+ *    independently via `hydrate`'s partial-state contract (see that store's
+ *    module comment), because each has its own validation and can fail
+ *    without disturbing the other two.
  *
  * Each slice's write queue is fully independent — its own collection, its own
  * key, its own in-flight `put` — so a slow write to one can never block or
- * reorder a write to another. `startPersisting` just wires up all three and
+ * reorder a write to another. `startPersisting` just wires up all six and
  * returns one combined unsubscribe.
  *
- * CALL ORDER IS MANDATORY, for all three slices: `await restoreSession(store)`
+ * CALL ORDER IS MANDATORY, for every slice: `await restoreSession(store)`
  * must resolve before `startPersisting(store)` is called. Subscribing first
  * races each slice's in-flight `get` against any early write that happens
  * before restore lands (for example a caller auto-loading a sample score) —
@@ -31,13 +37,16 @@
  * discarding it.
  */
 import type { Hand, Score } from '@core/notation/score.ts'
-import type { Store } from '@core/ports/index.ts'
+import type { MidiEvent, Store } from '@core/ports/index.ts'
 import { COLLECTIONS } from '@core/ports/store.ts'
 import { MAX_TEMPO_SCALE, MIN_TEMPO_SCALE } from '@core/timing/tempo.ts'
 import type { LoopRange } from '@core/timing/transport.ts'
 import { MAX_LEVEL, MIN_LEVEL } from '@core/sightreading/adaptive.ts'
 import type { SightReadingRecord } from '@core/sightreading/session.ts'
 import type { Card } from '@core/srs/scheduler.ts'
+import type { AssessmentResult, MeasureScore } from '@core/practice/assessment.ts'
+import type { Recording } from '@core/practice/recorder.ts'
+import { ACTIVITY_KINDS, type ActivityKind, type PracticeEntry } from '@core/progress/log.ts'
 import {
   useScoreStore,
   type PracticeSettings,
@@ -45,6 +54,7 @@ import {
 } from '@app/state/scoreStore.ts'
 import { useSightReadingStore } from '@app/state/sightReadingStore.ts'
 import { useFlashcardStore } from '@app/state/flashcardStore.ts'
+import { useProgressStore, MAX_STORED_ASSESSMENTS, MAX_STORED_RECORDINGS, MAX_STORED_PRACTICE_ENTRIES, type StoredAssessment } from '@app/state/progressStore.ts'
 
 /** Collection + key the score session lives under. */
 export const SESSION_COLLECTION = COLLECTIONS.settings
@@ -57,6 +67,18 @@ export const SIGHT_READING_KEY = 'sightReadingHistory'
 /** Collection + key the SRS flashcard state lives under. */
 export const FLASHCARDS_COLLECTION = COLLECTIONS.srsCards
 export const FLASHCARDS_KEY = 'srsCards'
+
+/** Collection + key the stored assessment results live under (roadmap 2.24, REQ-3.3.4). */
+export const PROGRESS_COLLECTION = COLLECTIONS.progress
+export const PROGRESS_KEY = 'assessments'
+
+/** Collection + key the stored recordings live under (roadmap 2.24, REQ-3.9.2). */
+export const RECORDINGS_COLLECTION = COLLECTIONS.recordings
+export const RECORDINGS_KEY = 'recordings'
+
+/** Collection + key the practice log lives under (roadmap 2.24, REQ-3.9.5). */
+export const PRACTICE_LOG_COLLECTION = COLLECTIONS.practiceLog
+export const PRACTICE_LOG_KEY = 'practiceLog'
 
 export type PersistedSession = {
   readonly score: Score
@@ -72,6 +94,18 @@ export type PersistedSightReadingHistory = {
 
 export type PersistedFlashcards = {
   readonly cardsById: Readonly<Record<string, Card>>
+}
+
+export type PersistedAssessments = {
+  readonly assessments: readonly StoredAssessment[]
+}
+
+export type PersistedRecordings = {
+  readonly recordings: readonly Recording[]
+}
+
+export type PersistedPracticeLog = {
+  readonly practiceEntries: readonly PracticeEntry[]
 }
 
 // --------------------------------------------------------------- validation
@@ -194,6 +228,150 @@ function isValidFlashcards(value: unknown): value is PersistedFlashcards {
   return Object.values(v.cardsById as Record<string, unknown>).every(isValidCard)
 }
 
+function isValidMeasureScore(value: unknown): value is MeasureScore {
+  if (typeof value !== 'object' || value === null) return false
+  const m = value as Record<string, unknown>
+  return (
+    typeof m.measureIndex === 'number' &&
+    Number.isFinite(m.measureIndex) &&
+    typeof m.expected === 'number' &&
+    Number.isFinite(m.expected) &&
+    typeof m.correct === 'number' &&
+    Number.isFinite(m.correct) &&
+    typeof m.wrongPitch === 'number' &&
+    Number.isFinite(m.wrongPitch) &&
+    typeof m.missed === 'number' &&
+    Number.isFinite(m.missed) &&
+    typeof m.extra === 'number' &&
+    Number.isFinite(m.extra) &&
+    typeof m.accuracy === 'number' &&
+    Number.isFinite(m.accuracy) &&
+    typeof m.meanAbsDeviationMs === 'number' &&
+    Number.isFinite(m.meanAbsDeviationMs)
+  )
+}
+
+function isValidAssessmentCounts(value: unknown): value is AssessmentResult['counts'] {
+  if (typeof value !== 'object' || value === null) return false
+  const c = value as Record<string, unknown>
+  return (
+    typeof c.correct === 'number' &&
+    Number.isFinite(c.correct) &&
+    typeof c.wrongPitch === 'number' &&
+    Number.isFinite(c.wrongPitch) &&
+    typeof c.missed === 'number' &&
+    Number.isFinite(c.missed) &&
+    typeof c.extra === 'number' &&
+    Number.isFinite(c.extra)
+  )
+}
+
+function isValidAssessmentResult(value: unknown): value is AssessmentResult {
+  if (typeof value !== 'object' || value === null) return false
+  const r = value as Record<string, unknown>
+  return (
+    typeof r.scoreId === 'string' &&
+    typeof r.accuracy === 'number' &&
+    Number.isFinite(r.accuracy) &&
+    typeof r.timingConsistency === 'number' &&
+    Number.isFinite(r.timingConsistency) &&
+    typeof r.meanAbsDeviationMs === 'number' &&
+    Number.isFinite(r.meanAbsDeviationMs) &&
+    typeof r.tempoBpm === 'number' &&
+    Number.isFinite(r.tempoBpm) &&
+    Array.isArray(r.measures) &&
+    r.measures.every(isValidMeasureScore) &&
+    isValidAssessmentCounts(r.counts) &&
+    typeof r.completedAt === 'number' &&
+    Number.isFinite(r.completedAt)
+  )
+}
+
+function isValidStoredAssessment(value: unknown): value is StoredAssessment {
+  if (typeof value !== 'object' || value === null) return false
+  const a = value as Record<string, unknown>
+  return (
+    typeof a.id === 'string' &&
+    typeof a.scoreId === 'string' &&
+    typeof a.scoreTitle === 'string' &&
+    typeof a.at === 'number' &&
+    Number.isFinite(a.at) &&
+    isValidAssessmentResult(a.result)
+  )
+}
+
+function isValidAssessments(value: unknown): value is PersistedAssessments {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return Array.isArray(v.assessments) && v.assessments.every(isValidStoredAssessment)
+}
+
+function isValidMidiEvent(value: unknown): value is MidiEvent {
+  if (typeof value !== 'object' || value === null) return false
+  const e = value as Record<string, unknown>
+  if (typeof e.time !== 'number' || !Number.isFinite(e.time)) return false
+  if (e.type === 'noteOn') {
+    return (
+      typeof e.note === 'number' &&
+      Number.isFinite(e.note) &&
+      typeof e.velocity === 'number' &&
+      Number.isFinite(e.velocity)
+    )
+  }
+  if (e.type === 'noteOff') return typeof e.note === 'number' && Number.isFinite(e.note)
+  if (e.type === 'sustain') return typeof e.down === 'boolean'
+  return false
+}
+
+function isValidRecording(value: unknown): value is Recording {
+  if (typeof value !== 'object' || value === null) return false
+  const r = value as Record<string, unknown>
+  if (typeof r.id !== 'string') return false
+  if (r.scoreId !== undefined && typeof r.scoreId !== 'string') return false
+  if (typeof r.recordedAt !== 'number' || !Number.isFinite(r.recordedAt)) return false
+  if (typeof r.durationMs !== 'number' || !Number.isFinite(r.durationMs)) return false
+  if (!Array.isArray(r.events) || !r.events.every(isValidMidiEvent)) return false
+  if (r.tempoBpm !== undefined && (typeof r.tempoBpm !== 'number' || !Number.isFinite(r.tempoBpm))) {
+    return false
+  }
+  return true
+}
+
+function isValidRecordings(value: unknown): value is PersistedRecordings {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return Array.isArray(v.recordings) && v.recordings.every(isValidRecording)
+}
+
+function isValidActivityKind(value: unknown): value is ActivityKind {
+  return typeof value === 'string' && (ACTIVITY_KINDS as readonly string[]).includes(value)
+}
+
+function isValidPracticeEntry(value: unknown): value is PracticeEntry {
+  if (typeof value !== 'object' || value === null) return false
+  const e = value as Record<string, unknown>
+  if (typeof e.id !== 'string') return false
+  if (typeof e.startedAt !== 'number' || !Number.isFinite(e.startedAt)) return false
+  if (typeof e.endedAt !== 'number' || !Number.isFinite(e.endedAt)) return false
+  if (!isValidActivityKind(e.kind)) return false
+  if (e.itemId !== undefined && typeof e.itemId !== 'string') return false
+  if (typeof e.itemName !== 'string') return false
+  if (e.tempoBpm !== undefined && (typeof e.tempoBpm !== 'number' || !Number.isFinite(e.tempoBpm))) {
+    return false
+  }
+  if (e.accuracy !== undefined && (typeof e.accuracy !== 'number' || !Number.isFinite(e.accuracy))) {
+    return false
+  }
+  if (e.note !== undefined && typeof e.note !== 'string') return false
+  return true
+}
+
+function isValidPracticeLog(value: unknown): value is PersistedPracticeLog {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return Array.isArray(v.practiceEntries) && v.practiceEntries.every(isValidPracticeEntry)
+}
+
 // ----------------------------------------------------------------- restore
 
 /**
@@ -209,6 +387,9 @@ function isValidFlashcards(value: unknown): value is PersistedFlashcards {
 let applyingRestoredScoreSession = false
 let applyingRestoredSightReadingHistory = false
 let applyingRestoredFlashcards = false
+let applyingRestoredAssessments = false
+let applyingRestoredRecordings = false
+let applyingRestoredPracticeLog = false
 
 /**
  * Reads `key` from `collection`, validates it, and — only if valid — applies
@@ -292,6 +473,39 @@ export async function restoreSession(store: Store): Promise<boolean> {
       applyingRestoredFlashcards = guarding
     },
     (data) => useFlashcardStore.getState().hydrate(data.cardsById),
+  )
+
+  await restoreSlice(
+    store,
+    PROGRESS_COLLECTION,
+    PROGRESS_KEY,
+    isValidAssessments,
+    (guarding) => {
+      applyingRestoredAssessments = guarding
+    },
+    (data) => useProgressStore.getState().hydrate({ assessments: data.assessments.slice(0, MAX_STORED_ASSESSMENTS) }),
+  )
+
+  await restoreSlice(
+    store,
+    RECORDINGS_COLLECTION,
+    RECORDINGS_KEY,
+    isValidRecordings,
+    (guarding) => {
+      applyingRestoredRecordings = guarding
+    },
+    (data) => useProgressStore.getState().hydrate({ recordings: data.recordings.slice(0, MAX_STORED_RECORDINGS) }),
+  )
+
+  await restoreSlice(
+    store,
+    PRACTICE_LOG_COLLECTION,
+    PRACTICE_LOG_KEY,
+    isValidPracticeLog,
+    (guarding) => {
+      applyingRestoredPracticeLog = guarding
+    },
+    (data) => useProgressStore.getState().hydrate({ practiceEntries: data.practiceEntries.slice(0, MAX_STORED_PRACTICE_ENTRIES) }),
   )
 
   return scoreRestored
@@ -407,9 +621,43 @@ function persistFlashcards(store: Store): () => void {
   })
 }
 
+/** Subscribes to the progress store and writes `assessments` on every change. */
+function persistAssessments(store: Store): () => void {
+  const write = createWriteQueue<PersistedAssessments>(store, PROGRESS_COLLECTION, PROGRESS_KEY)
+  return useProgressStore.subscribe((state, prevState) => {
+    if (applyingRestoredAssessments) return
+    if (state.assessments === prevState.assessments) return
+    write({ assessments: state.assessments })
+  })
+}
+
+/** Subscribes to the progress store and writes `recordings` on every change. */
+function persistRecordings(store: Store): () => void {
+  const write = createWriteQueue<PersistedRecordings>(store, RECORDINGS_COLLECTION, RECORDINGS_KEY)
+  return useProgressStore.subscribe((state, prevState) => {
+    if (applyingRestoredRecordings) return
+    if (state.recordings === prevState.recordings) return
+    write({ recordings: state.recordings })
+  })
+}
+
+/** Subscribes to the progress store and writes `practiceEntries` on every change. */
+function persistPracticeLog(store: Store): () => void {
+  const write = createWriteQueue<PersistedPracticeLog>(
+    store,
+    PRACTICE_LOG_COLLECTION,
+    PRACTICE_LOG_KEY,
+  )
+  return useProgressStore.subscribe((state, prevState) => {
+    if (applyingRestoredPracticeLog) return
+    if (state.practiceEntries === prevState.practiceEntries) return
+    write({ practiceEntries: state.practiceEntries })
+  })
+}
+
 /**
- * Starts persisting all three slices and returns one combined unsubscribe.
- * See the module comment for the mandatory `restoreSession` → `startPersisting`
+ * Starts persisting all six slices and returns one combined unsubscribe. See
+ * the module comment for the mandatory `restoreSession` → `startPersisting`
  * call order.
  */
 export function startPersisting(store: Store): () => void {
@@ -417,6 +665,9 @@ export function startPersisting(store: Store): () => void {
     persistScoreSession(store),
     persistSightReadingHistory(store),
     persistFlashcards(store),
+    persistAssessments(store),
+    persistRecordings(store),
+    persistPracticeLog(store),
   ]
   return () => {
     for (const unsubscribe of unsubscribers) unsubscribe()

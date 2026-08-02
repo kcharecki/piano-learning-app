@@ -85,7 +85,7 @@ import {
   type NoteVerdict,
 } from '@core/practice/matcher.ts'
 import { makeTempoMap, tickToMs, type TempoMap } from '@core/timing/tempo.ts'
-import { millis as asMillis, ticks as asTicks } from '@core/shared/units.ts'
+import { millis as asMillis, ticks as asTicks, type Midi } from '@core/shared/units.ts'
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 
 export type NoteFeedbackOptions = {
@@ -98,9 +98,25 @@ export type NoteFeedbackOptions = {
   readonly scoreViewerRef: RefObject<ScoreViewerHandle | null>
 }
 
+/** REQ-3.3.2 timing readout for the most recent attributed press. */
+export type Judgement = {
+  readonly midi: Midi
+  readonly timing: 'early' | 'late' | 'on-time'
+  /** Signed, straight from the matcher: negative early, positive late. */
+  readonly deviationMs: number
+  readonly correct: boolean
+}
+
 export type NoteFeedback = {
   /** Running accuracy and per-verdict counts, for a small live panel. */
   readonly summary: MatchSummary
+  /**
+   * The most recent press the matcher attributed to an expected note
+   * (`correct` or `wrongPitch` — a `missed` or `extra` verdict leaves this
+   * unchanged, since neither is an attributed press). Cleared on `clear()`
+   * and on a loop wrap, exactly as `summary` is.
+   */
+  readonly lastJudgement: Judgement | undefined
   /** Pass this to `usePracticeEngine`'s `scoreViewerRef` option instead of the real one. */
   readonly cursorRef: RefObject<ScoreViewerHandle | null>
   /**
@@ -140,6 +156,33 @@ function colorForVerdict(verdict: NoteVerdict): string | undefined {
   }
 }
 
+/**
+ * The last result in this batch that was attributed to an expected note
+ * (`correct` or `wrongPitch` — the only verdicts the matcher gives a
+ * `timing`/`deviationMs`), or `undefined` if none of them were. `missed` and
+ * `extra` results in the same batch are deliberately skipped rather than
+ * clearing the judgement — see `NoteFeedback.lastJudgement`'s doc comment.
+ */
+function lastAttributed(results: readonly MatchResult[]): Judgement | undefined {
+  for (let i = results.length - 1; i >= 0; i--) {
+    const result = results[i]
+    if (
+      result === undefined ||
+      result.timing === undefined ||
+      result.deviationMs === undefined ||
+      result.playedMidi === undefined
+    )
+      continue
+    return {
+      midi: result.playedMidi,
+      timing: result.timing === 'onTime' ? 'on-time' : result.timing,
+      deviationMs: result.deviationMs,
+      correct: result.verdict === 'correct',
+    }
+  }
+  return undefined
+}
+
 export function useNoteFeedback(options: NoteFeedbackOptions): NoteFeedback {
   const optionsRef = useRef(options)
   optionsRef.current = options
@@ -149,6 +192,7 @@ export function useNoteFeedback(options: NoteFeedbackOptions): NoteFeedback {
   const anchorRef = useRef<Anchor | undefined>(undefined)
   const lastTickRef = useRef(0)
   const [summary, setSummary] = useState<MatchSummary>(EMPTY_SUMMARY)
+  const [lastJudgement, setLastJudgement] = useState<Judgement | undefined>(undefined)
 
   const applyResults = useCallback((results: readonly MatchResult[]): void => {
     const matcher = matcherRef.current
@@ -160,6 +204,8 @@ export function useNoteFeedback(options: NoteFeedbackOptions): NoteFeedback {
       if (color !== undefined) handle?.setNoteColor(result.expected.id, color)
     }
     setSummary(matcher.summary())
+    const judgement = lastAttributed(results)
+    if (judgement !== undefined) setLastJudgement(judgement)
   }, [])
 
   const clear = useCallback((): void => {
@@ -167,6 +213,7 @@ export function useNoteFeedback(options: NoteFeedbackOptions): NoteFeedback {
     anchorRef.current = undefined
     lastTickRef.current = 0
     setSummary(EMPTY_SUMMARY)
+    setLastJudgement(undefined)
     optionsRef.current.scoreViewerRef.current?.clearNoteColors()
   }, [])
 
@@ -185,6 +232,7 @@ export function useNoteFeedback(options: NoteFeedbackOptions): NoteFeedback {
     anchorRef.current = undefined
     lastTickRef.current = 0
     setSummary(EMPTY_SUMMARY)
+    setLastJudgement(undefined)
   }, [options.score, options.activeHands])
 
   // Judge the learner's presses as they arrive. See the module comment for why
@@ -218,6 +266,7 @@ export function useNoteFeedback(options: NoteFeedbackOptions): NoteFeedback {
             matcher.reset(asTicks(tick))
             scoreViewerRef.current?.clearNoteColors()
             setSummary(EMPTY_SUMMARY)
+            setLastJudgement(undefined)
           } else {
             applyResults(matcher.advanceTo(matcherMs))
           }
@@ -235,5 +284,5 @@ export function useNoteFeedback(options: NoteFeedbackOptions): NoteFeedback {
     }
   }
 
-  return { summary, cursorRef, clear }
+  return { summary, lastJudgement, cursorRef, clear }
 }
