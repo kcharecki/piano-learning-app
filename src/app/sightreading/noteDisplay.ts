@@ -1,12 +1,13 @@
 /**
- * Pure display helpers for `NoteListPreview.tsx` (roadmap 2.12) — turning a
- * generated `Score`'s notes into short, readable strings. No rendering here,
- * only the string/grouping logic, so it is unit-testable without a DOM.
+ * A pure duration-label helper, testable without a DOM.
+ *
+ * It was written for the sight-reading trainer's text preview, which roadmap
+ * 2.20 replaced with real engraved notation; its remaining consumer is
+ * `@app/rhythm/PatternPreview.tsx`, where a bare `RhythmPattern` still has no
+ * engraving. The pitch-labelling and hand/measure grouping that lived here
+ * went with the text preview.
  */
-import type { Hand, Score, ScoreNote } from '@core/notation/score.ts'
-import { HANDS } from '@core/notation/score.ts'
 import { TICKS_PER_QUARTER } from '@core/shared/units.ts'
-import { midiToName } from '@core/theory/pitch.ts'
 
 /** Named durations, longest first so a whole note is not read as 4 sixteenths. */
 const NAMED_DURATIONS: readonly (readonly [number, string])[] = [
@@ -26,46 +27,4 @@ export function durationLabel(durationTicks: number): string {
   if (named !== undefined) return named[1]
   const sixteenths = durationTicks / (TICKS_PER_QUARTER / 4)
   return `${sixteenths}/16`
-}
-
-/** `'C#4 (quarter)'`. */
-export function noteLabel(note: ScoreNote): string {
-  return `${midiToName(note.midi)} (${durationLabel(note.durationTicks)})`
-}
-
-export type MeasureNotes = {
-  readonly measureIndex: number
-  /** As printed on the page — `Measure.number`. */
-  readonly measureNumber: string
-  readonly notes: readonly ScoreNote[]
-}
-
-export type HandLine = {
-  readonly hand: Hand
-  readonly measures: readonly MeasureNotes[]
-}
-
-/**
- * `score`'s notes grouped by hand, then by measure, in playing order. Only
- * hands that actually have at least one note appear — a right-hand-only
- * exercise (level 1) does not print an empty left-hand line.
- */
-export function groupByHandAndMeasure(score: Score): readonly HandLine[] {
-  const lines: HandLine[] = []
-  for (const hand of HANDS) {
-    const notes = score.notes.filter((n) => n.hand === hand)
-    if (notes.length === 0) continue
-    const measures: MeasureNotes[] = []
-    for (const measure of score.measures) {
-      const inMeasure = notes.filter((n) => n.measureIndex === measure.index)
-      if (inMeasure.length === 0) continue
-      measures.push({
-        measureIndex: measure.index,
-        measureNumber: measure.number,
-        notes: inMeasure,
-      })
-    }
-    lines.push({ hand, measures })
-  }
-  return lines
 }

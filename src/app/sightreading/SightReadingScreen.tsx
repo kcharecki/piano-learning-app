@@ -9,7 +9,7 @@ import { MidiDeviceStatus } from '@app/practice/MidiDeviceStatus.tsx'
 import type { Clock, DateSource, AudioOutput, MidiInput, Rng } from '@core/ports/index.ts'
 import type { ConnectMidi } from '@app/practice/useMidiConnection.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
-import { NoteListPreview } from './NoteListPreview.tsx'
+import { ExerciseScore } from './ExerciseScore.tsx'
 import { useSightReadingTrainer } from './useSightReadingTrainer.ts'
 
 export type SightReadingScreenProps = {
@@ -61,7 +61,7 @@ export function SightReadingScreen(props: SightReadingScreenProps) {
           <button type="button" onClick={trainer.skipPreview}>
             Begin now
           </button>
-          <NoteListPreview score={trainer.score} />
+          <ExerciseScore score={trainer.score} />
         </section>
       )}
 
@@ -75,7 +75,7 @@ export function SightReadingScreen(props: SightReadingScreenProps) {
               Measure {trainer.position.measureNumber}, beat {trainer.position.beat}
             </p>
           )}
-          <NoteListPreview score={trainer.score} />
+          <ExerciseScore score={trainer.score} />
         </section>
       )}
 

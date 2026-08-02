@@ -198,8 +198,17 @@ test('the Sight reading nav destination renders the real trainer, plays a full e
 
   await page.getByRole('button', { name: 'Start exercise' }).click()
   await expect(page.getByTestId('preview-countdown')).toBeVisible()
-  // A fresh level-1 exercise is right-hand only — REQ-3.4.2's easiest tier.
-  await expect(page.getByRole('heading', { name: 'Right hand' })).toBeVisible()
+
+  // The proof action for roadmap 2.20(a). The preview used to be a TEXT list
+  // reading "C4 (quarter), D4 (quarter)" — no key signature, no time
+  // signature, no bar lines, and the answer handed to the learner in letters.
+  // It is now the generated exercise engraved by OSMD, so: a real <svg> with
+  // enough elements to be a genuine render (the 50-element discriminator this
+  // file establishes above), and no note name anywhere in the preview.
+  const preview = page.getByRole('region', { name: 'Preview' })
+  await expect(preview.getByTestId('score-container').locator('svg')).toBeVisible()
+  expect(await preview.getByTestId('score-container').locator('svg *').count()).toBeGreaterThan(50)
+  expect(await preview.innerText()).not.toMatch(/\b[A-G]#?[0-9]\b/)
 
   await page.getByRole('button', { name: 'Begin now' }).click()
   await expect(page.getByTestId('playing-status')).toBeVisible()

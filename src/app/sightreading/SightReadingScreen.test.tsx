@@ -11,9 +11,20 @@ import { seededRng } from '@core/ports/rng.ts'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FakeClock, FakeMidiInput, RecordingAudioOutput } from '@test/fakes.ts'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { SightReadingScreen } from './SightReadingScreen.tsx'
+
+// The exercise is engraved for real now (roadmap 2.20), and OSMD cannot run in
+// happy-dom — it measures text with a canvas this environment does not have.
+// The same mock `PracticeScreen.test.tsx` uses: what belongs to this file is
+// that the screen HANDS a score to the viewer, which the `data-score-id`
+// attribute below asserts; that OSMD then draws it is `e2e`'s job.
+vi.mock('@app/score/ScoreViewer.tsx', () => ({
+  ScoreViewer: ({ score }: { readonly score: { readonly id: string } }) => (
+    <div data-testid="mock-score-viewer" data-score-id={score.id} />
+  ),
+}))
 
 function manualDriver(): { driver: FrameDriver; pump: () => void } {
   let callback: (() => void) | undefined
@@ -67,7 +78,12 @@ describe('SightReadingScreen', () => {
 
     await user.click(screen.getByRole('button', { name: 'Start exercise' }))
     expect(screen.getByTestId('preview-countdown')).toHaveTextContent('30s')
-    expect(screen.getByRole('heading', { name: 'Right hand' })).toBeInTheDocument()
+    // The preview is the generated exercise itself, engraved — not a text list
+    // of note names, which handed the learner the answer in letters
+    // (roadmap 2.20). The score reaching the viewer is what this asserts;
+    // whether OSMD draws noteheads is asserted in e2e/smoke.spec.ts.
+    expect(screen.getByTestId('mock-score-viewer')).toHaveAttribute('data-score-id')
+    expect(screen.queryByRole('heading', { name: 'Right hand' })).toBeNull()
 
     await user.click(screen.getByRole('button', { name: 'Begin now' }))
     expect(screen.getByTestId('playing-status')).toBeInTheDocument()

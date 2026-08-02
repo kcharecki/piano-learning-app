@@ -45,19 +45,14 @@ export function ScoreScreen() {
           </h2>
           <PracticeScreen />
           {/* `PracticeScreen` renders `ScoreViewer` only when `musicXml` is
-              defined (see its own module), so for a MIDI import that space is
-              simply never filled — nothing in that file is ours to touch.
-              This note is placed directly after `PracticeScreen`'s own
-              content, below the transport and every other control, which is
-              the one place left in the DOM that is otherwise empty for a
-              MIDI import: previously it sat above the transport controls,
-              where a user opening the Practice tab could easily miss it
-              before ever noticing the score was blank. */}
+              defined. Every import path now supplies it — a MIDI file is
+              engraved from MusicXML written back out of the parsed Score
+              (roadmap 2.20) — so this fallback covers only a score loaded
+              some future way that genuinely has no notation, and says what is
+              missing where the notation would have been rather than above the
+              transport, where it was read as a caption and missed. */}
           {loaded.musicXml === undefined && (
-            <p>
-              This piece was imported from a MIDI file, which has no notation in it, so there is
-              nothing to engrave here — playback, looping and the metronome all still work.
-            </p>
+            <p>There is no notation to engrave for this score — playback still works.</p>
           )}
         </section>
       )}

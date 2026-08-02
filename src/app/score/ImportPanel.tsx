@@ -6,6 +6,7 @@
  */
 import { parseMidiFile } from '@core/notation/midifile.ts'
 import { parseMusicXml } from '@core/notation/musicxml.ts'
+import { writeMusicXml } from '@core/notation/musicxmlwriter.ts'
 import { unpackMxl } from '@core/notation/mxl.ts'
 import { useScoreStore } from '@app/state/scoreStore.ts'
 import { useId, useState } from 'react'
@@ -60,7 +61,15 @@ export function ImportPanel() {
           setImportError(`Could not read "${file.name}": ${result.error}`)
           return
         }
-        loadScore({ score: result.value, sourceName: file.name, musicXml: undefined })
+        // A MIDI file carries no notation, so the engraver is fed MusicXML
+        // written back out of the parsed Score (roadmap 2.20). Before this,
+        // a MIDI import was playback-only and the score view stayed blank —
+        // REQ-3.2.5 was met for playing and not for reading.
+        loadScore({
+          score: result.value,
+          sourceName: file.name,
+          musicXml: writeMusicXml(result.value),
+        })
       } else {
         setImportError(
           `"${file.name}" is not a file this app can open — use .musicxml, .xml, .mxl, .mid or .midi.`,
