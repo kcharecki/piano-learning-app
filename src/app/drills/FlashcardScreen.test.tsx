@@ -6,12 +6,14 @@
  * `useFlashcardDrill.test.ts`.
  */
 import { useFlashcardStore } from '@app/state/flashcardStore.ts'
+import { buildDeck, type IntervalOnStaffCard } from '@core/drills/flashcards.ts'
 import { seededRng } from '@core/ports/rng.ts'
 import { render, screen, cleanup, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { FakeClock, FakeMidiInput } from '@test/fakes.ts'
+import { FakeClock, FakeMidiInput, scriptedRng } from '@test/fakes.ts'
 import { afterEach, describe, expect, it } from 'vitest'
 import { FlashcardScreen } from './FlashcardScreen.tsx'
+import { staffStep } from './staffPosition.ts'
 
 function resetStore(): void {
   useFlashcardStore.setState({ cardsById: {} })
@@ -70,5 +72,61 @@ describe('FlashcardScreen', () => {
       screen.getByRole('group', { name: 'On-screen keyboard' }),
     ).getAllByRole('button').length
     expect(keysAtLevel2).toBeGreaterThan(keysAtLevel1)
+  })
+})
+
+describe('FlashcardScreen — drill kind selector (roadmap 2.25)', () => {
+  it('offers a Drill selector defaulting to Note → key, with the on-screen keyboard showing', () => {
+    render(<FlashcardScreen rng={seededRng(1)} midiInput={new FakeMidiInput()} />)
+
+    const select = screen.getByLabelText('Drill')
+    expect(select).toHaveValue('staff-to-key')
+    expect(screen.getByRole('group', { name: 'On-screen keyboard' })).toBeInTheDocument()
+  })
+
+  it('selecting Interval renders the interval staff, wired to the actual card prompt, and answer pad instead', async () => {
+    const user = userEvent.setup()
+    const rng = scriptedRng([0])
+    render(<FlashcardScreen rng={rng} midiInput={new FakeMidiInput()} />)
+
+    await user.selectOptions(screen.getByLabelText('Drill'), 'interval-on-staff')
+
+    expect(screen.getByRole('group', { name: 'Interval answer' })).toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'On-screen keyboard' })).toBeNull()
+
+    // scriptedRng([0]) always picks the deck's first card, deterministically.
+    const expected = buildDeck('interval-on-staff', 1)[0] as IntervalOnStaffCard
+
+    const low = screen.getByTestId('staff-note-low')
+    const high = screen.getByTestId('staff-note-high')
+    expect(low).toHaveAttribute(
+      'data-step',
+      String(staffStep(expected.prompt.low, expected.prompt.clef)),
+    )
+    expect(high).toHaveAttribute(
+      'data-step',
+      String(staffStep(expected.prompt.high, expected.prompt.clef)),
+    )
+    expect(Number(high.getAttribute('data-step'))).toBeGreaterThan(
+      Number(low.getAttribute('data-step')),
+    )
+  })
+
+  it('answering the interval drill correctly grades it and updates the stats counter', async () => {
+    const user = userEvent.setup()
+    const rng = scriptedRng([0])
+    render(<FlashcardScreen rng={rng} midiInput={new FakeMidiInput()} />)
+
+    await user.selectOptions(screen.getByLabelText('Drill'), 'interval-on-staff')
+
+    // scriptedRng([0]) always picks the deck's first card, deterministically —
+    // level 1's first interval-on-staff card is A3 up a minor 2nd.
+    const expected = buildDeck('interval-on-staff', 1)[0] as IntervalOnStaffCard
+    expect(expected.answer).toEqual({ number: 2, quality: 'minor' })
+
+    await user.click(screen.getByRole('button', { name: 'Minor 2nd' }))
+
+    expect(screen.getByTestId('flashcard-feedback')).toHaveTextContent(/correct/i)
+    expect(screen.getByTestId('flashcard-stats-total')).toHaveTextContent('1')
   })
 })

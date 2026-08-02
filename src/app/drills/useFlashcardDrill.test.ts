@@ -7,16 +7,31 @@
  * wiring between them.
  */
 import { useFlashcardStore } from '@app/state/flashcardStore.ts'
+import { buildDeck, type IntervalOnStaffCard } from '@core/drills/flashcards.ts'
 import { seededRng } from '@core/ports/rng.ts'
 import { midi } from '@core/shared/units.ts'
 import { DAY_MS } from '@core/srs/scheduler.ts'
 import { act, cleanup, renderHook } from '@testing-library/react'
-import { FakeClock, FakeMidiInput } from '@test/fakes.ts'
+import { FakeClock, FakeMidiInput, scriptedRng } from '@test/fakes.ts'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { useFlashcardDrill, type UseFlashcardDrillOptions } from './useFlashcardDrill.ts'
+import {
+  useFlashcardDrill,
+  type DrillCard,
+  type UseFlashcardDrillOptions,
+} from './useFlashcardDrill.ts'
 
 function resetStore(): void {
   useFlashcardStore.setState({ cardsById: {} })
+}
+
+/** Narrows the hook's `card` union back to its `staff-to-key` prompt midi — every
+ *  test in this file that reads `.prompt.midi` is already known (by construction
+ *  of its own `setup`) to be looking at a staff-to-key card. */
+function staffToKeyMidi(card: DrillCard | undefined): number {
+  if (card === undefined || card.kind !== 'staff-to-key') {
+    throw new Error('expected a staff-to-key card')
+  }
+  return card.prompt.midi
 }
 
 beforeEach(resetStore)
@@ -47,8 +62,8 @@ describe('useFlashcardDrill — showing a card', () => {
 
     expect(result.current.card).toBeDefined()
     expect(result.current.card?.kind).toBe('staff-to-key')
-    expect(result.current.card?.prompt.midi).toBeGreaterThanOrEqual(56)
-    expect(result.current.card?.prompt.midi).toBeLessThanOrEqual(64)
+    expect(staffToKeyMidi(result.current.card)).toBeGreaterThanOrEqual(56)
+    expect(staffToKeyMidi(result.current.card)).toBeLessThanOrEqual(64)
     expect(result.current.deckSize).toBe(9)
     expect(result.current.range).toEqual({ low: 56, high: 64 })
   })
@@ -63,9 +78,9 @@ describe('useFlashcardDrill — answering', () => {
   it('a correct, fast answer grades easy, schedules the card, and advances to a new one', () => {
     const { result } = setup()
     const firstId = result.current.card?.id
-    const answer = result.current.card?.prompt.midi
+    const answer = staffToKeyMidi(result.current.card)
 
-    act(() => result.current.answerNote(midi(answer!)))
+    act(() => result.current.answerNote(midi(answer)))
 
     expect(result.current.lastGrade).toEqual({ correct: true, grade: 'easy' })
     expect(useFlashcardStore.getState().cardsById[firstId!]).toBeDefined()
@@ -75,7 +90,7 @@ describe('useFlashcardDrill — answering', () => {
 
   it('a wrong answer grades again', () => {
     const { result } = setup()
-    const correctMidi = result.current.card?.prompt.midi as number
+    const correctMidi = staffToKeyMidi(result.current.card)
     const wrongMidi = correctMidi === 56 ? correctMidi + 1 : correctMidi - 1
 
     act(() => result.current.answerNote(midi(wrongMidi)))
@@ -85,7 +100,7 @@ describe('useFlashcardDrill — answering', () => {
 
   it('a slow correct answer (over 8s) grades hard', () => {
     const { result, clock } = setup()
-    const answer = result.current.card?.prompt.midi as number
+    const answer = staffToKeyMidi(result.current.card)
     act(() => clock.advance(9_000))
 
     act(() => result.current.answerNote(midi(answer)))
@@ -95,7 +110,7 @@ describe('useFlashcardDrill — answering', () => {
 
   it('a real MIDI press answers the current card exactly like an on-screen key press', () => {
     const { result, midiInput, clock } = setup()
-    const answer = result.current.card?.prompt.midi as number
+    const answer = staffToKeyMidi(result.current.card)
 
     act(() =>
       midiInput.emit({ type: 'noteOn', note: midi(answer), velocity: 80, time: clock.now() }),
@@ -130,7 +145,7 @@ describe('useFlashcardDrill — SRS scheduling uses a DateSource, not the Clock 
     const { result } = setup({ clock, date, rng: seededRng(7) })
 
     const firstId = result.current.card?.id
-    const answer = result.current.card?.prompt.midi as number
+    const answer = staffToKeyMidi(result.current.card)
     act(() => result.current.answerNote(midi(answer)))
 
     const graded = useFlashcardStore.getState().cardsById[firstId!]
@@ -156,7 +171,7 @@ describe('useFlashcardDrill — SRS scheduling uses a DateSource, not the Clock 
     const { result } = setup({ clock, date, rng: seededRng(7) })
 
     const firstId = result.current.card?.id
-    const firstAnswer = result.current.card?.prompt.midi as number
+    const firstAnswer = staffToKeyMidi(result.current.card)
     act(() => result.current.answerNote(midi(firstAnswer)))
     // Advanced past the just-graded card to a fresh one — confirms grading
     // took effect before the regression check below.
@@ -164,7 +179,7 @@ describe('useFlashcardDrill — SRS scheduling uses a DateSource, not the Clock 
 
     act(() => clock.advance(30 * DAY_MS))
 
-    const secondAnswer = result.current.card?.prompt.midi as number
+    const secondAnswer = staffToKeyMidi(result.current.card)
     act(() => result.current.answerNote(midi(secondAnswer)))
 
     // If scheduling used `clock.now()`, the first card's `due` — anchored to
@@ -172,5 +187,89 @@ describe('useFlashcardDrill — SRS scheduling uses a DateSource, not the Clock 
     // relative to the jumped Clock, so `nextCard` would hand it straight back
     // out as the earliest-due card the instant a second card is answered.
     expect(result.current.card?.id).not.toBe(firstId)
+  })
+})
+
+describe('useFlashcardDrill — kind selection (roadmap 2.25)', () => {
+  it('defaults to a staff-to-key card when kind is omitted', () => {
+    const { result } = setup()
+    expect(result.current.card?.kind).toBe('staff-to-key')
+  })
+
+  it('draws an interval-on-staff card when kind is interval-on-staff', () => {
+    const { result } = setup({ kind: 'interval-on-staff' })
+
+    expect(result.current.card).toBeDefined()
+    expect(result.current.card?.kind).toBe('interval-on-staff')
+    expect(result.current.deckSize).toBe(buildDeck('interval-on-staff', 1).length)
+  })
+
+  it('switching kind rebuilds the deck and picks a fresh card of the new kind', () => {
+    const { result, rerender, options } = setup({ kind: 'staff-to-key' })
+    expect(result.current.card?.kind).toBe('staff-to-key')
+
+    rerender({ ...options, kind: 'interval-on-staff' })
+
+    expect(result.current.card?.kind).toBe('interval-on-staff')
+  })
+
+  it('SRS state from one kind survives a switch to the other kind (no wipe)', () => {
+    const { result, rerender, options } = setup({ kind: 'staff-to-key' })
+    const firstId = result.current.card?.id
+    const answer = staffToKeyMidi(result.current.card)
+    act(() => result.current.answerNote(midi(answer)))
+    expect(useFlashcardStore.getState().cardsById[firstId!]).toBeDefined()
+
+    rerender({ ...options, kind: 'interval-on-staff' })
+    act(() => result.current.answerInterval({ number: 2, quality: 'minor' }))
+
+    // The staff-to-key card graded before the switch is still in the store —
+    // switching kind never wiped `cardsById`.
+    expect(useFlashcardStore.getState().cardsById[firstId!]).toBeDefined()
+  })
+})
+
+describe('useFlashcardDrill — answering an interval card', () => {
+  it('a correct interval answer grades correctly and advances to a new card', () => {
+    const rng = scriptedRng([0])
+    const { result } = setup({ kind: 'interval-on-staff', rng })
+    const expected = buildDeck('interval-on-staff', 1)[0] as IntervalOnStaffCard
+    expect(result.current.card?.id).toBe(expected.id)
+
+    act(() => result.current.answerInterval(expected.answer))
+
+    expect(result.current.lastGrade).toEqual({ correct: true, grade: 'easy' })
+    expect(result.current.stats.total).toBe(1)
+    expect(result.current.card?.id).not.toBe(expected.id)
+  })
+
+  it('a wrong interval answer grades again', () => {
+    const rng = scriptedRng([0])
+    const { result } = setup({ kind: 'interval-on-staff', rng })
+
+    act(() => result.current.answerInterval({ number: 8, quality: 'perfect' }))
+
+    expect(result.current.lastGrade).toEqual({ correct: false, grade: 'again' })
+  })
+
+  it('answerNote is a no-op while an interval card is showing', () => {
+    const rng = scriptedRng([0])
+    const { result } = setup({ kind: 'interval-on-staff', rng })
+    const cardId = result.current.card?.id
+
+    act(() => result.current.answerNote(midi(60)))
+
+    expect(result.current.lastGrade).toBeUndefined()
+    expect(result.current.card?.id).toBe(cardId)
+  })
+
+  it('answerInterval is a no-op while a staff-to-key card is showing', () => {
+    const { result } = setup({ kind: 'staff-to-key' })
+    const cardId = result.current.card?.id
+
+    act(() => result.current.answerInterval({ number: 3, quality: 'major' }))
+
+    expect(result.current.lastGrade).toBeUndefined()
+    expect(result.current.card?.id).toBe(cardId)
   })
 })
