@@ -404,3 +404,26 @@ describe('useSightReadingTrainer — retirement keys on content, not just parame
     expect(idA).toBe(idB)
   })
 })
+
+describe('useSightReadingTrainer — metronome click (roadmap 2.28a, REQ-3.9.1)', () => {
+  it('defaults the click on, and switches it off when metronomeEnabled is false', () => {
+    const on = setup()
+    act(() => on.result.current.start())
+    act(() => on.result.current.skipPreview())
+    act(() => {
+      on.clock.advance(2_000)
+      on.manual.pump()
+    })
+    expect(on.audio.clicks.length).toBeGreaterThan(0)
+
+    const off = setup({ metronomeEnabled: false })
+    act(() => off.result.current.start())
+    act(() => off.result.current.skipPreview())
+    act(() => {
+      off.clock.advance(SEEDED_SCORE_DURATION_MS + 500)
+      off.manual.pump()
+    })
+    expect(off.result.current.phase).toBe('finished')
+    expect(off.audio.clicks.length).toBe(0)
+  })
+})

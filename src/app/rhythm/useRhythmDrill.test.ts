@@ -261,3 +261,37 @@ describe('useRhythmDrill — grading', () => {
     expect((grade?.matched ?? 0) + (grade?.extra ?? 0)).toBe(2)
   })
 })
+
+describe('useRhythmDrill — metronome click (roadmap 2.28a, REQ-3.9.1)', () => {
+  it('defaults the click on, and switches it off when metronomeEnabled is false', () => {
+    const clockOn = new FakeClock()
+    const audioOn = new RecordingAudioOutput(clockOn)
+    const onRun = setup({ bars: 2, clock: clockOn, audioOutput: audioOn })
+    act(() => onRun.result.current.start())
+    const pattern = onRun.result.current.pattern
+    if (pattern === undefined) throw new Error('start() produced no pattern')
+    act(() => {
+      clockOn.advance(pattern.bars * MS_PER_BAR)
+      onRun.manual.pump()
+    })
+    expect(audioOn.clicks.length).toBeGreaterThan(0)
+
+    const clockOff = new FakeClock()
+    const audioOff = new RecordingAudioOutput(clockOff)
+    const offRun = setup({
+      bars: 2,
+      clock: clockOff,
+      audioOutput: audioOff,
+      metronomeEnabled: false,
+    })
+    act(() => offRun.result.current.start())
+    const offPattern = offRun.result.current.pattern
+    if (offPattern === undefined) throw new Error('start() produced no pattern')
+    act(() => {
+      clockOff.advance(offPattern.bars * MS_PER_BAR)
+      offRun.manual.pump()
+    })
+    expect(offRun.result.current.phase).toBe('graded')
+    expect(audioOff.clicks.length).toBe(0)
+  })
+})

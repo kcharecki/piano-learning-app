@@ -123,4 +123,64 @@ describe('RhythmScreen', () => {
     expect(matched + extra).toBe(1)
     expect(screen.getByRole('button', { name: 'Again' })).toBeInTheDocument()
   })
+
+  it('the metronome click checkbox is on by default, and turning it off reaches the hook (roadmap 2.28a)', async () => {
+    const user = userEvent.setup()
+    const clock = new FakeClock()
+    const manual = manualDriver()
+    const audioOutput = new RecordingAudioOutput(clock)
+
+    render(
+      <RhythmScreen
+        clock={clock}
+        midiInput={new FakeMidiInput()}
+        audioOutput={audioOutput}
+        rng={seededRng(7)}
+        frameDriver={manual.driver}
+      />,
+    )
+
+    const checkbox = screen.getByRole('checkbox', { name: 'Metronome click' })
+    expect(checkbox).toBeChecked()
+
+    await user.click(checkbox)
+    expect(checkbox).not.toBeChecked()
+
+    await user.click(screen.getByRole('button', { name: 'Start' }))
+    act(() => {
+      clock.advance(RUN_LENGTH_MS)
+      manual.pump()
+    })
+
+    expect(screen.getByTestId('rhythm-matched')).toBeInTheDocument()
+    expect(audioOutput.clicks.length).toBe(0)
+  })
+
+  it('with the checkbox left checked, the metronome click actually sounds (roadmap 2.28a)', async () => {
+    const user = userEvent.setup()
+    const clock = new FakeClock()
+    const manual = manualDriver()
+    const audioOutput = new RecordingAudioOutput(clock)
+
+    render(
+      <RhythmScreen
+        clock={clock}
+        midiInput={new FakeMidiInput()}
+        audioOutput={audioOutput}
+        rng={seededRng(7)}
+        frameDriver={manual.driver}
+      />,
+    )
+
+    expect(screen.getByRole('checkbox', { name: 'Metronome click' })).toBeChecked()
+
+    await user.click(screen.getByRole('button', { name: 'Start' }))
+    act(() => {
+      clock.advance(RUN_LENGTH_MS)
+      manual.pump()
+    })
+
+    expect(screen.getByTestId('rhythm-matched')).toBeInTheDocument()
+    expect(audioOutput.clicks.length).toBeGreaterThan(0)
+  })
 })

@@ -9,6 +9,7 @@ import { MidiDeviceStatus } from '@app/practice/MidiDeviceStatus.tsx'
 import type { Clock, DateSource, AudioOutput, MidiInput, Rng } from '@core/ports/index.ts'
 import type { ConnectMidi } from '@app/practice/useMidiConnection.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
+import { useState } from 'react'
 import { ExerciseScore } from './ExerciseScore.tsx'
 import { useSightReadingTrainer } from './useSightReadingTrainer.ts'
 
@@ -28,7 +29,8 @@ function percent(fraction: number): string {
 }
 
 export function SightReadingScreen(props: SightReadingScreenProps) {
-  const trainer = useSightReadingTrainer(props)
+  const [metronomeEnabled, setMetronomeEnabled] = useState(true)
+  const trainer = useSightReadingTrainer({ ...props, metronomeEnabled })
 
   return (
     <div className="sight-reading-screen">
@@ -40,6 +42,15 @@ export function SightReadingScreen(props: SightReadingScreenProps) {
         connectionError={trainer.midi.connectionError}
       />
       <p data-testid="sight-reading-level">Level {trainer.level}</p>
+
+      <label>
+        <input
+          type="checkbox"
+          checked={metronomeEnabled}
+          onChange={(event) => setMetronomeEnabled(event.target.checked)}
+        />
+        Metronome click
+      </label>
 
       {trainer.error !== undefined && (
         <p role="alert" data-testid="sight-reading-error">

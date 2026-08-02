@@ -41,7 +41,8 @@ function percent(fraction: number): string {
 
 export function RhythmScreen(props: RhythmScreenProps) {
   const [complexity, setComplexity] = useState<Complexity>(MIN_COMPLEXITY)
-  const drill = useRhythmDrill({ complexity, bars: BARS, ...props })
+  const [metronomeEnabled, setMetronomeEnabled] = useState(true)
+  const drill = useRhythmDrill({ ...props, complexity, bars: BARS, metronomeEnabled })
   const tapDisabled = drill.phase !== 'tapping'
 
   return (
@@ -72,6 +73,15 @@ export function RhythmScreen(props: RhythmScreenProps) {
           +
         </button>
       </div>
+
+      <label>
+        <input
+          type="checkbox"
+          checked={metronomeEnabled}
+          onChange={(event) => setMetronomeEnabled(event.target.checked)}
+        />
+        Metronome click
+      </label>
 
       {drill.phase === 'idle' && (
         <button type="button" onClick={drill.start}>

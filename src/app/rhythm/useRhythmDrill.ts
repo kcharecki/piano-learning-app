@@ -77,6 +77,8 @@ export type UseRhythmDrillOptions = {
   readonly midiInput?: MidiInput
   readonly connectMidi?: ConnectMidi
   readonly frameDriver?: FrameDriver
+  /** REQ-3.9.1: the click is on by default (a tapping drill needs a pulse) but must be switchable. */
+  readonly metronomeEnabled?: boolean
 }
 
 export type UseRhythmDrill = {
@@ -162,7 +164,7 @@ export function useRhythmDrill(options: UseRhythmDrillOptions): UseRhythmDrill {
     activeHands: ACTIVE_HANDS,
     tempoScale: 1,
     loop: undefined,
-    metronomeEnabled: true,
+    metronomeEnabled: options.metronomeEnabled ?? true,
     metronomeSubdivision: 1,
     waitModeEnabled: false,
     clock,

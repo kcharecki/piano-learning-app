@@ -98,4 +98,70 @@ describe('SightReadingScreen', () => {
     // No shadowing audio (REQ-3.4.4) — only the metronome sounded.
     expect(audio.playedNotes).toEqual([])
   })
+
+  it('the metronome click checkbox is on by default, and turning it off reaches the hook (roadmap 2.28a)', async () => {
+    const user = userEvent.setup()
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const midiInput = new FakeMidiInput()
+    const manual = manualDriver()
+
+    render(
+      <SightReadingScreen
+        clock={clock}
+        date={clock}
+        audioOutput={audio}
+        midiInput={midiInput}
+        frameDriver={manual.driver}
+        rng={seededRng(42)}
+      />,
+    )
+
+    const checkbox = screen.getByRole('checkbox', { name: 'Metronome click' })
+    expect(checkbox).toBeChecked()
+
+    await user.click(checkbox)
+    expect(checkbox).not.toBeChecked()
+
+    await user.click(screen.getByRole('button', { name: 'Start exercise' }))
+    await user.click(screen.getByRole('button', { name: 'Begin now' }))
+
+    act(() => {
+      clock.advance(2_000)
+      manual.pump()
+    })
+
+    expect(audio.clicks.length).toBe(0)
+  })
+
+  it('with the checkbox left checked, the metronome click actually sounds (roadmap 2.28a)', async () => {
+    const user = userEvent.setup()
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const midiInput = new FakeMidiInput()
+    const manual = manualDriver()
+
+    render(
+      <SightReadingScreen
+        clock={clock}
+        date={clock}
+        audioOutput={audio}
+        midiInput={midiInput}
+        frameDriver={manual.driver}
+        rng={seededRng(42)}
+      />,
+    )
+
+    expect(screen.getByRole('checkbox', { name: 'Metronome click' })).toBeChecked()
+
+    await user.click(screen.getByRole('button', { name: 'Start exercise' }))
+    await user.click(screen.getByRole('button', { name: 'Begin now' }))
+
+    act(() => {
+      clock.advance(2_000)
+      manual.pump()
+    })
+
+    expect(audio.clicks.length).toBeGreaterThan(0)
+  })
 })

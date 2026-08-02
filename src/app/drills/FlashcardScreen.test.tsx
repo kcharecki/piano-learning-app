@@ -8,12 +8,24 @@
 import { useFlashcardStore } from '@app/state/flashcardStore.ts'
 import { buildDeck, type IntervalOnStaffCard } from '@core/drills/flashcards.ts'
 import { seededRng } from '@core/ports/rng.ts'
-import { render, screen, cleanup, within } from '@testing-library/react'
+import { act, render, screen, cleanup, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { FakeClock, FakeMidiInput, scriptedRng } from '@test/fakes.ts'
+import { FakeClock, FakeMidiInput, RecordingAudioOutput, scriptedRng } from '@test/fakes.ts'
 import { afterEach, describe, expect, it } from 'vitest'
+import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { FlashcardScreen } from './FlashcardScreen.tsx'
 import { staffStep } from './staffPosition.ts'
+
+function manualDriver(): { driver: FrameDriver; pump: () => void } {
+  let callback: (() => void) | undefined
+  const driver: FrameDriver = (cb) => {
+    callback = cb
+    return () => {
+      callback = undefined
+    }
+  }
+  return { driver, pump: () => callback?.() }
+}
 
 function resetStore(): void {
   useFlashcardStore.setState({ cardsById: {} })
@@ -128,5 +140,87 @@ describe('FlashcardScreen — drill kind selector (roadmap 2.25)', () => {
 
     expect(screen.getByTestId('flashcard-feedback')).toHaveTextContent(/correct/i)
     expect(screen.getByTestId('flashcard-stats-total')).toHaveTextContent('1')
+  })
+})
+
+describe('FlashcardScreen — standalone metronome (roadmap 2.28a, REQ-3.9.1)', () => {
+  it('renders a Metronome group whose Start button schedules clicks and advances the beat readout, and Stop stops it', async () => {
+    const user = userEvent.setup()
+    const clock = new FakeClock()
+    const audioOutput = new RecordingAudioOutput(clock)
+    const manual = manualDriver()
+
+    render(
+      <FlashcardScreen
+        clock={clock}
+        midiInput={new FakeMidiInput()}
+        rng={seededRng(1)}
+        audioOutput={audioOutput}
+        frameDriver={manual.driver}
+      />,
+    )
+
+    const group = screen.getByRole('group', { name: 'Metronome' })
+    expect(within(group).getByTestId('flashcard-metronome-beat')).toHaveTextContent('—')
+    expect(within(group).getByLabelText('Tempo (BPM)')).toBeInTheDocument()
+
+    await user.click(within(group).getByRole('button', { name: 'Start' }))
+    // Default 100 BPM = 600ms/beat: at 700ms, exactly one beat has elapsed —
+    // `beat` is 0-based in core, so the readout's 1-based beat 2 pins both the
+    // scheduling and the +1 display conversion (a dropped `+ 1` would read
+    // "beat 1" here).
+    act(() => {
+      clock.advance(700)
+      manual.pump()
+    })
+
+    expect(audioOutput.clicks.length).toBeGreaterThan(0)
+    expect(within(group).getByTestId('flashcard-metronome-beat')).not.toHaveTextContent('—')
+    expect(within(group).getByTestId('flashcard-metronome-beat')).toHaveTextContent('beat 2')
+
+    const clicksBeforeStop = audioOutput.clicks.length
+    await user.click(within(group).getByRole('button', { name: 'Stop' }))
+    expect(within(group).getByRole('button', { name: 'Start' })).toBeInTheDocument()
+    act(() => {
+      clock.advance(700)
+      manual.pump()
+    })
+
+    expect(audioOutput.clicks.length).toBe(clicksBeforeStop)
+  })
+
+  it('the Tempo field is wired to the metronome — changing it changes click spacing (roadmap 2.28a)', async () => {
+    const user = userEvent.setup()
+    const clock = new FakeClock()
+    const audioOutput = new RecordingAudioOutput(clock)
+    const manual = manualDriver()
+
+    render(
+      <FlashcardScreen
+        clock={clock}
+        midiInput={new FakeMidiInput()}
+        rng={seededRng(1)}
+        audioOutput={audioOutput}
+        frameDriver={manual.driver}
+      />,
+    )
+
+    const group = screen.getByRole('group', { name: 'Metronome' })
+    const tempoInput = within(group).getByLabelText('Tempo (BPM)')
+    await user.clear(tempoInput)
+    await user.type(tempoInput, '240')
+    await user.tab()
+    expect(tempoInput).toHaveValue(240)
+
+    await user.click(within(group).getByRole('button', { name: 'Start' }))
+    // 240 BPM = 250ms/beat: over 1000ms that is 4 clicks, versus 1-2 at the
+    // 100 BPM default — a no-op onChange (clicks.length stays at whatever the
+    // default tempo would produce) fails this.
+    act(() => {
+      clock.advance(1000)
+      manual.pump()
+    })
+
+    expect(audioOutput.clicks.length).toBeGreaterThanOrEqual(4)
   })
 })

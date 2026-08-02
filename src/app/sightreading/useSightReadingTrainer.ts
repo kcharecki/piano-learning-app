@@ -157,6 +157,8 @@ export type UseSightReadingTrainerOptions = {
   readonly connectMidi?: ConnectMidi
   readonly frameDriver?: FrameDriver
   readonly rng?: Rng
+  /** REQ-3.9.1: on by default (a no-stopping run needs a pulse to keep to) but must be switchable. */
+  readonly metronomeEnabled?: boolean
 }
 
 export type UseSightReadingTrainer = {
@@ -236,7 +238,7 @@ export function useSightReadingTrainer(
     activeHands,
     tempoScale: 1,
     loop: undefined,
-    metronomeEnabled: true,
+    metronomeEnabled: options.metronomeEnabled ?? true,
     metronomeSubdivision: 1,
     waitModeEnabled: false,
     clock,

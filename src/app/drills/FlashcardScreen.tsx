@@ -11,9 +11,12 @@
  */
 import { MidiDeviceStatus } from '@app/practice/MidiDeviceStatus.tsx'
 import type { ConnectMidi } from '@app/practice/useMidiConnection.ts'
+import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
+import { useMetronome } from '@app/metronome/useMetronome.ts'
 import type { GradeResult } from '@core/drills/flashcards.ts'
-import type { Clock, DateSource, MidiInput, Rng } from '@core/ports/index.ts'
-import { useState } from 'react'
+import type { AudioOutput, Clock, DateSource, MidiInput, Rng } from '@core/ports/index.ts'
+import { MAX_BPM, MIN_BPM } from '@core/timing/metronome.ts'
+import { useId, useState } from 'react'
 import { IntervalAnswerPad } from './IntervalAnswerPad.tsx'
 import { OnScreenKeyboard } from './OnScreenKeyboard.tsx'
 import { StaffNote } from './StaffNote.tsx'
@@ -27,6 +30,9 @@ export type FlashcardScreenProps = {
   readonly midiInput?: MidiInput
   readonly connectMidi?: ConnectMidi
   readonly rng?: Rng
+  /** Injection seams for the standalone metronome (roadmap 2.28a, REQ-3.9.1); each defaults to the real browser adapter. */
+  readonly audioOutput?: AudioOutput
+  readonly frameDriver?: FrameDriver
 }
 
 const MIN_DRILL_LEVEL = 1
@@ -44,7 +50,32 @@ function AnswerFeedback({ grade }: { readonly grade: GradeResult | undefined }) 
 export function FlashcardScreen(props: FlashcardScreenProps) {
   const [level, setLevel] = useState(MIN_DRILL_LEVEL)
   const [kind, setKind] = useState<DrillKind>('staff-to-key')
-  const drill = useFlashcardDrill({ level, kind, ...props })
+  // Metronome-only seams pulled out first: `useFlashcardDrill` declares
+  // neither `audioOutput` nor `frameDriver`, so leaving them in the spread
+  // would rely on TypeScript's excess-property-check exemption for spreads.
+  const { audioOutput, frameDriver, ...drillProps } = props
+  const drill = useFlashcardDrill({ level, kind, ...drillProps })
+  const metronome = useMetronome({
+    ...(props.clock === undefined ? {} : { clock: props.clock }),
+    ...(audioOutput === undefined ? {} : { audioOutput }),
+    ...(frameDriver === undefined ? {} : { frameDriver }),
+  })
+  const tempoId = useId()
+
+  // Held as raw text and only committed on blur/Enter: a controlled input
+  // bound directly to the clamped `metronome.bpm` rewrites mid-keystroke
+  // every time the clamp kicks in (typing "8" toward "80" clamps to MIN_BPM
+  // after the first digit, then the next keystroke produces "200"), making
+  // most tempi impossible to type. Same fix as MetronomeScreen.tsx.
+  const [bpmText, setBpmText] = useState(() => String(metronome.bpm))
+  const [bpmEditing, setBpmEditing] = useState(false)
+  const displayedBpm = bpmEditing ? bpmText : String(metronome.bpm)
+
+  function commitBpm(): void {
+    setBpmEditing(false)
+    const parsed = Number(bpmText)
+    if (Number.isFinite(parsed)) metronome.setBpm(parsed)
+  }
 
   return (
     <div className="flashcard-screen">
@@ -55,6 +86,32 @@ export function FlashcardScreen(props: FlashcardScreenProps) {
         selectedDeviceId={drill.midi.selectedDeviceId}
         connectionError={drill.midi.connectionError}
       />
+
+      <fieldset>
+        <legend>Metronome</legend>
+        <button type="button" onClick={metronome.running ? metronome.stop : metronome.start}>
+          {metronome.running ? 'Stop' : 'Start'}
+        </button>
+        <label htmlFor={tempoId}>Tempo (BPM)</label>
+        <input
+          id={tempoId}
+          type="number"
+          min={MIN_BPM}
+          max={MAX_BPM}
+          value={displayedBpm}
+          onChange={(event) => {
+            setBpmEditing(true)
+            setBpmText(event.target.value)
+          }}
+          onBlur={commitBpm}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') commitBpm()
+          }}
+        />
+        <p data-testid="flashcard-metronome-beat">
+          {metronome.lastClick === undefined ? '—' : `beat ${metronome.lastClick.beat + 1}`}
+        </p>
+      </fieldset>
       <div className="flashcard-level" role="group" aria-label="Level">
         <button
           type="button"
