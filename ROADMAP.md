@@ -273,11 +273,14 @@ recovered it commit by commit and recorded the evidence each box was ticked on.
       tempo is gone, turn looping off and the slowed tempo stays applied to the whole piece.
       *Proof: set loop A to 60% and loop B to 90%, switch between them, assert the effective BPM
       follows the loop and that disabling looping restores the unlooped tempo.*
-- [ ] 2.30 e2e: drive wait mode end to end. It is the only REQ-3.3.x mode with no e2e, and its
+- [x] 2.30 e2e: drive wait mode end to end. It is the only REQ-3.3.x mode with no e2e, and its
       defining behaviour — playback actually stopping — is what unit tests with a fake frame driver
       are worst at proving. The fake-MIDI harness makes it cheap now.
-      *Proof: enable "Wait for me", press Play, assert the position readout has not advanced after
-      2s, fire the owed note, assert it advances.*
+      *Proved by `e2e/waitmode.spec.ts`: enables "Wait for me", presses Play, asserts the gate is
+      visible ("Waiting for: …"), lets 1.8s of real wall-clock pass — three quarter notes at the
+      sample's 100bpm — and asserts the position readout is byte-identical, then fires the four
+      pitches sounding at tick 0 through the fake keyboard and asserts it moves. Mutant checked by
+      running it with the wait-mode checkbox left unchecked: it fails.*
 - [ ] 2.31 `app/sightreading`: nav-away silently abandons a run. `Shell` unmounts the screen on any
       nav click, destroying the session, so a learner butchering a piece can escape in two clicks and
       it is neither graded nor retired — which also undermines REQ-3.4.4's "no stopping".
