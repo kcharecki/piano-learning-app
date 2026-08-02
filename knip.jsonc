@@ -17,8 +17,30 @@
   "ignore": [
     // roadmap 4.7 — dashboard (practice log, streaks, trends)
     "src/core/progress/log.ts",
+    // roadmap 4.7a — today's practice session screen
+    "src/core/curriculum/session.ts",
     // roadmap 3.1 / 3.9 — harmony, and the always-available chord & scale reference
     "src/core/theory/chords.ts",
-    "src/core/theory/chord-recognition.ts"
+    "src/core/theory/chord-recognition.ts",
+    // roadmap 3.2 / 3.3 / 3.8 — roman-numeral analysis, theory drills, circle of fifths
+    "src/core/theory/harmony.ts",
+    // roadmap 3.10 — the ear-training screens, the only consumers these will have
+    "src/core/eartraining/item.ts",
+    "src/core/eartraining/intervals.ts",
+    "src/core/eartraining/chords.ts",
+    "src/core/eartraining/dictation.ts",
+    "src/core/eartraining/session.ts",
+    // roadmap 4.9 — the shipped curriculum content these validate and navigate
+    "src/core/curriculum/types.ts",
+    "src/core/curriculum/model.ts",
+    // roadmap 4.7 — dashboard (per-track levels and their exit criteria)
+    "src/core/progress/levels.ts",
+    // roadmap 4.4's own screen, tracked as part of 4.7 — technique drills and their history
+    "src/core/technique/library.ts",
+    "src/core/technique/evenness.ts",
+    // roadmap 4.7 — repertoire status on the dashboard
+    "src/core/repertoire/repertoire.ts",
+    // roadmap 4.6a — the export/import screen (a file picker and a download button)
+    "src/core/progress/export.ts"
   ]
 }

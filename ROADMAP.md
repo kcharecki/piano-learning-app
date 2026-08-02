@@ -298,29 +298,75 @@ recovered it commit by commit and recorded the evidence each box was ticked on.
 
 ## Phase 3 — Milestone M3: theory & ears
 
+Every core module here is built ahead of the screen that consumes it. The screens (3.8–3.10) are
+therefore not optional polish: until they land, all of 3.1–3.6 is production-unreachable and
+`knip:prod` says so. Do not tick a core task until its named consumer task also exists.
+
 - [ ] 3.1 `core/theory/harmony`: diatonic function, roman numerals, cadences, progressions (REQ-3.5.1)
+      *Proof: consumed by 3.2/3.3/3.8; property test round-trips every diatonic chord in all 30
+      keys through its roman numeral and back.*
 - [ ] 3.2 `core/theory/analysis`: roman-numeral analysis of a Score (REQ-3.5.5)
+      *Proof: analyse the bundled Twinkle sample and assert the I–IV–V–I skeleton, shown on screen
+      under the score.*
 - [ ] 3.3 ‖ `core/drills/theory`: keyboard-answered theory drills, quiz items, SRS-backed (REQ-3.5.2)
+      *Proof: e2e — Theory → a quiz item answered on the on-screen keyboard is graded and its SRS
+      card is scheduled.*
 - [ ] 3.4 ‖ `core/eartraining/intervals`: melodic/harmonic interval recognition, adaptive (REQ-3.6.1)
+      *Proof: e2e via 3.10 — hear an interval, answer it, see the grade and the level adapt.*
 - [ ] 3.5 ‖ `core/eartraining/chords`: chord quality + scale/mode recognition
+      *Proof: e2e via 3.10 — a chord is played, its quality answered and graded.*
 - [ ] 3.6 ‖ `core/eartraining/dictation`: melodic and rhythmic dictation grading (REQ-3.6.2)
+      *Proof: e2e via 3.10 — play back a heard phrase through the fake MIDI keyboard, see a
+      per-note result with pitch and rhythm scored separately.*
 - [ ] 3.7 `content/theory`: theory lesson content for levels 1–3 with diagrams + play tasks
+      *Proof: every lesson passes `validateCurriculum` and each one is reachable and readable in
+      the app.*
 - [ ] 3.8 `app`: interactive circle of fifths, keyboard/staff explorer (REQ-3.5.3)
+      *Proof: e2e — click a key on the circle, assert the staff shows that key signature and the
+      keyboard highlights its scale.*
 - [ ] 3.9 `app`: chord & scale reference, always available (REQ-3.5.4)
-- [ ] 3.10 `app`: ear-training screens
+      *Proof: e2e — reachable from every screen; look up C harmonic minor and see its notes and
+      fingering.*
+- [ ] 3.10 `app`: ear-training screens — the only consumers 3.4/3.5/3.6 will have
+      *Proof: e2e — each of the three drills reached through the shell's own nav, driven to a
+      grade, with the audio output asserted to have been asked to play the prompt.*
 - [ ] 3.11 M3 acceptance pass
 
 ## Phase 4 — Milestone M4: progression
 
 - [ ] 4.1 `core/curriculum`: levels → units → lessons → exercises model + exit criteria (REQ-3.1.1, 2.2)
+      *Proof: the shipped curriculum content (4.9) validates, and a lesson opens in the app.*
 - [ ] 4.2 `core/curriculum/session`: daily practice session builder, 15/30/60 min budgets (REQ-3.1.4)
+      *Proof: e2e — ask for a 30-minute session, assert the segment minutes sum to exactly 30 and
+      match the 20/20/40/20 mix, and that every item opens the drill it names.*
 - [ ] 4.3 `core/progress/levels`: per-track levels, advancement checks, manual override (REQ-2.1–2.3)
+      *Proof: e2e — the dashboard shows three independent track levels; a manual override moves
+      one and survives a reload.*
 - [ ] 4.4 ‖ `core/technique`: technique library, evenness scoring, tempo history (REQ-3.7.x)
+      *Proof: e2e — pick C major 2 octaves, play it through the fake MIDI keyboard, see an
+      evenness score and a new point on the tempo history.*
 - [ ] 4.5 ‖ `core/repertoire`: statuses, practice history, maintenance prompts (REQ-3.8.x)
+      *Proof: e2e — add the imported score to the repertoire, set it to maintained, and see it
+      appear in the review-due list once its interval has passed.*
 - [ ] 4.6 `core/progress/export`: JSON/CSV export + restore round-trip (REQ-3.10.4, 4.3)
+      *Proof: e2e — export from a populated app, wipe IndexedDB, import the file back and assert
+      the dashboard reads the same.*
+- [ ] 4.6a `app`: the export/import screen — a download button and a file picker over
+      `core/progress/export`, the only consumer it will have (REQ-3.10.4)
+      *Proof: e2e — download the JSON, wipe IndexedDB, import the file back, assert the restored
+      state matches (this is 4.6's own proof action, and this task is where it runs).*
 - [ ] 4.7 `app`: dashboard — levels, streak, trends, repertoire status (REQ-3.10.1/2)
+      *Proof: e2e — after a practice session and an assessment, the dashboard shows a non-zero
+      streak, the session's minutes and the assessment's accuracy, all read back from IndexedDB.*
+- [ ] 4.7a `app`: today's practice session screen — calls planSession with real curriculum
+      candidates, renders PlannedSession, each item opens the drill it names (REQ-3.1.4)
+      *Proof: e2e — ask for a 30-minute session, assert the segment minutes sum to exactly 30 and
+      match the 20/20/40/20 mix, and that every item opens the drill it names.*
 - [ ] 4.8 `app`: annotations (fingering edits, highlights, notes) persisted per piece (REQ-3.2.6)
+      *Proof: e2e — add a fingering and a note to a piece, reload, both are still there.*
 - [ ] 4.9 `content`: 30 lessons L1–2, technique library through L3, 20 graded repertoire pieces (REQ-5.2)
+      *Proof: `validateCurriculum` is green over the shipped content in a test, and the lesson
+      list renders all 30 in the app.*
 - [ ] 4.10 M4 acceptance pass — full §9 acceptance criteria review
 
 ## Backlog / optional
