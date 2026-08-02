@@ -324,9 +324,13 @@ therefore not optional polish: until they land, all of 3.1–3.6 is production-u
 - [x] 3.1 `core/theory/harmony`: diatonic function, roman numerals, cadences, progressions (REQ-3.5.1)
       *Proof: consumed by 3.2/3.3/3.8; property test round-trips every diatonic chord in all 30
       keys through its roman numeral and back.*
-- [ ] 3.2 `core/theory/analysis`: roman-numeral analysis of a Score (REQ-3.5.5)
-      *Proof: analyse the bundled Twinkle sample and assert the I–IV–V–I skeleton, shown on screen
-      under the score.*
+- [x] 3.2 `core/theory/analysis`: roman-numeral analysis of a Score (REQ-3.5.5) — core only
+      *Proved in `analysis.test.ts` against the bundled Twinkle sample: the I–IV–V–I skeleton and
+      the perfect authentic cadence at the end, named literally. The on-screen half is 3.2a.*
+- [ ] 3.2a `app/score`: show the roman-numeral analysis under the score — the only consumer
+      `core/theory/analysis` will have, and the reason its knip ignore exists.
+      *Proof: e2e — open Practice with the bundled sample and read I, IV, V, I under the staff,
+      with the cadence named.*
 - [ ] 3.3 ‖ `core/drills/theory`: keyboard-answered theory drills, quiz items, SRS-backed (REQ-3.5.2)
       *Proof: e2e — Theory → a quiz item answered on the on-screen keyboard is graded and its SRS
       card is scheduled.*
@@ -362,6 +366,14 @@ therefore not optional polish: until they land, all of 3.1–3.6 is production-u
       *Proof: e2e — the dashboard shows three independent track levels; a manual override moves
       one and survives a reload.*
 - [x] 4.4 ‖ `core/technique`: technique library, evenness scoring, tempo history (REQ-3.7.x)
+      — core only; `evenness`/`tempoHistory` are read by the dashboard, the drill LIBRARY still
+      has no screen (4.4a). Evenness is proved scale-invariant by property test: the same rhythm
+      played twice as fast scores the same, which is what makes it a measure of evenness and not
+      of tempo.
+- [ ] 4.4a `app/technique`: the technique drill screen — pick a drill from `techniqueLibrary`,
+      play it against the metronome, store the attempt. Until it exists `candidates.ts` emits no
+      technique exercise (a planned session item nothing can open would be worse), so REQ-3.1.4's
+      20% warm-up share is redistributed rather than filled.
       *Proof: e2e — pick C major 2 octaves, play it through the fake MIDI keyboard, see an
       evenness score and a new point on the tempo history.*
 - [x] 4.5 ‖ `core/repertoire`: statuses, practice history, maintenance prompts (REQ-3.8.x)

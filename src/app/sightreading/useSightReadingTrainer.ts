@@ -38,13 +38,78 @@
  * decides whether the level moves. The store (`sightReadingStore.ts`) never
  * makes that decision itself — it only holds `level` and `history` — so this
  * hook is the one and only caller of `adaptLevel`.
+ *
+ * ## Abandoning a run (roadmap 2.31, REQ-3.4.3/3.4.4)
+ *
+ * The shell unmounts this screen on any nav click, which used to destroy an
+ * in-progress session for free: two clicks and a butchered read was neither
+ * graded nor retired, quietly undoing REQ-3.4.4's "no stopping" discipline.
+ * The unmount effect near the bottom of this hook closes that hole: if the
+ * session is still in `'preview'` or `'playing'` when this hook unmounts, it
+ * is graded and retired exactly as a finished run is, via the SAME
+ * `session.finish()` / `retire()` / `adaptLevel()` path — there is no second
+ * code path for "abandoned" records, only a second caller of the normal one.
+ *
+ * Grading needs an `AssessmentResult`, and `useAssessment.result` is only
+ * ever populated on a NATURAL end (`useAssessment.ts`'s own `finalizeRun`,
+ * which this hook does not own and cannot invoke early) — so an abandoned
+ * run cannot reuse it. Instead this hook keeps a second, independent
+ * `NoteMatcher` (`matcherRef`) fed from the SAME MIDI events `useAssessment`
+ * feeds its own, private one — precisely the "why this needs its own
+ * matcher, not `useNoteFeedback`'s" reasoning `useAssessment.ts`'s module
+ * comment gives for itself, one level further removed. Its anchor is
+ * `clock.now()` read immediately after `useAssessment.start()` returns —
+ * nothing yields to the event loop in between, so this can never disagree
+ * with `useAssessment`'s own anchor by more than the cost of one JS
+ * statement.
+ *
+ * On abandonment, that shadow matcher is force-closed all the way to the end
+ * of the piece — `matcher.advanceTo(endOfScoreMs)`, exactly what
+ * `useAssessment`'s `finalizeRun` does at a natural end — so every note not
+ * already played becomes `missed`, never simply absent from the count. That
+ * is what keeps quitting from ever being the smart play: an abandoned run
+ * can at best tie a completed run that gets nothing else right from this
+ * point on; it can never score better, because nothing still to come could
+ * have hurt the score if left unplayed instead of attempted. Whatever WAS
+ * played before quitting still counts as `correct`/`wrongPitch`, so
+ * "accuracy as measured" is not simply zero unless nothing was played.
+ *
+ * ## Retirement keys on content, not just parameters (roadmap 2.31)
+ *
+ * `generateMelody`'s own id (`melody.ts`'s `scoreId`) is a pure function of
+ * `GeneratorParams` alone — by that module's own doc, "never of anything its
+ * `Rng` draws" — so re-rolling the exact same params against a fresh `Rng`
+ * produces a different tune with the EXACT SAME id. Recording that id as the
+ * retirement key (what `SightReadingSession.finish()` does, and what
+ * `nextExerciseParams` checks via `isRetired`) therefore retires a PARAMETER
+ * COMBINATION, not a piece: the second exercise ever drawn at a level would
+ * find its own params already "seen" and be forced into a transposed/longer
+ * variant, even though the actual notes were never played before.
+ *
+ * The correct fix is in `melody.ts`'s `scoreId` (fold a hash of the
+ * generated notes into the id) — this hook may not edit that file, so
+ * `contentPieceId` below does the app-side half instead: it appends a full
+ * pitch/rhythm/hand signature of the ACTUAL generated notes onto the
+ * generator's id, and that combined string — not `generateMelody`'s own
+ * `.id` — is what this hook uses for the session's score, for the shadow
+ * matcher, and for what ends up in `SightReadingRecord.pieceId` via
+ * `session.finish()`. Two reads at identical params but different `Rng`
+ * draws now get different signatures and are therefore recorded, retired
+ * and displayed (the `score` this hook returns is the SAME content-keyed
+ * copy) as two different pieces — see this file's build report for exactly
+ * what `melody.ts` would need for the core-side fix.
  */
-import type { Hand, Score } from '@core/notation/score.ts'
+import { scoreDurationTicks, type Hand, type Score } from '@core/notation/score.ts'
 import type { AudioOutput, Clock, DateSource, MidiInput, Rng } from '@core/ports/index.ts'
-import type { AssessmentResult } from '@core/practice/assessment.ts'
+import { assess, type AssessmentResult } from '@core/practice/assessment.ts'
+import { MATCHER_DEFAULTS, NoteMatcher } from '@core/practice/matcher.ts'
+import { bpmAtTick, makeTempoMap, tickToMs } from '@core/timing/tempo.ts'
+import { millis as asMillis, ticks as asTicks } from '@core/shared/units.ts'
+import { invariant } from '@core/shared/invariant.ts'
 import { adaptLevel, nextExerciseParams } from '@core/sightreading/adaptive.ts'
 import { generateMelody } from '@core/generator/melody.ts'
 import {
+  isRetired,
   retire,
   SightReadingSession,
   type SightReadingPhase,
@@ -64,6 +129,21 @@ import { useTransportLoop, type FrameDriver } from '@app/practice/useTransportLo
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createBrowserRng } from './rng.ts'
 import { silentAudioOutput } from './silentAudioOutput.ts'
+
+/**
+ * `score` with its id replaced by one that folds in every note's own
+ * pitch/rhythm/hand — see the module comment's "Retirement keys on content"
+ * section for why. Order-preserving and total (covers every note, not just a
+ * sample), so two note lists that differ anywhere at all produce different
+ * signatures; `melody.ts`'s own id is kept as a human-readable prefix purely
+ * for debugging, never relied on for uniqueness.
+ */
+function contentPieceId(score: Score): string {
+  const signature = score.notes
+    .map((n) => `${n.startTick}.${n.durationTicks}.${n.midi}.${n.hand}`)
+    .join('|')
+  return `${score.id}#${signature}`
+}
 
 /** `'idle'` (nothing generated yet) sits in front of `SightReadingSession`'s own phases. */
 export type SightReadingUiPhase = 'idle' | SightReadingPhase
@@ -126,6 +206,18 @@ export function useSightReadingTrainer(
   )
 
   const sessionRef = useRef<SightReadingSession | undefined>(undefined)
+  // The content-keyed copy of whatever `score` state below holds — see the
+  // module comment. Assigned directly in `start()`, never derived from
+  // `score` on a later render, so it is never one commit behind (an unmount
+  // effect's cleanup cannot wait for a render that may never come).
+  const runScoreRef = useRef<Score | undefined>(undefined)
+  // The shadow matcher an abandoned run is graded from — see the module
+  // comment's "Abandoning a run" section. Built fresh alongside the session
+  // in `start()`, so it exists exactly when `sessionRef.current` does.
+  const matcherRef = useRef<NoteMatcher | undefined>(undefined)
+  // The instant the shadow matcher's tick-0 is anchored to; `undefined` until
+  // the run actually starts playing (matching `useAssessment`'s own start).
+  const matcherAnchorRef = useRef<number | undefined>(undefined)
   const [uiPhase, setUiPhase] = useState<SightReadingUiPhase>('idle')
   const [score, setScore] = useState<Score | undefined>(undefined)
   const [activeHands, setActiveHands] = useState<readonly Hand[]>(['left', 'right'])
@@ -198,8 +290,35 @@ export function useSightReadingTrainer(
   useEffect(() => {
     if (uiPhase === 'playing' && assessmentRef.current.phase === 'idle') {
       assessmentRef.current.start()
+      // The shadow matcher's anchor — see the module comment's "Abandoning a
+      // run" section for why reading it here, right after `start()` returns
+      // rather than inside it, is indistinguishable from the true anchor.
+      // Valid ONLY while `usePracticeEngine`'s transport is rewound to tick 0
+      // with no count-in (the default, and the only mode this hook uses):
+      // `useAssessment` anchors to `engine.play()`'s own return value, which
+      // is `clock.now() - tickToMs(tempo, transport.positionTicks)`, so the
+      // two anchors coincide only because `positionTicks` is 0 here. If a
+      // count-in or a non-zero start position is ever wired in, this anchor
+      // must be sourced the same way `useAssessment` does instead.
+      matcherAnchorRef.current = clock.now()
     }
-  }, [uiPhase])
+  }, [uiPhase, clock])
+
+  // Feeds the shadow matcher from the SAME MIDI events `useAssessment` feeds
+  // its own private one — see the module comment. A no-op until a run is
+  // actually playing: `matcherAnchorRef.current` stays `undefined` through
+  // `'idle'` and `'preview'`, exactly like `useAssessment`'s own `runRef`.
+  useEffect(() => {
+    if (midi.input === undefined) return undefined
+    return midi.input.onEvent((event) => {
+      const matcher = matcherRef.current
+      const anchor = matcherAnchorRef.current
+      if (matcher === undefined || anchor === undefined) return
+      const estimated = asMillis(event.time - anchor)
+      if (event.type === 'noteOn') matcher.noteOn(event.note, estimated)
+      else if (event.type === 'noteOff') matcher.noteOff(event.note, estimated)
+    })
+  }, [midi.input])
 
   // The run just finished (the transport played off the end) — close out the
   // session, retire the piece, and adapt the level.
@@ -218,24 +337,107 @@ export function useSightReadingTrainer(
     setUiPhase('finished')
   }, [assessment.phase, assessment.result, addRecord, setLevel])
 
+  // REQ-3.4.3/3.4.4: this hook unmounting mid-run (the shell unmounts the
+  // screen on any nav click) must not let the run escape ungraded — see the
+  // module comment's "Abandoning a run" section. Runs once, on mount, purely
+  // to register this cleanup for the eventual unmount; every value it reads
+  // is a ref (always current) or a store action/DateSource that never
+  // changes identity after mount, so the empty dependency array cannot make
+  // this stale.
+  useEffect(() => {
+    return () => {
+      const session = sessionRef.current
+      if (session === undefined || session.phase === 'finished') return
+      // A run abandoned mid-preview never reached 'playing' at all; forcing
+      // that transition first (legal: preview -> playing) is what lets
+      // `session.finish()` below run — `finish()` requires 'playing', by
+      // design, so there is no separate "abandoned from preview" method to
+      // bypass that invariant, only this hook driving the SAME two calls a
+      // completed run would have made anyway.
+      //
+      // This is a deliberate choice, not an oversight: grading (and
+      // retiring) a preview-only abandonment at accuracy 0 costs the
+      // learner nothing extra beyond what quitting mid-play already costs
+      // (see "Abandoning a run" above — an abandoned run can never score
+      // better than a completed one), and the alternative — letting a
+      // preview-and-quit escape ungraded — would let a learner "shop" for
+      // an easy piece by previewing several and only playing the one they
+      // like. Pinned by the "unmounting mid-preview" test below.
+      if (session.phase === 'preview') session.beginPlaying()
+      const score = runScoreRef.current
+      const matcher = matcherRef.current
+      invariant(
+        score !== undefined && matcher !== undefined,
+        'useSightReadingTrainer: a session without its shadow matcher/score — start() must set both together',
+      )
+      // Force every note not already decided to `missed` — see the module
+      // comment's "Abandoning a run" section for why this, not merely
+      // reporting whatever happened to be decided already, is what keeps
+      // quitting from ever outscoring a completed-but-botched run.
+      const tempo = makeTempoMap(score.tempos)
+      const endMs =
+        (tickToMs(tempo, scoreDurationTicks(score)) as number) + MATCHER_DEFAULTS.toleranceMs + 1
+      matcher.advanceTo(asMillis(endMs))
+      const result = assess(score, matcher.results, {
+        tempoBpm: bpmAtTick(tempo, asTicks(0)),
+        date,
+        scoreId: score.id,
+      })
+      const record = session.finish(result)
+      const updatedHistory = retire(historyRef.current, record)
+      const newLevel = adaptLevel(levelRef.current, updatedHistory)
+      addRecord(record)
+      setLevel(newLevel)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately mount-once; see the comment above
+  }, [])
+
   function start(): void {
     setAudioOutput((current) => current ?? createDefaultAudioOutput())
     setError(undefined)
     const params = nextExerciseParams(levelRef.current, rng, historyRef.current)
-    const generated = generateMelody(params, rng)
+    let generated = generateMelody(params, rng)
     if (!generated.ok) {
       setError(generated.error)
       return
     }
+    // REQ-3.4.3: `nextExerciseParams`'s own variant search is keyed on
+    // `generateMelody`'s bare (parameter-only) id, which this hook never
+    // stores — the retirement key it actually persists is the content key
+    // below. So redraw here, against the SAME content key, in a small bounded
+    // loop: re-rolling the same params against the same `Rng` draws different
+    // notes each time, and most redraws will already be unretired. Giving up
+    // after a fixed number of attempts and proceeding with the last draw
+    // mirrors `nextExerciseParams`'s own bounded-search fallback.
+    for (
+      let attempt = 0;
+      attempt < 16 && isRetired(historyRef.current, contentPieceId(generated.value));
+      attempt++
+    ) {
+      generated = generateMelody(params, rng)
+      if (!generated.ok) {
+        setError(generated.error)
+        return
+      }
+    }
     const hands: readonly Hand[] = params.hands === 'both' ? ['left', 'right'] : [params.hands]
+    // REQ-3.4.3: retire the piece actually drawn, not the parameter
+    // combination — see the module comment's "Retirement keys on content"
+    // section. Every consumer below (the session, the shadow matcher, and
+    // the `score` this hook returns) uses this SAME content-keyed copy, so
+    // there is only ever one id in play for a given run.
+    const contentScore: Score = { ...generated.value, id: contentPieceId(generated.value) }
     const session = new SightReadingSession({
-      score: generated.value,
+      score: contentScore,
       clock,
       level: levelRef.current,
     })
     session.beginPreview()
     sessionRef.current = session
-    setScore(generated.value)
+    runScoreRef.current = contentScore
+    matcherRef.current = new NoteMatcher(contentScore, makeTempoMap(contentScore.tempos), { hands })
+    matcherAnchorRef.current = undefined
+    setScore(contentScore)
     setActiveHands(hands)
     setPreviewRemainingMs(session.previewRemainingMs)
     setLastRecord(undefined)

@@ -67,10 +67,17 @@ describe('Shell', () => {
     expect(screen.getByRole('img', { name: /staff/i })).toBeInTheDocument()
   })
 
+  // Every destination is now a real screen — there are no placeholders left
+  // (roadmap 3.8/3.9/3.10, 4.7, 4.7a). Each case asserts on something only
+  // that screen renders, so a nav item pointing at the wrong component fails
+  // here rather than in a browser.
   it.each([
-    ['Theory', '3.8'],
-    ['Progress', '4.7'],
-  ])('renders an honest "not built yet" panel for %s naming task %s', async (label, task) => {
+    ['Theory', 'Theory'],
+    ['Progress', 'Progress'],
+    ['Ear training', 'Ear Training'],
+    ['Metronome', 'Metronome'],
+    ['Today', "Today's session"],
+  ])('reaches the real %s screen through its nav item', async (label, heading) => {
     const user = userEvent.setup()
     render(<Shell />)
 
@@ -78,8 +85,7 @@ describe('Shell', () => {
 
     expect(screen.queryByTestId('mock-score-screen')).toBeNull()
     expect(screen.getByRole('button', { name: label })).toHaveAttribute('aria-current', 'page')
-    expect(screen.getByText(/not built yet/i)).toBeInTheDocument()
-    expect(screen.getByText(task)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument()
   })
 
   it('switches back to Practice', async () => {

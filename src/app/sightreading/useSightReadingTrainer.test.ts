@@ -9,6 +9,7 @@
 import { useSightReadingStore } from '@app/state/sightReadingStore.ts'
 import { MIN_LEVEL } from '@core/sightreading/adaptive.ts'
 import { seededRng } from '@core/ports/rng.ts'
+import { midi, millis } from '@core/shared/units.ts'
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { FakeClock, FakeMidiInput, RecordingAudioOutput } from '@test/fakes.ts'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -46,6 +47,11 @@ afterEach(() => {
  * tick 7680, i.e. 8000ms of play. Re-derived here as a constant instead of a
  * magic number so a change to the generator's own weighting shows up as a
  * loud, obvious test failure rather than a silently wrong wait time.
+ *
+ * The hook's own `score.id` is this generator id PLUS a `#`-delimited content
+ * signature (see `contentPieceId` in the hook itself) — asserted with
+ * `startsWith` below, never an exact match, since the signature depends on
+ * the exact notes the generator happens to draw.
  */
 const SEEDED_SCORE_ID = 'generated:C major:4b:4-4:whole-half:right:unison'
 const SEEDED_SCORE_DURATION_MS = 8_000
@@ -54,17 +60,18 @@ function setup(overrides: Partial<UseSightReadingTrainerOptions> = {}) {
   const clock = new FakeClock()
   const audio = new RecordingAudioOutput(clock)
   const manual = manualDriver()
+  const midiInput = new FakeMidiInput()
   const options: UseSightReadingTrainerOptions = {
     clock,
     date: clock,
     audioOutput: audio,
-    midiInput: new FakeMidiInput(),
+    midiInput,
     frameDriver: manual.driver,
     rng: seededRng(42),
     ...overrides,
   }
-  const { result } = renderHook(() => useSightReadingTrainer(options))
-  return { result, clock, audio, manual, options }
+  const { result, unmount } = renderHook(() => useSightReadingTrainer(options))
+  return { result, clock, audio, manual, options, midiInput, unmount }
 }
 
 describe('useSightReadingTrainer — generating an exercise', () => {
@@ -81,7 +88,7 @@ describe('useSightReadingTrainer — generating an exercise', () => {
     act(() => result.current.start())
 
     expect(result.current.phase).toBe('preview')
-    expect(result.current.score?.id).toBe(SEEDED_SCORE_ID)
+    expect(result.current.score?.id.startsWith(`${SEEDED_SCORE_ID}#`)).toBe(true)
     expect(result.current.activeHands).toEqual(['right'])
     expect(result.current.previewRemainingMs).toBe(30_000)
     expect(result.current.error).toBeUndefined()
@@ -179,10 +186,168 @@ describe('useSightReadingTrainer — playing the exercise (REQ-3.4.4)', () => {
     expect(result.current.previousLevel).toBe(MIN_LEVEL)
   })
 
-  it('starting the next exercise never redraws a retired piece', () => {
-    const { result, clock, manual } = setup()
+  it('starting the next exercise never redraws a retired piece, even when the store already holds its exact id', () => {
+    // Pre-seed the history with the id a fresh `seededRng(42)` run's very
+    // first draw would produce (established by the "two exercises..." test
+    // below: the same seed, from a fresh `Rng`, always draws the same
+    // content-keyed id). `start()` must redraw past that collision rather
+    // than handing back the retired id — this fails against the un-fixed
+    // hook, which never consults `isRetired` at all.
+    const probe = setup({ rng: seededRng(42) })
+    act(() => probe.result.current.start())
+    const collidingId = probe.result.current.score?.id
+    expect(collidingId).toBeDefined()
+    probe.unmount()
+    resetStore()
+
+    useSightReadingStore.setState({
+      level: MIN_LEVEL,
+      history: [{ pieceId: collidingId ?? '', readAt: 0, accuracy: 1, level: MIN_LEVEL }],
+    })
+
+    const { result } = setup({ rng: seededRng(42) })
     act(() => result.current.start())
-    const firstId = result.current.score?.id
+
+    expect(result.current.phase).toBe('preview')
+    expect(result.current.score?.id).not.toBe(collidingId)
+  })
+})
+
+describe('useSightReadingTrainer — abandoning a run (REQ-3.4.3/3.4.4)', () => {
+  it('unmounting mid-preview (nothing played) still grades and retires the piece, at accuracy 0', () => {
+    const { result, unmount } = setup()
+    act(() => result.current.start())
+    const pieceId = result.current.score?.id
+    expect(pieceId).toBeDefined()
+    expect(result.current.phase).toBe('preview')
+
+    unmount()
+
+    const history = useSightReadingStore.getState().history
+    expect(history).toHaveLength(1)
+    expect(history[0]?.pieceId).toBe(pieceId)
+    expect(history[0]?.accuracy).toBe(0)
+    expect(history[0]?.level).toBe(MIN_LEVEL)
+  })
+
+  it('unmounting mid-playing grades on what was actually played, not zero', () => {
+    const { result, clock, manual, midiInput, unmount } = setup()
+    act(() => result.current.start())
+    // Advance the clock partway through the preview BEFORE starting, so the
+    // shadow matcher's anchor (`clock.now()` read right after the run
+    // starts) is non-zero — pinning it against a stale/zero anchor, which a
+    // stubbed `matcherAnchorRef.current = 0` would otherwise pass unnoticed.
+    act(() => {
+      clock.advance(12_000)
+      manual.pump()
+    })
+    act(() => result.current.skipPreview())
+    expect(result.current.phase).toBe('playing')
+
+    const firstNote = result.current.score?.notes[0]
+    expect(firstNote?.startTick).toBe(0)
+    // Played exactly on time relative to the (non-zero) anchor set the
+    // instant the run started playing — see the hook's own module comment.
+    act(() =>
+      midiInput.emit({
+        type: 'noteOn',
+        note: midi(firstNote?.midi ?? 0),
+        velocity: 80,
+        time: millis(12_000),
+      }),
+    )
+
+    unmount()
+
+    const history = useSightReadingStore.getState().history
+    expect(history).toHaveLength(1)
+    // Not zero: the one note actually played correctly must count, even
+    // though every other expected note is force-closed as `missed` on
+    // abandonment (see the hook's module comment on why that force-close is
+    // what stops quitting from ever outscoring a finished-but-botched run).
+    expect(history[0]?.accuracy).toBeGreaterThan(0)
+    expect(history[0]?.accuracy).toBeLessThan(1)
+  })
+
+  it('an abandoned run can never score better than the same run finished with nothing else right', () => {
+    // Two runs at the SAME piece and the SAME single correct note: one
+    // abandoned right after that note, one played out to the end getting
+    // nothing else right. Their accuracies must be equal, not the abandoned
+    // one higher — proving quitting bought nothing.
+    const abandoned = setup()
+    act(() => abandoned.result.current.start())
+    // Non-zero anchor — see the "unmounting mid-playing" test above.
+    act(() => {
+      abandoned.clock.advance(12_000)
+      abandoned.manual.pump()
+    })
+    act(() => abandoned.result.current.skipPreview())
+    const note = abandoned.result.current.score?.notes[0]
+    expect(note?.startTick).toBe(0)
+    act(() =>
+      abandoned.midiInput.emit({
+        type: 'noteOn',
+        note: midi(note?.midi ?? 0),
+        velocity: 80,
+        time: millis(12_000),
+      }),
+    )
+    abandoned.unmount()
+    const abandonedAccuracy = useSightReadingStore.getState().history[0]?.accuracy
+    resetStore()
+
+    const finished = setup()
+    act(() => finished.result.current.start())
+    act(() => {
+      finished.clock.advance(12_000)
+      finished.manual.pump()
+    })
+    act(() => finished.result.current.skipPreview())
+    const note2 = finished.result.current.score?.notes[0]
+    act(() =>
+      finished.midiInput.emit({
+        type: 'noteOn',
+        note: midi(note2?.midi ?? 0),
+        velocity: 80,
+        time: millis(12_000),
+      }),
+    )
+    act(() => {
+      finished.clock.advance(SEEDED_SCORE_DURATION_MS + 500)
+      finished.manual.pump()
+    })
+    expect(finished.result.current.phase).toBe('finished')
+    const finishedAccuracy = useSightReadingStore.getState().history[0]?.accuracy
+
+    expect(abandonedAccuracy).toBeDefined()
+    expect(abandonedAccuracy).toBe(finishedAccuracy)
+  })
+
+  it('unmounting mid-run adapts the level from the abandoned record, same as a finished run', () => {
+    // Two prior sub-band (0% accuracy) records at level 2 — one more
+    // agreeing low read should drop the level to MIN_LEVEL (window 3,
+    // REQ-3.4.6). Only holds if the abandon-path cleanup calls `adaptLevel`
+    // over the history WITH this run's own record folded in via `retire`,
+    // not the pre-run history.
+    useSightReadingStore.setState({
+      level: 2,
+      history: [
+        { pieceId: 'p1', readAt: 0, accuracy: 0, level: 2 },
+        { pieceId: 'p2', readAt: 0, accuracy: 0, level: 2 },
+      ],
+    })
+    const { result, unmount } = setup()
+    act(() => result.current.start())
+    expect(result.current.phase).toBe('preview')
+
+    unmount()
+
+    expect(useSightReadingStore.getState().level).toBe(MIN_LEVEL)
+  })
+
+  it('unmounting after the run already finished does not append a second record', () => {
+    const { result, clock, manual, unmount } = setup()
+    act(() => result.current.start())
     act(() => result.current.skipPreview())
     act(() => {
       clock.advance(SEEDED_SCORE_DURATION_MS + 500)
@@ -190,9 +355,52 @@ describe('useSightReadingTrainer — playing the exercise (REQ-3.4.4)', () => {
     })
     expect(result.current.phase).toBe('finished')
 
-    act(() => result.current.start())
+    unmount()
 
-    expect(result.current.phase).toBe('preview')
-    expect(result.current.score?.id).not.toBe(firstId)
+    expect(useSightReadingStore.getState().history).toHaveLength(1)
+  })
+})
+
+describe('useSightReadingTrainer — retirement keys on content, not just parameters (REQ-3.4.3)', () => {
+  it('two exercises drawn from identical params but different Rng draws get different retirement keys', () => {
+    const a = setup({ rng: seededRng(42) })
+    act(() => a.result.current.start())
+    const idA = a.result.current.score?.id
+    a.unmount()
+
+    resetStore()
+
+    const b = setup({ rng: seededRng(7) })
+    act(() => b.result.current.start())
+    const idB = b.result.current.score?.id
+
+    expect(idA).toBeDefined()
+    expect(idB).toBeDefined()
+    expect(idA).not.toBe(idB)
+    // Same generator/param prefix (both seeds draw level 1's canonical,
+    // untransposed params) — only the content signature after `#` differs.
+    // Without this, the test would pass just as happily if the two seeds
+    // had instead drawn different GeneratorParams, which is not the claim.
+    expect(idA?.split('#')[0]).toBe(idB?.split('#')[0])
+  })
+
+  it('two runs from fresh, identically-seeded Rngs produce the SAME retirement key', () => {
+    // The converse of the above, and what retirement actually depends on:
+    // identical content must yield an identical key, or a piece a learner
+    // has already read could reappear under a different id and never be
+    // recognised as retired.
+    const a = setup({ rng: seededRng(42) })
+    act(() => a.result.current.start())
+    const idA = a.result.current.score?.id
+    a.unmount()
+
+    resetStore()
+
+    const b = setup({ rng: seededRng(42) })
+    act(() => b.result.current.start())
+    const idB = b.result.current.score?.id
+
+    expect(idA).toBeDefined()
+    expect(idA).toBe(idB)
   })
 })
