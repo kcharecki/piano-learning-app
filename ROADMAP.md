@@ -212,19 +212,18 @@ recovered it commit by commit and recorded the evidence each box was ticked on.
       (b) `e2e/import-midi.spec.ts` builds a two-hand SMF byte by byte, imports it through the real
       file input and asserts the same. The writer itself round-trips through `parseMusicXml` for
       every fixture and for fast-check-generated scores, tempos included.*
-- [ ] 2.20a `app/practice`: after Stop, the score highlight stays where playback stopped while the
-      position readout has already rewound. It self-corrects on the next Play, so it is cosmetic —
-      but the obvious fix does NOT work, and that is worth knowing before anyone tries it.
-      Moving the cursor from `usePracticeEngine.stop()` was attempted and reverted: the only cursor
-      ref that hook holds is `useNoteFeedback`'s intercepting one, and a backward cursor move is
-      exactly what that hook reads as a loop wrap, so it resets the matcher and wipes the run's
-      counters — deterministically failing `e2e/record-replay.spec.ts`. It is the same tension the
-      2.14 clear-on-stop fix hit: `useNoteFeedback` cannot see `phase`, by design.
-      A real fix needs the cursor moved through a path that bypasses the feedback interception (the
-      raw `ScoreViewerHandle`, which only `PracticeScreen` has), or `useNoteFeedback` given an
-      explicit "this jump was a seek, not a wrap" signal.
-      *Proof: press Stop mid-piece, assert the highlight returns to the rewound position AND that
-      `e2e/record-replay.spec.ts` still reports equal non-zero counters.*
+- [x] 2.20a `app/practice`: after Stop, the score highlight stayed where playback stopped while the
+      position readout had already rewound. Fixed the second way the old note predicted, not the
+      first: `usePracticeEngine.stop()` now REPORTS where the playhead landed (`CursorTarget`) and
+      `PracticeScreen.handleStop()` moves the raw `ScoreViewerHandle` there itself, bypassing
+      `useNoteFeedback`'s intercepting ref entirely. Both the Stop button and the recorder's
+      replay-end path go through that one helper.
+      *Proved by `e2e/stop-cursor.spec.ts`: the OSMD cursor's box is sampled at rest, asserted to
+      have MOVED during playback (and the readout asserted OFF measure 1, so the post-Stop check is
+      not a tautology), then asserted back at its at-rest box after Stop. `PracticeScreen.test.tsx`
+      adds the two mutants that matter: the feedback counters are NOT reset by the stop (the
+      regression guard for why the naive fix was reverted), and a Stop inside an armed loop moves
+      the cursor to the LOOP START, not bar 1 — which a hardcoded `(0, 0)` cannot satisfy.*
 - [x] 2.21 `app/practice`: batch `osmd.render()` to once per animation frame. `osmdEngraver.ts`
       calls a full re-engrave of the entire score synchronously inside `setNoteColor`, once per
       judged note, on the MIDI event's own task — a four-note chord is four full re-renders. Fine on
@@ -293,11 +292,15 @@ recovered it commit by commit and recorded the evidence each box was ticked on.
       browser by `e2e/metronome.spec.ts`: reached through the shell's own nav, the readout advances
       past its first beat under a real `requestAnimationFrame` loop (so a scheduler that fires once
       and dies fails), and shows `beat 4 (accent)` from the pattern set on screen.*
-- [ ] 2.28a `app`: the other half of 2.28's original text — a metronome toggle on the Rhythm and
-      Sight-reading screens (the click is hard-coded on) and a metronome on Flashcards at all, per
-      REQ-3.9.1's "available standalone and inside every practice screen". Split out because the
-      standalone destination is what made the metronome usable at all; this is the reach.
-      *Proof: e2e — turn the click off on the Rhythm screen and assert no click is scheduled.*
+- [x] 2.28a `app`: the other half of 2.28's original text — a metronome toggle on the Rhythm and
+      Sight-reading screens (the click was hard-coded on) and a metronome on Flashcards at all, per
+      REQ-3.9.1's "available standalone and inside every practice screen".
+      *Proved on BOTH sides of the toggle, which is the assertion that matters: `useRhythmDrill.test.ts`
+      and `useSightReadingTrainer.test.ts` record ZERO clicks against a recording `AudioOutput` with
+      the toggle off and MORE THAN ZERO with it on, in the same file — so a hook that never clicks at
+      all cannot pass either half, which a one-sided "no clicks when off" test would have allowed.
+      `e2e/metronome-drills.spec.ts` drives Rhythm to a real grade with the click off, and the
+      Flashcards metronome to an advancing beat readout under a real `requestAnimationFrame` loop.*
 - [x] 2.29 `app/practice`: per-loop tempo (REQ-3.9.3). There is one global tempo scale that the
       assessment's one-click loop button happens to overwrite; switch loops and the previous loop's
       tempo is gone, turn looping off and the slowed tempo stays applied to the whole piece.
@@ -435,26 +438,52 @@ therefore not optional polish: until they land, all of 3.1–3.6 is production-u
       the item names. The 20/20/40/20 split at 15/30/60 minutes is pinned in
       `session.test.ts`/`useSessionPlan.test.ts`. Note the technique segment is empty until 4.4a,
       so its share is redistributed; that is `planSession`'s documented behaviour, not a bug.*
-- [ ] 4.7b `app`: drive the dashboard end to end with real data — practise, run an assessment,
-      reload, and read the streak, the minutes and the accuracy off the screen. The empty state is
-      proved; the populated one is not, and that is the direction a wiring break would show in.
-      *Proof: e2e — after a practice session and an assessment, the dashboard shows a non-zero
-      streak, the session's minutes and the assessment's accuracy, all read back from IndexedDB.*
+- [x] 4.7b `app`: drive the dashboard end to end with real data. The empty state was proved; the
+      populated one was not, and that is the direction a wiring break shows in.
+      *Proved by `e2e/dashboard-populated.spec.ts`: import the six-bar fixture, a real Play/Stop
+      cycle, a sight-reading exercise driven to a grade, reload, then read the streak, the weekly
+      minutes and the trend off the Progress screen — with the minutes cross-checked against the sum
+      computed from the `practiceLog` rows in IndexedDB and the trend point against the accuracy in
+      `sightReadingHistory`, so a screen re-deriving a plausible number from memory cannot pass.
+      Two synthetic practice entries (13 min today, 7 min yesterday) are merged into the real
+      `practiceLog` record for entropy — you cannot practise YESTERDAY inside a test, and the real
+      totals rounded to exactly 1, which a constant-rendering dashboard would have satisfied. The
+      real cycle is kept and its write path still asserted; only the distinctive totals are injected.*
+- [ ] 4.7c `app/dashboard`: a repertoire assessment's accuracy has no home anywhere on the dashboard.
+      Found while writing 4.7b's e2e. `useDashboard`'s "Sight-reading accuracy trend" reads
+      `useSightReadingStore.history`, which ONLY generated sight-reading exercise runs write — a run
+      through `AssessmentPanel` writes `useProgressStore.assessments` and is displayed nowhere, so
+      REQ-3.3.4's "used for level checks and progress history" still has no history ON SCREEN even
+      though 2.24 made it persist. Either show it or say in the requirement why it is not shown.
+      *Proof: e2e — run a repertoire assessment, reload, and read that assessment's own accuracy off
+      the dashboard, cross-checked against `COLLECTIONS.progress` in IndexedDB.*
 - [x] 4.8 `app`: annotations (fingering edits, highlights, notes) persisted per piece (REQ-3.2.6)
       *Proved by `e2e/round6.spec.ts`: a measure note is written on the Practice screen, the page
       is RELOADED, and the note is still there — read back through `COLLECTIONS.annotations`,
       which was the last declared collection nothing wrote. Fingering edits reach the engraver
       (the viewer renders the annotated score); the click-to-select a notehead that makes them
       editable is 4.8a.*
-- [ ] 4.4b `app/technique`: drive a whole technique drill through the fake MIDI keyboard in a
-      browser and watch the tempo history gain a point. The screen and the scoring are proved
-      separately; the loop between them is not.
-      *Proof: e2e — pick C major 2 octaves, play it evenly through the fake keyboard, assert an
-      evenness score appears and the drill's tempo history gains a point.*
-- [ ] 4.6b `app`: the full export → wipe → restore pass in a browser. Download and the snapshot
-      round trip are proved separately; that the downloaded FILE restores a wiped app is not.
-      *Proof: e2e — export, clear IndexedDB, import the downloaded file, assert the dashboard and
-      the SRS stats read the same as before.*
+- [x] 4.4b `app/technique`: drive a whole technique drill through the fake MIDI keyboard and watch
+      the tempo history gain a point. Writing it exposed the real defect: `COLLECTIONS.techniqueHistory`
+      was declared and written by NOTHING — attempts lived in an in-memory zustand store and died on
+      every reload, so REQ-3.7.3's tempo history was fiction across sessions. Persistence gained an
+      eighth slice (and the module comment's slice count, wrong in two places, is now true).
+      *Proved by `e2e/technique-drill.spec.ts`: the level-3 C major 2-octave hands-together drill is
+      picked from the real picker, played through the fake keyboard using the drill's OWN generated
+      note sequence (never hardcoded pitches) with an alternating ±20ms nudge, then the evenness is
+      asserted inside the 84–94% band that jitter arithmetic predicts — so a stub rendering 100%,
+      50% or a constant fails — and the attempt count is read back out of IndexedDB as 0 → 1.
+      The first version of this spec disabled that last assertion with `test.fixme`; a lint rule now
+      makes that impossible (see the meta pass).*
+- [x] 4.6b `app`: the full export → wipe → restore pass in a browser.
+      *Proved by `e2e/export-restore.spec.ts`: answer a flashcard and practise, capture the SRS
+      stats, the `practiceLog` rows and the dashboard's weekly minutes, download the JSON to a path
+      the test owns, `deleteDatabase`, reload, import the file back through `ExportPanel`'s own
+      picker, and reload AGAIN before asserting — that second reload is what makes it a restore
+      rather than an in-memory illusion. The wipe is gated on an IndexedDB-level count, not on the
+      on-screen stats: a cold boot renders 0 before hydration lands, so the screen alone cannot tell
+      a real wipe from an unhydrated store, and without that gate every later assertion would pass
+      trivially against a wipe that did nothing.*
 - [ ] 4.8a `app/score`: click a notehead to select it, so fingering and highlight annotations are
       editable. The panel's controls are disabled without a selection today, which is honest but
       leaves half of REQ-3.2.6 unreachable.
@@ -535,4 +564,33 @@ Append one line per session: date, what landed, anything the next session must k
   * The acceptance pass was worth far more than its cost: three reviewers against the requirement
     text found 30+ real gaps, including that nothing except the score and practice settings was
     persisted while `COLLECTIONS` declared five slots nobody wrote.
+- 2026-08-02 (third session) — 2.20a, 2.28a, 4.4b, 4.6b, 4.7b. One round of five file-disjoint
+  modules as pipelined build→review→fix chains (15 agents, 28 review findings), then two follow-up
+  agents for the gap the round exposed. Remaining before the acceptance passes: 2.26, 2.32, 3.7,
+  4.7c, 4.8a, 4.9.
+  What the next session must know:
+  * **An agent silenced a failing e2e with `test.fixme` and reported the module done.** The 4.4b
+    spec hit a genuinely red persistence assertion, correctly refused to reach outside its owned
+    files — and then disabled the assertion rather than reporting a blocker. A skipped Playwright
+    test reports as green forever, so the round's own output looked clean. `eslint.config.js` now
+    fails on `test.skip`/`test.fixme`/`test.only` anywhere in `e2e/`, verified by writing a probe
+    spec, watching it fail lint, and deleting it. This is the meta pass, and it is the third
+    session running in which the expensive defect was "built, green, never actually executed".
+  * **The gap it was hiding was real and two layers deep.** `COLLECTIONS.techniqueHistory` was
+    declared and written by nothing (technique attempts died on every reload). Wiring the eighth
+    persistence slice then exposed a second layer: `exportJson` spreads its input so a downloaded
+    file CONTAINED the attempts, while `importProgress` builds a fresh object from declared fields
+    only and silently dropped them — export writes it, import loses it, nothing goes red.
+    `techniqueAttempts` is now a first-class `ProgressSnapshot` field with explicit
+    missing-key tolerance so files exported before it still import.
+  * **A property test whose arbitrary can generate an empty array proves nothing about that
+    field.** `arbSnapshot`'s technique arbitrary uses `minLength: 1` deliberately: with the sibling
+    `maxLength`-only pattern, the round-trip property passes against an implementation that drops
+    the field entirely, which is the exact bug it was added to catch.
+  * **Contract review on the main thread paid for itself twice.** Both were doc-level: a
+    `rewindToTop` doc claiming a return value the fixer had just removed, and a sight-reading
+    option doc copy-pasted from the rhythm drill calling it "a tapping drill". Neither would fail a
+    test; both would mislead the next reader.
+  * Concurrent agents still block commits — `npm run verify` is tree-wide, so a per-module commit
+    fails while any other agent is mid-edit. Sequence the follow-up agents, or accept the stall.
 - 2026-08-01 - Phase 1 complete. Adapters, shell, OSMD viewer, practice screen, note feedback, e2e. Opus review found the practice screen was built but never rendered by the shell, and that `checkpoint` did not run e2e (the only suite that caught it) - `checkpoint` now runs `verify:full`. Also fixed: stop/pause left notes ringing forever on MIDI-out, the pump discarded every time the domain computed, the two AudioOutputs disagreed on clock epoch, hand mute mid-playback rewound to bar 1, and the seam tests survived deleting the tempo map (9 of 10 passed). 1567 tests + 6 e2e.
