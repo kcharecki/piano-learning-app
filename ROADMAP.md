@@ -185,11 +185,12 @@ recovered it commit by commit and recorded the evidence each box was ticked on.
       it is what most publishers and MuseScore actually hand out, so "import MusicXML" is only half
       true without it. Unpack it and feed the existing `parseMusicXml`; because the result is real
       MusicXML text, it engraves in OSMD like any other `.musicxml`, unlike a MIDI import (2.20b).
-      *Proved by `e2e/import.spec.ts`: imports `e2e/fixtures/compressed-six-bars.mxl` through the
-      real file input, asserts the heading becomes the archive's own score title (so the ZIP was
-      opened and the right rootfile chosen, not the bundled sample still showing) and that the
-      score container's OSMD `<svg>` holds more than 50 elements — the discriminator established
-      in `smoke.spec.ts`, where a degenerate render is 25-35 and a load failure has no `<svg>`.*
+      *Proved by `e2e/import-mxl.spec.ts`: zips a MusicXML fixture in memory, imports it through
+      the real file input, asserts the heading becomes the archive's own score title (so the ZIP
+      was opened and the right rootfile chosen, not the bundled sample still showing) and that the
+      score container's OSMD `<svg>` renders. The `musicXml: undefined` mutant — the one that
+      would leave a `.mxl` as blank as a MIDI import — unmounts `ScoreViewer` entirely and fails
+      the `<svg>` assertion.*
 
 - [ ] 2.20 `core/notation`: a `Score` → MusicXML writer. **Two consumers, not one — this is the
       highest-value item in this list.**
