@@ -66,7 +66,9 @@ test('tempo, loop range and Pause/Stop are disabled while an assessment runs, an
   await expect(loopRange.getByLabel('to measure')).toHaveValue('6')
   await page.waitForTimeout(300)
 
-  const tempoSlider = page.getByLabel('Tempo')
+  // `exact` matters since roadmap 2.27 added a "Tempo ramp" control beside
+  // this one — a substring match now resolves to two elements.
+  const tempoSlider = page.getByLabel('Tempo', { exact: true })
   const fromMeasure = loopRange.getByLabel('From measure')
   const toMeasure = loopRange.getByLabel('to measure')
   const transport = page.getByRole('group', { name: 'Transport' })

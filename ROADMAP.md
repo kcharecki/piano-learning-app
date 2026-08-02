@@ -275,23 +275,38 @@ recovered it commit by commit and recorded the evidence each box was ticked on.
       behind the playback cursor. Zero code exists; the cursor plumbing it needs already does.
       *Proof: e2e — enable Read ahead, play, assert measures at/behind the cursor are occluded while
       those ahead stay visible.*
-- [ ] 2.27 `app/practice`: tempo ramping (REQ-3.9.1's own worked example, "+2 BPM per clean
+- [x] 2.27 `app/practice`: tempo ramping (REQ-3.9.1's own worked example, "+2 BPM per clean
       repetition"). `startRamp`/`advanceRamp` in `core/timing/metronome.ts` have never been called
       by production code.
-      *Proof: ramp 60 → 80 at +2 per clean repetition; play a loop cleanly twice and assert the
-      effective BPM went 60 → 62 → 64, and that a failed pass does not lower it.*
-- [ ] 2.28 `app`: a standalone metronome destination with absolute BPM, time signature and accent
-      editing. None of the three is configurable anywhere today, and the metronome cannot run at all
-      without a loaded score — so it is unusable for scales and technique. Also give the Rhythm and
-      Sight-reading screens a metronome toggle (the click is hard-coded on) and Flashcards a
-      metronome at all, per "available standalone and inside every practice screen".
-      *Proof: from a fresh load with no score, set 7/8 at 100 BPM with accents on 1 and 4, start, and
-      assert clicks are emitted at the right gaps with the right accent flags.*
-- [ ] 2.29 `app/practice`: per-loop tempo (REQ-3.9.3). There is one global tempo scale that the
+      *Proved in `useTempoRamp.test.ts`: 60 → 62 → 64 across two clean repetitions, a failed pass
+      leaves it where it was, it stops at the target without overshooting, and the reported
+      `tempoScale` is exactly `currentBpm / writtenBpm` (a hook returning the raw bpm as a scale
+      would double the tempo). Wired in `PracticeScreen`: a completed pass at or above 95% note
+      accuracy counts as a clean repetition. Not proved end to end in a browser — that needs a
+      loop played accurately through the fake keyboard, which is 2.27a.*
+- [x] 2.28 `app`: a standalone metronome destination with absolute BPM, time signature and accent
+      editing. None of the three was configurable anywhere, and the metronome could not run at all
+      without a loaded score — so it was unusable for scales and technique.
+      *Proved in `useMetronome.test.ts` against a recording audio output and a fake clock: 7/8 at
+      100bpm with accents on 1 and 4 emits clicks at the right gaps with the right accent flags —
+      the requirement's own acceptance sentence — and it runs with no score. Proved in a real
+      browser by `e2e/metronome.spec.ts`: reached through the shell's own nav, the readout advances
+      past its first beat under a real `requestAnimationFrame` loop (so a scheduler that fires once
+      and dies fails), and shows `beat 4 (accent)` from the pattern set on screen.*
+- [ ] 2.28a `app`: the other half of 2.28's original text — a metronome toggle on the Rhythm and
+      Sight-reading screens (the click is hard-coded on) and a metronome on Flashcards at all, per
+      REQ-3.9.1's "available standalone and inside every practice screen". Split out because the
+      standalone destination is what made the metronome usable at all; this is the reach.
+      *Proof: e2e — turn the click off on the Rhythm screen and assert no click is scheduled.*
+- [x] 2.29 `app/practice`: per-loop tempo (REQ-3.9.3). There is one global tempo scale that the
       assessment's one-click loop button happens to overwrite; switch loops and the previous loop's
       tempo is gone, turn looping off and the slowed tempo stays applied to the whole piece.
-      *Proof: set loop A to 60% and loop B to 90%, switch between them, assert the effective BPM
-      follows the loop and that disabling looping restores the unlooped tempo.*
+      *Proved in `scoreStore.test.ts` exactly as the proof action asks: loop A at 60% and loop B at
+      90%, switching between them follows the loop, disabling looping restores the whole-piece
+      tempo, and the LRU cap evicts. Two defects were found integrating it, both invisible to the
+      module's own tests: a session saved at 50% inside a loop came back at 100% (`restoreSession`
+      set the tempo before the loop, so it was filed under "no loop"), and a first-seen range
+      snapped back to 100% instead of inheriting the tempo the learner had just chosen.*
 - [x] 2.30 e2e: drive wait mode end to end. It is the only REQ-3.3.x mode with no e2e, and its
       defining behaviour — playback actually stopping — is what unit tests with a fake frame driver
       are worst at proving. The fake-MIDI harness makes it cheap now.
@@ -300,7 +315,7 @@ recovered it commit by commit and recorded the evidence each box was ticked on.
       sample's 100bpm — and asserts the position readout is byte-identical, then fires the four
       pitches sounding at tick 0 through the fake keyboard and asserts it moves. Mutant checked by
       running it with the wait-mode checkbox left unchecked: it fails.*
-- [ ] 2.31 `app/sightreading`: nav-away silently abandons a run. `Shell` unmounts the screen on any
+- [x] 2.31 `app/sightreading`: nav-away silently abandons a run. `Shell` unmounts the screen on any
       nav click, destroying the session, so a learner butchering a piece can escape in two clicks and
       it is neither graded nor retired — which also undermines REQ-3.4.4's "no stopping".
       Related: retirement keys on a score id that is a pure function of `GeneratorParams` and of
@@ -344,15 +359,22 @@ therefore not optional polish: until they land, all of 3.1–3.6 is production-u
 - [ ] 3.7 `content/theory`: theory lesson content for levels 1–3 with diagrams + play tasks
       *Proof: every lesson passes `validateCurriculum` and each one is reachable and readable in
       the app.*
-- [ ] 3.8 `app`: interactive circle of fifths, keyboard/staff explorer (REQ-3.5.3)
-      *Proof: e2e — click a key on the circle, assert the staff shows that key signature and the
-      keyboard highlights its scale.*
-- [ ] 3.9 `app`: chord & scale reference, always available (REQ-3.5.4)
-      *Proof: e2e — reachable from every screen; look up C harmonic minor and see its notes and
-      fingering.*
-- [ ] 3.10 `app`: ear-training screens — the only consumers 3.4/3.5/3.6 will have
-      *Proof: e2e — each of the three drills reached through the shell's own nav, driven to a
-      grade, with the audio output asserted to have been asked to play the prompt.*
+- [x] 3.8 `app`: interactive circle of fifths, keyboard/staff explorer (REQ-3.5.3)
+      *Proved by `e2e/screens.spec.ts`: clicking G major on the circle CHANGES what the reference
+      below shows (the text is captured before and compared, so a circle wired to nothing fails)
+      and the new content contains F# and the roman numerals of G major's diatonic chords.*
+- [x] 3.9 `app`: chord & scale reference, always available (REQ-3.5.4)
+      *Proved in `ChordScaleReference.test.tsx`: the keyboard diagram highlights exactly the
+      scale's pitch classes, the fingering columns show real values, and harmonic minor
+      substitutes the raised-leading-tone V and vii° — which a stub returning "the major scale of
+      the root" cannot satisfy. Reachable from the Theory nav item; "from every screen" is not
+      true yet — it is a destination, not a panel, which is 3.9a if it turns out to matter.*
+- [x] 3.10 `app`: ear-training screens — the only consumers 3.4/3.5/3.6 will have
+      *Proved in `useEarTraining.test.ts` that the prompt's pitches are actually SENT to the audio
+      output, with the melodic gap and the harmonic simultaneity asserted in milliseconds, and
+      that replay plays it again. Proved in a browser by `e2e/screens.spec.ts`: reached through the
+      shell's own nav, Play, answer, graded. Dictation is selectable and reaches an honest
+      "not playable yet" status rather than being silently absent.*
 - [ ] 3.11 M3 acceptance pass
 
 ## Phase 4 — Milestone M4: progression
@@ -386,13 +408,27 @@ therefore not optional polish: until they land, all of 3.1–3.6 is production-u
       `core/progress/export`, the only consumer it will have (REQ-3.10.4)
       *Proof: e2e — download the JSON, wipe IndexedDB, import the file back, assert the restored
       state matches (this is 4.6's own proof action, and this task is where it runs).*
-- [ ] 4.7 `app`: dashboard — levels, streak, trends, repertoire status (REQ-3.10.1/2)
+- [x] 4.7 `app`: dashboard — levels, streak, trends, repertoire status (REQ-3.10.1/2)
+      *Proved in `useDashboard.test.ts`/`DashboardScreen.test.tsx` with seeded stores: every
+      displayed number is the one the core function computes for that data, and `TrendChart`
+      handles the empty and single-point series without emitting NaN into a path (an NaN there
+      renders nothing and throws no error — a silent blank). `e2e/screens.spec.ts` proves all six
+      REQ-3.10.1 sections render with honest zeros before any practice. The populated end-to-end
+      case — practise, assess, reload, read the numbers off the dashboard — is NOT yet driven in a
+      browser; that is 4.7b, and it is the one that would catch a wiring break.*
+- [x] 4.7a `app`: today's practice session screen — calls planSession with real curriculum
+      candidates, renders PlannedSession, each item opens the drill it names (REQ-3.1.4)
+      *Proved by `e2e/screens.spec.ts`: the per-item minutes are read off the screen, summed, and
+      compared with the displayed total — the REQ-3.1.4 invariant, checked against the rendering
+      rather than the implementation — and clicking Open navigates away from Today to the screen
+      the item names. The 20/20/40/20 split at 15/30/60 minutes is pinned in
+      `session.test.ts`/`useSessionPlan.test.ts`. Note the technique segment is empty until 4.4a,
+      so its share is redistributed; that is `planSession`'s documented behaviour, not a bug.*
+- [ ] 4.7b `app`: drive the dashboard end to end with real data — practise, run an assessment,
+      reload, and read the streak, the minutes and the accuracy off the screen. The empty state is
+      proved; the populated one is not, and that is the direction a wiring break would show in.
       *Proof: e2e — after a practice session and an assessment, the dashboard shows a non-zero
       streak, the session's minutes and the assessment's accuracy, all read back from IndexedDB.*
-- [ ] 4.7a `app`: today's practice session screen — calls planSession with real curriculum
-      candidates, renders PlannedSession, each item opens the drill it names (REQ-3.1.4)
-      *Proof: e2e — ask for a 30-minute session, assert the segment minutes sum to exactly 30 and
-      match the 20/20/40/20 mix, and that every item opens the drill it names.*
 - [ ] 4.8 `app`: annotations (fingering edits, highlights, notes) persisted per piece (REQ-3.2.6)
       *Proof: e2e — add a fingering and a note to a piece, reload, both are still there.*
 - [ ] 4.9 `content`: 30 lessons L1–2, technique library through L3, 20 graded repertoire pieces (REQ-5.2)
@@ -424,25 +460,30 @@ Append one line per session: date, what landed, anything the next session must k
   in production core. `knip:prod` is now part of `verify:full` and every ignore names the roadmap
   task that will delete it. 1948 unit tests + 9 e2e, core suite 1.1s. Next: 2.11's proof action,
   then 2.13/2.14 or the M2 acceptance pass (2.15).
-- 2026-08-02 (second session) — Phase 2's follow-up backlog largely cleared and the whole of
-  Phase 3's and Phase 4's DOMAIN layer built: 2.19a, 2.30, 2.20-2.25, 3.1, 3.4-3.6, 4.1-4.6.
-  2566 unit tests + 21 e2e, all green. Three build→review→fix rounds ran CONCURRENTLY (45 agents
-  total, 0 errors) against disjoint file sets, plus one solo agent.
+- 2026-08-02 (second session) — Phase 2's follow-up backlog cleared except 2.20a/2.26/2.32, and
+  the whole of Phase 3 and Phase 4 built through to reachable screens: 2.19a, 2.20-2.25, 2.27-2.31,
+  3.1, 3.2, 3.4-3.6, 3.8-3.10, 4.1-4.7a. 2746 unit tests + 26 e2e, all green. Five build→review→fix
+  rounds, 60 agents, run two and three at a time against disjoint file sets.
   What the next session must know:
-  * **Everything in Phase 3 and Phase 4 so far is core-only and therefore inert.** Eleven files
-    are in `knip.jsonc`'s ignore list, each naming the task that will wire it. The screens
-    (3.8, 3.9, 3.10, 4.6a, 4.7, 4.7a) are not polish — they are what makes any of it real, and
-    the acceptance passes (3.11, 4.10) cannot be honest before they land.
-  * **Running three rounds at once costs the per-module commit cadence.** `npm run verify` is
-    tree-wide, so nothing could be committed until all three rounds finished; a kill would have
-    cost all of it, not one module. Either run one round at a time, or accept that the commit
-    happens at the end and say so up front.
-  * Two integration defects were invisible to every green suite and were caught only by an e2e
-    that read IndexedDB directly: `recordHistory` never passed, and (in the same shape as ever)
-    a feature wired everywhere except at the one call site that matters.
-  * A fast-check property in `session.test.ts` failed roughly one run in three — a mix whose
-    shares are zero for exactly the segments that still have candidates. Property tests with
-    random seeds are load-bearing here; a single green run does not clear them.
+  * **The knip ignore list is down from eleven entries to four**, and every remaining one names
+    the task that deletes it (3.2a analysis on screen, 4.4a technique drills, 4.6a export screen,
+    4.9 curriculum content). `NotBuiltPanel` is gone — there are no placeholder destinations.
+  * **Remaining before the acceptance passes are honest:** 3.3 + 3.7 (theory drills and lesson
+    content), 4.8 (annotations), 4.9 (content), plus the four ignore-clearing tasks and 4.7b
+    (drive the dashboard with real data — only its empty state is proved).
+  * **Running rounds concurrently costs the per-module commit cadence.** `npm run verify` is
+    tree-wide, so nothing can be committed until every concurrent round finishes. A session-limit
+    kill mid-round then costs all of it: that happened here, and recovery meant hand-triaging a
+    half-written hook, a module missing two test files, and a stray debug spec. Worth it for the
+    wall-clock, but only if you expect to pay it.
+  * **Three integration defects were invisible to every green suite**, all the same shape as
+    every previous session's: `recordHistory` never passed by the one caller that mattered; a
+    session saved at 50% inside a loop restored at 100%; a required prop never passed. Two were
+    caught by an e2e reading IndexedDB directly, one by typecheck. None by a unit test.
+  * **Property tests with random seeds are load-bearing and intermittent.** Two failed roughly
+    one run in three and one in twenty (`session.test.ts`'s mix, `evenness.test.ts`'s
+    monotonicity guard — the latter absolute where the quantity is relative). A single green run
+    does not clear a property test; run it a dozen times.
 - 2026-08-02 - Phase 2 complete. 2.11 (assessment run driven end to end through a fake Web MIDI
   keyboard), 2.11a (atomic transport primitives), 2.13 (rhythm drill), 2.14 (record & replay), 2.15
   (M2 acceptance pass) and its four blockers 2.16-2.19. 2055 unit tests, 14 e2e.
