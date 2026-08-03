@@ -97,22 +97,22 @@ function makeCtx(): FakeAudioContext {
 /**
  * `createWebAudioOutput` wants a real `AudioContext`; the fake is structural.
  *
- * Every test but the dedicated epoch-conversion ones below wants the old,
- * simple world where `atMs` lines up 1:1 with `ctx.currentTime * 1000` — that
- * was true before the fix only because both happened to start at the same
- * real-world instant in a fresh `AudioContext`. Pinning `performance.now()`
- * to exactly `ctx.currentTime * 1000` at construction makes the captured
- * `clockOffsetMs` zero, which reproduces that world deliberately rather than
- * by accident, so the existing assertions (`atMs` value in, same value out as
- * ctx-seconds) keep meaning what they say.
+ * Every test but the dedicated epoch-conversion / drift / jitter ones below
+ * wants the old, simple world where `atMs` lines up 1:1 with
+ * `ctx.currentTime * 1000` — that was true before the fix only because both
+ * happened to start at the same real-world instant in a fresh
+ * `AudioContext`. Pinning `performance.now()` to exactly
+ * `ctx.currentTime * 1000` — and, importantly, leaving it pinned there for
+ * the rest of the test, since the offset anchor now re-reads
+ * `performance.now()` on every public call, not just once at construction —
+ * reproduces that world deliberately rather than by accident, so the
+ * existing assertions (`atMs` value in, same value out as ctx-seconds) keep
+ * meaning what they say. The mock is cleaned up by the top-level `afterEach`
+ * below.
  */
 function output(ctx: FakeAudioContext) {
-  const restore = vi.spyOn(performance, 'now').mockReturnValue(ctx.currentTime * 1000)
-  try {
-    return createWebAudioOutput(ctx as unknown as AudioContext)
-  } finally {
-    restore.mockRestore()
-  }
+  vi.spyOn(performance, 'now').mockReturnValue(ctx.currentTime * 1000)
+  return createWebAudioOutput(ctx as unknown as AudioContext)
 }
 
 // The very first gain node any factory call creates is the master gain —
@@ -126,6 +126,13 @@ function masterGain(ctx: FakeAudioContext): FakeGainNode {
 // ------------------------------------------------------------------ tests
 
 describe('createWebAudioOutput', () => {
+  // Every `performance.now()` spy set up by a test (directly, or via the
+  // `output()` helper) is cleaned up here, regardless of which style of
+  // mock it used — nothing below relies on a spy surviving past its test.
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   it('connects the master gain to the context destination', () => {
     const ctx = makeCtx()
     output(ctx)
@@ -364,10 +371,6 @@ describe('createWebAudioOutput', () => {
   // session that started even earlier), which is exactly the case an
   // unconverted `atMs` gets wrong.
   describe('when the Clock epoch and ctx.currentTime have drifted apart', () => {
-    afterEach(() => {
-      vi.restoreAllMocks()
-    })
-
     it('shifts a scheduled atMs from the Clock epoch into ctx.currentTime using the offset captured at construction', () => {
       const ctx = makeCtx()
       ctx.currentTime = 100 // the AudioContext has been running for 100s
@@ -380,14 +383,29 @@ describe('createWebAudioOutput', () => {
       expect(osc?.startedAt).toEqual([100.5]) // (2_500_600 - 2_400_100) / 1000
     })
 
-    it('now() converts ctx.currentTime back to the Clock epoch using the same offset', () => {
+    it('now() converts ctx.currentTime back to the Clock epoch using the same offset — and toCtxSeconds(now()) round-trips to ctx.currentTime', () => {
       const ctx = makeCtx()
       ctx.currentTime = 100
-      vi.spyOn(performance, 'now').mockReturnValue(2_500_100)
+      const perfNow = vi.spyOn(performance, 'now').mockReturnValue(2_500_100)
       const out = createWebAudioOutput(ctx as unknown as AudioContext)
 
-      ctx.currentTime = 100.5 // 500ms of ctx-time has passed
-      expect(out.now()).toBe(2_500_600) // back on the Clock epoch
+      // Advance both clocks by the same 500ms — no drift between them, just
+      // time passing — so the offset anchor has nothing to re-converge on
+      // and the round trip should be exact. (Advancing ctx.currentTime alone
+      // here, the way the old frozen-offset test did, would look to the new
+      // anchor tracker exactly like a several-hundred-ms clock jump and
+      // trigger the resnap escape hatch instead of exercising the plain
+      // conversion — that scenario has its own dedicated test below.)
+      ctx.currentTime = 100.5
+      perfNow.mockReturnValue(2_500_600)
+      const nowMs = out.now()
+      expect(nowMs).toBe(2_500_600) // back on the Clock epoch
+
+      // Round trip: feeding that value straight back in as an `atMs` must
+      // reproduce ctx.currentTime exactly, per the module contract.
+      const osc = ctx.oscillators
+      out.noteOn(midi(72), 100, nowMs)
+      expect(osc.at(-1)?.startedAt).toEqual([100.5])
     })
 
     it('a construction-time offset error is exactly what this catches: a zero offset would misplace every schedule', () => {
@@ -419,5 +437,149 @@ describe('createWebAudioOutput', () => {
     const out = createWebAudioOutput(ctx as unknown as AudioContext, { waveform: 'sawtooth' })
     out.noteOn(midi(60), 100, millis(0))
     expect(ctx.oscillators.at(-1)?.type).toBe('sawtooth')
+  })
+
+  // -------------------------------------------- offset anchor (roadmap 2.32e)
+  //
+  // The old implementation captured `performance.now() - ctx.currentTime *
+  // 1000` exactly once, at construction, and used it forever. Measured on
+  // this machine (least-squares fit, ~170 samples over ~43s, three runs
+  // agreeing to within ~1 ms/min): the AudioContext hardware clock runs
+  // about -15 ms/min relative to `performance.now()`. A frozen offset goes
+  // stale by that much every minute — ~150ms after ten minutes of practice.
+  // The fix re-measures the offset on every public call and folds it into a
+  // running estimate with a time-based exponential filter, which has to
+  // satisfy two competing tests at once: it must reject the drift ramp
+  // *and* the ~17ms peak-to-peak sawtooth that the raw per-call measurement
+  // carries (`ctx.currentTime` advances in render-quantum steps, not
+  // continuously).
+  describe('offset anchor tracking', () => {
+    it('rejects a slow clock drift that would defeat a frozen offset', () => {
+      // Simulate a ~255 ppm fast hardware clock (matches the measured
+      // -15 ms/min) over a 12-simulated-minute session, sampling every
+      // simulated 250ms — comparable to a metronome or note-scheduling call
+      // rate. `trueOffsetMs(t)` is the exact, analytically-known offset our
+      // simulation defines at real-time `t`; nothing about it is estimated.
+      const DRIFT_MS_PER_MS = -15 / 60_000 // -15 ms/min, the measured rate
+      const SESSION_MS = 12 * 60_000
+      const STEP_MS = 250
+      const LEAD_MS = 300 // schedule ahead of "now" so the past-time clamp never fires
+      const trueOffsetMs = (perfMs: number): number => DRIFT_MS_PER_MS * perfMs
+
+      const ctx = makeCtx()
+      const perfNow = vi.spyOn(performance, 'now').mockReturnValue(0)
+      ctx.currentTime = 0
+      const out = createWebAudioOutput(ctx as unknown as AudioContext)
+
+      let maxSchedulingErrorMs = 0
+      for (let elapsedMs = 0; elapsedMs <= SESSION_MS; elapsedMs += STEP_MS) {
+        perfNow.mockReturnValue(elapsedMs)
+        ctx.currentTime = (elapsedMs - trueOffsetMs(elapsedMs)) / 1000
+
+        const atMs = elapsedMs + LEAD_MS
+        const expectedCtxSeconds = (atMs - trueOffsetMs(atMs)) / 1000
+
+        out.noteOn(midi(60), 100, millis(atMs))
+        const actualCtxSeconds = ctx.oscillators.at(-1)?.startedAt.at(-1) ?? Number.NaN
+        const errorMs = Math.abs(actualCtxSeconds - expectedCtxSeconds) * 1000
+        maxSchedulingErrorMs = Math.max(maxSchedulingErrorMs, errorMs)
+      }
+
+      // The old frozen-offset implementation captures offset = 0 at t=0 and
+      // never updates it, so its error at t=12min would be
+      // |trueOffsetMs(SESSION_MS)| = 15 * 12 = 180ms — two orders of
+      // magnitude over this bound. This is the mutant this test kills:
+      // reverting `updateOffsetAnchor` to a construction-time-only capture
+      // fails this assertion by ~180x.
+      expect(maxSchedulingErrorMs).toBeLessThan(1)
+    })
+
+    it('rejects a 17ms peak-to-peak sawtooth on ctx.currentTime with no underlying drift', () => {
+      // No drift here: the *true* offset is a constant 0 for the whole run.
+      // What varies is the raw, per-call measurement of it, which — exactly
+      // as on real hardware — carries a sawtooth because `ctx.currentTime`
+      // only advances in render-quantum steps. `noiseMs` reproduces that: it
+      // walks the full 17ms peak-to-peak swing every SAWTOOTH_PERIOD_MS of
+      // *real* time, independent of when the app happens to call in.
+      //
+      // The call cadence (CALL_STEP_MS, one simulated ~60fps animation
+      // frame) is deliberately NOT a multiple of SAWTOOTH_PERIOD_MS — if it
+      // were, every call would sample the exact same phase of the sawtooth
+      // and the "noise" would collapse into a constant bias instead of
+      // actually varying from call to call, which is the whole point of
+      // this test.
+      const SAWTOOTH_PERIOD_MS = 16 // one simulated render-quantum-scale cycle
+      const SAWTOOTH_PEAK_TO_PEAK_MS = 17
+      const CALL_STEP_MS = 16.7 // one simulated ~60fps animation frame
+      const WARMUP_MS = 10_000 // let the 2s time-constant filter settle first
+      const RUN_MS = 20_000
+      const LEAD_MS = 100
+      const noiseMs = (perfMs: number): number => {
+        const phase = (perfMs % SAWTOOTH_PERIOD_MS) / SAWTOOTH_PERIOD_MS
+        return phase * SAWTOOTH_PEAK_TO_PEAK_MS - SAWTOOTH_PEAK_TO_PEAK_MS / 2
+      }
+
+      const ctx = makeCtx()
+      const perfNow = vi.spyOn(performance, 'now').mockReturnValue(0)
+      ctx.currentTime = 0
+      const out = createWebAudioOutput(ctx as unknown as AudioContext)
+
+      let maxWobbleMs = 0
+      for (let elapsedMs = 0; elapsedMs <= RUN_MS; elapsedMs += CALL_STEP_MS) {
+        perfNow.mockReturnValue(elapsedMs)
+        // Raw offset (perf - ctx*1000) carries the sawtooth: ctx.currentTime
+        // is perf time *minus* the noise so that perf - ctx*1000 = +noise.
+        ctx.currentTime = (elapsedMs - noiseMs(elapsedMs)) / 1000
+
+        const atMs = elapsedMs + LEAD_MS
+        // True offset is always 0, so the ideal scheduled time is just
+        // atMs/1000 regardless of the noise riding on the raw measurement.
+        const expectedCtxSeconds = atMs / 1000
+
+        out.noteOn(midi(60), 100, millis(atMs))
+
+        if (elapsedMs >= WARMUP_MS) {
+          const actualCtxSeconds = ctx.oscillators.at(-1)?.startedAt.at(-1) ?? Number.NaN
+          const wobbleMs = Math.abs(actualCtxSeconds - expectedCtxSeconds) * 1000
+          maxWobbleMs = Math.max(maxWobbleMs, wobbleMs)
+        }
+      }
+
+      // A naive per-call re-anchor (`anchor = raw` every call, no filter) is
+      // exactly the trap this test catches: it would pass the raw noise
+      // straight through, wobbling by up to the full ~17ms peak-to-peak
+      // swing — 17x over this bound. Reverting `updateOffsetAnchor` to
+      // "return performance.now() - ctx.currentTime * 1000" unfiltered
+      // fails this assertion.
+      expect(maxWobbleMs).toBeLessThan(1)
+    })
+
+    it('snaps to the new offset immediately on a large jump, instead of crawling toward it', () => {
+      const ctx = makeCtx()
+      const perfNow = vi.spyOn(performance, 'now').mockReturnValue(0)
+      ctx.currentTime = 0
+      const out = createWebAudioOutput(ctx as unknown as AudioContext)
+      out.noteOn(midi(60), 100, millis(0)) // establishes the anchor at offset 0
+
+      // A suspend/resume (or a backgrounded tab) jumps the raw offset by
+      // several seconds in a single step — deliberately with only a small
+      // amount of real time (`performance.now()`) passing between calls, so
+      // a slow blend (dt this small -> alpha this small) would barely move
+      // the anchor and a naive re-anchor-only-on-a-schedule fix would still
+      // be wrong on the very next call.
+      perfNow.mockReturnValue(10) // only 10ms of real time passed
+      ctx.currentTime = 5.01 // but ctx jumped 5s ahead — raw offset is now -5000
+
+      out.noteOn(midi(64), 100, millis(110)) // 100ms lead on the new "now"
+      const actualCtxSeconds = ctx.oscillators.at(-1)?.startedAt.at(-1)
+
+      // Expected: (110 - (-5000)) / 1000 = 5.11 — the new offset applied in
+      // full. A slow blend (alpha = 1 - exp(-10/2000) ~= 0.005) would move
+      // the anchor by only ~25ms toward -5000, landing near 0.135s instead
+      // (and likely clamped up to ctx.currentTime = 5.01s) — nowhere near
+      // 5.11s. That is the mutant this test kills: deleting the
+      // escape-hatch branch in `updateOffsetAnchor` fails this assertion.
+      expect(actualCtxSeconds).toBeCloseTo(5.11, 6)
+    })
   })
 })

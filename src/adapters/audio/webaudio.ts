@@ -19,9 +19,25 @@
  * `core/ports/audio.ts` — NOT `ctx.currentTime`, which starts at 0 when the
  * `AudioContext` was constructed, not when the page loaded. An `AudioContext`
  * built 40 minutes into a session is 40 minutes behind `performance.now()`,
- * so every `atMs` this module is handed is shifted into `ctx`-time by
- * `clockOffsetMs`, captured once at construction. `now()` does the reverse
- * shift, so `toCtxSeconds(now())` is always `ctx.currentTime`.
+ * so every `atMs` this module is handed is shifted into `ctx`-time by an
+ * offset anchor.
+ *
+ * That anchor is NOT captured once at construction — it used to be, and that
+ * was measured to drift: on this machine the `AudioContext` hardware clock
+ * runs about -15 ms/min relative to `performance.now()` (least-squares fit,
+ * ~170 samples across a ~43 s window, three independent runs agreeing to
+ * within about ±1 ms/min). A frozen offset goes stale by that much every
+ * minute the context has existed — ~150 ms after ten minutes of practice,
+ * squarely inside "notes sound out of sync" territory. So instead the anchor
+ * is re-measured on every public call and folded into a running estimate
+ * with a time-based exponential filter (see `updateOffsetAnchor` below) —
+ * slow enough to reject the ~17 ms peak-to-peak sawtooth in the raw
+ * `performance.now() - ctx.currentTime * 1000` measurement (which comes from
+ * `ctx.currentTime` advancing in render-quantum steps rather than
+ * continuously), fast enough that the -15 ms/min ramp never accumulates a
+ * meaningful lag. `now()` uses the same anchor construction as
+ * `toCtxSeconds`, so `toCtxSeconds(now())` is still `ctx.currentTime` as long
+ * as both reads happen without an intervening anchor update.
  */
 import type { AudioOutput } from '@core/ports/audio.ts'
 import { millis, type Midi, type Millis } from '@core/shared/units.ts'
@@ -99,16 +115,65 @@ export function createWebAudioOutput(
 
   const voices: Voice[] = []
 
+  // ------------------------------------------------------- offset tracking
+  //
   // The gap, in ms, between the Clock epoch (`performance.now()`, what every
   // `atMs` argument is expressed in) and this AudioContext's own epoch
   // (`ctx.currentTime`, which starts at 0 when the context was constructed).
-  // Captured once: `ctx.currentTime` is ~0 right now, so this is effectively
-  // "what time is it on the Clock epoch, at the instant ctx-time 0 happened".
-  const clockOffsetMs = performance.now() - ctx.currentTime * 1000
+  // Tracked as a slow exponential average, not a single frozen sample — see
+  // the module comment for why: the raw sample carries a ~17ms peak-to-peak
+  // sawtooth (render-quantum granularity in `ctx.currentTime`), but a frozen
+  // sample also drifts at the measured -15 ms/min the hardware clock runs
+  // relative to `performance.now()`.
+  //
+  // Time constant: 2000 ms. Two requirements, both satisfied with margin:
+  //
+  //  - Ramp lag. A first-order filter with time constant tau tracking an
+  //    input ramping at rate r settles to a constant lag of r * tau. Here
+  //    r = -15 ms/min = -0.00025 ms/ms, so at tau = 2000 ms the steady-state
+  //    lag is 0.00025 * 2000 = 0.5 ms — well under the ~1 ms budget.
+  //  - Sawtooth rejection. A first-order low-pass attenuates a sinusoidal
+  //    component at angular frequency w by ~1/(w*tau) once w*tau >> 1. The
+  //    sawtooth's period is one animation frame, ~16 ms, so
+  //    w = 2*pi/16 ~= 0.393 rad/ms and w*tau ~= 785, i.e. ~0.13% passthrough.
+  //    A sawtooth's fundamental harmonic carries amplitude (peak-to-peak)/pi
+  //    ~= 17/pi ~= 5.4 ms, so the filtered residual is ~5.4 * 0.0013 ~= 0.007
+  //    ms — three orders of magnitude below the 1 ms budget. Higher
+  //    harmonics attenuate faster still.
+  const OFFSET_TIME_CONSTANT_MS = 2000
+  // Escape hatch: a context that was suspended/backgrounded for minutes (or
+  // just resumed) can jump the raw offset by far more than the filter could
+  // track in any reasonable time. Snap instead of crawling toward it.
+  const OFFSET_RESNAP_THRESHOLD_MS = 250
 
-  /** Clock-epoch `atMs` -> `ctx.currentTime` seconds. */
-  function toCtxSeconds(clockMs: number): number {
-    const seconds = (clockMs - clockOffsetMs) / 1000
+  const constructionMs = performance.now()
+  let offsetAnchorMs = constructionMs - ctx.currentTime * 1000
+  let lastAnchorUpdateMs = constructionMs
+
+  /**
+   * Re-measure the raw Clock/ctx offset, fold it into the running anchor
+   * (blend, or snap if it jumped past the escape-hatch threshold), and
+   * return the updated anchor. Call this exactly once per public method and
+   * reuse the returned value for every conversion inside that call, so a
+   * single call never sees the filter move under it.
+   */
+  function updateOffsetAnchor(): number {
+    const nowMs = performance.now()
+    const rawOffsetMs = nowMs - ctx.currentTime * 1000
+    const dtMs = nowMs - lastAnchorUpdateMs
+    if (Math.abs(rawOffsetMs - offsetAnchorMs) > OFFSET_RESNAP_THRESHOLD_MS) {
+      offsetAnchorMs = rawOffsetMs
+    } else {
+      const alpha = 1 - Math.exp(-dtMs / OFFSET_TIME_CONSTANT_MS)
+      offsetAnchorMs += alpha * (rawOffsetMs - offsetAnchorMs)
+    }
+    lastAnchorUpdateMs = nowMs
+    return offsetAnchorMs
+  }
+
+  /** Clock-epoch `atMs` -> `ctx.currentTime` seconds, under a given anchor. */
+  function toCtxSeconds(clockMs: number, anchorMs: number): number {
+    const seconds = (clockMs - anchorMs) / 1000
     // Never hand Web Audio a time in the past: `setValueAtTime` throws
     // ("Time must be a finite non-negative number: -0.0017") and one throw
     // inside the frame loop takes the whole transport down with it. A note
@@ -123,7 +188,7 @@ export function createWebAudioOutput(
   }
 
   function noteOn(note: Midi, velocity: number, atMs?: Millis): void {
-    const startSec = atMs === undefined ? ctx.currentTime : toCtxSeconds(atMs)
+    const startSec = atMs === undefined ? ctx.currentTime : toCtxSeconds(atMs, updateOffsetAnchor())
     const peak = VOICE_PEAK_GAIN * velocityToGain(velocity)
     const sustainGain = peak * SUSTAIN_LEVEL
 
@@ -149,7 +214,7 @@ export function createWebAudioOutput(
   }
 
   function noteOff(note: Midi, atMs?: Millis): void {
-    const offSec = atMs === undefined ? ctx.currentTime : toCtxSeconds(atMs)
+    const offSec = atMs === undefined ? ctx.currentTime : toCtxSeconds(atMs, updateOffsetAnchor())
     const voice = voices.find((v) => v.note === note && !v.released)
     if (voice === undefined) return
     voice.released = true
@@ -160,7 +225,7 @@ export function createWebAudioOutput(
   }
 
   function click(accented: boolean, atMs?: Millis): void {
-    const startSec = atMs === undefined ? ctx.currentTime : toCtxSeconds(atMs)
+    const startSec = atMs === undefined ? ctx.currentTime : toCtxSeconds(atMs, updateOffsetAnchor())
     const freq = accented ? ACCENTED_CLICK_FREQUENCY_HZ : CLICK_FREQUENCY_HZ
     const peak = accented ? ACCENTED_CLICK_PEAK_GAIN : CLICK_PEAK_GAIN
 
@@ -205,7 +270,8 @@ export function createWebAudioOutput(
   }
 
   function now(): Millis {
-    return millis(clockOffsetMs + ctx.currentTime * 1000)
+    const anchorMs = updateOffsetAnchor()
+    return millis(anchorMs + ctx.currentTime * 1000)
   }
 
   return { noteOn, noteOff, click, allNotesOff, setVolume, now }
