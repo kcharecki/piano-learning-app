@@ -5,7 +5,14 @@
  * DOM/canvas render.
  */
 import type { Score } from '@core/notation/score.ts'
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type MouseEvent,
+} from 'react'
 import type { EngraverFactory, ScoreEngraver } from './engraver.ts'
 import { createOsmdEngraver } from './osmdEngraver.ts'
 
@@ -26,10 +33,12 @@ export type ScoreViewerProps = {
   readonly cursorPosition?: CursorPosition
   /** Injection seam for tests. Defaults to the real OSMD-backed engraver. */
   readonly createEngraver?: EngraverFactory
+  /** Called with the clicked note's id, or `undefined` when the click hit no notehead. */
+  readonly onSelectNote?: (noteId: string | undefined) => void
 }
 
 export const ScoreViewer = forwardRef<ScoreViewerHandle, ScoreViewerProps>(function ScoreViewer(
-  { musicXml, score, cursorPosition, createEngraver = createOsmdEngraver },
+  { musicXml, score, cursorPosition, createEngraver = createOsmdEngraver, onSelectNote },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -71,6 +80,20 @@ export const ScoreViewer = forwardRef<ScoreViewerHandle, ScoreViewerProps>(funct
     [],
   )
 
+  // One listener on the container, not one per notehead (roadmap 4.8a) — the
+  // engraver walks up from `event.target` to the nearest stamped notehead.
+  // Fires for every click on the score, including a miss (empty staff),
+  // which resolves to `undefined` and so clears the caller's selection.
+  //
+  // Known gap (roadmap-review finding, low severity): selection is mouse-only
+  // — the container below has no `role`/`tabIndex`/key handler, so the
+  // fingering/highlight controls this unlocks have no keyboard path. Left
+  // unaddressed here rather than added ad hoc; needs a named roadmap task
+  // (arrow-key note stepping) rather than a one-line bolt-on.
+  function handleContainerClick(event: MouseEvent<HTMLDivElement>): void {
+    onSelectNote?.(engraverRef.current?.noteIdAt(event.target))
+  }
+
   return (
     <div className="score-viewer">
       {error !== undefined && (
@@ -78,7 +101,7 @@ export const ScoreViewer = forwardRef<ScoreViewerHandle, ScoreViewerProps>(funct
           Could not display this score: {error}
         </p>
       )}
-      <div ref={containerRef} data-testid="score-container" />
+      <div ref={containerRef} data-testid="score-container" onClick={handleContainerClick} />
     </div>
   )
 })

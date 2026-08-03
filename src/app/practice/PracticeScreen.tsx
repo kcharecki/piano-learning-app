@@ -28,7 +28,7 @@
  * this with no props at all.
  */
 import { AnnotationPanel } from '@app/annotations/AnnotationPanel.tsx'
-import { useAnnotations } from '@app/annotations/useAnnotations.ts'
+import { DEFAULT_NOTE_COLOR } from '@app/score/osmdEngraver.ts'
 import { ScoreViewer, type ScoreViewerHandle } from '@app/score/ScoreViewer.tsx'
 import { useScoreStore } from '@app/state/scoreStore.ts'
 import type { AudioOutput, Clock, DateSource, MidiInput } from '@core/ports/index.ts'
@@ -64,6 +64,8 @@ import { useReadAhead } from './useReadAhead.ts'
 const CLEAN_ACCURACY = 0.95
 /** Clean passes needed at a rung before the ramp steps up. */
 const RAMP_REPS_PER_STEP = 1
+/** The selected notehead's colour (roadmap 4.8a, REQ-3.2.6) — matches `--accent` in styles.css. */
+const SELECTION_NOTE_COLOR = '#6ea8fe'
 
 export type PracticeScreenProps = {
   /** Injection seams for tests; each defaults to the real browser adapter. */
@@ -89,6 +91,19 @@ export function PracticeScreen(props: PracticeScreenProps) {
   const [rampStepBpm, setRampStepBpm] = useState(2)
   const [waitModeEnabled, setWaitModeEnabled] = useState(false)
   const [readAheadEnabled, setReadAheadEnabled] = useState(false)
+  // The note selected in the score viewer (roadmap 4.8a, REQ-3.2.6) — feeds
+  // AnnotationPanel's fingering/highlight controls, which are disabled
+  // without one.
+  const [selectedNoteId, setSelectedNoteId] = useState<string | undefined>(undefined)
+  // Roadmap-review finding 5: ids are position-derived
+  // (`m<measure>.<hand>.<tick>.<midi>`), so a stale selection from a
+  // previously loaded score very often still resolves against a NEW one —
+  // without this, loading a different piece left the panel enabled and
+  // writing fingering edits against an arbitrary note of the new score, with
+  // no visible highlight showing which note was being edited.
+  useEffect(() => {
+    setSelectedNoteId(undefined)
+  }, [loaded?.score.id])
   const [clock] = useState<Clock>(() => props.clock ?? createBrowserClock())
   const [date] = useState<DateSource>(() => props.date ?? { epochMillis: () => Date.now() })
   const [audioOutput, setAudioOutput] = useState<AudioOutput | undefined>(props.audioOutput)
@@ -202,7 +217,6 @@ export function PracticeScreen(props: PracticeScreenProps) {
   // returns a fresh object each render and this effect must fire on the PHASE
   // edge only — putting the hook's own identity in the dependency list would
   // restart the timer on every unrelated re-render.
-  const annotations = useAnnotations()
   const practiceLog = usePracticeLog({ clock, date })
   const practiceLogRef = useRef(practiceLog)
   practiceLogRef.current = practiceLog
@@ -235,6 +249,17 @@ export function PracticeScreen(props: PracticeScreenProps) {
     const justStopped = previousPhase !== 'stopped' && engine.phase === 'stopped'
     if (justStarted) {
       clearFeedback()
+      // `clearFeedback` -> `clearNoteColors()` shares the engraver's single
+      // colour channel with the selection highlight (see `handleSelectNote`
+      // below) — it just wiped the selected note back to default along with
+      // every feedback colour. Reasserting it is NOT done here (see the
+      // `reassertSelectionColor` effect below, roadmap-review finding 3):
+      // this is only ONE of THREE places `clearNoteColors()` can fire
+      // (`useNoteFeedback`'s score/activeHands effect and its backward-jump
+      // branch are the other two, neither followed by a reassert), so a
+      // one-shot fix bounded to this branch left the highlight vanishing on
+      // a hand-mute toggle or a loop wrap while `selectedNoteId` still held
+      // the note.
       const item = itemRef.current
       if (item !== undefined) {
         const title =
@@ -256,6 +281,20 @@ export function PracticeScreen(props: PracticeScreenProps) {
     }
   }, [engine.phase, clearFeedback])
 
+  // Roadmap-review finding 3: re-applies the selection highlight after EVERY
+  // commit that could have run one of `clearNoteColors()`'s three call sites
+  // (the `justStarted` branch above; `useNoteFeedback`'s score/activeHands
+  // rebuild effect; and its backward-jump branch, which fires on every loop
+  // wrap/seek via the advancing `engine.position`). `setNoteColor` is
+  // idempotent (`paint` returns `'unchanged'` and schedules no render when
+  // the colour already matches), so reasserting on commits where nothing was
+  // actually cleared costs nothing visible and no wasted render.
+  useEffect(() => {
+    if (selectedNoteId !== undefined) {
+      scoreViewerRef.current?.setNoteColor(selectedNoteId, SELECTION_NOTE_COLOR)
+    }
+  }, [selectedNoteId, engine.phase, engine.position, loaded?.score.id, settings.activeHands])
+
   function handlePlay(): Millis | undefined {
     ensureAudioOutput()
     return engine.play()
@@ -271,6 +310,32 @@ export function PracticeScreen(props: PracticeScreenProps) {
   function handleStop(): void {
     const at = engineRef.current?.stop()
     if (at !== undefined) scoreViewerRef.current?.moveCursorTo(at.measureIndex, at.tick)
+  }
+
+  // Click-to-select (roadmap 4.8a, REQ-3.2.6): feeds AnnotationPanel's
+  // fingering/highlight controls, which were permanently disabled without a
+  // way to select a note. The visible highlight goes through the SAME
+  // `setNoteColor`/`clearNoteColors` channel `useNoteFeedback` already
+  // colours correct/wrong/missed notes with (`engraver.ts` has exactly one
+  // colouring mechanism, by design) — there is no stacking of colours per
+  // note, only "last write wins", the same rule the engraver already applies
+  // between `setNoteColor` and `setNoteHidden`. Concretely: selecting a note
+  // overrides whatever feedback colour it held; moving the selection away
+  // restores DEFAULT_NOTE_COLOR, not the feedback colour it may have held.
+  // That is an accepted, bounded loss rather than a fight: selection is a
+  // paused-state editing action, and a note's feedback colour is entirely
+  // recomputed live from a run's first judged note onward — see `justStarted`
+  // above, which re-asserts the current selection right after `clearFeedback`
+  // wipes it via the same `clearNoteColors()` call. `setNoteHidden` (the
+  // read-ahead drill) is untouched by any of this: the engraver's own `paint`
+  // already makes hidden win over any requested colour, selection included.
+  function handleSelectNote(noteId: string | undefined): void {
+    const handle = scoreViewerRef.current
+    if (selectedNoteId !== undefined && selectedNoteId !== noteId) {
+      handle?.setNoteColor(selectedNoteId, DEFAULT_NOTE_COLOR)
+    }
+    if (noteId !== undefined) handle?.setNoteColor(noteId, SELECTION_NOTE_COLOR)
+    setSelectedNoteId(noteId)
   }
 
   // The end-of-run story (roadmap 2.11, REQ-3.3.4/3.3.5): a fixed-tempo,
@@ -377,17 +442,29 @@ export function PracticeScreen(props: PracticeScreenProps) {
         <ScoreViewer
           ref={scoreViewerRef}
           musicXml={loaded.musicXml}
-          // REQ-3.2.6: the viewer draws the score WITH the learner's fingering
-          // edits applied, not the imported one — an annotation the engraver
-          // ignores is not an annotation (roadmap 4.8).
-          score={annotations.annotatedScore ?? loaded.score}
+          // Deliberately `loaded.score`, NOT `annotations.annotatedScore`
+          // (roadmap-review finding 2): the engraver only reads `score` to
+          // build its id map (`buildNoteIdMap`), which does not depend on
+          // `fingering`/`highlight` at all — nothing on the render path draws
+          // them yet (see `useAnnotations.ts`'s module comment for that gap).
+          // `annotatedScore` is a NEW object identity on every fingering/
+          // highlight edit, and `score` sits in `ScoreViewer`'s load-effect
+          // dependency list, so passing it here would tear down and
+          // re-engrave the WHOLE score (osmd.clear() + full re-parse) on
+          // every "Set fingering" click — ruinous on a large score (roadmap
+          // 2.32's perf work). Keep this in step if the engraver ever learns
+          // to draw fingering/highlight for real.
+          score={loaded.score}
+          onSelectNote={handleSelectNote}
         />
       )}
       {/* Per-measure notes attach to wherever the playhead is; fingering and
-          highlight edits need a selected note, and nothing selects one yet —
-          those controls render disabled until roadmap 4.8a adds click-to-select
-          in the viewer. */}
-      <AnnotationPanel measureIndex={Math.max(0, (engine.position?.measureNumber ?? 1) - 1)} />
+          highlight edits need a selected note — clicking a notehead in the
+          viewer above provides one (roadmap 4.8a). */}
+      <AnnotationPanel
+        measureIndex={Math.max(0, (engine.position?.measureNumber ?? 1) - 1)}
+        {...(selectedNoteId === undefined ? {} : { selectedNoteId })}
+      />
       <AssessmentPanel
         phase={assessment.phase}
         result={assessment.result}

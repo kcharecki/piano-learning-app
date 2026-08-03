@@ -4,7 +4,7 @@
  * engraver and asserts on the wiring, never on OSMD's own behaviour.
  */
 import { makeScore, type Score } from '@core/notation/score.ts'
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { createRef } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ScoreEngraver } from './engraver.ts'
@@ -26,6 +26,7 @@ type FakeEngraver = ScoreEngraver & {
   readonly setNoteHidden: ReturnType<typeof vi.fn>
   readonly clearHiddenNotes: ReturnType<typeof vi.fn>
   readonly destroy: ReturnType<typeof vi.fn>
+  readonly noteIdAt: ReturnType<typeof vi.fn>
 }
 
 function createFakeEngraver(loadResult: Promise<void> = Promise.resolve()): FakeEngraver {
@@ -37,6 +38,7 @@ function createFakeEngraver(loadResult: Promise<void> = Promise.resolve()): Fake
     setNoteHidden: vi.fn(),
     clearHiddenNotes: vi.fn(),
     destroy: vi.fn(),
+    noteIdAt: vi.fn(() => undefined),
   }
 }
 
@@ -145,5 +147,89 @@ describe('ScoreViewer', () => {
 
     await waitFor(() => expect(engraverB.load).toHaveBeenCalledTimes(1))
     expect(engraverA.destroy).toHaveBeenCalledTimes(1)
+  })
+
+  it('calls onSelectNote with the id the engraver resolves for the click target (roadmap 4.8a)', async () => {
+    const engraver = createFakeEngraver()
+    engraver.noteIdAt.mockReturnValue('m0.r.0.60')
+    const score = makeTestScore()
+    const onSelectNote = vi.fn()
+    const { getByTestId } = render(
+      <ScoreViewer
+        musicXml="<xml/>"
+        score={score}
+        createEngraver={() => engraver}
+        onSelectNote={onSelectNote}
+      />,
+    )
+    await waitFor(() => expect(engraver.load).toHaveBeenCalledTimes(1))
+
+    const container = getByTestId('score-container')
+    fireEvent.click(container)
+
+    expect(engraver.noteIdAt).toHaveBeenCalledTimes(1)
+    expect(engraver.noteIdAt).toHaveBeenCalledWith(container)
+    expect(onSelectNote).toHaveBeenCalledWith('m0.r.0.60')
+  })
+
+  it('resolves the click against event.target, not the container — a click on a CHILD element must be what noteIdAt is called with (roadmap-review finding 6)', async () => {
+    const engraver = createFakeEngraver()
+    engraver.noteIdAt.mockReturnValue('m0.r.0.60')
+    const score = makeTestScore()
+    const onSelectNote = vi.fn()
+    const { getByTestId } = render(
+      <ScoreViewer
+        musicXml="<xml/>"
+        score={score}
+        createEngraver={() => engraver}
+        onSelectNote={onSelectNote}
+      />,
+    )
+    await waitFor(() => expect(engraver.load).toHaveBeenCalledTimes(1))
+
+    const container = getByTestId('score-container')
+    const child = document.createElement('span')
+    container.appendChild(child)
+
+    fireEvent.click(child)
+
+    // Pins that the handler passes `event.target` (the actual click target,
+    // which may be deep inside a notehead's SVG) through to the engraver,
+    // NOT `event.currentTarget` — the latter always resolves to the
+    // container itself, which the real engraver's `noteIdAt` treats as a
+    // miss regardless of where inside it the click actually landed.
+    expect(engraver.noteIdAt).toHaveBeenCalledWith(child)
+    expect(onSelectNote).toHaveBeenCalledWith('m0.r.0.60')
+  })
+
+  it('calls onSelectNote with undefined when the click misses every notehead', async () => {
+    const engraver = createFakeEngraver()
+    engraver.noteIdAt.mockReturnValue(undefined)
+    const score = makeTestScore()
+    const onSelectNote = vi.fn()
+    const { getByTestId } = render(
+      <ScoreViewer
+        musicXml="<xml/>"
+        score={score}
+        createEngraver={() => engraver}
+        onSelectNote={onSelectNote}
+      />,
+    )
+    await waitFor(() => expect(engraver.load).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(getByTestId('score-container'))
+
+    expect(onSelectNote).toHaveBeenCalledWith(undefined)
+  })
+
+  it('does not throw on a click when no onSelectNote callback was given', async () => {
+    const engraver = createFakeEngraver()
+    const score = makeTestScore()
+    const { getByTestId } = render(
+      <ScoreViewer musicXml="<xml/>" score={score} createEngraver={() => engraver} />,
+    )
+    await waitFor(() => expect(engraver.load).toHaveBeenCalledTimes(1))
+
+    expect(() => fireEvent.click(getByTestId('score-container'))).not.toThrow()
   })
 })

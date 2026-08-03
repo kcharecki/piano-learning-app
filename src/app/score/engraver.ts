@@ -29,6 +29,11 @@ export type ScoreEngraver = {
   clearHiddenNotes(): void
   /** Release everything the engraver holds — DOM nodes, listeners, the OSMD instance. */
   destroy(): void
+  /**
+   * The `ScoreNote.id` of the notehead at this event's target, or `undefined`
+   * when the click did not land on a mapped notehead. Never throws.
+   */
+  noteIdAt(target: EventTarget | null): string | undefined
 }
 
 export type EngraverFactory = () => ScoreEngraver

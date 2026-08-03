@@ -84,10 +84,16 @@ type FakeOsmd = OsmdLike & {
 /**
  * Mirrors the internal `OsmdColoringOptions`/`OsmdGraphicalNote` structural
  * types in osmdEngraver.ts (not exported — this file cannot import them, so
- * it pins the same shape independently).
+ * it pins the same shape independently). `getSVGGElement` is the same access
+ * path `setColor` uses — see the doc comment on `OsmdGraphicalNote`.
  */
 type FakeColoringOptions = { readonly applyToNoteheads: boolean; readonly applyToStem: boolean }
-type FakeGraphicalNote = { setColor(color: string, options: FakeColoringOptions): void }
+type FakeGraphicalNote = {
+  setColor(color: string, options: FakeColoringOptions): void
+  getSVGGElement(): SVGGElement
+  readonly vfnoteIndex: number
+  getNoteheadSVGs(): readonly Element[]
+}
 type FakeGNote = (note: FakeNote) => FakeGraphicalNote | undefined
 
 /** A `setColor` call the fast SVG path made, recorded verbatim. */
@@ -106,9 +112,78 @@ function makeGNoteRecording(): { readonly GNote: FakeGNote; readonly calls: Reco
       setColor(color, options) {
         calls.push({ color, options })
       },
+      getSVGGElement: () => document.createElementNS('http://www.w3.org/2000/svg', 'g'),
+      vfnoteIndex: 0,
+      getNoteheadSVGs: () => [],
     }),
     calls,
   }
+}
+
+/**
+ * A `GNote` fixture that hands back one real (detached) `SVGGElement` per note
+ * — for `data-note-id` stamping tests, where the point is to read the
+ * attribute back off a specific note's element (`elementFor`). Each note gets
+ * its own group AND its own notehead element, `getNoteheadSVGs()[0]` — i.e.
+ * every note behaves as if it were the sole member of its own chord, which is
+ * the ordinary (non-chord) case `stampNoteIds` falls back correctly for.
+ */
+function makeGNoteWithElements(): { readonly GNote: FakeGNote; elementFor(n: FakeNote): SVGGElement } {
+  const elements = new Map<FakeNote, SVGGElement>()
+  const GNote: FakeGNote = (n) => {
+    let el = elements.get(n)
+    if (el === undefined) {
+      el = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+      elements.set(n, el)
+    }
+    return {
+      setColor: () => undefined,
+      getSVGGElement: () => el,
+      vfnoteIndex: 0,
+      getNoteheadSVGs: () => [el],
+    }
+  }
+  return {
+    GNote,
+    elementFor(n) {
+      const el = elements.get(n)
+      if (el === undefined) throw new Error('no element for note — GNote was never called for it')
+      return el
+    },
+  }
+}
+
+/**
+ * A `GNote` fixture modelling what OSMD actually does for a CHORD: every note
+ * passed to `chordNotes` shares ONE `getSVGGElement()` group (`sharedGroup`),
+ * but each has its OWN notehead child element at its own `vfnoteIndex` — the
+ * exact shape roadmap-review finding 1 exists to fix (`getSVGGElement()`
+ * alone would let the last-stamped chord member overwrite every other
+ * member's id on the shared group).
+ */
+function makeGNoteForChord(chordNotes: readonly FakeNote[]): {
+  readonly GNote: FakeGNote
+  readonly sharedGroup: SVGGElement
+  readonly noteheadFor: Map<FakeNote, SVGGElement>
+} {
+  const sharedGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+  const noteheads = chordNotes.map(() => document.createElementNS('http://www.w3.org/2000/svg', 'g'))
+  const noteheadFor = new Map<FakeNote, SVGGElement>()
+  chordNotes.forEach((n, i) => {
+    const head = noteheads[i]
+    if (head !== undefined) noteheadFor.set(n, head)
+  })
+  const GNote: FakeGNote = (n) => {
+    const index = chordNotes.indexOf(n)
+    if (index === -1) return undefined
+    return {
+      setColor: () => undefined,
+      getSVGGElement: () => sharedGroup,
+      vfnoteIndex: index,
+      getNoteheadSVGs: () => noteheads,
+    }
+  }
+  return { GNote, sharedGroup, noteheadFor }
 }
 
 /** `GNote` fixture matching the `'needs-render'` fallback path: no graphical note is ever resolvable. */
@@ -1145,5 +1220,245 @@ describe('createOsmdEngraver: MAX_CURSOR_STEPS cap (roadmap 2.32f)', () => {
     } finally {
       warn.mockRestore()
     }
+  })
+})
+
+describe('createOsmdEngraver: click-to-select (roadmap 4.8a)', () => {
+  it("stamps each mapped note's rendered SVG element with data-note-id after load", async () => {
+    const score = twoMeasureScore()
+    const [m0note, m1noteA, m1noteB] = score.notes
+    if (m0note === undefined || m1noteA === undefined || m1noteB === undefined) {
+      throw new Error('setup')
+    }
+    const engravedM0 = note(60)
+    const engravedM1a = note(62)
+    const engravedM1b = note(65)
+    const gnote = makeGNoteWithElements()
+    const fakeOsmd = makeFakeOsmd(
+      [measureOf(containerOf(engravedM0)), measureOf(containerOf(engravedM1a, engravedM1b))],
+      gnote.GNote,
+    )
+    const engraver = await load(score, fakeOsmd)
+
+    expect(gnote.elementFor(engravedM0).getAttribute('data-note-id')).toBe(m0note.id)
+    expect(gnote.elementFor(engravedM1a).getAttribute('data-note-id')).toBe(m1noteA.id)
+    expect(gnote.elementFor(engravedM1b).getAttribute('data-note-id')).toBe(m1noteB.id)
+    // Resolving a click against the stamped element is the point of stamping
+    // at all — proven properly by the `noteIdAt` tests below, but a direct
+    // check here that the engraver instance agrees with what it just stamped
+    // catches a stamp/read mismatch this test alone wouldn't otherwise show.
+    expect(engraver.noteIdAt(gnote.elementFor(engravedM0))).toBe(m0note.id)
+  })
+
+  it('stamps each CHORD member with its own id on its own notehead, not the shared group (roadmap review finding 1)', async () => {
+    // chordAndSingleScore: measure 0 is a chord (60, 64) plus a single note
+    // (67) — the mapping-order test above pins that our notes zip to
+    // engravedC60/engravedC64/engravedSingle in that order.
+    const score = chordAndSingleScore()
+    const [c60, c64, single67] = score.notes
+    if (c60 === undefined || c64 === undefined || single67 === undefined) throw new Error('setup')
+
+    const engravedC60 = note(60)
+    const engravedC64 = note(64)
+    const engravedSingle = note(67)
+    // c60 and c64 share ONE VexFlow StaveNote/group, exactly like OSMD's real
+    // chord rendering — see makeGNoteForChord's doc comment.
+    const chord = makeGNoteForChord([engravedC60, engravedC64])
+    // The single note gets its own independent group, as an ordinary
+    // (non-chord) note would.
+    const singleGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+    const combinedGNote: FakeGNote = (n) => {
+      if (n === engravedSingle) {
+        return {
+          setColor: () => undefined,
+          getSVGGElement: () => singleGroup,
+          vfnoteIndex: 0,
+          getNoteheadSVGs: () => [singleGroup],
+        }
+      }
+      return chord.GNote(n)
+    }
+    const fakeOsmd = makeFakeOsmd(
+      [measureOf(containerOf(engravedC60, engravedC64), containerOf(engravedSingle))],
+      combinedGNote,
+    )
+    const engraver = await load(score, fakeOsmd)
+
+    const c60Head = chord.noteheadFor.get(engravedC60)
+    const c64Head = chord.noteheadFor.get(engravedC64)
+    if (c60Head === undefined || c64Head === undefined) throw new Error('setup')
+
+    // Each chord member's OWN notehead carries its OWN id — the shared group
+    // itself is never stamped with either.
+    expect(c60Head.getAttribute('data-note-id')).toBe(c60.id)
+    expect(c64Head.getAttribute('data-note-id')).toBe(c64.id)
+    expect(chord.sharedGroup.hasAttribute('data-note-id')).toBe(false)
+
+    // Both chord members resolve independently via noteIdAt.
+    expect(engraver.noteIdAt(c60Head)).toBe(c60.id)
+    expect(engraver.noteIdAt(c64Head)).toBe(c64.id)
+    expect(engraver.noteIdAt(singleGroup)).toBe(single67.id)
+  })
+
+  it('re-stamps after a fallback render, since a full render discards the previous SVG tree', async () => {
+    const score = singleNoteScore()
+    const [c60] = score.notes
+    if (c60 === undefined) throw new Error('setup')
+    const engravedNote = note(60)
+    // GNote resolves fine (so stampNoteIds can always get an element), but
+    // setColor throws — forcing paint() down the 'needs-render' fallback
+    // without ever making the id-map itself unresolvable.
+    const elements = new Map<FakeNote, SVGGElement>()
+    const GNote: FakeGNote = (n) => {
+      let el = elements.get(n)
+      if (el === undefined) {
+        el = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+        elements.set(n, el)
+      }
+      return {
+        setColor: () => {
+          throw new Error('setColor boom')
+        },
+        getSVGGElement: () => el,
+        vfnoteIndex: 0,
+        getNoteheadSVGs: () => [el],
+      }
+    }
+    const fakeOsmd = makeFakeOsmd([measureOf(containerOf(engravedNote))], GNote)
+    const scheduler = makeFakeScheduler()
+    const engraver = await load(score, fakeOsmd, scheduler.scheduleRender)
+
+    const el = elements.get(engravedNote)
+    if (el === undefined) throw new Error('setup')
+    expect(el.getAttribute('data-note-id')).toBe(c60.id) // stamped once already, by load()
+
+    // Simulate OSMD tearing the note's SVG down on the next full render: the
+    // attribute this test is about to prove gets put BACK.
+    el.removeAttribute('data-note-id')
+
+    engraver.setNoteColor(c60.id, 'red') // setColor throws -> 'needs-render'
+    expect(fakeOsmd.renderCount).toBe(0) // not yet flushed
+    scheduler.flush()
+
+    expect(fakeOsmd.renderCount).toBe(1)
+    expect(el.getAttribute('data-note-id')).toBe(c60.id)
+  })
+
+  it('resolves a click on the notehead element itself to its note id', async () => {
+    const score = singleNoteScore()
+    const [c60] = score.notes
+    if (c60 === undefined) throw new Error('setup')
+    const engravedNote = note(60)
+    const gnote = makeGNoteWithElements()
+    const fakeOsmd = makeFakeOsmd([measureOf(containerOf(engravedNote))], gnote.GNote)
+    const engraver = createOsmdEngraver({ createOsmd: () => fakeOsmd })
+    const container = document.createElement('div')
+    await engraver.load(container, '<score/>', score)
+
+    expect(engraver.noteIdAt(gnote.elementFor(engravedNote))).toBe(c60.id)
+  })
+
+  it('resolves a click on a DESCENDANT of the notehead group by walking up to it', async () => {
+    const score = singleNoteScore()
+    const [c60] = score.notes
+    if (c60 === undefined) throw new Error('setup')
+    const engravedNote = note(60)
+    const gnote = makeGNoteWithElements()
+    const fakeOsmd = makeFakeOsmd([measureOf(containerOf(engravedNote))], gnote.GNote)
+    const engraver = createOsmdEngraver({ createOsmd: () => fakeOsmd })
+    const container = document.createElement('div')
+    await engraver.load(container, '<score/>', score)
+
+    const noteheadEl = gnote.elementFor(engravedNote)
+    container.appendChild(noteheadEl)
+    const strokeChild = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+    noteheadEl.appendChild(strokeChild)
+
+    expect(engraver.noteIdAt(strokeChild)).toBe(c60.id)
+  })
+
+  it('resolves a click that lands on the score but no notehead to undefined (the miss case)', async () => {
+    const score = singleNoteScore()
+    const [c60] = score.notes
+    if (c60 === undefined) throw new Error('setup')
+    const engravedNote = note(60)
+    const gnote = makeGNoteWithElements()
+    const fakeOsmd = makeFakeOsmd([measureOf(containerOf(engravedNote))], gnote.GNote)
+    const engraver = createOsmdEngraver({ createOsmd: () => fakeOsmd })
+    const container = document.createElement('div')
+    await engraver.load(container, '<score/>', score)
+
+    const emptyStaffEl = document.createElement('div')
+    container.appendChild(emptyStaffEl)
+
+    expect(engraver.noteIdAt(emptyStaffEl)).toBeUndefined()
+    expect(engraver.noteIdAt(container)).toBeUndefined()
+  })
+
+  it('never throws on a click target that is not even an Element (e.g. null, or a plain EventTarget)', async () => {
+    const score = singleNoteScore()
+    const fakeOsmd = makeFakeOsmd([measureOf(containerOf(note(60)))])
+    const engraver = await load(score, fakeOsmd)
+
+    expect(() => engraver.noteIdAt(null)).not.toThrow()
+    expect(engraver.noteIdAt(null)).toBeUndefined()
+    expect(engraver.noteIdAt(new EventTarget())).toBeUndefined()
+  })
+
+  it('resolves every click to undefined before load() has ever resolved', () => {
+    const fakeOsmd = makeFakeOsmd([measureOf(containerOf(note(60)))])
+    const engraver = createOsmdEngraver({ createOsmd: () => fakeOsmd })
+
+    expect(engraver.noteIdAt(document.createElement('div'))).toBeUndefined()
+  })
+
+  it('resolves every click to undefined after destroy() — a stamped element from before the destroy must not resolve', async () => {
+    // The `containerEl === undefined` guard in `noteIdAt` matters specifically
+    // for a STALE stamped element that survives `destroy()`: without the
+    // guard, a click on that element would still walk up to its
+    // `data-note-id` attribute and resolve it, even though the engraver
+    // considers itself torn down. A fresh, never-appended element (as the
+    // pre-load test above uses) would resolve to undefined regardless of the
+    // guard, so it cannot kill this mutant on its own.
+    const score = singleNoteScore()
+    const [c60] = score.notes
+    if (c60 === undefined) throw new Error('setup')
+    const engravedNote = note(60)
+    const gnote = makeGNoteWithElements()
+    const fakeOsmd = makeFakeOsmd([measureOf(containerOf(engravedNote))], gnote.GNote)
+    const engraver = createOsmdEngraver({ createOsmd: () => fakeOsmd })
+    const container = document.createElement('div')
+    await engraver.load(container, '<score/>', score)
+
+    const stampedEl = gnote.elementFor(engravedNote)
+    container.appendChild(stampedEl)
+    expect(engraver.noteIdAt(stampedEl)).toBe(c60.id) // sanity: resolves before destroy
+
+    engraver.destroy()
+
+    expect(engraver.noteIdAt(stampedEl)).toBeUndefined()
+  })
+
+  it('renders and does not throw, and stamps no ids, when the whole score is unmappable (mismatched counts)', async () => {
+    const score = twoMeasureScore()
+    // Every measure declares MORE engraved notes than ours — buildNoteIdMap
+    // leaves the whole map empty (see the mismatched-measure test above), so
+    // stampNoteIds has nothing to iterate and GNote (which WOULD hand back a
+    // real element) is never even called.
+    const gnote = makeGNoteWithElements()
+    const fakeOsmd = makeFakeOsmd(
+      [
+        measureOf(containerOf(note(60), note(61))),
+        measureOf(containerOf(note(62), note(65), note(69))),
+      ],
+      gnote.GNote,
+    )
+    const container = document.createElement('div')
+    const engraver = createOsmdEngraver({ createOsmd: () => fakeOsmd })
+
+    await expect(engraver.load(container, '<score/>', score)).resolves.toBeUndefined()
+
+    // Nothing was ever stamped: a click anywhere in the (empty) container misses.
+    expect(engraver.noteIdAt(container)).toBeUndefined()
   })
 })

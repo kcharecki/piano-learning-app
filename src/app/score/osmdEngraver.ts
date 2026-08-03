@@ -60,7 +60,29 @@ type EngravedNote = { NoteheadColor: string; readonly ParentVoiceEntry: { StemCo
 
 /** The slice of OSMD's `ColoringOptions` this file uses — see GraphicalNote.d.ts. */
 type OsmdColoringOptions = { readonly applyToNoteheads: boolean; readonly applyToStem: boolean }
-type OsmdGraphicalNote = { setColor(color: string, options: OsmdColoringOptions): void }
+/**
+ * `getSVGGElement` (see `VexFlowGraphicalNote.d.ts`) is the same access path
+ * `setColor` already uses — the rendered `<g>` wrapping this note's notehead,
+ * stem and beams. Used only to stamp `data-note-id` for click-to-select
+ * (roadmap 4.8a); never for colouring, which stays exclusively on `setColor`.
+ *
+ * For a CHORD, `getSVGGElement()` is NOT per-note: OSMD backs every note of a
+ * chord with the same single VexFlow `StaveNote` (`vfnote[0]`), so it returns
+ * the SAME `<g>` for every note in the chord — stamping that alone would let
+ * the chord's last-processed note silently overwrite every other member's id
+ * on the shared group. `vfnoteIndex` (this note's index within that shared
+ * `StaveNote`) and `getNoteheadSVGs()` (the notehead elements inside the
+ * group, one per chord member, in chord order) are the same pair OSMD's own
+ * `setColor` indexes by internally; stamping
+ * `getNoteheadSVGs()[vfnoteIndex]` targets this note's own notehead element
+ * instead of the shared group, so each chord member keeps its own id.
+ */
+type OsmdGraphicalNote = {
+  setColor(color: string, options: OsmdColoringOptions): void
+  getSVGGElement(): SVGGElement
+  readonly vfnoteIndex: number
+  getNoteheadSVGs(): readonly Element[]
+}
 type OsmdEngravingRules = { GNote(note: EngravedNote): OsmdGraphicalNote | undefined }
 
 type EngravedRawNote = EngravedNote & { readonly halfTone: number; isRest(): boolean }
@@ -114,7 +136,11 @@ export type OsmdLike = {
  * hex, so a CSS variable cannot be handed to it directly.
  */
 const SCORE_INK = '#e8e6e3'
-/** Exported for `osmdEngraver.test.ts` — the colour `clearNoteColors` restores. */
+/**
+ * Exported for `osmdEngraver.test.ts` — the colour `clearNoteColors`
+ * restores — and for `PracticeScreen.tsx`, which restores a deselected
+ * notehead to it directly (roadmap 4.8a).
+ */
 export const DEFAULT_NOTE_COLOR = SCORE_INK
 /**
  * The read-ahead drill (roadmap 2.26, REQ-3.4.5) "hides" a note by painting it
@@ -223,6 +249,53 @@ function buildNoteIdMap(osmd: OsmdLike, score: Score): Map<string, EngravedNote>
 }
 
 /**
+ * Stamps each mapped note's rendered SVG element with `data-note-id` (roadmap
+ * 4.8a) so `noteIdAt` can resolve a click without a per-notehead listener — a
+ * click handler on the CONTAINER walks up from `event.target` to the nearest
+ * `[data-note-id]` ancestor instead. Uses the exact same `osmd.rules.GNote`
+ * access path `paint` already uses for colouring — see the `OsmdGraphicalNote`
+ * doc comment above.
+ *
+ * Must be re-run after every full `render()`, not just the first one:
+ * `osmd.render()` discards and rebuilds the entire SVG tree, so a stamp from a
+ * previous render does not survive it — the SVG analogue of why `paint` also
+ * writes `NoteheadColor`/`StemColor` onto the model, not only the SVG. Unlike
+ * colour, that includes re-renders OSMD triggers on its OWN initiative
+ * (`autoResize` fires one shortly after mount, once the container's real
+ * layout size settles, and again on every window resize) — a real
+ * bundled-score load hit this in the running app: the load-time stamp was
+ * visibly wiped seconds later with no error, because `paint`'s durability
+ * trick (writing the colour onto the OSMD model so it survives OSMD's own
+ * re-render) has no analogue here — there is no model-level property to
+ * stamp an id onto. `load()` (below) closes this by wrapping the OSMD
+ * instance's OWN `render` method to re-stamp after every call, not only the
+ * ones this file makes itself.
+ *
+ * Best-effort and per-note, like `buildNoteIdMap`: a note whose graphical
+ * counterpart cannot be resolved, or whose SVG element access throws, is
+ * simply left unstamped (and therefore unselectable) rather than aborting the
+ * whole pass. Never throws.
+ */
+function stampNoteIds(osmd: OsmdLike, noteById: ReadonlyMap<string, EngravedNote>): void {
+  for (const [id, engraved] of noteById) {
+    try {
+      const graphicalNote = osmd.rules.GNote(engraved)
+      // Prefer this note's OWN notehead element (`getNoteheadSVGs()[vfnoteIndex]`)
+      // over the shared chord group `getSVGGElement()` returns — see the
+      // `OsmdGraphicalNote` doc comment above for why the group is not
+      // per-note. Falls back to the group when the notehead list is
+      // unavailable/short (e.g. a single-note voice entry, or a fake in
+      // tests that only implements `getSVGGElement`), so single notes keep
+      // working exactly as before.
+      const el = graphicalNote?.getNoteheadSVGs()[graphicalNote.vfnoteIndex] ?? graphicalNote?.getSVGGElement()
+      el?.setAttribute('data-note-id', id)
+    } catch {
+      // Best-effort — see doc comment above.
+    }
+  }
+}
+
+/**
  * Every onset the cursor will visit, in visiting order, as absolute ticks —
  * walked ONCE at load and cached.
  *
@@ -309,6 +382,8 @@ export function createOsmdEngraver(opts?: OsmdEngraverOptions): ScoreEngraver {
   const createOsmd = opts?.createOsmd ?? defaultCreateOsmd
 
   let osmd: OsmdLike | undefined
+  /** The element `load()` rendered into — bounds the walk `noteIdAt` does. */
+  let containerEl: HTMLElement | undefined
   let noteById = new Map<string, EngravedNote>()
   const coloredIds = new Set<string>()
   /** Last colour requested via `setNoteColor`, independent of current visibility. */
@@ -333,6 +408,10 @@ export function createOsmdEngraver(opts?: OsmdEngraverOptions): ScoreEngraver {
     renderPending = true
     scheduleRender(() => {
       renderPending = false
+      // `osmd.render()` (wrapped in `load()` below to also re-stamp
+      // `data-note-id` — see that wrapper's doc comment) — a plain
+      // `osmd?.render()` here still re-stamps, it just goes through the
+      // wrapper transparently.
       osmd?.render()
     })
   }
@@ -387,13 +466,30 @@ export function createOsmdEngraver(opts?: OsmdEngraverOptions): ScoreEngraver {
   return {
     async load(container, musicXml, score) {
       const instance = createOsmd(container)
+      // OSMD calls `render()` on its OWN initiative too — `autoResize` fires
+      // one shortly after mount, once the container's layout size settles,
+      // and again on every window resize (see `stampNoteIds`'s doc comment,
+      // and the module comment on why the analogous colour case needs no
+      // equivalent: `paint` durability-writes onto the OSMD model itself,
+      // which `render()` always redraws from, but there is no model-level
+      // property to stamp an id onto). Re-binding BEFORE that first
+      // `render()` call below, and re-reading the closure's `noteById`
+      // rather than a value captured here, is what makes every later call —
+      // OSMD's own included — re-stamp using whatever the map currently is.
+      const originalRender = instance.render.bind(instance)
+      instance.render = () => {
+        originalRender()
+        stampNoteIds(instance, noteById)
+      }
       await instance.load(musicXml)
       instance.render()
       onsetTicks = collectOnsetTicks(instance.cursor)
       cursorIndex = 0
       instance.cursor.show()
       osmd = instance
+      containerEl = container
       noteById = buildNoteIdMap(instance, score)
+      stampNoteIds(instance, noteById)
 
       // Catches up any `setNoteColor`/`setNoteHidden` call that arrived
       // between the engraver being constructed and this `await` resolving
@@ -470,11 +566,29 @@ export function createOsmdEngraver(opts?: OsmdEngraverOptions): ScoreEngraver {
     destroy() {
       osmd?.clear()
       osmd = undefined
+      containerEl = undefined
       noteById = new Map()
       coloredIds.clear()
       desiredColor.clear()
       hiddenIds.clear()
       renderPending = false
+    },
+
+    noteIdAt(target) {
+      try {
+        if (containerEl === undefined || !(target instanceof Element)) return undefined
+        let el: Element | null = target
+        while (el !== null) {
+          const id = el.getAttribute('data-note-id')
+          if (id !== null) return id
+          if (el === containerEl) return undefined
+          el = el.parentElement
+        }
+        return undefined
+      } catch {
+        // Never throws — a click that cannot be resolved is just a miss.
+        return undefined
+      }
     },
   }
 }
