@@ -6,7 +6,7 @@
  * `Store` port, so it is exercised in tests with an in-memory fake and the
  * real zustand stores, never a browser database.
  *
- * Eight independent slices are persisted, each following the same shape
+ * Nine independent slices are persisted, each following the same shape
  * (validate → `restoreSlice` on the way in, `createWriteQueue` +  a
  * `subscribe` on the way out):
  *  - the score session (`useScoreStore`) — the original roadmap-1.23 slice.
@@ -27,10 +27,14 @@
  *  - the technique drill tempo history (`useTechniqueStore`, roadmap 4.4b,
  *    REQ-3.7.2/3.7.3). Without this, REQ-3.7.3's per-drill clean-tempo
  *    history — "currently clean at ♩=88" — resets to nothing on every reload.
+ *  - the repertoire library (`useRepertoireStore`, roadmap 2.33,
+ *    REQ-3.8.2/3.8.3/3.8.4). `COLLECTIONS.repertoire` was declared but written
+ *    by nothing — without this slice a learner's curated piece list, statuses
+ *    and practice history would die on every page reload.
  *
  * Each slice's write queue is fully independent — its own collection, its own
  * key, its own in-flight `put` — so a slow write to one can never block or
- * reorder a write to another. `startPersisting` just wires up all eight and
+ * reorder a write to another. `startPersisting` just wires up all nine and
  * returns one combined unsubscribe.
  *
  * CALL ORDER IS MANDATORY, for every slice: `await restoreSession(store)`
@@ -53,6 +57,7 @@ import {
   MAX_STORED_RECORDINGS,
   MAX_STORED_PRACTICE_ENTRIES,
 } from '@app/state/progressStore.ts'
+import { useRepertoireStore, MAX_STORED_REPERTOIRE_PIECES } from '@app/state/repertoireStore.ts'
 import { useTechniqueStore, MAX_STORED_TECHNIQUE_ATTEMPTS } from '@app/state/techniqueStore.ts'
 import {
   isValidAnnotations,
@@ -60,6 +65,7 @@ import {
   isValidFlashcards,
   isValidPracticeLog,
   isValidRecordings,
+  isValidRepertoire,
   isValidSession,
   isValidSightReadingHistory,
   isValidTechniqueHistory,
@@ -68,6 +74,7 @@ import {
   type PersistedFlashcards,
   type PersistedPracticeLog,
   type PersistedRecordings,
+  type PersistedRepertoire,
   type PersistedSession,
   type PersistedSightReadingHistory,
   type PersistedTechniqueHistory,
@@ -82,6 +89,7 @@ export type {
   PersistedFlashcards,
   PersistedPracticeLog,
   PersistedRecordings,
+  PersistedRepertoire,
   PersistedSession,
   PersistedSightReadingHistory,
   PersistedTechniqueHistory,
@@ -118,6 +126,10 @@ export const PRACTICE_LOG_KEY = 'practiceLog'
 export const TECHNIQUE_COLLECTION = COLLECTIONS.techniqueHistory
 export const TECHNIQUE_KEY = 'techniqueHistory'
 
+/** Collection + key the repertoire library lives under (roadmap 2.33, REQ-3.8.2/3.8.3/3.8.4). */
+export const REPERTOIRE_COLLECTION = COLLECTIONS.repertoire
+export const REPERTOIRE_KEY = 'repertoire'
+
 // ----------------------------------------------------------------- restore
 
 /**
@@ -138,6 +150,7 @@ let applyingRestoredAssessments = false
 let applyingRestoredRecordings = false
 let applyingRestoredPracticeLog = false
 let applyingRestoredTechniqueHistory = false
+let applyingRestoredRepertoire = false
 
 /**
  * Reads `key` from `collection`, validates it, and — only if valid — applies
@@ -287,6 +300,20 @@ export async function restoreSession(store: Store): Promise<boolean> {
       useTechniqueStore
         .getState()
         .hydrate({ attempts: data.attempts.slice(0, MAX_STORED_TECHNIQUE_ATTEMPTS) }),
+  )
+
+  await restoreSlice(
+    store,
+    REPERTOIRE_COLLECTION,
+    REPERTOIRE_KEY,
+    isValidRepertoire,
+    (guarding) => {
+      applyingRestoredRepertoire = guarding
+    },
+    (data) =>
+      useRepertoireStore
+        .getState()
+        .hydrate({ pieces: data.pieces.slice(0, MAX_STORED_REPERTOIRE_PIECES) }),
   )
 
   return scoreRestored
@@ -468,8 +495,18 @@ function persistTechniqueHistory(store: Store): () => void {
   })
 }
 
+/** Subscribes to the repertoire store and writes `pieces` on every change. */
+function persistRepertoire(store: Store): () => void {
+  const write = createWriteQueue<PersistedRepertoire>(store, REPERTOIRE_COLLECTION, REPERTOIRE_KEY)
+  return useRepertoireStore.subscribe((state, prevState) => {
+    if (applyingRestoredRepertoire) return
+    if (state.pieces === prevState.pieces) return
+    write({ pieces: state.pieces })
+  })
+}
+
 /**
- * Starts persisting all eight slices and returns one combined unsubscribe. See
+ * Starts persisting all nine slices and returns one combined unsubscribe. See
  * the module comment for the mandatory `restoreSession` → `startPersisting`
  * call order.
  */
@@ -483,6 +520,7 @@ export function startPersisting(store: Store): () => void {
     persistRecordings(store),
     persistPracticeLog(store),
     persistTechniqueHistory(store),
+    persistRepertoire(store),
   ]
   return () => {
     for (const unsubscribe of unsubscribers) unsubscribe()

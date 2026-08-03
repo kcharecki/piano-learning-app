@@ -8,11 +8,13 @@ import type { DateSource } from '@core/ports/index.ts'
 import type { PracticeEntry } from '@core/progress/log.ts'
 import { DAY_MS } from '@core/srs/scheduler.ts'
 import type { SightReadingRecord } from '@core/sightreading/session.ts'
+import type { RepertoirePiece } from '@core/repertoire/repertoire.ts'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { useProgressStore } from '@app/state/progressStore.ts'
 import { useSightReadingStore } from '@app/state/sightReadingStore.ts'
 import { useFlashcardStore } from '@app/state/flashcardStore.ts'
+import { useRepertoireStore } from '@app/state/repertoireStore.ts'
 import { DashboardScreen } from './DashboardScreen.tsx'
 
 class FakeDateSource implements DateSource {
@@ -32,6 +34,7 @@ function resetStores(): void {
   useProgressStore.setState({ assessments: [], recordings: [], practiceEntries: [] })
   useSightReadingStore.setState({ level: 1, history: [] })
   useFlashcardStore.setState({ cardsById: {} })
+  useRepertoireStore.setState({ pieces: [] })
 }
 
 afterEach(() => {
@@ -154,5 +157,32 @@ describe('DashboardScreen — seeded data', () => {
     expect(screen.getByTestId('dashboard-retention-mature').textContent).toBe('1')
     expect(screen.getByTestId('dashboard-retention-ease').textContent).toBe('2.40')
     expect(screen.queryByTestId('dashboard-retention-empty')).toBeNull()
+  })
+
+  it('renders the seeded repertoire library and its due-for-review sub-list from useRepertoireStore', () => {
+    const pieces: RepertoirePiece[] = [
+      {
+        id: 'piece-1',
+        title: 'Fur Elise',
+        composer: 'Beethoven',
+        level: 3,
+        status: 'maintained',
+        // Practised 30 days ago — past the 21-day maintenance interval, so due.
+        sessions: [{ at: NOW - 30 * DAY_MS, minutes: 20, accuracy: 0.9 }],
+        bestAccuracy: 0.9,
+        notes: '',
+      },
+    ]
+    useRepertoireStore.setState({ pieces })
+
+    render(<DashboardScreen date={new FakeDateSource(NOW)} utcOffsetMinutes={0} />)
+
+    expect(screen.getByTestId('dashboard-repertoire-piece-piece-1').textContent).toBe(
+      'Fur Elise: maintained',
+    )
+    expect(screen.getByRole('list', { name: 'Repertoire pieces' })).toBeTruthy()
+    expect(screen.getByRole('list', { name: 'Repertoire pieces due for review' })).toBeTruthy()
+    expect(screen.getByTestId('dashboard-repertoire-due-piece-1').textContent).toBe('Fur Elise')
+    expect(screen.queryByTestId('dashboard-repertoire-empty')).toBeNull()
   })
 })

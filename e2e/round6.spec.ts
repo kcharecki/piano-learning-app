@@ -127,6 +127,39 @@ test('an annotation written against a measure survives a reload (roadmap 4.8)', 
   await notes.getByRole('button', { name: /add|save/i }).click()
   await expect(notes.getByText(text)).toBeVisible()
 
+  // Gate the reload on the annotation actually being IN IndexedDB, not merely
+  // on screen. The on-screen note is zustand state, written synchronously;
+  // the persisted copy goes through `persistence.ts`'s async write queue, so
+  // reloading the instant the text renders races that `put` and can destroy
+  // it before it commits — after which the assertion below is checking for
+  // something that was never saved. This spec failed roughly half of all
+  // full-suite runs for exactly that reason (it passes in isolation, where
+  // the machine is idle and the write always wins). Same gate, and the same
+  // reasoning, as e2e/export-restore.spec.ts's wipe check.
+  await expect(async () => {
+    const stored = await page.evaluate(
+      () =>
+        new Promise<unknown>((resolve, reject) => {
+          const open = indexedDB.open('piano-learning-app')
+          open.onerror = () => reject(open.error)
+          open.onsuccess = () => {
+            const db = open.result
+            if (!db.objectStoreNames.contains('annotations')) {
+              resolve(undefined)
+              return
+            }
+            const request = db
+              .transaction('annotations', 'readonly')
+              .objectStore('annotations')
+              .get('annotations')
+            request.onerror = () => reject(request.error)
+            request.onsuccess = () => resolve(request.result as unknown)
+          }
+        }),
+    )
+    expect(JSON.stringify(stored ?? null)).toContain(text)
+  }).toPass({ timeout: 10_000 })
+
   await page.reload()
   await nav(page, 'Practice').click()
 

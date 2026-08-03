@@ -4,7 +4,9 @@
  * assertion below either (a) recomputes the expected value with the same
  * core function the hook uses, so a hardcoded `0` or a mislabelled stat
  * fails, or (b) asserts the documented empty state for a section with no
- * writer yet (technique attempts, repertoire pieces, level state).
+ * writer yet (only level state today — technique attempts and repertoire
+ * pieces both have real writers now, roadmap 2.33, and are seeded and
+ * asserted non-empty below).
  */
 import type { DateSource } from '@core/ports/index.ts'
 import {
@@ -25,6 +27,10 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { useProgressStore } from '@app/state/progressStore.ts'
 import { useSightReadingStore } from '@app/state/sightReadingStore.ts'
 import { useFlashcardStore } from '@app/state/flashcardStore.ts'
+import { useTechniqueStore } from '@app/state/techniqueStore.ts'
+import { useRepertoireStore } from '@app/state/repertoireStore.ts'
+import type { RepertoirePiece } from '@core/repertoire/repertoire.ts'
+import type { TechniqueAttempt } from '@core/technique/evenness.ts'
 import { useDashboard, type UseDashboardOptions } from './useDashboard.ts'
 
 class FakeDateSource implements DateSource {
@@ -47,6 +53,8 @@ function resetStores(): void {
   useProgressStore.setState({ assessments: [], recordings: [], practiceEntries: [] })
   useSightReadingStore.setState({ level: MIN_LEVEL, history: [] })
   useFlashcardStore.setState({ cardsById: {} })
+  useTechniqueStore.setState({ attempts: [] })
+  useRepertoireStore.setState({ pieces: [] })
 }
 
 afterEach(() => {
@@ -247,5 +255,58 @@ describe('useDashboard — flashcard SRS retention', () => {
 
     expect(result.current.retention).toEqual(retentionStats(theoryCards, NOW))
     expect(result.current.retention.total).toBe(2)
+  })
+})
+
+describe('useDashboard — repertoire maintenance', () => {
+  it('calls the real maintenanceDue(repertoirePieces, now) — a piece practiced long ago is due, one practiced recently is not', () => {
+    const overdue: RepertoirePiece = {
+      id: 'piece-overdue',
+      title: 'Fur Elise',
+      composer: 'Beethoven',
+      level: 3,
+      status: 'maintained',
+      // 40 days since the last session, well past the maintenance interval.
+      sessions: [{ at: NOW - 40 * DAY_MS, minutes: 20, accuracy: 0.9 }],
+      bestAccuracy: 0.9,
+      notes: '',
+    }
+    const recent: RepertoirePiece = {
+      id: 'piece-recent',
+      title: 'Clair de Lune',
+      composer: 'Debussy',
+      level: 4,
+      status: 'maintained',
+      // 2 days since the last session — nowhere near due.
+      sessions: [{ at: NOW - 2 * DAY_MS, minutes: 15, accuracy: 0.85 }],
+      bestAccuracy: 0.85,
+      notes: '',
+    }
+    useRepertoireStore.setState({ pieces: [overdue, recent] })
+
+    const { result } = setup()
+
+    expect(result.current.repertoirePieces).toEqual([overdue, recent])
+    expect(result.current.repertoireDue.map((p) => p.id)).toEqual(['piece-overdue'])
+  })
+})
+
+describe('useDashboard — technique tempo trend', () => {
+  it("reads useTechniqueStore's attempts and computes a non-empty trend carrying the seeded drill ids — the assertion 4.4b's staleness would have caught", () => {
+    const attempts: TechniqueAttempt[] = [
+      { drillId: 'scale-c-major', at: NOW - 3 * DAY_MS, bpm: 80, evenness: 0.9, accuracy: 1, clean: true },
+      { drillId: 'scale-c-major', at: NOW - 1 * DAY_MS, bpm: 92, evenness: 0.95, accuracy: 1, clean: true },
+      { drillId: 'arpeggio-g-major', at: NOW - 2 * DAY_MS, bpm: 70, evenness: 0.8, accuracy: 1, clean: true },
+    ]
+    useTechniqueStore.setState({ attempts })
+
+    const { result } = setup()
+
+    expect(result.current.techniqueAttempts).toEqual(attempts)
+    expect(result.current.techniqueTrend.length).toBeGreaterThan(0)
+    const drillIds = new Set(result.current.techniqueTrend.map((p) => p.drillId))
+    expect(drillIds).toEqual(new Set(['scale-c-major', 'arpeggio-g-major']))
+    expect(result.current.techniqueBestBpmByDrill['scale-c-major']).toBe(92)
+    expect(result.current.techniqueBestBpmByDrill['arpeggio-g-major']).toBe(70)
   })
 })

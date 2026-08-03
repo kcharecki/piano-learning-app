@@ -455,17 +455,46 @@ Stop latency        5339ms       59ms
       *Proof: measure it first — play a long piece for several minutes and compare the scheduled
       `atMs` of a note against the `AudioContext` time it actually sounded at; only re-anchor if
       the gap grows. A fix with no measurement behind it cannot be told from a no-op here.*
+- [ ] 2.32f `app/score`: `osmdEngraver.ts`'s `MAX_CURSOR_STEPS = 10_000` silently truncates
+      `collectOnsetTicks`. Canon in D's 102 measures produce well under that, so nothing is wrong
+      today, but a long dense piece that exceeds it would leave the cursor unable to track past that
+      onset — and the cap is silent, so it would present as "the cursor stops moving two thirds of
+      the way through" with nothing in the console. Not a perf issue; found while reading that file
+      for 2.32a. Either raise it far above any real score or make exceeding it visible.
+      *Proof: a unit test on a synthetic onset list longer than the cap, asserting whatever the
+      chosen behaviour is (a higher bound, or a reported truncation) rather than silent loss.*
 
-- [ ] 2.33 `app/repertoire`: `core/repertoire/repertoire.ts` has seven exports
+- [x] 2.33 `app/repertoire`: `core/repertoire/repertoire.ts` has seven exports
       (`addPiece`/`setStatus`/`recordSession`/`setNotes`/`maintenanceDue`/`sessionFromEntry`/
       `REPERTOIRE_STATUSES`) with no consuming store or screen anywhere — no
       `src/app/state/repertoire*` store exists, `progress/snapshot.ts` hardcodes `repertoire: []`,
       and `useDashboard.ts` hardcodes `repertoirePieces: []`. Roadmap 4.5 is ticked `[x]` but only
       the core module was ever built; its own doc comment names `usePracticeLog.ts`'s `stop()` as
       the intended writer, and that function does not call it. Found by the 2.32 knip triage.
-      *Proof: e2e — add the imported score to the repertoire, set it maintained, and see it in the
-      review-due list once its interval has passed (this is 4.5's OWN original proof action, never
-      actually driven).*
+      *Proved by `e2e/repertoire.spec.ts` — 4.5's own original proof action, actually driven this
+      time. Import a score, add it at level 3 through the real screen, set it maintained, and watch
+      the Review due list. The interval is asserted in BOTH directions, which is the part that
+      matters: a maintained piece never practised is due immediately, so "maintained piece appears
+      under Review due" alone is satisfied by an implementation that lists every maintained piece
+      and never consults an interval. So the spec also injects a session 2 days ago (NOT due) and
+      one 40 days ago (due again), each followed by a full reload — which makes the same
+      assertions double as proof that the ninth persistence slice restores. Mutant checked:
+      replacing `maintenanceDue(...)` with `pieces.filter(p => p.status === 'maintained')` fails the
+      2-days-ago assertion. Built as four file-disjoint modules — the store, the screen + hook, the
+      persistence slice, and the dashboard/snapshot wiring — plus Shell nav wiring on the main
+      thread. `usePracticeLog.stop()` still does not call `recordSession`, so a repertoire piece's
+      practice history has no automatic writer yet; that is the remaining half and is not claimed.*
+- [x] 2.33a `app/dashboard`: found while wiring 2.33, and the same shape as 2.36 — `useDashboard.ts`
+      hardcodes `const techniqueAttempts: readonly TechniqueAttempt[] = []` and its module comment
+      claims "no store persists a `TechniqueAttempt` list anywhere (there is no writer)". That has
+      been false since roadmap 4.4b, which built `useTechniqueStore`, had `useTechniqueDrill` write
+      to it, and added the eighth persistence slice so it survives a reload. The dashboard's whole
+      technique tempo trend has therefore been inert since the day 4.4b shipped, with a doc comment
+      explaining why that was correct. Fixed inside 2.33's dashboard module rather than left
+      standing, because it is one line in a file that round already owned.
+      *Proof: `useDashboard.test.ts` seeds `useTechniqueStore` with attempts and asserts
+      `techniqueTrend` is non-empty and carries the seeded drill ids — the assertion whose absence
+      let this sit unnoticed.*
 - [ ] 2.34 `app/session`: `Shell.tsx` renders `<TechniqueScreen />` with no props, so a planned
       session's chosen technique drill (`Exercise.params.drillId`, built by
       `session/candidates.ts`) is silently dropped — the screen always opens the level's first
@@ -753,6 +782,17 @@ Append one line per session: date, what landed, anything the next session must k
     written alongside the direct SVG mutation, because `autoResize: true` makes OSMD re-engrave on
     any window resize and a resize must not wipe the feedback colours. The fast path is an
     addition, not a replacement.
+  * **Then 2.33 + 2.33a**: the repertoire library wired end to end (store, screen, ninth
+    persistence slice, dashboard and snapshot), four file-disjoint modules plus Shell wiring.
+  * **A pre-existing e2e flake was failing 2 of every 3 full-suite runs, and had been passing
+    `verify:full` on luck.** `round6.spec.ts`'s annotation-survives-reload test reloaded the page
+    the instant the note RENDERED, racing `persistence.ts`'s async write queue — so under parallel
+    load the `put` had not committed and the reload destroyed it. It passes in isolation every
+    time, on an idle machine, which is exactly why it survived. Confirmed pre-existing by stashing
+    this session's work and watching it fail on the previous commit. Now gated on the annotation
+    actually being IN IndexedDB before the reload, the same gate `export-restore.spec.ts` already
+    uses; three consecutive clean full-suite runs after. **A green e2e suite proves nothing about a
+    spec you have only ever run alone** — run the whole suite, more than once, before believing it.
   What the next session must know:
   * **An agent silenced a failing e2e with `test.fixme` and reported the module done.** The 4.4b
     spec hit a genuinely red persistence assertion, correctly refused to reach outside its owned

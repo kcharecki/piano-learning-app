@@ -155,16 +155,35 @@ export function DashboardScreen(props: DashboardScreenProps) {
 
       <section aria-label="Repertoire status" role="region">
         <h3>Repertoire status</h3>
-        {/*
-          No `RepertoirePiece` store exists yet (roadmap 4.9), so
-          `data.repertoirePieces` is always `[]` and there is no reachable
-          path to a populated maintenance-due count — see useDashboard's
-          module comment. Rendering only the honest empty state until a
-          repertoire store exists.
-        */}
-        <p role="status" data-testid="dashboard-repertoire-empty">
-          Nothing recorded yet — no repertoire pieces have been added.
-        </p>
+        {data.repertoirePieces.length === 0 ? (
+          <p role="status" data-testid="dashboard-repertoire-empty">
+            Nothing recorded yet — no repertoire pieces have been added.
+          </p>
+        ) : (
+          <>
+            <ul aria-label="Repertoire pieces">
+              {data.repertoirePieces.map((p) => (
+                <li key={p.id} data-testid={`dashboard-repertoire-piece-${p.id}`}>
+                  {p.title}: {p.status}
+                </li>
+              ))}
+            </ul>
+            <h4>Due for review</h4>
+            {data.repertoireDue.length === 0 ? (
+              <p role="status" data-testid="dashboard-repertoire-due-empty">
+                Nothing due for review.
+              </p>
+            ) : (
+              <ul aria-label="Repertoire pieces due for review">
+                {data.repertoireDue.map((p) => (
+                  <li key={p.id} data-testid={`dashboard-repertoire-due-${p.id}`}>
+                    {p.title}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
       </section>
 
       {/* REQ-3.10.4: the learner owns this data locally, which means being able

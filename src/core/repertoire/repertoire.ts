@@ -83,7 +83,7 @@ export type RepertoirePiece = {
 }
 
 /** Fields the caller supplies when adding a piece; the rest default to a fresh piece's state. */
-type NewPieceInput = {
+export type NewPieceInput = {
   readonly id: string
   readonly title: string
   readonly composer: string

@@ -9,6 +9,7 @@ import type { AssessmentResult } from '@core/practice/assessment.ts'
 import type { Recording } from '@core/practice/recorder.ts'
 import type { PracticeEntry } from '@core/progress/log.ts'
 import type { TechniqueAttempt } from '@core/technique/evenness.ts'
+import type { RepertoirePiece } from '@core/repertoire/repertoire.ts'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   FLASHCARDS_COLLECTION,
@@ -19,6 +20,8 @@ import {
   PROGRESS_KEY,
   RECORDINGS_COLLECTION,
   RECORDINGS_KEY,
+  REPERTOIRE_COLLECTION,
+  REPERTOIRE_KEY,
   restoreSession,
   SESSION_COLLECTION,
   SESSION_KEY,
@@ -31,6 +34,7 @@ import {
   type PersistedFlashcards,
   type PersistedPracticeLog,
   type PersistedRecordings,
+  type PersistedRepertoire,
   type PersistedSession,
   type PersistedSightReadingHistory,
   type PersistedTechniqueHistory,
@@ -40,6 +44,7 @@ import { useSightReadingStore } from './sightReadingStore.ts'
 import { useFlashcardStore } from './flashcardStore.ts'
 import { useProgressStore, type StoredAssessment } from './progressStore.ts'
 import { useTechniqueStore } from './techniqueStore.ts'
+import { useRepertoireStore, MAX_STORED_REPERTOIRE_PIECES } from './repertoireStore.ts'
 
 const INITIAL_STATE: ScoreStore = useScoreStore.getState()
 
@@ -64,6 +69,7 @@ function resetStore(): void {
   useFlashcardStore.setState({ cardsById: {} })
   useProgressStore.setState({ assessments: [], recordings: [], practiceEntries: [] })
   useTechniqueStore.setState({ attempts: [] })
+  useRepertoireStore.setState({ pieces: [] })
 }
 
 /** Waits for the internal write queue to drain: a handful of microtask turns is always enough. */
@@ -958,6 +964,96 @@ describe('persistence', () => {
       const store = new CountingStore()
       const saved: PersistedTechniqueHistory = { attempts: [ATTEMPT_A] }
       await store.put(TECHNIQUE_COLLECTION, TECHNIQUE_KEY, saved)
+      store.putCount = 0
+
+      persist(store)
+      await restoreSession(store)
+      await flush()
+
+      expect(store.putCount).toBe(0)
+    })
+  })
+
+  describe('repertoire library persistence (roadmap 2.33, REQ-3.8.2/3.8.3/3.8.4)', () => {
+    const PIECE_A: RepertoirePiece = {
+      id: 'piece-1',
+      title: 'Minuet in G',
+      composer: 'Petzold',
+      level: 2,
+      status: 'learning',
+      sessions: [],
+      bestAccuracy: 0,
+      notes: '',
+    }
+
+    it('round-trips a repertoire library via startPersisting / restoreSession', async () => {
+      const store = new MemoryStore()
+      const unsubscribe = persist(store)
+
+      useRepertoireStore.getState().addPiece(PIECE_A)
+      await flush()
+      unsubscribe()
+
+      resetStore()
+      expect(useRepertoireStore.getState().pieces).toEqual([])
+
+      await restoreSession(store)
+      expect(useRepertoireStore.getState().pieces).toEqual([PIECE_A])
+    })
+
+    it.each([
+      ['not an object', 'nope'],
+      ['pieces missing', {}],
+      ['pieces not an array', { pieces: 'nope' }],
+      [
+        'a piece with a status that is not a valid RepertoireStatus',
+        { pieces: [{ ...PIECE_A, status: 'abandoned' }] },
+      ],
+      [
+        'a piece missing a required field',
+        { pieces: [{ id: 'x', title: 'X', level: 1 }] },
+      ],
+    ])('degrades to an empty repertoire list on a corrupt payload: %s', async (_label, payload) => {
+      const store = new MemoryStore()
+      await store.put(REPERTOIRE_COLLECTION, REPERTOIRE_KEY, payload)
+      // A sibling collection with a VALID payload, to prove the corrupt
+      // repertoire collection does not prevent it from restoring — see the
+      // technique suite's identical comment above.
+      const entry: PracticeEntry = {
+        id: 'sibling-pe-3',
+        startedAt: 1,
+        endedAt: 2,
+        kind: 'warmup',
+        itemName: 'Sibling',
+      }
+      await store.put(PRACTICE_LOG_COLLECTION, PRACTICE_LOG_KEY, { practiceEntries: [entry] })
+
+      await restoreSession(store)
+
+      expect(useRepertoireStore.getState().pieces).toEqual([])
+      expect(useProgressStore.getState().practiceEntries).toEqual([entry])
+    })
+
+    it('truncates a stored library longer than MAX_STORED_REPERTOIRE_PIECES on restore', async () => {
+      const store = new MemoryStore()
+      const oversized: readonly RepertoirePiece[] = Array.from(
+        { length: MAX_STORED_REPERTOIRE_PIECES + 5 },
+        (_, i) => ({ ...PIECE_A, id: `piece-${i}` }),
+      )
+      await store.put(REPERTOIRE_COLLECTION, REPERTOIRE_KEY, { pieces: oversized })
+
+      await restoreSession(store)
+
+      expect(useRepertoireStore.getState().pieces).toHaveLength(MAX_STORED_REPERTOIRE_PIECES)
+      expect(useRepertoireStore.getState().pieces).toEqual(
+        oversized.slice(0, MAX_STORED_REPERTOIRE_PIECES),
+      )
+    })
+
+    it('does not immediately re-save what it just restored (no write amplification)', async () => {
+      const store = new CountingStore()
+      const saved: PersistedRepertoire = { pieces: [PIECE_A] }
+      await store.put(REPERTOIRE_COLLECTION, REPERTOIRE_KEY, saved)
       store.putCount = 0
 
       persist(store)

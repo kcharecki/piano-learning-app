@@ -19,11 +19,18 @@
  *    `LevelState` store yet (see `useDashboard.ts`'s module comment for the
  *    same gap), so this snapshot cannot honestly report them and does not
  *    invent a value for either.
- *  - `repertoire` — always `[]`: no store persists a `RepertoirePieceLike` list
- *    anywhere in the app yet, matching `useDashboard.ts`'s `repertoirePieces`.
- *    `applyProgressSnapshot` has nothing to write a restored one into either,
- *    so a snapshot's `repertoire` field is round-tripped through the JSON
- *    envelope (for a future consumer) but otherwise ignored here.
+ *  - `repertoire` — `useRepertoireStore().pieces` (roadmap 4.5), projected
+ *    through `RepertoirePieceLike`. This comment used to claim no such store
+ *    existed (matching a now-stale claim in `useDashboard.ts`'s module
+ *    comment) — that has been false since roadmap 4.5 landed
+ *    `useRepertoireStore`. The projection is LOSSY the same way `assessments`
+ *    is: `RepertoirePieceLike`'s structural minimum (`@core/progress/export.ts`)
+ *    keeps only `id`/`title`/`composer`/`status`/`addedAt`, so a restored
+ *    `RepertoirePiece`'s `level`, `sessions`, `bestAccuracy`, `notes` and
+ *    `scoreId` are NOT preserved — `level` is fabricated at the curriculum
+ *    minimum, `sessions` restore empty, `bestAccuracy` restores `0`, `notes`
+ *    restores blank, and an unrecognised `status` string falls back to
+ *    `'learning'` rather than crashing on a hand-edited file.
  *  - `assessments` — `useProgressStore().assessments`, projected through
  *    `StoredAssessmentLike`. This projection is LOSSY: `StoredAssessmentLike`
  *    keeps only `id`/`at`/`accuracy`/`kind`/`itemId` (the export module's own
@@ -49,12 +56,19 @@ import {
 import { useFlashcardStore } from '@app/state/flashcardStore.ts'
 import { useSightReadingStore } from '@app/state/sightReadingStore.ts'
 import { useTechniqueStore, MAX_STORED_TECHNIQUE_ATTEMPTS } from '@app/state/techniqueStore.ts'
+import { useRepertoireStore, MAX_STORED_REPERTOIRE_PIECES } from '@app/state/repertoireStore.ts'
 import {
   MIN_LEVEL as SIGHT_READING_MIN_LEVEL,
   MAX_LEVEL as SIGHT_READING_MAX_LEVEL,
 } from '@core/sightreading/adaptive.ts'
+import { MIN_LEVEL as REPERTOIRE_MIN_LEVEL } from '@core/curriculum/types.ts'
+import {
+  REPERTOIRE_STATUSES,
+  type RepertoirePiece,
+  type RepertoireStatus,
+} from '@core/repertoire/repertoire.ts'
 import type { DateSource } from '@core/ports/index.ts'
-import type { ProgressSnapshot, StoredAssessmentLike } from '@core/progress/export.ts'
+import type { ProgressSnapshot, RepertoirePieceLike, StoredAssessmentLike } from '@core/progress/export.ts'
 
 /**
  * The only track key `levels` carries today — see the module comment. Named
@@ -63,6 +77,40 @@ import type { ProgressSnapshot, StoredAssessmentLike } from '@core/progress/expo
  * number for a curriculum track level.
  */
 export const SIGHT_READING_LEVEL_KEY = 'sight-reading-exercise'
+
+function isRepertoireStatus(value: string): value is RepertoireStatus {
+  return (REPERTOIRE_STATUSES as readonly string[]).includes(value)
+}
+
+function toRepertoirePieceLike(piece: RepertoirePiece): RepertoirePieceLike {
+  return {
+    id: piece.id,
+    title: piece.title,
+    composer: piece.composer,
+    status: piece.status,
+  }
+}
+
+/**
+ * Reconstructs a `RepertoirePiece` from the structural minimum a snapshot
+ * carries. `level`/`sessions`/`bestAccuracy`/`notes`/`scoreId` are fabricated
+ * around the fields that survived (`id`/`title`/`composer`/`status`) — see
+ * the module comment on why the rest cannot be recovered.
+ */
+function toRepertoirePiece(like: RepertoirePieceLike): RepertoirePiece {
+  const status: RepertoireStatus =
+    like.status !== undefined && isRepertoireStatus(like.status) ? like.status : 'learning'
+  return {
+    id: like.id,
+    title: like.title,
+    composer: like.composer ?? '',
+    level: REPERTOIRE_MIN_LEVEL,
+    status,
+    sessions: [],
+    bestAccuracy: 0,
+    notes: '',
+  }
+}
 
 function toStoredAssessmentLike(assessment: StoredAssessment): StoredAssessmentLike {
   return {
@@ -105,6 +153,7 @@ export function gatherProgressSnapshot(date: DateSource): ProgressSnapshot {
   const flashcards = useFlashcardStore.getState()
   const sightReading = useSightReadingStore.getState()
   const technique = useTechniqueStore.getState()
+  const repertoire = useRepertoireStore.getState()
 
   return {
     version: 1,
@@ -113,7 +162,7 @@ export function gatherProgressSnapshot(date: DateSource): ProgressSnapshot {
     srsCards: Object.values(flashcards.cardsById),
     sightReadingHistory: sightReading.history,
     levels: { [SIGHT_READING_LEVEL_KEY]: sightReading.level },
-    repertoire: [],
+    repertoire: repertoire.pieces.map(toRepertoirePieceLike),
     assessments: progress.assessments.map(toStoredAssessmentLike),
     techniqueAttempts: technique.attempts,
   }
@@ -143,5 +192,9 @@ export function applyProgressSnapshot(snapshot: ProgressSnapshot): void {
 
   useTechniqueStore.getState().hydrate({
     attempts: snapshot.techniqueAttempts.slice(0, MAX_STORED_TECHNIQUE_ATTEMPTS),
+  })
+
+  useRepertoireStore.getState().hydrate({
+    pieces: snapshot.repertoire.map(toRepertoirePiece).slice(0, MAX_STORED_REPERTOIRE_PIECES),
   })
 }

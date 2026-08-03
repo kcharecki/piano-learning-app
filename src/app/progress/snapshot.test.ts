@@ -9,14 +9,17 @@ import { useProgressStore, type StoredAssessment } from '@app/state/progressStor
 import { useFlashcardStore } from '@app/state/flashcardStore.ts'
 import { useSightReadingStore } from '@app/state/sightReadingStore.ts'
 import { useTechniqueStore } from '@app/state/techniqueStore.ts'
+import { useRepertoireStore } from '@app/state/repertoireStore.ts'
 import {
   MIN_LEVEL as SIGHT_READING_MIN_LEVEL,
   MAX_LEVEL as SIGHT_READING_MAX_LEVEL,
 } from '@core/sightreading/adaptive.ts'
+import { MIN_LEVEL as REPERTOIRE_MIN_LEVEL } from '@core/curriculum/types.ts'
 import type { Card } from '@core/srs/scheduler.ts'
 import type { PracticeEntry } from '@core/progress/log.ts'
 import type { SightReadingRecord } from '@core/sightreading/session.ts'
 import type { TechniqueAttempt } from '@core/technique/evenness.ts'
+import type { RepertoirePiece } from '@core/repertoire/repertoire.ts'
 import { FakeClock } from '@test/fakes.ts'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { gatherProgressSnapshot, applyProgressSnapshot, SIGHT_READING_LEVEL_KEY } from './snapshot.ts'
@@ -26,6 +29,7 @@ function resetStores(): void {
   useFlashcardStore.setState({ cardsById: {} })
   useSightReadingStore.setState({ level: SIGHT_READING_MIN_LEVEL, history: [] })
   useTechniqueStore.setState({ attempts: [] })
+  useRepertoireStore.setState({ pieces: [] })
 }
 
 beforeEach(resetStores)
@@ -96,6 +100,15 @@ const techniqueAttempt: TechniqueAttempt = {
   clean: true,
 }
 
+const repertoirePieceInput = {
+  id: 'piece-1',
+  title: 'Fur Elise',
+  composer: 'Beethoven',
+  level: 3,
+}
+
+const repertoireSession = { at: 6_000, minutes: 20, accuracy: 0.8 }
+
 function seedStores(): void {
   useProgressStore.getState().addPracticeEntry(practiceEntry)
   useProgressStore.getState().addAssessment(assessment)
@@ -103,6 +116,9 @@ function seedStores(): void {
   useSightReadingStore.getState().setLevel(4)
   useSightReadingStore.getState().addRecord(sightReadingRecord)
   useTechniqueStore.getState().addAttempt(techniqueAttempt)
+  useRepertoireStore.getState().addPiece(repertoirePieceInput)
+  useRepertoireStore.getState().setStatus(repertoirePieceInput.id, 'maintained')
+  useRepertoireStore.getState().recordSession(repertoirePieceInput.id, repertoireSession)
 }
 
 describe('gatherProgressSnapshot', () => {
@@ -113,10 +129,12 @@ describe('gatherProgressSnapshot', () => {
     expect(snapshot.version).toBe(1)
   })
 
-  it('always reports repertoire as empty — no store persists one yet', () => {
+  it('gathers the repertoire library, projected to id/title/composer/status', () => {
     seedStores()
     const snapshot = gatherProgressSnapshot(new FakeClock(0))
-    expect(snapshot.repertoire).toEqual([])
+    expect(snapshot.repertoire).toEqual([
+      { id: 'piece-1', title: 'Fur Elise', composer: 'Beethoven', status: 'maintained' },
+    ])
   })
 
   it('reports the sight-reading level under the sight-reading track key, and no others', () => {
@@ -136,6 +154,7 @@ describe('gather -> clear -> apply round trip', () => {
     expect(useFlashcardStore.getState().cardsById).toEqual({})
     expect(useSightReadingStore.getState().history).toEqual([])
     expect(useTechniqueStore.getState().attempts).toEqual([])
+    expect(useRepertoireStore.getState().pieces).toEqual([])
 
     applyProgressSnapshot(snapshot)
 
@@ -144,6 +163,29 @@ describe('gather -> clear -> apply round trip', () => {
     expect(useSightReadingStore.getState().history).toEqual([sightReadingRecord])
     expect(useSightReadingStore.getState().level).toBe(4)
     expect(useTechniqueStore.getState().attempts).toEqual([techniqueAttempt])
+  })
+
+  it('restores a repertoire piece\'s recoverable fields (id, title, composer, status) — not sessions/level/bestAccuracy/notes', () => {
+    seedStores()
+    const snapshot = gatherProgressSnapshot(new FakeClock(0))
+
+    resetStores()
+    applyProgressSnapshot(snapshot)
+
+    const restored = useRepertoireStore.getState().pieces
+    expect(restored).toHaveLength(1)
+    const [got] = restored as [RepertoirePiece]
+    expect(got.id).toBe(repertoirePieceInput.id)
+    expect(got.title).toBe(repertoirePieceInput.title)
+    expect(got.composer).toBe(repertoirePieceInput.composer)
+    expect(got.status).toBe('maintained')
+    // NOT preserved by RepertoirePieceLike's structural minimum — documented
+    // in the module comment. Fabricated at the curriculum minimum/blank,
+    // never a value the piece never actually earned.
+    expect(got.level).toBe(REPERTOIRE_MIN_LEVEL)
+    expect(got.sessions).toEqual([])
+    expect(got.bestAccuracy).toBe(0)
+    expect(got.notes).toBe('')
   })
 
   it('restores an assessment\'s recoverable fields (id, at, accuracy, scoreId, scoreTitle) — not the full AssessmentResult', () => {

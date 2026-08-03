@@ -1,0 +1,112 @@
+/**
+ * Repertoire screen wiring (roadmap 2.33, REQ-3.8.2/3.8.3/3.8.4) — the
+ * consumer `@core/repertoire/repertoire.ts` and `@app/state/repertoireStore.ts`
+ * have never had: every decision about a piece (whether an add is valid, which
+ * pieces are due for maintenance, days since last practice) is made by core;
+ * this hook only reads the score/repertoire stores and calls through.
+ *
+ * `addLoadedScore` uses the currently loaded score's OWN id as the piece id
+ * (and as `scoreId`), so "is this score already in the library" is just "does
+ * a piece with this id exist" — no separate lookup table to keep in sync.
+ */
+import { useMemo, useState } from 'react'
+import type { DateSource } from '@core/ports/index.ts'
+import {
+  daysSincePractice,
+  maintenanceDue,
+  type RepertoirePiece,
+  type RepertoireStatus,
+} from '@core/repertoire/repertoire.ts'
+import { useRepertoireStore } from '@app/state/repertoireStore.ts'
+import { useScoreStore } from '@app/state/scoreStore.ts'
+
+export type UseRepertoireOptions = {
+  /** Wall-clock reading for "now" — defaults to the real browser clock, exactly as useDashboard does. */
+  readonly date?: DateSource
+  /** Days after which a 'maintained' piece is due. Passed straight to core `maintenanceDue`. */
+  readonly intervalDays?: number
+}
+
+export type UseRepertoireResult = {
+  readonly pieces: readonly RepertoirePiece[]
+  /** Core `maintenanceDue(pieces, now)`, most overdue first. */
+  readonly due: readonly RepertoirePiece[]
+  /** The loaded score, if any, and whether it is already in the library. */
+  readonly loadedScoreTitle: string | undefined
+  readonly loadedScoreAlreadyAdded: boolean
+  /** Last `addPiece` failure message, or undefined. Cleared by the next successful add. */
+  readonly addError: string | undefined
+  /** Adds the CURRENTLY LOADED score at the given level. No-op when nothing is loaded. */
+  addLoadedScore(level: number): void
+  setStatus(id: string, status: RepertoireStatus): void
+  setNotes(id: string, notes: string): void
+  /** Days since last practice, or null — core `daysSincePractice`. */
+  daysSince(piece: RepertoirePiece): number | null
+}
+
+const defaultDate: DateSource = { epochMillis: () => Date.now() }
+
+export function useRepertoire(options: UseRepertoireOptions = {}): UseRepertoireResult {
+  const date = options.date ?? defaultDate
+  const intervalDays = options.intervalDays
+
+  const pieces = useRepertoireStore((s) => s.pieces)
+  const addPieceToStore = useRepertoireStore((s) => s.addPiece)
+  const setStatusInStore = useRepertoireStore((s) => s.setStatus)
+  const setNotesInStore = useRepertoireStore((s) => s.setNotes)
+  const loaded = useScoreStore((s) => s.loaded)
+
+  const [addError, setAddError] = useState<string | undefined>(undefined)
+
+  // Same title fallback ScoreScreen.tsx already renders: a blank <title>
+  // (no MusicXML <work-title>/<movement-title>) falls back to the import's
+  // own file/source name rather than showing nothing.
+  const loadedScoreTitle = useMemo(() => {
+    if (loaded === undefined) return undefined
+    const title = loaded.score.meta.title
+    return title.length > 0 ? title : loaded.sourceName
+  }, [loaded])
+
+  const loadedScoreAlreadyAdded = useMemo(
+    () => loaded !== undefined && pieces.some((p) => p.id === loaded.score.id),
+    [loaded, pieces],
+  )
+
+  const due = useMemo(
+    () =>
+      maintenanceDue(
+        pieces,
+        date.epochMillis(),
+        intervalDays === undefined ? {} : { intervalDays },
+      ),
+    [pieces, date, intervalDays],
+  )
+
+  function addLoadedScore(level: number): void {
+    if (loaded === undefined) return
+    const result = addPieceToStore({
+      id: loaded.score.id,
+      title: loadedScoreTitle ?? loaded.sourceName,
+      composer: loaded.score.meta.composer,
+      level,
+      scoreId: loaded.score.id,
+    })
+    setAddError(result.ok ? undefined : result.error)
+  }
+
+  function daysSince(piece: RepertoirePiece): number | null {
+    return daysSincePractice(piece, date.epochMillis())
+  }
+
+  return {
+    pieces,
+    due,
+    loadedScoreTitle,
+    loadedScoreAlreadyAdded,
+    addError,
+    addLoadedScore,
+    setStatus: setStatusInStore,
+    setNotes: setNotesInStore,
+    daysSince,
+  }
+}

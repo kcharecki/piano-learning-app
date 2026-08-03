@@ -1,7 +1,9 @@
 /**
  * App shell (roadmap 1.17, REQ-4.6): a left nav and a main area. A single-user
- * app with six destinations doesn't need a router library — `useState` is
- * the boring, maintainable choice.
+ * app with this handful of destinations doesn't need a router library —
+ * `useState` is the boring, maintainable choice. (The count used to be written
+ * out here as "six" and had been wrong for several sessions; a number that
+ * has to be maintained by hand is not worth the sentence.)
  *
  * Every destination here renders a real screen; there are no placeholders
  * left. "Today" (roadmap 4.7a) is the planned practice session, and it is the
@@ -14,6 +16,7 @@ import { DashboardScreen } from '@app/dashboard/DashboardScreen.tsx'
 import { FlashcardScreen } from '@app/drills/FlashcardScreen.tsx'
 import { EarTrainingScreen } from '@app/eartraining/EarTrainingScreen.tsx'
 import { MetronomeScreen } from '@app/metronome/MetronomeScreen.tsx'
+import { RepertoireScreen } from '@app/repertoire/RepertoireScreen.tsx'
 import { RhythmScreen } from '@app/rhythm/RhythmScreen.tsx'
 import { SessionPlanScreen } from '@app/session/SessionPlanScreen.tsx'
 import { SightReadingScreen } from '@app/sightreading/SightReadingScreen.tsx'
@@ -32,6 +35,7 @@ const NAV_ITEMS = [
   { id: 'technique', label: 'Technique' },
   { id: 'metronome', label: 'Metronome' },
   { id: 'theory', label: 'Theory' },
+  { id: 'repertoire', label: 'Repertoire' },
   { id: 'progress', label: 'Progress' },
 ] as const
 
@@ -79,6 +83,8 @@ function renderScreen(screen: ScreenId, open: (exercise: Exercise) => void) {
       return <MetronomeScreen />
     case 'theory':
       return <TheoryScreen />
+    case 'repertoire':
+      return <RepertoireScreen />
     case 'progress':
       return <DashboardScreen />
   }

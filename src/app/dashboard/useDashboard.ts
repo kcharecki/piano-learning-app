@@ -4,16 +4,27 @@
  * rather than recomputing any of the underlying music-theory/streak/
  * retention logic itself.
  *
- * Three of REQ-3.10.1's six sections have no real data source anywhere in the
- * app yet, and this hook is honest about that rather than fabricating a
- * number:
+ * Of REQ-3.10.1's six sections, two used to be documented here as having no
+ * real data source. Both claims were stale (roadmap 2.33):
  *
- *  - **Technique tempo trends**: no store persists a `TechniqueAttempt` list
- *    anywhere (there is no writer — no screen calls `evennessOf`/`isClean`
- *    and saves the result). `techniqueAttempts` is always `[]`.
- *  - **Repertoire status**: no store persists a `RepertoirePiece` list either
- *    (roadmap 4.9's content and its screen are not built). `repertoirePieces`
- *    is always `[]`, so `repertoireDue` (via `maintenanceDue`) is always `[]`.
+ *  - **Technique tempo trends**: this comment used to claim "no store
+ *    persists a `TechniqueAttempt` list anywhere (there is no writer)". That
+ *    has been FALSE since roadmap 4.4b: `useTechniqueStore` exists,
+ *    `useTechniqueDrill` appends a scored `TechniqueAttempt` to it after every
+ *    run, and `persistence.ts` persists it. This hook was simply never
+ *    updated to read it, so the whole technique tempo trend section has been
+ *    inert since 4.4b despite real data sitting in the store the whole time.
+ *    `techniqueAttempts` now reads `useTechniqueStore`.
+ *  - **Repertoire status**: this comment used to claim "no store persists a
+ *    `RepertoirePiece` list either". `useRepertoireStore` (roadmap 4.5) now
+ *    exists and holds the library; `repertoirePieces` reads it, and
+ *    `repertoireDue` runs the real `maintenanceDue` over it. (roadmap 4.9's
+ *    curriculum content/screen for ADDING pieces is still not built, so the
+ *    library may legitimately be empty in practice — but the store and the
+ *    read path are real.)
+ *
+ * The one section that is still genuinely missing a data source:
+ *
  *  - **Current level per track + exit criteria (REQ-3.10.2)**: there is no
  *    persisted `LevelState` anywhere (no store, no manual-override UI) and no
  *    shipped curriculum content (roadmap 4.9) to supply a `CurriculumLevel`'s
@@ -22,7 +33,8 @@
  *    persisted level (`useSightReadingStore`); the other two tracks report
  *    `undefined` (never a fabricated 1) and an empty criteria list;
  *    `curriculumAvailable` is `false` so the screen can render an explicit
- *    "nothing to check yet" instead of a blank checklist.
+ *    "nothing to check yet" instead of a blank checklist. This gap is real
+ *    and tracked as roadmap 2.36.
  *
  * The other three sections (practice streak & weekly time, sight-reading
  * accuracy trend, theory retention) read real, already-persisted state:
@@ -46,10 +58,12 @@ import { DAY_MS, retentionStats, type RetentionStats } from '@core/srs/scheduler
 import { TRACKS, type Track } from '@core/curriculum/types.ts'
 import type { CriterionStatus } from '@core/progress/levels.ts'
 import { tempoHistory, bestCleanBpm, type TechniqueAttempt, type TempoPoint } from '@core/technique/evenness.ts'
-import type { RepertoirePiece } from '@core/repertoire/repertoire.ts'
+import { maintenanceDue, type RepertoirePiece } from '@core/repertoire/repertoire.ts'
 import { useProgressStore } from '@app/state/progressStore.ts'
 import { useSightReadingStore } from '@app/state/sightReadingStore.ts'
 import { useFlashcardStore } from '@app/state/flashcardStore.ts'
+import { useTechniqueStore } from '@app/state/techniqueStore.ts'
+import { useRepertoireStore } from '@app/state/repertoireStore.ts'
 
 const WEEK_DAYS = 7
 
@@ -102,20 +116,20 @@ export type DashboardData = {
   /** Oldest first. `[]` until at least one sight-reading run has been graded. */
   readonly sightReadingTrend: readonly SightReadingTrendPoint[]
   readonly retention: RetentionStats
-  /** Always `[]` — see the module comment. */
+  /** `useTechniqueStore`'s persisted attempts, newest first (the store's own order). `[]` until a drill has been run. */
   readonly techniqueAttempts: readonly TechniqueAttempt[]
   /**
    * Clean-tempo history across every drill in `techniqueAttempts`, oldest
-   * first — always `[]` today since `techniqueAttempts` is always `[]`, but
-   * computed from the real core functions so the section goes live the
-   * moment a writer exists, with no further change needed here.
+   * first — computed from the real core functions (`tempoHistory`/
+   * `bestCleanBpm`), grouped by drill id and flattened for the single trend
+   * chart the screen renders. `[]` until `techniqueAttempts` has an entry.
    */
   readonly techniqueTrend: readonly TechniqueTrendPoint[]
-  /** Best clean bpm reached per drill id — always `{}` today, see `techniqueTrend`. */
+  /** Best clean bpm reached per drill id, from `bestCleanBpm`. `{}` until `techniqueAttempts` has an entry. */
   readonly techniqueBestBpmByDrill: Readonly<Record<string, number>>
-  /** Always `[]` — see the module comment. */
+  /** `useRepertoireStore`'s persisted library, insertion order. `[]` until a piece has been added. */
   readonly repertoirePieces: readonly RepertoirePiece[]
-  /** Always `[]` — `repertoirePieces` has no writer yet, so there is nothing to compute maintenance-due status over. */
+  /** `maintenanceDue(repertoirePieces, now)` — 'maintained' pieces overdue for review, most overdue first. */
   readonly repertoireDue: readonly RepertoirePiece[]
   readonly levels: readonly DashboardTrackLevel[]
   /** `false` until a `LevelState` store and shipped curriculum content exist — see the module comment. */
@@ -132,6 +146,8 @@ export function useDashboard(options: UseDashboardOptions = {}): DashboardData {
   const sightReadingLevel = useSightReadingStore((s) => s.level)
   const sightReadingHistory = useSightReadingStore((s) => s.history)
   const cardsById = useFlashcardStore((s) => s.cardsById)
+  const techniqueAttempts = useTechniqueStore((s) => s.attempts)
+  const repertoirePieces = useRepertoireStore((s) => s.pieces)
 
   return useMemo(() => {
     // `now` is a snapshot taken when this memo last recomputed (on mount, or
@@ -160,15 +176,9 @@ export function useDashboard(options: UseDashboardOptions = {}): DashboardData {
       criteria: [],
     }))
 
-    // No writer exists for either collection yet — see the module comment.
-    const techniqueAttempts: readonly TechniqueAttempt[] = []
-    const repertoirePieces: readonly RepertoirePiece[] = []
-
     // Grouped by drill so `tempoHistory`/`bestCleanBpm` (both drill-scoped)
     // apply correctly, then flattened for the single trend chart the screen
-    // renders. Always `[]`/all-zero today since `techniqueAttempts` is
-    // always `[]` — see the module comment — but this is the real reduction,
-    // so the section goes live the moment a writer exists.
+    // renders.
     const techniqueDrillIds = Array.from(new Set(techniqueAttempts.map((a) => a.drillId)))
     const techniqueTrend: readonly TechniqueTrendPoint[] = techniqueDrillIds
       .flatMap((drillId) =>
@@ -198,11 +208,18 @@ export function useDashboard(options: UseDashboardOptions = {}): DashboardData {
       techniqueTrend,
       techniqueBestBpmByDrill,
       repertoirePieces,
-      // `repertoirePieces` has no writer yet, so there is nothing to run
-      // `maintenanceDue` over — see the module comment.
-      repertoireDue: [],
+      repertoireDue: maintenanceDue(repertoirePieces, now),
       levels,
       curriculumAvailable: false,
     }
-  }, [date, utcOffsetMinutes, practiceEntries, sightReadingLevel, sightReadingHistory, cardsById])
+  }, [
+    date,
+    utcOffsetMinutes,
+    practiceEntries,
+    sightReadingLevel,
+    sightReadingHistory,
+    cardsById,
+    techniqueAttempts,
+    repertoirePieces,
+  ])
 }

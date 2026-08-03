@@ -21,8 +21,13 @@ import type { Recording } from '@core/practice/recorder.ts'
 import { ACTIVITY_KINDS, type ActivityKind, type PracticeEntry } from '@core/progress/log.ts'
 import { validateAnnotations, type ScoreAnnotations } from '@core/notation/annotations.ts'
 import type { TechniqueAttempt } from '@core/technique/evenness.ts'
+import { REPERTOIRE_STATUSES, type RepertoirePiece } from '@core/repertoire/repertoire.ts'
 import type { PracticeSettings } from '@app/state/scoreStore.ts'
 import type { StoredAssessment } from '@app/state/progressStore.ts'
+
+export type PersistedRepertoire = {
+  readonly pieces: readonly RepertoirePiece[]
+}
 
 export type PersistedSession = {
   readonly score: Score
@@ -361,4 +366,27 @@ export function isValidTechniqueHistory(value: unknown): value is PersistedTechn
   if (typeof value !== 'object' || value === null) return false
   const v = value as Record<string, unknown>
   return Array.isArray(v.attempts) && v.attempts.every(isValidTechniqueAttempt)
+}
+
+export function isValidRepertoirePiece(value: unknown): value is RepertoirePiece {
+  if (typeof value !== 'object' || value === null) return false
+  const p = value as Record<string, unknown>
+  return (
+    typeof p.id === 'string' &&
+    typeof p.title === 'string' &&
+    typeof p.level === 'number' &&
+    Number.isFinite(p.level) &&
+    typeof p.status === 'string' &&
+    (REPERTOIRE_STATUSES as readonly string[]).includes(p.status) &&
+    Array.isArray(p.sessions) &&
+    typeof p.bestAccuracy === 'number' &&
+    Number.isFinite(p.bestAccuracy) &&
+    typeof p.notes === 'string'
+  )
+}
+
+export function isValidRepertoire(value: unknown): value is PersistedRepertoire {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return Array.isArray(v.pieces) && v.pieces.every(isValidRepertoirePiece)
 }
