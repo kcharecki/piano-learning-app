@@ -32,7 +32,12 @@ export default defineConfig({
           name: 'core',
           globals: true,
           environment: 'node',
-          include: ['src/core/**/*.test.ts', 'src/test/**/*.test.ts', 'scripts/**/*.test.mjs'],
+          include: [
+            'src/core/**/*.test.ts',
+            'src/content/**/*.test.ts',
+            'src/test/**/*.test.ts',
+            'scripts/**/*.test.mjs',
+          ],
           pool: 'threads',
           poolOptions: { threads: { isolate: false, singleThread: false } },
           testTimeout: 5_000,

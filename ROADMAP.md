@@ -729,6 +729,9 @@ therefore not optional polish: until they land, all of 3.1–3.6 is production-u
 - [ ] 4.9 `content`: 30 lessons L1–2, technique library through L3, 20 graded repertoire pieces (REQ-5.2)
       *Proof: `validateCurriculum` is green over the shipped content in a test, and the lesson
       list renders all 30 in the app.*
+- [ ] 4.9a `app/repertoire`: seed an empty repertoire library from `GRADED_PIECES`
+      *Proof: e2e — open the repertoire screen with no stored library and see the 20 graded
+      pieces listed.*
 - [ ] 4.10 M4 acceptance pass — full §9 acceptance criteria review
 
 ## Backlog / optional

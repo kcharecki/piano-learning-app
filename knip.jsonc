@@ -18,6 +18,9 @@
     // roadmap 4.9 — the shipped curriculum content this validates. Nothing
     // authors a Curriculum yet, so nothing calls the validator. This is the
     // LAST entry in this list; when 4.9 lands, delete it and the list with it.
-    "src/core/curriculum/model.ts"
+    "src/core/curriculum/model.ts",
+    // roadmap 4.9a — seeds a fresh repertoire library from this list. Delete
+    // this line when 4.9a lands.
+    "src/content/repertoire/gradedPieces.ts"
   ]
 }
