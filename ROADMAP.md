@@ -344,13 +344,61 @@ recovered it commit by commit and recorded the evidence each box was ticked on.
       nothing the Rng drew, so it retires a *parameter combination*, not a piece.
       *Proof: start a run, nav away mid-run, come back, assert the abandoned piece was recorded and
       the next exercise differs.*
-- [ ] 2.32 tooling: `verify:full` runs `knip:prod`, not `knip:prod:all`, so production-unreachable
-      *exports* never fail CI — which is exactly how `startRamp`, `advanceRamp`,
+- [x] 2.32 tooling: `verify:full` ran `knip:prod`, not `knip:prod:all`, so production-unreachable
+      *exports* never failed CI — which is exactly how `startRamp`, `advanceRamp`,
       `validateMetronomeSettings`, `clicksForBars`, `defaultAccents` and `selectAudioOutput` stayed
-      invisible while CLAUDE.md claims that check is what catches inert code. Triage the current
-      output, then add it to the gate.
-      *Proof: `npm run verify:full` fails on today's tree, and passes once every entry is wired,
-      deleted, or ignored with a named roadmap task.*
+      invisible while CLAUDE.md claims that check is what catches inert code. `verify:full` now
+      runs `knip:prod:all`.
+      *Proved: `npm run verify:full` failed on the tree at session start (57 unused exports) and
+      passes now that every one is wired, deleted, or kept with a `/** @public — <reason> */`
+      comment (knip's own exemption tag) — none silently ignored. Five agents triaged disjoint
+      files in parallel: ~30 deletions (dead theory-primitive one-offs, and two entire unwired
+      write-side subsystems — `writeMidiFile`, `recordingToScore`/`replayEvents` — whose own
+      roadmap entries already said nothing else would ever call them), ~20 kept as genuinely
+      load-bearing API members knip can't see a caller for yet (Result-monad combinators,
+      `parseChordSymbol`, `clicksForBars`, `degreeOf`). 2750 unit tests (down from 2903 — dead
+      code and the tests that existed only to cover it), 38 e2e.*
+      Three real wiring gaps surfaced by this triage, not fixed here (deliberately — a tooling
+      task is not the place to silently patch app-layer behaviour) and recorded as their own tasks
+      below: 2.33, 2.34, 2.35.
+
+- [ ] 2.33 `app/repertoire`: `core/repertoire/repertoire.ts` has seven exports
+      (`addPiece`/`setStatus`/`recordSession`/`setNotes`/`maintenanceDue`/`sessionFromEntry`/
+      `REPERTOIRE_STATUSES`) with no consuming store or screen anywhere — no
+      `src/app/state/repertoire*` store exists, `progress/snapshot.ts` hardcodes `repertoire: []`,
+      and `useDashboard.ts` hardcodes `repertoirePieces: []`. Roadmap 4.5 is ticked `[x]` but only
+      the core module was ever built; its own doc comment names `usePracticeLog.ts`'s `stop()` as
+      the intended writer, and that function does not call it. Found by the 2.32 knip triage.
+      *Proof: e2e — add the imported score to the repertoire, set it maintained, and see it in the
+      review-due list once its interval has passed (this is 4.5's OWN original proof action, never
+      actually driven).*
+- [ ] 2.34 `app/session`: `Shell.tsx` renders `<TechniqueScreen />` with no props, so a planned
+      session's chosen technique drill (`Exercise.params.drillId`, built by
+      `session/candidates.ts`) is silently dropped — the screen always opens the level's first
+      drill instead of the one the session actually planned. `techniqueDrillById` (the opener
+      `candidates.ts`'s own doc comment names) has never been called. Found by the 2.32 knip
+      triage. `candidates.ts`'s module doc is also stale — still says "there is no technique-drill
+      screen in the app yet" despite one existing since 4.4a.
+      *Proof: e2e — plan a session, open its technique item, assert the drill that opens is the
+      one the session named (not the level's first), by comparing displayed drill names/ids.*
+- [ ] 2.35 `core/practice`: `matcher.ts`'s `buildExpected` re-derives "group notes by shared
+      `startTick`" instead of calling `notation/score.ts`'s `chordGroups`, which already does
+      exactly this and is otherwise unused in production. Found by the 2.32 knip triage — small
+      dedup, not a behaviour change.
+      *Proof: `matcher.test.ts` stays green after `buildExpected` is rewritten to call
+      `chordGroups`; `chordGroups` no longer needs its `@public` keep-comment.*
+- [ ] 2.36 `app/dashboard`: roadmap 4.3 is ticked done, claiming *"the dashboard shows three
+      independent track levels; a manual override moves one and survives a reload"* — verified
+      false against the current tree while triaging 2.32: `core/progress/levels.ts`'s
+      `initialLevelState`/`advance`/`setLevel` are imported by NOTHING in `src/app` (only their
+      `CriterionStatus` type reaches `useDashboard.ts`), no `LevelState` store exists, and
+      `useDashboard.ts`'s own doc comment already says so ("no persisted `LevelState` anywhere (no
+      store, no manual-override UI)"). Only the sight-reading track has a real level; the other two
+      render "not tracked yet". Either build the missing store + override UI so 4.3's proof becomes
+      true, or correct 4.3's tick and proof text to match what was actually shipped — do not leave
+      the claim standing unverified a second time.
+      *Proof: e2e — the dashboard shows a real level for all three tracks, a manual override moves
+      one, and it survives a reload (4.3's own original proof action, actually driven this time).*
 
 ## Phase 3 — Milestone M3: theory & ears
 
