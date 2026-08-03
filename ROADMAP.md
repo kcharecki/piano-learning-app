@@ -270,10 +270,29 @@ recovered it commit by commit and recorded the evidence each box was ticked on.
       selects the Interval drill, asserts two noteheads on one staff with no letter name anywhere
       in the SVG, answers on the pad, and asserts the graded feedback plus the stats counter moving
       0 → 1 — so a dead handler cannot pass.*
-- [ ] 2.26 `app/practice`: the "read ahead" drill REQ-3.4.5 requires — notation progressively hidden
-      behind the playback cursor. Zero code exists; the cursor plumbing it needs already does.
-      *Proof: e2e — enable Read ahead, play, assert measures at/behind the cursor are occluded while
-      those ahead stay visible.*
+- [x] 2.26 `app/practice`: the "read ahead" drill REQ-3.4.5 requires — notation progressively hidden
+      behind the playback cursor. Zero code existed; the cursor plumbing it needs already did.
+      Done differently from the stated proof, and say so: notes are hidden strictly BEFORE the
+      cursor's own measure, not "at or behind" it. OSMD draws a highlight rectangle behind the note
+      at the cursor, and review found hiding that note made it MORE visible — a dark silhouette on
+      the highlight — not less; excluding the cursor's own measure from hiding sidesteps the
+      collision instead of fighting OSMD's renderer for it. Hiding recolours notehead and stem to
+      match the background (`ScoreEngraver.setNoteHidden`, independent of and overriding the
+      correct/wrong/missed feedback colour on the same note); beams and ledger lines are a known,
+      undone gap — full occlusion needs OSMD's `PrintObject`/`updateGraphic()`, judged too large a
+      change for this task.
+      *Proved by `e2e/read-ahead.spec.ts`: enabling Read ahead at rest hides nothing (nothing
+      precedes measure 1), playing past measure 3 grows the hidden-note count while a later measure
+      stays unhidden, and unchecking it reveals everything — all asserted via the exact
+      `HIDDEN_NOTE_COLOR` fill count, never an assumption about what an unhidden note looks like
+      (a played note can be judged missed and painted amber, not default ink).*
+      Adversarial review, driving the real app rather than reading code, found and this round
+      fixed two real defects invisible to the vitest suite: a race where a freshly-created OSMD
+      engraver silently dropped `setNoteHidden` calls made before its async `load()` resolved and
+      never retried them (fixed by recording state unconditionally and repainting once `load()`'s
+      note map is built, instead of gating on the engraver being ready); and an e2e spec whose
+      assertions rested on a miscounted "ink colour" total and ran after Stop had already rewound
+      the cursor, silently revealing everything before the assertions checked it.
 - [x] 2.27 `app/practice`: tempo ramping (REQ-3.9.1's own worked example, "+2 BPM per clean
       repetition"). `startRamp`/`advanceRamp` in `core/timing/metronome.ts` have never been called
       by production code.
@@ -594,3 +613,12 @@ Append one line per session: date, what landed, anything the next session must k
   * Concurrent agents still block commits — `npm run verify` is tree-wide, so a per-module commit
     fails while any other agent is mid-edit. Sequence the follow-up agents, or accept the stall.
 - 2026-08-01 - Phase 1 complete. Adapters, shell, OSMD viewer, practice screen, note feedback, e2e. Opus review found the practice screen was built but never rendered by the shell, and that `checkpoint` did not run e2e (the only suite that caught it) - `checkpoint` now runs `verify:full`. Also fixed: stop/pause left notes ringing forever on MIDI-out, the pump discarded every time the domain computed, the two AudioOutputs disagreed on clock epoch, hand mute mid-playback rewound to bar 1, and the seam tests survived deleting the tempo map (9 of 10 passed). 1567 tests + 6 e2e.
+- 2026-08-03 (fourth session) — 2.26 (read-ahead drill), one build→review→fix chain. Opus review,
+  driving the real app rather than reading code, found two defects a green vitest suite missed: a
+  race dropping hide requests made before the OSMD engraver's async `load()` resolved, and an e2e
+  spec whose colour-count assumptions and post-Stop assertion timing made it pass for the wrong
+  reasons. Scope was narrowed mid-review (hide strictly before the cursor's measure, not at/behind
+  it) because OSMD's own cursor highlight made a hidden note under it MORE visible, not less — the
+  ROADMAP entry documents this as a deliberate deviation from the originally-written proof, not a
+  shortfall. 2903 unit tests + 38 e2e, all green. Remaining before Phase 2-4 acceptance passes:
+  2.32, 3.7, 4.7c, 4.8a, 4.9.
