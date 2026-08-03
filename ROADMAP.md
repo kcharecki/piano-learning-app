@@ -377,6 +377,85 @@ recovered it commit by commit and recorded the evidence each box was ticked on.
       task is not the place to silently patch app-layer behaviour) and recorded as their own tasks
       below: 2.33, 2.34, 2.35.
 
+### Performance — a real score, not a six-bar fixture
+
+Reported by the user against `Canon_in_D.mxl` (Pachelbel, MuseScore export: 102 measures, 1603
+notes, 563KB of MusicXML): notes drifting out of sync with the sound, visible stuttering, and
+Play/Stop taking a noticeable moment to respond. Measured in a real browser before any fix, by
+`e2e/perf-large-score.spec.ts`:
+
+```
+p95 animation-frame gap 551ms · worst 564ms · 28 frames in 6s (~4.7fps)
+13 long tasks in 6s, worst 561ms · Play latency 1329ms · Stop latency 5339ms
+```
+
+Every existing e2e drives a two-to-six bar fixture, which is exactly why none of them ever saw
+this: all three costs below are O(score size) or O(position in score), and on six bars they round
+to zero. The perf spec is now the standing guard against that.
+
+After 2.32a–c, on the same machine and the same score:
+
+```
+                    before      after
+p95 frame gap        551ms       18ms
+worst frame gap      564ms       41ms
+frames in 6s          28         422    (~4.7fps -> ~70fps)
+long tasks (worst) 13 (561ms)  0 (0ms)
+Stop latency        5339ms       59ms
+```
+
+- [x] 2.32a `app/score`: stop re-engraving the whole score to recolour one note. `osmdEngraver.ts`
+      calls `osmd.render()` — a full synchronous re-engrave of all 102 measures — once per animation
+      frame whenever any note's colour or hidden state changes, which during playback is every frame.
+      Roadmap 2.21 batched N colour changes into one render per frame; one full re-engrave per frame
+      is still the dominant cost. OSMD exposes `GraphicalNote.setColor(color, options)`, documented
+      "without re-rendering", reachable via `osmd.rules.GNote(note)`. The model-property writes stay,
+      so a re-engrave OSMD does for its own reasons (`autoResize`) still shows the right colours.
+      *Proved in `osmdEngraver.test.ts`: N `setNoteColor` calls schedule ZERO renders on the
+      `setColor` path and exactly ONE (2.21's coalescing, preserved) on the fallback path, with
+      `GNote` returning `undefined` and `GNote` throwing both driven. The unit tests run against a
+      FAKE OSMD, so they cannot prove the real library honours `setColor` — the live proof is that
+      `e2e/note-colour.spec.ts` and `e2e/read-ahead.spec.ts`, which read real notehead `fill`
+      attributes out of the real SVG, both still pass while `e2e/perf-large-score.spec.ts` records
+      ZERO long tasks. A silent fall-through to the render path would keep those two green and
+      blow the frame budget; both together is what pins it.*
+- [x] 2.32b `app/score`: `stepsToOnsetAtOrBefore` is a linear scan from index 0, run on every
+      animation frame from `moveCursorTo`, so its cost grows with how far into the piece playback has
+      reached. Binary search.
+      *Proved by a `fast-check` property test against a linear reference implementation kept in the
+      test file, over ascending arrays built from prefix-summed deltas that include zeros — so
+      duplicate runs actually occur, which is the case a naive binary search gets wrong. All nine
+      original example tests kept unchanged.*
+- [x] 2.32c `app/practice`: `useReadAhead` rebuilds the entire hidden-id set from measure 0 on every
+      measure change, then diffs it and throws nearly all of it away. Make it incremental — only the
+      measures actually crossed.
+      *Proved in `useReadAhead.test.ts`: stepping the cursor measure by measure across a six-measure
+      fixture issues `setNoteHidden(id, true)` exactly once per id across the whole run (every call
+      collected, no id twice), a backward jump 8→2 reveals exactly measures 2–7 and touches nothing
+      else, a multi-measure forward SEEK still hides every measure crossed (the incremental path
+      must not assume single-measure steps), and a `currentMeasureIndex` past the end clamps rather
+      than throwing.*
+- [x] 2.32d `e2e`: the perf spec itself — `e2e/perf-large-score.spec.ts`, driving the real
+      Canon in D `.mxl` through the real file input, sampling `longtask` PerformanceObserver entries
+      and animation-frame gaps during playback, and measuring Play/Stop latency.
+      *Proved by running it on both sides: it fails on the tree as it stood at the start of this
+      session (p95 frame gap 551ms against a 50ms budget) and passes after 2.32a–c. Each budget is
+      set between the two measured values. The fixture is committed at `e2e/fixtures/canon-in-d.mxl`
+      — `.gitignore`'s `/*.mxl` only covers the repo root, which is the user's drop zone.
+      `playLatencyMs` is reported but deliberately gated loosely: it includes up to one whole beat
+      of the score's own tempo, so it is a hang detector, not a latency figure.*
+- [ ] 2.32e `adapters/audio`: `createWebAudioOutput` captures `clockOffsetMs = performance.now() -
+      ctx.currentTime * 1000` ONCE at construction and never re-anchors, and `toCtxSeconds` clamps
+      an already-past event to `ctx.currentTime` — so a late event is played bunched at "now"
+      rather than dropped or caught up. Both were amplified by the stalls 2.32a–c removed (a
+      550ms main-thread block is a 550ms pile of notes arriving late at once), and the user's
+      "notes out of sync with the sound" is believed fixed at that source: the post-fix run
+      records zero long tasks. The single-capture offset remains a real long-session drift risk on
+      its own, but nothing has MEASURED it, so this is recorded rather than blind-fixed.
+      *Proof: measure it first — play a long piece for several minutes and compare the scheduled
+      `atMs` of a note against the `AudioContext` time it actually sounded at; only re-anchor if
+      the gap grows. A fix with no measurement behind it cannot be told from a no-op here.*
+
 - [ ] 2.33 `app/repertoire`: `core/repertoire/repertoire.ts` has seven exports
       (`addPiece`/`setStatus`/`recordSession`/`setNotes`/`maintenanceDue`/`sessionFromEntry`/
       `REPERTOIRE_STATUSES`) with no consuming store or screen anywhere — no
@@ -650,6 +729,30 @@ Append one line per session: date, what landed, anything the next session must k
   modules as pipelined build→review→fix chains (15 agents, 28 review findings), then two follow-up
   agents for the gap the round exposed. Remaining before the acceptance passes: 2.26, 2.32, 3.7,
   4.7c, 4.8a, 4.9.
+- 2026-08-03 (fifth session) — performance round 2.32a–2.32d, prompted by the user reporting
+  stutter, audio desync and unresponsive Play/Stop on their own `Canon_in_D.mxl` (102 measures,
+  1603 notes). One round of three file-disjoint modules. The app went from ~4.7fps and a 5.3-second
+  Stop to ~70fps and a 59ms Stop; the full before/after table is above 2.32a.
+  What the next session must know:
+  * **Every e2e in this suite drove a two-to-six bar fixture, and that is why none of them ever saw
+    this.** All three costs were O(score size) or O(position in score), so on six bars they round to
+    zero and a 100%-green suite says nothing. `e2e/perf-large-score.spec.ts` now drives a real
+    102-measure import and is the standing guard. When adding a feature that touches the render or
+    frame path, run it — the unit suite cannot see this class of defect at all.
+  * **The dominant cost was one line: `osmd.render()`.** Roadmap 2.21 batched N recolours into one
+    full re-engrave per animation frame and recorded that as done; one full re-engrave of 102
+    measures per frame is 550ms, so the batching fixed the multiplier and left the term. OSMD has
+    had `GraphicalNote.setColor(color, options)` — documented "without re-rendering" — the whole
+    time, reachable via `osmd.rules.GNote(note)`. Read the installed library's `.d.ts` before
+    building a workaround around it.
+  * **The unit tests for this cannot prove it works.** `osmdEngraver.test.ts` drives a fake OSMD, so
+    "zero renders scheduled" is true of a fake whose `setColor` does nothing at all. What pins it is
+    the pair: the existing colour e2e (real SVG `fill` attributes) still green, AND the perf spec
+    recording zero long tasks. Either alone is satisfiable by a broken implementation.
+  * **The model-property writes were kept deliberately.** `NoteheadColor`/`StemColor` are still
+    written alongside the direct SVG mutation, because `autoResize: true` makes OSMD re-engrave on
+    any window resize and a resize must not wipe the feedback colours. The fast path is an
+    addition, not a replacement.
   What the next session must know:
   * **An agent silenced a failing e2e with `test.fixme` and reported the module done.** The 4.4b
     spec hit a genuinely red persistence assertion, correctly refused to reach outside its owned

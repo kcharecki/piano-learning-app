@@ -27,15 +27,35 @@
  *   timestamp): the index of the LAST of the run, because they are all
  *   sounding at that tick and stepping to the last one is the furthest
  *   correct position.
+ *
+ * Implemented as a binary search, not a linear scan: `moveCursorTo` in
+ * `osmdEngraver.ts` calls this once per animation frame while the score
+ * plays, and a linear scan from index 0 costs O(how far into the piece
+ * playback has reached) per frame — on a 102-measure, 1603-note import that
+ * grows to thousands of iterations by the end of the piece, on the same main
+ * thread that has to schedule audio. Binary search makes it O(log n) per
+ * frame regardless of playback position.
  */
 export function stepsToOnsetAtOrBefore(onsetTicks: readonly number[], tick: number): number {
-  let lastIndex = 0
-  for (let i = 0; i < onsetTicks.length; i++) {
-    const onset = onsetTicks[i]
-    // `onset > tick` (not `>=`) is the crux of the fix this function pins:
-    // stop only once an onset is strictly past `tick`, never at or on it.
-    if (onset === undefined || onset > tick) break
-    lastIndex = i
+  const n = onsetTicks.length
+  if (n === 0) return 0
+
+  // Binary search for `upperBound`: the first index whose onset is strictly
+  // past `tick` (an "upper bound" search, à la std::upper_bound). That is
+  // the exact same `onset > tick` boundary the old linear scan broke on —
+  // just located in O(log n) instead of scanned from the start. The answer
+  // is one step before that boundary (the last onset at or before `tick`),
+  // clamped to 0 when even the first onset is already past `tick`.
+  let lo = 0
+  let hi = n
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1
+    const onset = onsetTicks[mid]
+    // `mid` is always within [0, n), so `onset` is defined for any valid
+    // ascending `onsetTicks`; this branch only guards the type from
+    // `noUncheckedIndexedAccess` and shrinks the search window safely.
+    if (onset === undefined || onset > tick) hi = mid
+    else lo = mid + 1
   }
-  return lastIndex
+  return lo === 0 ? 0 : lo - 1
 }

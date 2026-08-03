@@ -83,4 +83,46 @@ describe('stepsToOnsetAtOrBefore', () => {
       }),
     )
   })
+
+  // The binary search replaced a linear scan; this is the real proof it did
+  // not change behaviour. `linearReference` is a verbatim copy of the old
+  // implementation (see git history), kept here only as an oracle — every
+  // generated case is checked against it, not against hand-picked examples.
+  function linearReference(onsetTicks: readonly number[], tick: number): number {
+    let lastIndex = 0
+    for (let i = 0; i < onsetTicks.length; i++) {
+      const onset = onsetTicks[i]
+      if (onset === undefined || onset > tick) break
+      lastIndex = i
+    }
+    return lastIndex
+  }
+
+  it('property: matches the linear reference implementation, including duplicate runs', () => {
+    // Deltas are non-negative and deliberately include zero, so prefix-summing
+    // them produces ascending arrays with real duplicate-adjacent-onset runs
+    // — a strictly-increasing generator would never exercise the duplicate
+    // rule (returning the LAST of a run) that this function's contract
+    // singles out.
+    const onsetsAndTick = fc
+      .array(fc.integer({ min: 0, max: 50 }), { minLength: 0, maxLength: 30 })
+      .map((deltas) => {
+        const onsetTicks: number[] = []
+        let sum = 0
+        for (const d of deltas) {
+          sum += d
+          onsetTicks.push(sum)
+        }
+        return onsetTicks
+      })
+      .chain((onsetTicks) =>
+        fc.tuple(fc.constant(onsetTicks), fc.integer({ min: -50, max: 1600 })),
+      )
+
+    fc.assert(
+      fc.property(onsetsAndTick, ([onsetTicks, tick]) => {
+        expect(stepsToOnsetAtOrBefore(onsetTicks, tick)).toBe(linearReference(onsetTicks, tick))
+      }),
+    )
+  })
 })

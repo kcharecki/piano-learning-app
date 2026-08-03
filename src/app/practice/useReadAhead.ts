@@ -18,17 +18,42 @@
  * should be hidden right now and keeps that set in step with the cursor as
  * cheaply as possible.
  *
- * ## Minimal diffing
+ * ## Incremental hiding
  *
- * Re-hiding a note that is already hidden (or re-revealing one already
- * visible) would still be harmless on the engraver side — `setNoteHidden` is
- * itself idempotent — but doing it on every render, for every note in every
- * measure already behind the cursor, would mean the hidden set grows to
- * "every note in the piece so far" and gets rewritten in full every time the
- * cursor advances even one measure. Instead, a `useRef<Set<string>>` tracks
- * exactly what was hidden last time, and only the ids that actually change
- * state this run get a `setNoteHidden` call — the same idea as
- * `useNoteFeedback`'s batched-render seam, just diffed here instead of there.
+ * The obvious implementation — rebuild the whole hidden set from measure 0
+ * every time the boundary moves, then diff it against what was hidden last
+ * time — was a real cost, not a hypothetical one: on a 102-measure,
+ * 1603-note import (Pachelbel's Canon in D) the rebuild loops `measureIndex`
+ * from `0` to `currentMeasureIndex - 1` and calls `notesInMeasure` for each,
+ * so the cost of a single measure boundary crossing grows linearly with how
+ * far into the piece playback has reached — near the end it walks almost the
+ * whole score, on the very React commit that follows a frame with an audio
+ * deadline to meet. Almost all of that work was then thrown away by the diff,
+ * which only ever issues `setNoteHidden` for the handful of ids that changed
+ * state.
+ *
+ * Instead, alongside `hiddenRef` (exactly what was hidden last time), two
+ * more refs track what that set corresponds to: `boundaryRef` holds the
+ * clamped measure boundary it was built up to, and `scoreRef` holds the score
+ * identity it was built against. Each effect run compares the new clamped
+ * boundary against `boundaryRef.current`:
+ *
+ * - Score identity changed, or `boundaryRef.current` is `undefined` (the hook
+ *   was previously disabled/cleared, or this is the first run): fall back to
+ *   the full rebuild-then-diff above. This happens once per score, not once
+ *   per measure, so its cost is amortised over the whole piece.
+ * - Boundary moved forward from `prev` to `next`: only measures `prev ..
+ *   next - 1` are newly strictly-before the cursor, so only their notes get
+ *   hidden and added to `hiddenRef`.
+ * - Boundary moved backward from `prev` to `next` (e.g. a loop or seek back):
+ *   only measures `next .. prev - 1` are no longer strictly-before the
+ *   cursor, so only their notes get revealed and removed from `hiddenRef`.
+ * - Boundary unchanged: no work at all.
+ *
+ * This makes the cost of a measure-boundary crossing proportional to the
+ * notes in the measures actually crossed, not to every note behind the
+ * cursor — the same idea as `useNoteFeedback`'s batched-render seam, applied
+ * incrementally here instead of diffed in full each time.
  *
  * ## Reading the rest of `options` through a ref
  *
@@ -81,29 +106,74 @@ export function useReadAhead(options: UseReadAheadOptions): void {
 
   /** Exactly what was hidden as of the last run of the effect below. */
   const hiddenRef = useRef<Set<string>>(new Set())
+  /**
+   * The clamped measure boundary `hiddenRef` currently corresponds to, or
+   * `undefined` when `hiddenRef` isn't tracking anything — disabled,
+   * `score === undefined`, or not yet run. `undefined` is what forces the
+   * next real run to take the full-rebuild path instead of an incremental
+   * one.
+   */
+  const boundaryRef = useRef<number | undefined>(undefined)
+  /** The score identity `hiddenRef`/`boundaryRef` were last built against. */
+  const scoreRef = useRef<Score | undefined>(undefined)
 
   useEffect(() => {
     const { enabled, score, scoreViewerRef, currentMeasureIndex } = optionsRef.current
     const handle = scoreViewerRef.current
 
     if (!enabled || score === undefined) {
-      if (hiddenRef.current.size > 0) {
-        handle?.clearHiddenNotes()
-        hiddenRef.current = new Set()
-      }
+      if (hiddenRef.current.size > 0) handle?.clearHiddenNotes()
+      hiddenRef.current = new Set()
+      boundaryRef.current = undefined
+      scoreRef.current = undefined
       return
     }
 
-    const nextHidden = idsHiddenBefore(score, currentMeasureIndex)
-    const previouslyHidden = hiddenRef.current
+    const nextBoundary = Math.min(currentMeasureIndex, score.measures.length)
 
-    for (const id of nextHidden) {
-      if (!previouslyHidden.has(id)) handle?.setNoteHidden(id, true)
-    }
-    for (const id of previouslyHidden) {
-      if (!nextHidden.has(id)) handle?.setNoteHidden(id, false)
+    // Full rebuild: either the score changed identity (a new piece was
+    // loaded) or the previous run left nothing to build on incrementally
+    // (disabled/cleared, or this is the very first run). Correctness first —
+    // this only happens once per score, not once per measure.
+    if (score !== scoreRef.current || boundaryRef.current === undefined) {
+      const nextHidden = idsHiddenBefore(score, currentMeasureIndex)
+      const previouslyHidden = hiddenRef.current
+
+      for (const id of nextHidden) {
+        if (!previouslyHidden.has(id)) handle?.setNoteHidden(id, true)
+      }
+      for (const id of previouslyHidden) {
+        if (!nextHidden.has(id)) handle?.setNoteHidden(id, false)
+      }
+
+      hiddenRef.current = nextHidden
+      boundaryRef.current = nextBoundary
+      scoreRef.current = score
+      return
     }
 
-    hiddenRef.current = nextHidden
+    // Incremental path: only touch the measures the boundary actually
+    // crossed since the last run, instead of walking every measure behind
+    // the cursor again.
+    const previousBoundary = boundaryRef.current
+    const hidden = hiddenRef.current
+
+    if (nextBoundary > previousBoundary) {
+      for (let measureIndex = previousBoundary; measureIndex < nextBoundary; measureIndex++) {
+        for (const note of notesInMeasure(score, measureIndex)) {
+          handle?.setNoteHidden(note.id, true)
+          hidden.add(note.id)
+        }
+      }
+    } else if (nextBoundary < previousBoundary) {
+      for (let measureIndex = nextBoundary; measureIndex < previousBoundary; measureIndex++) {
+        for (const note of notesInMeasure(score, measureIndex)) {
+          handle?.setNoteHidden(note.id, false)
+          hidden.delete(note.id)
+        }
+      }
+    }
+
+    boundaryRef.current = nextBoundary
   }, [options.enabled, options.score, options.currentMeasureIndex])
 }

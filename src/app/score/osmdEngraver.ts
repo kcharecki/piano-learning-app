@@ -13,22 +13,33 @@
  * ever disagree — a future OSMD version, an edge case in the matching — that
  * measure's notes are simply left uncoloured rather than mismatched or thrown.
  *
- * ## Batched rendering (roadmap 2.21, REQ-3.3.6)
+ * ## Rendering (roadmap 2.21, and the 2.3x performance round)
  *
- * `osmd.render()` re-engraves the ENTIRE score synchronously — expensive
- * enough that calling it once per judged note (four times for a four-note
- * chord, all on the incoming MIDI event's own task) blew the 100ms visual
- * budget. `setNoteColor`/`clearNoteColors`/`setNoteHidden`/`clearHiddenNotes`
- * now only mutate `NoteheadColor`/`StemColor` on the affected `Note` objects
- * (via `paint`) and call `requestRender()` — but only when `paint` reports it
- * actually changed something visible, so re-painting a note that is already
- * showing the requested colour (e.g. `setNoteColor` on a note currently
- * hidden) costs nothing. `requestRender` itself coalesces any number of calls
- * within one task into exactly one `render()`, scheduled via the injectable
- * `scheduleRender` (real `requestAnimationFrame` by default). Because
- * `render()` always draws whatever the note objects currently hold,
- * coalescing never drops a mutation — the frame that eventually fires always
- * sees the LAST colour written, even if a dozen calls raced ahead of it.
+ * `osmd.render()` re-engraves the ENTIRE score synchronously. Roadmap 2.21
+ * batched that cost down to one `render()` per animation frame regardless of
+ * how many notes changed within it — but measured against a real 102-measure,
+ * 1603-note import (Pachelbel's Canon in D), one full re-engrave per frame was
+ * still ruinous: p95 animation-frame gap 551ms, worst 564ms, 13 long tasks in
+ * 6 seconds, only 28 frames rendered in 6 seconds, and Stop took 5.3 seconds
+ * to respond. The fix is to stop rendering at all for a recolour: `paint` now
+ * pushes the colour straight into the already-rendered SVG via
+ * `osmd.rules.GNote(note)?.setColor(...)` (OSMD's documented no-re-render
+ * path — see `GraphicalNote.d.ts`), so `setNoteColor`/`clearNoteColors`/
+ * `setNoteHidden`/`clearHiddenNotes` need no re-engrave at all in the common
+ * case. The `NoteheadColor`/`ParentVoiceEntry.StemColor` model-property writes
+ * are kept regardless — deliberately, not redundantly — because OSMD itself
+ * re-renders on its own initiative (`autoResize: true` re-engraves on every
+ * window resize), and a re-engrave draws whatever the model currently holds;
+ * without the model write, an SVG-only recolour would vanish on the next
+ * resize. `requestRender`/`scheduleRender`/the `renderPending` coalescing
+ * survive as the FALLBACK path, used only when `paint` reports `'needs-render'`
+ * (osmd/rules/GNote unavailable, `GNote` returns nothing, or the SVG mutation
+ * throws) — still coalescing any number of such calls within one task into
+ * exactly one `render()`, scheduled via the injectable `scheduleRender` (real
+ * `requestAnimationFrame` by default). Because `render()` always draws
+ * whatever the note objects currently hold, coalescing never drops a
+ * mutation — the frame that eventually fires always sees the LAST colour
+ * written, even if a dozen calls raced ahead of it.
  */
 import type { Score, ScoreNote } from '@core/notation/score.ts'
 import { TICKS_PER_QUARTER } from '@core/shared/units.ts'
@@ -46,6 +57,11 @@ import type { ScoreEngraver } from './engraver.ts'
  * `updateGraphic()` path, which is out of scope here.
  */
 type EngravedNote = { NoteheadColor: string; readonly ParentVoiceEntry: { StemColor: string } }
+
+/** The slice of OSMD's `ColoringOptions` this file uses — see GraphicalNote.d.ts. */
+type OsmdColoringOptions = { readonly applyToNoteheads: boolean; readonly applyToStem: boolean }
+type OsmdGraphicalNote = { setColor(color: string, options: OsmdColoringOptions): void }
+type OsmdEngravingRules = { GNote(note: EngravedNote): OsmdGraphicalNote | undefined }
 
 type EngravedRawNote = EngravedNote & { readonly halfTone: number; isRest(): boolean }
 type EngravedVoiceEntry = { readonly Notes: readonly EngravedRawNote[] }
@@ -84,6 +100,7 @@ type OsmdCursor = {
 export type OsmdLike = {
   readonly Sheet: { readonly SourceMeasures: readonly EngravedSourceMeasure[] }
   readonly cursor: OsmdCursor
+  readonly rules: OsmdEngravingRules
   load(musicXml: string): Promise<void>
   render(): void
   clear(): void
@@ -280,26 +297,50 @@ export function createOsmdEngraver(opts?: OsmdEngraverOptions): ScoreEngraver {
   }
 
   /**
+   * - `'unchanged'` — nothing on screen would differ; do no further work.
+   * - `'painted'`   — the SVG was mutated directly; NO re-engrave is needed.
+   * - `'needs-render'` — the colour was recorded on the model but could not be
+   *   pushed to the SVG directly; only a full `render()` will show it.
+   */
+  type PaintResult = 'unchanged' | 'painted' | 'needs-render'
+
+  /**
    * The single place `NoteheadColor`/`StemColor` are written: hidden always
    * wins over whatever colour was last requested, so `setNoteColor` and
    * `setNoteHidden` can never race each other into an inconsistent paint.
    *
-   * Returns whether it actually changed anything visible — `false` for an id
-   * that isn't (yet) in `noteById`, and `false` when the note already holds
-   * the colour being (re-)written. Callers use this to skip `requestRender()`
-   * when nothing on screen would change (roadmap finding 7): repainting an
-   * already-hidden note costs a full-score re-render for zero visible effect.
+   * The model-property writes always happen when something changed, even
+   * though the fast path below usually makes them redundant for THIS frame —
+   * they are what makes the colour survive an OSMD-initiated re-render (e.g.
+   * `autoResize` on a window resize), which redraws strictly from the model.
+   * Only after that does `paint` try the cheap path: pushing the colour
+   * straight into the already-rendered SVG via `osmd.rules.GNote(note)`
+   * (OSMD's documented no-re-render `setColor`). That call is wrapped in a
+   * narrow `try` — an unmapped/unrendered note, a missing `rules`/`GNote`, or
+   * any thrown error all fall back to `'needs-render'`, which is the only
+   * result that may schedule a `requestRender()` fallback.
    */
-  function paint(noteId: string): boolean {
+  function paint(noteId: string): PaintResult {
     const note = noteById.get(noteId)
-    if (note === undefined) return false
+    if (note === undefined) return 'unchanged'
     const color = hiddenIds.has(noteId)
       ? HIDDEN_NOTE_COLOR
       : (desiredColor.get(noteId) ?? DEFAULT_NOTE_COLOR)
     const changed = note.NoteheadColor !== color || note.ParentVoiceEntry.StemColor !== color
     note.NoteheadColor = color
     note.ParentVoiceEntry.StemColor = color
-    return changed
+    if (!changed) return 'unchanged'
+    try {
+      const graphicalNote = osmd?.rules.GNote(note)
+      if (graphicalNote !== undefined) {
+        graphicalNote.setColor(color, { applyToNoteheads: true, applyToStem: true })
+        return 'painted'
+      }
+    } catch {
+      // GNote/setColor threw — the model write above still stands, and the
+      // caller falls back to a full render to make it visible.
+    }
+    return 'needs-render'
   }
 
   return {
@@ -326,11 +367,11 @@ export function createOsmdEngraver(opts?: OsmdEngraverOptions): ScoreEngraver {
       // instance is still safe: `paint`'s own `noteById.get(id) === undefined`
       // guard (until this line ran) makes it a no-op rather than a mispaint.
       const idsToRepaint = new Set<string>([...hiddenIds, ...coloredIds])
-      let repaintChanged = false
+      let needsRender = false
       for (const id of idsToRepaint) {
-        if (paint(id)) repaintChanged = true
+        if (paint(id) === 'needs-render') needsRender = true
       }
-      if (repaintChanged) requestRender()
+      if (needsRender) requestRender()
     },
 
     // `measureIndex` is no longer needed to find the onset — `onsetTicks` is
@@ -350,18 +391,18 @@ export function createOsmdEngraver(opts?: OsmdEngraverOptions): ScoreEngraver {
       // finding 4).
       desiredColor.set(noteId, color)
       coloredIds.add(noteId)
-      if (paint(noteId)) requestRender()
+      if (paint(noteId) === 'needs-render') requestRender()
     },
 
     clearNoteColors() {
       if (coloredIds.size === 0) return
-      let changed = false
+      let needsRender = false
       for (const id of coloredIds) {
         desiredColor.delete(id)
-        if (paint(id)) changed = true
+        if (paint(id) === 'needs-render') needsRender = true
       }
       coloredIds.clear()
-      if (changed) requestRender()
+      if (needsRender) requestRender()
     },
 
     setNoteHidden(noteId, hidden) {
@@ -372,17 +413,17 @@ export function createOsmdEngraver(opts?: OsmdEngraverOptions): ScoreEngraver {
         if (!hiddenIds.has(noteId)) return
         hiddenIds.delete(noteId)
       }
-      if (paint(noteId)) requestRender()
+      if (paint(noteId) === 'needs-render') requestRender()
     },
 
     clearHiddenNotes() {
       if (hiddenIds.size === 0) return
-      let changed = false
+      let needsRender = false
       for (const id of [...hiddenIds]) {
         hiddenIds.delete(id)
-        if (paint(id)) changed = true
+        if (paint(id) === 'needs-render') needsRender = true
       }
-      if (changed) requestRender()
+      if (needsRender) requestRender()
     },
 
     destroy() {

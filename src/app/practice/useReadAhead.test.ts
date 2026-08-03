@@ -27,6 +27,24 @@ function threeMeasureScore(): Score {
   })
 }
 
+/**
+ * `count` measures, two notes each (so each measure crossing exercises more
+ * than a single id), at 120bpm 4/4 (1920 ticks/measure).
+ */
+function multiMeasureScore(count: number): Score {
+  const notes = []
+  for (let measureIndex = 0; measureIndex < count; measureIndex++) {
+    const base = measureIndex * 1920
+    notes.push({ midi: 60, startTick: base, durationTicks: 240, hand: 'right' as const })
+    notes.push({ midi: 64, startTick: base + 240, durationTicks: 240, hand: 'right' as const })
+  }
+  return makeScore({
+    id: 'read-ahead-multi-measure-test',
+    measures: Array.from({ length: count }, () => ({})),
+    notes,
+  })
+}
+
 type FakeHandle = ReadAheadHandle & {
   readonly setNoteHidden: ReturnType<typeof vi.fn>
   readonly clearHiddenNotes: ReturnType<typeof vi.fn>
@@ -178,5 +196,100 @@ describe('useReadAhead', () => {
 
     expect(hideCalls(scoreViewerRef.current)).toEqual([m0.id])
     expect(revealCalls(scoreViewerRef.current)).toEqual([])
+  })
+
+  it('stepping the cursor measure by measure to the end never re-hides an id already hidden', () => {
+    const score = multiMeasureScore(6)
+    const scoreViewerRef = fakeHandleRef()
+    const options = makeOptions({ enabled: true, score, currentMeasureIndex: 0, scoreViewerRef })
+
+    const { rerender } = renderHook((p: UseReadAheadOptions) => useReadAhead(p), {
+      initialProps: options,
+    })
+    for (let currentMeasureIndex = 1; currentMeasureIndex <= score.measures.length; currentMeasureIndex++) {
+      rerender({ ...options, currentMeasureIndex })
+    }
+
+    const allHideCalls = hideCalls(scoreViewerRef.current)
+    // Every note in the piece ends up hidden exactly once — this is the
+    // direct behavioural signature of the incremental path: an
+    // implementation that rebuilds and re-diffs on every step would still
+    // pass, but one that rebuilds and re-HIDES without diffing would fail
+    // here even though it passes the older per-step assertions above.
+    expect(allHideCalls).toHaveLength(score.notes.length)
+    expect(new Set(allHideCalls).size).toBe(allHideCalls.length)
+    expect(new Set(allHideCalls)).toEqual(new Set(score.notes.map((n) => n.id)))
+  })
+
+  it('a backward jump (loop wrap) reveals exactly the ids of the measures it un-crosses, and touches nothing else', () => {
+    const score = multiMeasureScore(9)
+    const scoreViewerRef = fakeHandleRef()
+    const options = makeOptions({ enabled: true, score, currentMeasureIndex: 8, scoreViewerRef })
+
+    const { rerender } = renderHook((p: UseReadAheadOptions) => useReadAhead(p), {
+      initialProps: options,
+    })
+    scoreViewerRef.current.setNoteHidden.mockClear()
+
+    // Loop wraps from measure 8 back to measure 2: measures 2..7 are no
+    // longer strictly before the cursor and must be revealed; measures 0 and
+    // 1 stay hidden and must not be touched at all.
+    rerender({ ...options, currentMeasureIndex: 2 })
+
+    const revealedIds = new Set(revealCalls(scoreViewerRef.current))
+    const expectedRevealedIds = new Set<string>()
+    for (let measureIndex = 2; measureIndex < 8; measureIndex++) {
+      for (const note of score.notes.filter((n) => n.measureIndex === measureIndex)) {
+        expectedRevealedIds.add(note.id)
+      }
+    }
+    expect(revealedIds).toEqual(expectedRevealedIds)
+    expect(hideCalls(scoreViewerRef.current)).toEqual([])
+
+    const untouchedIds = score.notes
+      .filter((n) => n.measureIndex === 0 || n.measureIndex === 1)
+      .map((n) => n.id)
+    const allTouchedIds = new Set(scoreViewerRef.current.setNoteHidden.mock.calls.map(([id]) => id))
+    for (const id of untouchedIds) expect(allTouchedIds.has(id)).toBe(false)
+  })
+
+  it('a forward jump of several measures at once hides exactly the ids of every measure crossed', () => {
+    const score = multiMeasureScore(9)
+    const scoreViewerRef = fakeHandleRef()
+    const options = makeOptions({ enabled: true, score, currentMeasureIndex: 1, scoreViewerRef })
+
+    const { rerender } = renderHook((p: UseReadAheadOptions) => useReadAhead(p), {
+      initialProps: options,
+    })
+    scoreViewerRef.current.setNoteHidden.mockClear()
+
+    // A seek, not a step: the cursor jumps straight from measure 1 to
+    // measure 6, crossing measures 1..5 in a single effect run.
+    rerender({ ...options, currentMeasureIndex: 6 })
+
+    const hiddenIds = new Set(hideCalls(scoreViewerRef.current))
+    const expectedHiddenIds = new Set<string>()
+    for (let measureIndex = 1; measureIndex < 6; measureIndex++) {
+      for (const note of score.notes.filter((n) => n.measureIndex === measureIndex)) {
+        expectedHiddenIds.add(note.id)
+      }
+    }
+    expect(hiddenIds).toEqual(expectedHiddenIds)
+    expect(revealCalls(scoreViewerRef.current)).toEqual([])
+  })
+
+  it('clamps a currentMeasureIndex beyond score.measures.length to hide every measure and no more, without throwing', () => {
+    const score = multiMeasureScore(4)
+    const scoreViewerRef = fakeHandleRef()
+    const options = makeOptions({ enabled: true, score, currentMeasureIndex: 0, scoreViewerRef })
+
+    expect(() => {
+      const { rerender } = renderHook((p: UseReadAheadOptions) => useReadAhead(p), {
+        initialProps: options,
+      })
+      rerender({ ...options, currentMeasureIndex: 999 })
+    }).not.toThrow()
+
+    expect(new Set(hideCalls(scoreViewerRef.current))).toEqual(new Set(score.notes.map((n) => n.id)))
   })
 })

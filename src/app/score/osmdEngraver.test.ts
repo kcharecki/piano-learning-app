@@ -81,7 +81,47 @@ type FakeOsmd = OsmdLike & {
   cleared: boolean
 }
 
-function makeFakeOsmd(measures: readonly FakeMeasure[]): FakeOsmd {
+/**
+ * Mirrors the internal `OsmdColoringOptions`/`OsmdGraphicalNote` structural
+ * types in osmdEngraver.ts (not exported — this file cannot import them, so
+ * it pins the same shape independently).
+ */
+type FakeColoringOptions = { readonly applyToNoteheads: boolean; readonly applyToStem: boolean }
+type FakeGraphicalNote = { setColor(color: string, options: FakeColoringOptions): void }
+type FakeGNote = (note: FakeNote) => FakeGraphicalNote | undefined
+
+/** A `setColor` call the fast SVG path made, recorded verbatim. */
+type RecordedSetColor = { readonly color: string; readonly options: FakeColoringOptions }
+
+/**
+ * `GNote` fixture matching the `'painted'` path: every note maps to a
+ * recording graphical-note stub, so the perf test can assert both the colour
+ * AND the exact `ColoringOptions` shape (`applyToNoteheads`/`applyToStem`
+ * only, nothing else) a future change might accidentally widen or narrow.
+ */
+function makeGNoteRecording(): { readonly GNote: FakeGNote; readonly calls: RecordedSetColor[] } {
+  const calls: RecordedSetColor[] = []
+  return {
+    GNote: () => ({
+      setColor(color, options) {
+        calls.push({ color, options })
+      },
+    }),
+    calls,
+  }
+}
+
+/** `GNote` fixture matching the `'needs-render'` fallback path: no graphical note is ever resolvable. */
+function gNoteMissing(): FakeGraphicalNote | undefined {
+  return undefined
+}
+
+/** `GNote` fixture matching the `'needs-render'` fallback path via a thrown error rather than `undefined`. */
+function gNoteThrowing(): FakeGraphicalNote {
+  throw new Error('GNote boom')
+}
+
+function makeFakeOsmd(measures: readonly FakeMeasure[], GNote: FakeGNote = gNoteMissing): FakeOsmd {
   return {
     Sheet: { SourceMeasures: measures },
     cursor: {
@@ -92,6 +132,7 @@ function makeFakeOsmd(measures: readonly FakeMeasure[]): FakeOsmd {
       update: () => undefined,
       show: () => undefined,
     },
+    rules: { GNote },
     async load() {
       /* no-op — the fake is "loaded" from construction */
     },
@@ -622,7 +663,13 @@ describe('createOsmdEngraver: race with an in-flight load (roadmap finding 4)', 
   })
 })
 
-describe('createOsmdEngraver: batched rendering (roadmap 2.21)', () => {
+// None of these fakes pass a `GNote` to `makeFakeOsmd`, so they default to
+// `gNoteMissing` — every `paint` call here takes the `'needs-render'`
+// fallback. That used to be the ONLY path (roadmap 2.21); since the 2.3x
+// performance round it is the fallback for when the fast SVG path (see the
+// `setColor fast path` describe below) is unavailable, but the batching
+// guarantees these tests pin are unchanged either way.
+describe('createOsmdEngraver: batched rendering (roadmap 2.21, now the needs-render fallback)', () => {
   it('N setNoteColor calls inside one frame produce exactly ONE render, with the last colour written', async () => {
     const score = singleNoteScore()
     const [c60] = score.notes
@@ -738,6 +785,166 @@ describe('createOsmdEngraver: batched rendering (roadmap 2.21)', () => {
       globalThis.requestAnimationFrame = original
       vi.useRealTimers()
     }
+  })
+})
+
+describe('createOsmdEngraver: setColor fast path (2.3x performance round)', () => {
+  // The point of the whole task: recolouring must not cost a re-engrave when
+  // OSMD can resolve a graphical note for it. This is what would fail if
+  // anyone reintroduced a `requestRender()` on the colour path.
+  it('N setNoteColor calls against a mapped score schedule ZERO renders, each calling setColor with the requested colour and the notehead+stem options', async () => {
+    const score = twoMeasureScore()
+    const [m0note, m1noteA, m1noteB] = score.notes
+    if (m0note === undefined || m1noteA === undefined || m1noteB === undefined) {
+      throw new Error('setup')
+    }
+    const engravedM0 = note(60)
+    const engravedM1a = note(62)
+    const engravedM1b = note(65)
+    const gnote = makeGNoteRecording()
+    const fakeOsmd = makeFakeOsmd(
+      [measureOf(containerOf(engravedM0)), measureOf(containerOf(engravedM1a, engravedM1b))],
+      gnote.GNote,
+    )
+    const scheduler = makeFakeScheduler()
+    const engraver = await load(score, fakeOsmd, scheduler.scheduleRender)
+
+    engraver.setNoteColor(m0note.id, 'red')
+    engraver.setNoteColor(m1noteA.id, 'green')
+    engraver.setNoteColor(m1noteB.id, 'blue')
+
+    expect(scheduler.scheduleRender).not.toHaveBeenCalled()
+    expect(fakeOsmd.renderCount).toBe(0)
+    const options = { applyToNoteheads: true, applyToStem: true }
+    expect(gnote.calls).toEqual([
+      { color: 'red', options },
+      { color: 'green', options },
+      { color: 'blue', options },
+    ])
+  })
+
+  it('re-colouring a note to the colour it already holds calls setColor zero times and schedules zero renders', async () => {
+    const score = singleNoteScore()
+    const [c60] = score.notes
+    if (c60 === undefined) throw new Error('setup')
+    const engravedNote = note(60, 'red')
+    const gnote = makeGNoteRecording()
+    const fakeOsmd = makeFakeOsmd([measureOf(containerOf(engravedNote))], gnote.GNote)
+    const scheduler = makeFakeScheduler()
+    const engraver = await load(score, fakeOsmd, scheduler.scheduleRender)
+
+    engraver.setNoteColor(c60.id, 'red')
+
+    expect(gnote.calls).toEqual([])
+    expect(scheduler.scheduleRender).not.toHaveBeenCalled()
+  })
+
+  it('keeps NoteheadColor/StemColor set on the model after a setColor-path paint — durability against an OSMD-initiated re-render (autoResize)', async () => {
+    const score = singleNoteScore()
+    const [c60] = score.notes
+    if (c60 === undefined) throw new Error('setup')
+    const engravedNote = note(60)
+    const gnote = makeGNoteRecording()
+    const fakeOsmd = makeFakeOsmd([measureOf(containerOf(engravedNote))], gnote.GNote)
+    const scheduler = makeFakeScheduler()
+    const engraver = await load(score, fakeOsmd, scheduler.scheduleRender)
+
+    engraver.setNoteColor(c60.id, 'red')
+
+    // Asserted on the note object itself, not the setColor stub: the model
+    // write must stand even though the SVG was already updated directly.
+    expect(engravedNote.NoteheadColor).toBe('red')
+    expect(engravedNote.ParentVoiceEntry.StemColor).toBe('red')
+    expect(scheduler.scheduleRender).not.toHaveBeenCalled()
+  })
+
+  it('falls back to a render when GNote is unavailable (returns undefined): N calls in one task still schedule EXACTLY ONE render', async () => {
+    const score = singleNoteScore()
+    const [c60] = score.notes
+    if (c60 === undefined) throw new Error('setup')
+    const engravedNote = note(60)
+    const fakeOsmd = makeFakeOsmd([measureOf(containerOf(engravedNote))], gNoteMissing)
+    const scheduler = makeFakeScheduler()
+    const engraver = await load(score, fakeOsmd, scheduler.scheduleRender)
+
+    engraver.setNoteColor(c60.id, 'red')
+    engraver.setNoteColor(c60.id, 'green')
+    engraver.setNoteColor(c60.id, 'blue')
+
+    expect(scheduler.scheduleRender).toHaveBeenCalledTimes(1)
+    scheduler.flush()
+    expect(fakeOsmd.renderCount).toBe(1)
+    expect(engravedNote.NoteheadColor).toBe('blue')
+  })
+
+  it('falls back to a render when GNote throws: no exception escapes, and N calls in one task still schedule EXACTLY ONE render', async () => {
+    const score = singleNoteScore()
+    const [c60] = score.notes
+    if (c60 === undefined) throw new Error('setup')
+    const engravedNote = note(60)
+    const fakeOsmd = makeFakeOsmd([measureOf(containerOf(engravedNote))], gNoteThrowing)
+    const scheduler = makeFakeScheduler()
+    const engraver = await load(score, fakeOsmd, scheduler.scheduleRender)
+
+    expect(() => {
+      engraver.setNoteColor(c60.id, 'red')
+      engraver.setNoteColor(c60.id, 'green')
+    }).not.toThrow()
+
+    expect(scheduler.scheduleRender).toHaveBeenCalledTimes(1)
+    scheduler.flush()
+    expect(fakeOsmd.renderCount).toBe(1)
+    expect(engravedNote.NoteheadColor).toBe('green')
+  })
+
+  it('hidden-over-colour precedence holds through the setColor path: hiding pushes HIDDEN_NOTE_COLOR, revealing pushes back the last requested colour', async () => {
+    const score = singleNoteScore()
+    const [c60] = score.notes
+    if (c60 === undefined) throw new Error('setup')
+    const engravedNote = note(60)
+    const gnote = makeGNoteRecording()
+    const fakeOsmd = makeFakeOsmd([measureOf(containerOf(engravedNote))], gnote.GNote)
+    const scheduler = makeFakeScheduler()
+    const engraver = await load(score, fakeOsmd, scheduler.scheduleRender)
+
+    engraver.setNoteColor(c60.id, 'red')
+    engraver.setNoteHidden(c60.id, true)
+    engraver.setNoteHidden(c60.id, false)
+
+    expect(gnote.calls.map((c) => c.color)).toEqual(['red', HIDDEN_NOTE_COLOR, 'red'])
+    expect(scheduler.scheduleRender).not.toHaveBeenCalled()
+  })
+
+  it('clearNoteColors and clearHiddenNotes over many ids schedule zero renders on the setColor path', async () => {
+    const score = twoMeasureScore()
+    const [m0note, m1noteA, m1noteB] = score.notes
+    if (m0note === undefined || m1noteA === undefined || m1noteB === undefined) {
+      throw new Error('setup')
+    }
+    const engravedM0 = note(60)
+    const engravedM1a = note(62)
+    const engravedM1b = note(65)
+    const gnote = makeGNoteRecording()
+    const fakeOsmd = makeFakeOsmd(
+      [measureOf(containerOf(engravedM0)), measureOf(containerOf(engravedM1a, engravedM1b))],
+      gnote.GNote,
+    )
+    const scheduler = makeFakeScheduler()
+    const engraver = await load(score, fakeOsmd, scheduler.scheduleRender)
+
+    engraver.setNoteColor(m0note.id, 'red')
+    engraver.setNoteColor(m1noteA.id, 'green')
+    engraver.setNoteHidden(m1noteB.id, true)
+    expect(scheduler.scheduleRender).not.toHaveBeenCalled()
+
+    engraver.clearNoteColors()
+    engraver.clearHiddenNotes()
+
+    expect(scheduler.scheduleRender).not.toHaveBeenCalled()
+    expect(fakeOsmd.renderCount).toBe(0)
+    expect(engravedM0.NoteheadColor).toBe(DEFAULT_NOTE_COLOR)
+    expect(engravedM1a.NoteheadColor).toBe(DEFAULT_NOTE_COLOR)
+    expect(engravedM1b.NoteheadColor).toBe(DEFAULT_NOTE_COLOR)
   })
 })
 
