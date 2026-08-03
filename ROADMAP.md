@@ -455,14 +455,25 @@ Stop latency        5339ms       59ms
       *Proof: measure it first — play a long piece for several minutes and compare the scheduled
       `atMs` of a note against the `AudioContext` time it actually sounded at; only re-anchor if
       the gap grows. A fix with no measurement behind it cannot be told from a no-op here.*
-- [ ] 2.32f `app/score`: `osmdEngraver.ts`'s `MAX_CURSOR_STEPS = 10_000` silently truncates
+- [x] 2.32f `app/score`: `osmdEngraver.ts`'s `MAX_CURSOR_STEPS = 10_000` silently truncates
       `collectOnsetTicks`. Canon in D's 102 measures produce well under that, so nothing is wrong
       today, but a long dense piece that exceeds it would leave the cursor unable to track past that
       onset — and the cap is silent, so it would present as "the cursor stops moving two thirds of
       the way through" with nothing in the console. Not a perf issue; found while reading that file
       for 2.32a. Either raise it far above any real score or make exceeding it visible.
-      *Proof: a unit test on a synthetic onset list longer than the cap, asserting whatever the
-      chosen behaviour is (a higher bound, or a reported truncation) rather than silent loss.*
+      *Done both ways: cap raised to 200_000 (a runaway-loop backstop, not a plausible real limit)
+      and the truncating exit warns once naming the module and the cap.
+      `osmdEngraver.test.ts` drives it through the public engraver with a fake cursor bounded just
+      ABOVE the cap — deliberately, so that deleting the guard fails cleanly instead of hanging the
+      worker in a synchronous infinite loop, which is the weakest possible signal for the exact
+      regression the test exists to catch. Adversarial review found the raise made the degenerate
+      case WORSE: `onsetTicks.length` also bounds `moveCursorToIndex`, whose steps are real
+      visible-cursor `Cursor.update()` calls, so a truncated 200k list meant one frame issuing
+      199_999 of them — a freeze, not a short cursor. Added `MAX_CURSOR_STEPS_PER_MOVE = 4_000` and
+      made `moveCursorToIndex` return the index it ACTUALLY reached rather than the one requested,
+      which also fixes a pre-existing bug where an early loop break left the recorded index ahead
+      of the real cursor permanently. Onset ticks are now rounded at the OSMD conversion: a
+      non-dyadic Fraction produced 16000.000000000002, read as "not yet sounding" on an exact hit.*
 
 - [x] 2.33 `app/repertoire`: `core/repertoire/repertoire.ts` has seven exports
       (`addPiece`/`setStatus`/`recordSession`/`setNotes`/`maintenanceDue`/`sessionFromEntry`/
@@ -495,22 +506,42 @@ Stop latency        5339ms       59ms
       *Proof: `useDashboard.test.ts` seeds `useTechniqueStore` with attempts and asserts
       `techniqueTrend` is non-empty and carries the seeded drill ids — the assertion whose absence
       let this sit unnoticed.*
-- [ ] 2.34 `app/session`: `Shell.tsx` renders `<TechniqueScreen />` with no props, so a planned
+- [x] 2.34 `app/session`: `Shell.tsx` renders `<TechniqueScreen />` with no props, so a planned
       session's chosen technique drill (`Exercise.params.drillId`, built by
       `session/candidates.ts`) is silently dropped — the screen always opens the level's first
       drill instead of the one the session actually planned. `techniqueDrillById` (the opener
       `candidates.ts`'s own doc comment names) has never been called. Found by the 2.32 knip
       triage. `candidates.ts`'s module doc is also stale — still says "there is no technique-drill
       screen in the app yet" despite one existing since 4.4a.
-      *Proof: e2e — plan a session, open its technique item, assert the drill that opens is the
-      one the session named (not the level's first), by comparing displayed drill names/ids.*
-- [ ] 2.35 `core/practice`: `matcher.ts`'s `buildExpected` re-derives "group notes by shared
+      *Proved by `e2e/session-technique.spec.ts`, and the spec was checked to be non-vacuous
+      rather than assumed to be. It bumps the plan to 60 minutes so the technique segment holds
+      more than one item, reads the SECOND item's drill title off the screen (never a hardcoded
+      id), and asserts the opened picker's selected index is that drill's real library index AND
+      that the index is non-zero — which "opens the level's first drill" cannot satisfy. Reverting
+      Shell to `<TechniqueScreen />` was actually run and fails it: expected
+      `five-finger-c-major-hands-left`, received `five-finger-c-major-hands-right`. Passing
+      `initialLevel` as well as `initialDrillId` is the half that is easy to miss —
+      `useTechniqueDrill` builds its picker from `techniqueLibrary(level)` and silently falls back
+      to that level's first drill for an id absent from it, so the id alone would have looked
+      wired and behaved identically to the bug. `candidates.ts`'s stale "there is no
+      technique-drill screen in the app yet" doc and `techniqueDrillById`'s keep-comment describing
+      this gap are both deleted.*
+- [x] 2.35 `core/practice`: `matcher.ts`'s `buildExpected` re-derives "group notes by shared
       `startTick`" instead of calling `notation/score.ts`'s `chordGroups`, which already does
       exactly this and is otherwise unused in production. Found by the 2.32 knip triage — small
       dedup, not a behaviour change.
-      *Proof: `matcher.test.ts` stays green after `buildExpected` is rewritten to call
-      `chordGroups`; `chordGroups` no longer needs its `@public` keep-comment.*
-- [ ] 2.36 `app/dashboard`: roadmap 4.3 is ticked done, claiming *"the dashboard shows three
+      *Done: `matcher.test.ts`'s 83 tests are green with no assertion edited, which is what makes
+      this a dedup rather than a behaviour change, and `chordGroups` lost its `@public`
+      keep-comment. The blocker was the signature: `chordGroups` took a whole `Score`, but chord
+      SIZES must be computed over the ALREADY hand-filtered list `NoteMatcher` builds — a two-hand
+      chord practised right-hand-only is a smaller chord — so it now takes `readonly ScoreNote[]`.
+      Two preconditions the old code held implicitly are asserted rather than assumed:
+      `chordGroups` skips `tiedFrom` notes (a no-op on the matcher's path, a silent dropped note
+      for any future caller that forgets), and its tolerance rule only agrees with strict
+      `startTick` equality on input sorted ascending by tick. `score.test.ts` gained a fast-check
+      property pinning the equivalence of the two grouping rules, so changing either breaks
+      loudly.*
+- [x] 2.36 `app/dashboard`: roadmap 4.3 is ticked done, claiming *"the dashboard shows three
       independent track levels; a manual override moves one and survives a reload"* — verified
       false against the current tree while triaging 2.32: `core/progress/levels.ts`'s
       `initialLevelState`/`advance`/`setLevel` are imported by NOTHING in `src/app` (only their
@@ -520,8 +551,24 @@ Stop latency        5339ms       59ms
       render "not tracked yet". Either build the missing store + override UI so 4.3's proof becomes
       true, or correct 4.3's tick and proof text to match what was actually shipped — do not leave
       the claim standing unverified a second time.
-      *Proof: e2e — the dashboard shows a real level for all three tracks, a manual override moves
-      one, and it survives a reload (4.3's own original proof action, actually driven this time).*
+      *Built the missing half rather than downgrading the claim. `app/state/levelStore.ts` holds
+      one `LevelState` and delegates every mutation to the core functions; a TENTH persistence
+      slice stores it under the existing settings collection with its own `levelState` key, so no
+      IndexedDB object-store migration was needed. `DashboardScreen` renders a real level for all
+      three tracks plus a labelled per-track `<select>` (REQ-2.3) and marks an overridden track.
+      Proved in a browser by `e2e/dashboard-populated.spec.ts`'s new case — set Playing to 4
+      through the real control, reload, read back "level 4 (overridden)" — 4.3's own original
+      proof action, actually driven this time.
+      The sight-reading collision is resolved rather than papered over: `useSightReadingStore`'s
+      `level` is the ADAPTIVE trainer's accuracy-driven difficulty and `levelState.levels
+      ['sight-reading']` is the curriculum track level. Both stay on `DashboardData`;
+      `useDashboard.test.ts` sets them to DIFFERENT values and asserts each reads its own source,
+      which is the assertion that kills a "reuse one level everywhere" implementation.
+      NOT claimed: `criteria` stays `[]` and `curriculumAvailable` stays `false`, honestly — no
+      shipped curriculum content supplies a `CurriculumLevel`'s `exitCriteria` yet (4.9), so
+      `trackProgress`/`canAdvance` still cannot be called meaningfully and `advanceTrack` has no
+      production caller. That is REQ-2.2's gated advancement and it waits on the content, which is
+      why 4.9 now also owns wiring it.*
 
 ## Phase 3 — Milestone M3: theory & ears
 
