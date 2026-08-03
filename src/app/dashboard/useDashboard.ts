@@ -4,37 +4,38 @@
  * rather than recomputing any of the underlying music-theory/streak/
  * retention logic itself.
  *
- * Of REQ-3.10.1's six sections, two used to be documented here as having no
- * real data source. Both claims were stale (roadmap 2.33):
+ * Of REQ-3.10.1's six sections, three used to be documented here as having no
+ * real data source. All three claims were stale:
  *
- *  - **Technique tempo trends**: this comment used to claim "no store
- *    persists a `TechniqueAttempt` list anywhere (there is no writer)". That
- *    has been FALSE since roadmap 4.4b: `useTechniqueStore` exists,
+ *  - **Technique tempo trends** (roadmap 2.33): `useTechniqueStore` exists,
  *    `useTechniqueDrill` appends a scored `TechniqueAttempt` to it after every
- *    run, and `persistence.ts` persists it. This hook was simply never
- *    updated to read it, so the whole technique tempo trend section has been
- *    inert since 4.4b despite real data sitting in the store the whole time.
- *    `techniqueAttempts` now reads `useTechniqueStore`.
- *  - **Repertoire status**: this comment used to claim "no store persists a
- *    `RepertoirePiece` list either". `useRepertoireStore` (roadmap 4.5) now
+ *    run, and `persistence.ts` persists it. `techniqueAttempts` reads it.
+ *  - **Repertoire status** (roadmap 2.33): `useRepertoireStore` (roadmap 4.5)
  *    exists and holds the library; `repertoirePieces` reads it, and
- *    `repertoireDue` runs the real `maintenanceDue` over it. (roadmap 4.9's
- *    curriculum content/screen for ADDING pieces is still not built, so the
- *    library may legitimately be empty in practice — but the store and the
- *    read path are real.)
+ *    `repertoireDue` runs the real `maintenanceDue` over it.
+ *  - **Current level per track (REQ-3.10.2)** (roadmap 2.36): `useLevelStore`
+ *    (roadmap 4.3) now persists a `LevelState` — one curriculum level number
+ *    and one `overridden` flag per track. `levels` reads it directly, so all
+ *    three tracks report a real number and whether it was placed by hand.
  *
- * The one section that is still genuinely missing a data source:
+ * A collision worth being explicit about: `useSightReadingStore`'s `level`
+ * (exposed on `DashboardData` as `sightReadingLevel`) is the ADAPTIVE
+ * trainer's own difficulty, driven by run accuracy inside the sight-reading
+ * drill loop — it is NOT the same number as `levelState.levels['sight-reading']`,
+ * which is the curriculum track level REQ-2.1/REQ-2.3 and roadmap 4.3's proof
+ * are about (three independent track levels, one manually overridable per
+ * track). They are deliberately kept as two separate fields rather than
+ * collapsed into one: `levels` (this hook, from `useLevelStore`) drives the
+ * "Current level per track" list for all three tracks including
+ * sight-reading, while `sightReadingLevel` (from `useSightReadingStore`,
+ * unchanged) keeps feeding the sight-reading section's own trend display.
  *
- *  - **Current level per track + exit criteria (REQ-3.10.2)**: there is no
- *    persisted `LevelState` anywhere (no store, no manual-override UI) and no
- *    shipped curriculum content (roadmap 4.9) to supply a `CurriculumLevel`'s
- *    `exitCriteria` — `trackProgress`/`canAdvance` both require one and
- *    cannot be called meaningfully without it. Only sight-reading has a real
- *    persisted level (`useSightReadingStore`); the other two tracks report
- *    `undefined` (never a fabricated 1) and an empty criteria list;
- *    `curriculumAvailable` is `false` so the screen can render an explicit
- *    "nothing to check yet" instead of a blank checklist. This gap is real
- *    and tracked as roadmap 2.36.
+ * The one section still genuinely missing a data source is exit criteria:
+ * no shipped curriculum content (roadmap 4.9) exists to supply a
+ * `CurriculumLevel`'s `exitCriteria`, so `trackProgress`/`canAdvance` cannot
+ * be called meaningfully yet. `levels[].criteria` stays `[]` and
+ * `curriculumAvailable` stays `false` so the screen renders an explicit
+ * "nothing to check yet" instead of a blank checklist.
  *
  * The other three sections (practice streak & weekly time, sight-reading
  * accuracy trend, theory retention) read real, already-persisted state:
@@ -64,6 +65,7 @@ import { useSightReadingStore } from '@app/state/sightReadingStore.ts'
 import { useFlashcardStore } from '@app/state/flashcardStore.ts'
 import { useTechniqueStore } from '@app/state/techniqueStore.ts'
 import { useRepertoireStore } from '@app/state/repertoireStore.ts'
+import { useLevelStore } from '@app/state/levelStore.ts'
 
 const WEEK_DAYS = 7
 
@@ -87,13 +89,11 @@ export type SightReadingTrendPoint = {
 
 export type DashboardTrackLevel = {
   readonly track: Track
-  /**
-   * `undefined` when no persisted level source exists yet for this track —
-   * the screen renders "not tracked yet", never a fabricated 1. Only
-   * sight-reading has a persisted level today (`useSightReadingStore`).
-   */
-  readonly level: number | undefined
-  /** Always `[]` until a `LevelState` store and shipped curriculum content exist — see the module comment. */
+  /** The curriculum track level from `useLevelStore` — always a real number now. */
+  readonly level: number
+  /** REQ-2.3: true once this track has been placed by hand. */
+  readonly overridden: boolean
+  /** Still `[]` — no shipped curriculum content supplies `exitCriteria` yet (roadmap 4.9). */
   readonly criteria: readonly CriterionStatus[]
 }
 
@@ -132,7 +132,7 @@ export type DashboardData = {
   /** `maintenanceDue(repertoirePieces, now)` — 'maintained' pieces overdue for review, most overdue first. */
   readonly repertoireDue: readonly RepertoirePiece[]
   readonly levels: readonly DashboardTrackLevel[]
-  /** `false` until a `LevelState` store and shipped curriculum content exist — see the module comment. */
+  /** `false` until shipped curriculum content exists (roadmap 4.9) — see the module comment. */
   readonly curriculumAvailable: boolean
 }
 
@@ -148,6 +148,7 @@ export function useDashboard(options: UseDashboardOptions = {}): DashboardData {
   const cardsById = useFlashcardStore((s) => s.cardsById)
   const techniqueAttempts = useTechniqueStore((s) => s.attempts)
   const repertoirePieces = useRepertoireStore((s) => s.pieces)
+  const levelState = useLevelStore((s) => s.levelState)
 
   return useMemo(() => {
     // `now` is a snapshot taken when this memo last recomputed (on mount, or
@@ -165,14 +166,16 @@ export function useDashboard(options: UseDashboardOptions = {}): DashboardData {
       .sort((a, b) => a.readAt - b.readAt)
       .map((r) => ({ at: r.readAt, accuracy: r.accuracy }))
 
-    // No LevelState store and no shipped curriculum content exist yet — see
-    // the module comment. `trackProgress`/`canAdvance` both require a real
-    // `CurriculumLevel` and cannot be called meaningfully without one. Only
-    // sight-reading has a persisted level source today; the other two tracks
-    // report `undefined` rather than a fabricated 1.
+    // `levelState` (from `useLevelStore`, roadmap 4.3) is the curriculum
+    // track level for all three tracks — see the module comment for why this
+    // is deliberately NOT the same number as `sightReadingLevel` below.
+    // `criteria` stays `[]`: no shipped curriculum content (roadmap 4.9)
+    // exists to supply a `CurriculumLevel`'s `exitCriteria`, so
+    // `trackProgress`/`canAdvance` cannot be called meaningfully yet.
     const levels: readonly DashboardTrackLevel[] = TRACKS.map((track) => ({
       track,
-      level: track === 'sight-reading' ? sightReadingLevel : undefined,
+      level: levelState.levels[track],
+      overridden: levelState.overridden[track],
       criteria: [],
     }))
 
@@ -221,5 +224,6 @@ export function useDashboard(options: UseDashboardOptions = {}): DashboardData {
     cardsById,
     techniqueAttempts,
     repertoirePieces,
+    levelState,
   ])
 }

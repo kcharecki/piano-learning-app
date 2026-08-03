@@ -9,12 +9,16 @@ import type { PracticeEntry } from '@core/progress/log.ts'
 import { DAY_MS } from '@core/srs/scheduler.ts'
 import type { SightReadingRecord } from '@core/sightreading/session.ts'
 import type { RepertoirePiece } from '@core/repertoire/repertoire.ts'
+import { initialLevelState } from '@core/progress/levels.ts'
 import { cleanup, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it } from 'vitest'
 import { useProgressStore } from '@app/state/progressStore.ts'
 import { useSightReadingStore } from '@app/state/sightReadingStore.ts'
 import { useFlashcardStore } from '@app/state/flashcardStore.ts'
 import { useRepertoireStore } from '@app/state/repertoireStore.ts'
+import { useLevelStore } from '@app/state/levelStore.ts'
+import { useTechniqueStore } from '@app/state/techniqueStore.ts'
 import { DashboardScreen } from './DashboardScreen.tsx'
 
 class FakeDateSource implements DateSource {
@@ -35,6 +39,8 @@ function resetStores(): void {
   useSightReadingStore.setState({ level: 1, history: [] })
   useFlashcardStore.setState({ cardsById: {} })
   useRepertoireStore.setState({ pieces: [] })
+  useLevelStore.setState({ levelState: initialLevelState() })
+  useTechniqueStore.setState({ attempts: [] })
 }
 
 afterEach(() => {
@@ -53,9 +59,25 @@ describe('DashboardScreen — empty state', () => {
     expect(screen.getByRole('region', { name: 'Theory retention stats' })).toBeTruthy()
     expect(screen.getByRole('region', { name: 'Repertoire status' })).toBeTruthy()
 
-    expect(screen.getByTestId('dashboard-level-playing').textContent).toContain('not tracked yet')
-    expect(screen.getByTestId('dashboard-level-theory').textContent).toContain('not tracked yet')
-    expect(screen.getByTestId('dashboard-level-sight-reading').textContent).toContain('level 1')
+    const initial = initialLevelState()
+    expect(screen.getByTestId('dashboard-level-playing').textContent).toContain(
+      `level ${initial.levels.playing}`,
+    )
+    expect(screen.getByTestId('dashboard-level-theory').textContent).toContain(
+      `level ${initial.levels.theory}`,
+    )
+    expect(screen.getByTestId('dashboard-level-sight-reading').textContent).toContain(
+      `level ${initial.levels['sight-reading']}`,
+    )
+    expect(
+      (screen.getByTestId('dashboard-level-select-playing') as HTMLSelectElement).value,
+    ).toBe(String(initial.levels.playing))
+    expect(
+      (screen.getByTestId('dashboard-level-select-theory') as HTMLSelectElement).value,
+    ).toBe(String(initial.levels.theory))
+    expect(
+      (screen.getByTestId('dashboard-level-select-sight-reading') as HTMLSelectElement).value,
+    ).toBe(String(initial.levels['sight-reading']))
     expect(screen.getByTestId('dashboard-criteria-empty')).toBeTruthy()
     expect(screen.getByTestId('dashboard-weekly-empty')).toBeTruthy()
     expect(screen.getByTestId('dashboard-sightreading-empty')).toBeTruthy()
@@ -108,12 +130,22 @@ describe('DashboardScreen — seeded data', () => {
       { pieceId: 'p1', readAt: NOW - 5_000, accuracy: 0.6, level: 2 },
       { pieceId: 'p2', readAt: NOW - 1_000, accuracy: 0.95, level: 3 },
     ]
+    // Deliberately DIFFERENT from the curriculum track level below — the
+    // adaptive trainer level (this store) and the curriculum sight-reading
+    // level (useLevelStore) are never the same number, see useDashboard's
+    // module comment.
     useSightReadingStore.setState({ level: 3, history })
+    useLevelStore.setState({
+      levelState: {
+        levels: { playing: 1, 'sight-reading': 5, theory: 1 },
+        overridden: { playing: false, 'sight-reading': false, theory: false },
+      },
+    })
 
     const { container } = render(<DashboardScreen date={new FakeDateSource(NOW)} utcOffsetMinutes={0} />)
 
     expect(screen.getByTestId('dashboard-sightreading-level').textContent).toBe('Level 3')
-    expect(screen.getByTestId('dashboard-level-sight-reading').textContent).toContain('level 3')
+    expect(screen.getByTestId('dashboard-level-sight-reading').textContent).toContain('level 5')
     expect(screen.queryByTestId('dashboard-sightreading-empty')).toBeNull()
     expect(
       screen.getByRole('img', { name: 'Sight-reading accuracy over time' }),
@@ -184,5 +216,52 @@ describe('DashboardScreen — seeded data', () => {
     expect(screen.getByRole('list', { name: 'Repertoire pieces due for review' })).toBeTruthy()
     expect(screen.getByTestId('dashboard-repertoire-due-piece-1').textContent).toBe('Fur Elise')
     expect(screen.queryByTestId('dashboard-repertoire-empty')).toBeNull()
+  })
+})
+
+describe('DashboardScreen — level per track (roadmap 2.36, REQ-2.1/REQ-2.3)', () => {
+  it('renders the real curriculum level and an "(overridden)" marker per track from useLevelStore', () => {
+    useLevelStore.setState({
+      levelState: {
+        levels: { playing: 3, 'sight-reading': 2, theory: 4 },
+        overridden: { playing: true, 'sight-reading': false, theory: false },
+      },
+    })
+
+    render(<DashboardScreen date={new FakeDateSource(NOW)} utcOffsetMinutes={0} />)
+
+    expect(screen.getByTestId('dashboard-level-playing').textContent).toContain('level 3')
+    expect(screen.getByTestId('dashboard-level-playing').textContent).toContain('(overridden)')
+    expect(screen.getByTestId('dashboard-level-theory').textContent).toContain('level 4')
+    expect(screen.getByTestId('dashboard-level-theory').textContent).not.toContain('(overridden)')
+    expect(screen.getByTestId('dashboard-level-sight-reading').textContent).toContain('level 2')
+    expect(
+      (screen.getByTestId('dashboard-level-select-playing') as HTMLSelectElement).value,
+    ).toBe('3')
+    expect(
+      (screen.getByTestId('dashboard-level-select-theory') as HTMLSelectElement).value,
+    ).toBe('4')
+  })
+
+  it('lets the learner override a track level (REQ-2.3): the select drives useLevelStore.setTrackLevel and the row follows', async () => {
+    const user = userEvent.setup()
+    render(<DashboardScreen date={new FakeDateSource(NOW)} utcOffsetMinutes={0} />)
+
+    const playingSelect = screen.getByTestId('dashboard-level-select-playing') as HTMLSelectElement
+    expect(screen.getByRole('combobox', { name: 'Playing level' })).toBe(playingSelect)
+    expect([...playingSelect.options].map((o) => o.value)).toEqual(['1', '2', '3', '4', '5'])
+
+    await user.selectOptions(playingSelect, '5')
+
+    expect(useLevelStore.getState().levelState.levels.playing).toBe(5)
+    expect(useLevelStore.getState().levelState.overridden.playing).toBe(true)
+    expect(screen.getByTestId('dashboard-level-playing').textContent).toContain('level 5')
+    expect(screen.getByTestId('dashboard-level-playing').textContent).toContain('(overridden)')
+
+    // The other two tracks are untouched — the override is per-track only.
+    expect(useLevelStore.getState().levelState.levels.theory).toBe(
+      initialLevelState().levels.theory,
+    )
+    expect(useLevelStore.getState().levelState.overridden.theory).toBe(false)
   })
 })

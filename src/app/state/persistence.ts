@@ -6,7 +6,7 @@
  * `Store` port, so it is exercised in tests with an in-memory fake and the
  * real zustand stores, never a browser database.
  *
- * Nine independent slices are persisted, each following the same shape
+ * Ten independent slices are persisted, each following the same shape
  * (validate → `restoreSlice` on the way in, `createWriteQueue` +  a
  * `subscribe` on the way out):
  *  - the score session (`useScoreStore`) — the original roadmap-1.23 slice.
@@ -31,11 +31,18 @@
  *    REQ-3.8.2/3.8.3/3.8.4). `COLLECTIONS.repertoire` was declared but written
  *    by nothing — without this slice a learner's curated piece list, statuses
  *    and practice history would die on every page reload.
+ *  - the per-track level state (`useLevelStore`, roadmap 2.36, REQ-2.1–2.3).
+ *    Reuses `COLLECTIONS.settings` under its own key rather than a new
+ *    collection (no IndexedDB migration for this slice). Without this, a
+ *    manual override (REQ-2.3) or any advancement (REQ-2.2) resets to level 1
+ *    on every reload.
  *
- * Each slice's write queue is fully independent — its own collection, its own
- * key, its own in-flight `put` — so a slow write to one can never block or
- * reorder a write to another. `startPersisting` just wires up all nine and
- * returns one combined unsubscribe.
+ * Each slice's write queue is fully independent — its own (collection, key)
+ * pair, its own in-flight `put` — so a slow write to one can never block or
+ * reorder a write to another. Note that the score session and the level
+ * state share `COLLECTIONS.settings` and are separated by key alone, so
+ * those two keys must never converge. `startPersisting` just wires up all
+ * ten and returns one combined unsubscribe.
  *
  * CALL ORDER IS MANDATORY, for every slice: `await restoreSession(store)`
  * must resolve before `startPersisting(store)` is called. Subscribing first
@@ -59,10 +66,12 @@ import {
 } from '@app/state/progressStore.ts'
 import { useRepertoireStore, MAX_STORED_REPERTOIRE_PIECES } from '@app/state/repertoireStore.ts'
 import { useTechniqueStore, MAX_STORED_TECHNIQUE_ATTEMPTS } from '@app/state/techniqueStore.ts'
+import { useLevelStore } from '@app/state/levelStore.ts'
 import {
   isValidAnnotations,
   isValidAssessments,
   isValidFlashcards,
+  isValidLevelState,
   isValidPracticeLog,
   isValidRecordings,
   isValidRepertoire,
@@ -72,6 +81,7 @@ import {
   type PersistedAnnotations,
   type PersistedAssessments,
   type PersistedFlashcards,
+  type PersistedLevelState,
   type PersistedPracticeLog,
   type PersistedRecordings,
   type PersistedRepertoire,
@@ -87,6 +97,7 @@ export type {
   PersistedAnnotations,
   PersistedAssessments,
   PersistedFlashcards,
+  PersistedLevelState,
   PersistedPracticeLog,
   PersistedRecordings,
   PersistedRepertoire,
@@ -130,6 +141,14 @@ export const TECHNIQUE_KEY = 'techniqueHistory'
 export const REPERTOIRE_COLLECTION = COLLECTIONS.repertoire
 export const REPERTOIRE_KEY = 'repertoire'
 
+/**
+ * Collection + key the per-track level state lives under (roadmap 2.36,
+ * REQ-2.1–2.3). Reuses `COLLECTIONS.settings` under a distinct key rather than
+ * declaring a new collection — see the module comment.
+ */
+export const LEVELS_COLLECTION = COLLECTIONS.settings
+export const LEVELS_KEY = 'levelState'
+
 // ----------------------------------------------------------------- restore
 
 /**
@@ -137,7 +156,7 @@ export const REPERTOIRE_KEY = 'repertoire'
  * ignores store changes: `restoreSlice` applying a restored value would
  * otherwise be seen as a fresh "changed, write it back" event and re-save the
  * exact bytes just read. One flag per slice, not a single shared flag,
- * because the three restores are independent of each other. Zustand's `set`
+ * because the ten restores are independent of each other. Zustand's `set`
  * notifies subscribers synchronously, so toggling a flag around the
  * synchronous `apply()` call below is enough — nothing async ever runs while
  * it is `true`.
@@ -151,6 +170,7 @@ let applyingRestoredRecordings = false
 let applyingRestoredPracticeLog = false
 let applyingRestoredTechniqueHistory = false
 let applyingRestoredRepertoire = false
+let applyingRestoredLevels = false
 
 /**
  * Reads `key` from `collection`, validates it, and — only if valid — applies
@@ -184,11 +204,11 @@ async function restoreSlice<T>(
 }
 
 /**
- * Restores all three persisted slices — score session, sight-reading history,
- * flashcard SRS state. Each is validated and applied independently, so a
- * corrupt or missing slice never prevents the others from restoring. Returns
- * whether the SCORE session specifically was restored, the original
- * roadmap-1.23 contract this app's callers and tests rely on.
+ * Restores all ten persisted slices (see the module comment for the full
+ * list). Each is validated and applied independently, so a corrupt or
+ * missing slice never prevents the others from restoring. Returns whether
+ * the SCORE session specifically was restored, the original roadmap-1.23
+ * contract this app's callers and tests rely on.
  */
 export async function restoreSession(store: Store): Promise<boolean> {
   const scoreRestored = await restoreSlice(
@@ -314,6 +334,17 @@ export async function restoreSession(store: Store): Promise<boolean> {
       useRepertoireStore
         .getState()
         .hydrate({ pieces: data.pieces.slice(0, MAX_STORED_REPERTOIRE_PIECES) }),
+  )
+
+  await restoreSlice(
+    store,
+    LEVELS_COLLECTION,
+    LEVELS_KEY,
+    isValidLevelState,
+    (guarding) => {
+      applyingRestoredLevels = guarding
+    },
+    (data) => useLevelStore.getState().hydrate({ levelState: data.levelState }),
   )
 
   return scoreRestored
@@ -505,8 +536,18 @@ function persistRepertoire(store: Store): () => void {
   })
 }
 
+/** Subscribes to the level store and writes `levelState` on every change. */
+function persistLevels(store: Store): () => void {
+  const write = createWriteQueue<PersistedLevelState>(store, LEVELS_COLLECTION, LEVELS_KEY)
+  return useLevelStore.subscribe((state, prevState) => {
+    if (applyingRestoredLevels) return
+    if (state.levelState === prevState.levelState) return
+    write({ levelState: state.levelState })
+  })
+}
+
 /**
- * Starts persisting all nine slices and returns one combined unsubscribe. See
+ * Starts persisting all ten slices and returns one combined unsubscribe. See
  * the module comment for the mandatory `restoreSession` → `startPersisting`
  * call order.
  */
@@ -521,6 +562,7 @@ export function startPersisting(store: Store): () => void {
     persistPracticeLog(store),
     persistTechniqueHistory(store),
     persistRepertoire(store),
+    persistLevels(store),
   ]
   return () => {
     for (const unsubscribe of unsubscribers) unsubscribe()

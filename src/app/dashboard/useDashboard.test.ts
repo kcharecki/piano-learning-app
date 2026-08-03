@@ -22,6 +22,7 @@ import { DAY_MS, retentionStats, type Card } from '@core/srs/scheduler.ts'
 import { MIN_LEVEL } from '@core/sightreading/adaptive.ts'
 import type { SightReadingRecord } from '@core/sightreading/session.ts'
 import { TRACKS } from '@core/curriculum/types.ts'
+import { initialLevelState, type LevelState } from '@core/progress/levels.ts'
 import { renderHook, cleanup } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { useProgressStore } from '@app/state/progressStore.ts'
@@ -29,6 +30,7 @@ import { useSightReadingStore } from '@app/state/sightReadingStore.ts'
 import { useFlashcardStore } from '@app/state/flashcardStore.ts'
 import { useTechniqueStore } from '@app/state/techniqueStore.ts'
 import { useRepertoireStore } from '@app/state/repertoireStore.ts'
+import { useLevelStore } from '@app/state/levelStore.ts'
 import type { RepertoirePiece } from '@core/repertoire/repertoire.ts'
 import type { TechniqueAttempt } from '@core/technique/evenness.ts'
 import { useDashboard, type UseDashboardOptions } from './useDashboard.ts'
@@ -55,6 +57,7 @@ function resetStores(): void {
   useFlashcardStore.setState({ cardsById: {} })
   useTechniqueStore.setState({ attempts: [] })
   useRepertoireStore.setState({ pieces: [] })
+  useLevelStore.setState({ levelState: initialLevelState() })
 }
 
 afterEach(() => {
@@ -112,12 +115,10 @@ describe('useDashboard — empty stores', () => {
 
     expect(data.curriculumAvailable).toBe(false)
     expect(data.levels).toHaveLength(TRACKS.length)
+    const initial = initialLevelState()
     for (const l of data.levels) {
-      if (l.track === 'sight-reading') {
-        expect(l.level).toBe(MIN_LEVEL)
-      } else {
-        expect(l.level).toBeUndefined()
-      }
+      expect(l.level).toBe(initial.levels[l.track])
+      expect(l.overridden).toBe(initial.overridden[l.track])
       expect(l.criteria).toEqual([])
     }
 
@@ -308,5 +309,47 @@ describe('useDashboard — technique tempo trend', () => {
     expect(drillIds).toEqual(new Set(['scale-c-major', 'arpeggio-g-major']))
     expect(result.current.techniqueBestBpmByDrill['scale-c-major']).toBe(92)
     expect(result.current.techniqueBestBpmByDrill['arpeggio-g-major']).toBe(70)
+  })
+})
+
+describe('useDashboard — level store (roadmap 2.36)', () => {
+  it('reports the real curriculum level and overridden flag per track from useLevelStore', () => {
+    const levelState: LevelState = {
+      levels: { playing: 4, 'sight-reading': 2, theory: 5 },
+      overridden: { playing: true, 'sight-reading': false, theory: true },
+    }
+    useLevelStore.setState({ levelState })
+
+    const { result } = setup()
+    const data = result.current
+
+    expect(data.levels).toHaveLength(TRACKS.length)
+    for (const track of TRACKS) {
+      const row = data.levels.find((l) => l.track === track)
+      expect(row?.level).toBe(levelState.levels[track])
+      expect(row?.overridden).toBe(levelState.overridden[track])
+      expect(row?.criteria).toEqual([])
+    }
+  })
+
+  it('keeps the curriculum sight-reading level and the adaptive sightReadingLevel independent — they are different numbers', () => {
+    // The curriculum track level (from useLevelStore) and the adaptive
+    // trainer's own difficulty (from useSightReadingStore) must never be
+    // collapsed into one number — see useDashboard's module comment.
+    useLevelStore.setState({
+      levelState: {
+        levels: { playing: 1, 'sight-reading': 5, theory: 1 },
+        overridden: { playing: false, 'sight-reading': false, theory: false },
+      },
+    })
+    useSightReadingStore.setState({ level: 2, history: [] })
+
+    const { result } = setup()
+    const data = result.current
+
+    expect(data.sightReadingLevel).toBe(2)
+    const sightReadingRow = data.levels.find((l) => l.track === 'sight-reading')
+    expect(sightReadingRow?.level).toBe(5)
+    expect(data.sightReadingLevel).not.toBe(sightReadingRow?.level)
   })
 })

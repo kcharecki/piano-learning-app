@@ -35,12 +35,10 @@ export type LevelState = {
 }
 
 /**
- * @public — roadmap 4.3's LevelState store/manual-override UI doesn't exist yet
- * (no screen persists or reads a `LevelState`; `useDashboard.ts` reports every
- * non-sight-reading track level as `undefined` rather than reading one from
- * here). `initialLevelState`, `advance` and `setLevel` are this module's whole
- * mutation API (REQ-2.1–2.3) and belong together; flagged for the main thread
- * as a wiring gap, not deleted, since the roadmap names this exact feature.
+ * @public — wired via `@app/state/levelStore.ts` (`useLevelStore`), consumed by
+ * `DashboardScreen`'s per-track level `<select>` (roadmap 4.3/2.36).
+ * `initialLevelState`, `advance` and `setLevel` are this module's whole
+ * mutation API (REQ-2.1–2.3) and belong together.
  */
 export function initialLevelState(): LevelState {
   const levels: TrackLevels = { playing: MIN_LEVEL, 'sight-reading': MIN_LEVEL, theory: MIN_LEVEL }
@@ -142,8 +140,8 @@ export function canAdvance(
 
 /**
  * Advance one track by one level if it may (REQ-2.2). Pure; returns the next state.
- * @public — see `initialLevelState`'s note: sibling of that and `setLevel`, unwired
- * pending a `LevelState` store/screen (roadmap 4.3).
+ * @public — see `initialLevelState`'s note: sibling of that and `setLevel`, wired
+ * via `@app/state/levelStore.ts` (roadmap 4.3).
  */
 export function advance(
   state: LevelState,
@@ -162,8 +160,8 @@ export function advance(
 
 /**
  * REQ-2.3: place a track manually, up or down, with no gatekeeping. Marks it overridden.
- * @public — see `initialLevelState`'s note: sibling of that and `advance`, unwired
- * pending a `LevelState` store/screen (roadmap 4.3).
+ * @public — see `initialLevelState`'s note: sibling of that and `advance`, wired
+ * via `@app/state/levelStore.ts` (roadmap 4.3).
  */
 export function setLevel(state: LevelState, track: Track, levelNumber: number): LevelState {
   const clamped = Math.min(MAX_LEVEL, Math.max(MIN_LEVEL, levelNumber))

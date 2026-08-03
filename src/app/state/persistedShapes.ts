@@ -22,6 +22,9 @@ import { ACTIVITY_KINDS, type ActivityKind, type PracticeEntry } from '@core/pro
 import { validateAnnotations, type ScoreAnnotations } from '@core/notation/annotations.ts'
 import type { TechniqueAttempt } from '@core/technique/evenness.ts'
 import { REPERTOIRE_STATUSES, type RepertoirePiece } from '@core/repertoire/repertoire.ts'
+import { MAX_LEVEL as MAX_TRACK_LEVEL, MIN_LEVEL as MIN_TRACK_LEVEL, TRACKS } from '@core/curriculum/types.ts'
+import type { Track } from '@core/curriculum/types.ts'
+import type { LevelState } from '@core/progress/levels.ts'
 import type { PracticeSettings } from '@app/state/scoreStore.ts'
 import type { StoredAssessment } from '@app/state/progressStore.ts'
 
@@ -63,6 +66,10 @@ export type PersistedPracticeLog = {
 
 export type PersistedTechniqueHistory = {
   readonly attempts: readonly TechniqueAttempt[]
+}
+
+export type PersistedLevelState = {
+  readonly levelState: LevelState
 }
 
 // --------------------------------------------------------------- validation
@@ -389,4 +396,39 @@ export function isValidRepertoire(value: unknown): value is PersistedRepertoire 
   if (typeof value !== 'object' || value === null) return false
   const v = value as Record<string, unknown>
   return Array.isArray(v.pieces) && v.pieces.every(isValidRepertoirePiece)
+}
+
+/**
+ * Every `Track` must have an integer level within `MIN_LEVEL..MAX_LEVEL` and a
+ * boolean `overridden` flag — no missing track, no extra track, no
+ * out-of-range or fractional level.
+ */
+function isValidLevels(value: unknown): value is Readonly<Record<Track, number>> {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  if (Object.keys(v).length !== TRACKS.length) return false
+  return TRACKS.every((track) => {
+    const level = v[track]
+    return (
+      typeof level === 'number' &&
+      Number.isInteger(level) &&
+      level >= MIN_TRACK_LEVEL &&
+      level <= MAX_TRACK_LEVEL
+    )
+  })
+}
+
+function isValidOverridden(value: unknown): value is Readonly<Record<Track, boolean>> {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  if (Object.keys(v).length !== TRACKS.length) return false
+  return TRACKS.every((track) => typeof v[track] === 'boolean')
+}
+
+export function isValidLevelState(value: unknown): value is PersistedLevelState {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  if (typeof v.levelState !== 'object' || v.levelState === null) return false
+  const levelState = v.levelState as Record<string, unknown>
+  return isValidLevels(levelState.levels) && isValidOverridden(levelState.overridden)
 }

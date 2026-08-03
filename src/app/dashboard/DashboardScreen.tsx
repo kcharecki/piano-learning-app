@@ -8,9 +8,15 @@
  */
 import { ExportPanel } from '@app/progress/ExportPanel.tsx'
 import { ACTIVITY_KINDS } from '@core/progress/log.ts'
-import type { Track } from '@core/curriculum/types.ts'
+import { MIN_LEVEL, MAX_LEVEL, type Track } from '@core/curriculum/types.ts'
+import { useLevelStore } from '@app/state/levelStore.ts'
 import { TrendChart, type TrendChartPoint } from './TrendChart.tsx'
 import { useDashboard, type UseDashboardOptions } from './useDashboard.ts'
+
+const LEVEL_OPTIONS: readonly number[] = Array.from(
+  { length: MAX_LEVEL - MIN_LEVEL + 1 },
+  (_, i) => MIN_LEVEL + i,
+)
 
 export type DashboardScreenProps = UseDashboardOptions
 
@@ -51,21 +57,43 @@ export function DashboardScreen(props: DashboardScreenProps) {
         <ul>
           {data.levels.map((l) => (
             <li key={l.track} data-testid={`dashboard-level-${l.track}`}>
-              {TRACK_LABELS[l.track]}: {l.level === undefined ? 'not tracked yet' : `level ${l.level}`}
+              <span>
+                {TRACK_LABELS[l.track]}: level {l.level}
+                {l.overridden ? ' (overridden)' : ''}
+              </span>
+              <select
+                aria-label={`${TRACK_LABELS[l.track]} level`}
+                data-testid={`dashboard-level-select-${l.track}`}
+                value={l.level}
+                onChange={(e) =>
+                  useLevelStore.getState().setTrackLevel(l.track, Number(e.target.value))
+                }
+              >
+                {LEVEL_OPTIONS.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
             </li>
           ))}
         </ul>
         <h4>Exit criteria toward the next level</h4>
-        {/*
-          No `LevelState` store and no shipped curriculum content exist yet,
-          so `data.curriculumAvailable` is always `false` and there is no
-          reachable path to a populated criteria list — see useDashboard's
-          module comment. Rendering only the honest empty state until a
-          `CurriculumLevel` source exists.
-        */}
-        <p role="status" data-testid="dashboard-criteria-empty">
-          No curriculum content loaded yet — nothing to check.
-        </p>
+        {data.curriculumAvailable ? (
+          <ul aria-label="Exit criteria">
+            {data.levels.flatMap((l) =>
+              l.criteria.map((c, i) => (
+                <li key={`${l.track}-${i}`} data-testid={`dashboard-criterion-${l.track}-${i}`}>
+                  {c.criterion.description}: {c.met ? 'met' : 'not met'}
+                </li>
+              )),
+            )}
+          </ul>
+        ) : (
+          <p role="status" data-testid="dashboard-criteria-empty">
+            No curriculum content loaded yet — nothing to check.
+          </p>
+        )}
       </section>
 
       <section aria-label="Practice streak and weekly time" role="region">

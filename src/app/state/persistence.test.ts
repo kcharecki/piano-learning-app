@@ -10,10 +10,13 @@ import type { Recording } from '@core/practice/recorder.ts'
 import type { PracticeEntry } from '@core/progress/log.ts'
 import type { TechniqueAttempt } from '@core/technique/evenness.ts'
 import type { RepertoirePiece } from '@core/repertoire/repertoire.ts'
+import { initialLevelState, type LevelState } from '@core/progress/levels.ts'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   FLASHCARDS_COLLECTION,
   FLASHCARDS_KEY,
+  LEVELS_COLLECTION,
+  LEVELS_KEY,
   PRACTICE_LOG_COLLECTION,
   PRACTICE_LOG_KEY,
   PROGRESS_COLLECTION,
@@ -32,6 +35,7 @@ import {
   TECHNIQUE_KEY,
   type PersistedAssessments,
   type PersistedFlashcards,
+  type PersistedLevelState,
   type PersistedPracticeLog,
   type PersistedRecordings,
   type PersistedRepertoire,
@@ -45,6 +49,7 @@ import { useFlashcardStore } from './flashcardStore.ts'
 import { useProgressStore, type StoredAssessment } from './progressStore.ts'
 import { useTechniqueStore } from './techniqueStore.ts'
 import { useRepertoireStore, MAX_STORED_REPERTOIRE_PIECES } from './repertoireStore.ts'
+import { useLevelStore } from './levelStore.ts'
 
 const INITIAL_STATE: ScoreStore = useScoreStore.getState()
 
@@ -70,6 +75,7 @@ function resetStore(): void {
   useProgressStore.setState({ assessments: [], recordings: [], practiceEntries: [] })
   useTechniqueStore.setState({ attempts: [] })
   useRepertoireStore.setState({ pieces: [] })
+  useLevelStore.setState({ levelState: initialLevelState() })
 }
 
 /** Waits for the internal write queue to drain: a handful of microtask turns is always enough. */
@@ -1061,6 +1067,157 @@ describe('persistence', () => {
       await flush()
 
       expect(store.putCount).toBe(0)
+    })
+  })
+
+  describe('level state persistence (roadmap 2.36, REQ-2.1-2.3)', () => {
+    const OVERRIDDEN_STATE: LevelState = {
+      levels: { playing: 3, 'sight-reading': 1, theory: 2 },
+      overridden: { playing: true, 'sight-reading': false, theory: false },
+    }
+
+    it('round-trips levelState via startPersisting / restoreSession', async () => {
+      const store = new MemoryStore()
+      const unsubscribe = persist(store)
+
+      useLevelStore.getState().setTrackLevel('playing', 3)
+      useLevelStore.getState().setTrackLevel('theory', 2)
+      await flush()
+      unsubscribe()
+
+      resetStore()
+      expect(useLevelStore.getState().levelState).toEqual(initialLevelState())
+
+      const restored = await restoreSession(store)
+      expect(restored).toBe(false) // no score session was ever saved in this test
+      expect(useLevelStore.getState().levelState).toEqual({
+        levels: { playing: 3, 'sight-reading': 1, theory: 2 },
+        overridden: { playing: true, 'sight-reading': false, theory: true },
+      })
+    })
+
+    it.each([
+      ['not an object', 'nope'],
+      ['levelState missing', {}],
+      ['levelState not an object', { levelState: 'nope' }],
+      [
+        'levels missing a track',
+        { levelState: { levels: { playing: 1, theory: 1 }, overridden: OVERRIDDEN_STATE.overridden } },
+      ],
+      [
+        'levels has a non-integer level',
+        {
+          levelState: {
+            levels: { ...OVERRIDDEN_STATE.levels, playing: 1.5 },
+            overridden: OVERRIDDEN_STATE.overridden,
+          },
+        },
+      ],
+      [
+        'levels has a level below MIN_LEVEL',
+        {
+          levelState: {
+            levels: { ...OVERRIDDEN_STATE.levels, playing: 0 },
+            overridden: OVERRIDDEN_STATE.overridden,
+          },
+        },
+      ],
+      [
+        'levels has a level above MAX_LEVEL',
+        {
+          levelState: {
+            levels: { ...OVERRIDDEN_STATE.levels, playing: 6 },
+            overridden: OVERRIDDEN_STATE.overridden,
+          },
+        },
+      ],
+      [
+        'overridden missing a track',
+        { levelState: { levels: OVERRIDDEN_STATE.levels, overridden: { playing: true, theory: false } } },
+      ],
+      [
+        'overridden has a non-boolean value',
+        {
+          levelState: {
+            levels: OVERRIDDEN_STATE.levels,
+            overridden: { ...OVERRIDDEN_STATE.overridden, playing: 'yes' },
+          },
+        },
+      ],
+      [
+        'levels has an extra, unknown track key',
+        {
+          levelState: {
+            levels: { ...OVERRIDDEN_STATE.levels, extra: 1 },
+            overridden: OVERRIDDEN_STATE.overridden,
+          },
+        },
+      ],
+    ])('degrades to the initial level state on a corrupt payload: %s', async (_label, payload) => {
+      const store = new MemoryStore()
+      await store.put(LEVELS_COLLECTION, LEVELS_KEY, payload)
+      // A sibling collection with a VALID payload, to prove the corrupt level
+      // state does not prevent it from restoring — see the assessments
+      // suite's identical comment above. LEVELS_COLLECTION reuses
+      // COLLECTIONS.settings, so the sibling here is the score session, which
+      // shares that same collection under a different key.
+      await store.put(SESSION_COLLECTION, SESSION_KEY, {
+        score: {
+          id: 'x',
+          meta: { title: 'x', composer: 'x' },
+          measures: [],
+          notes: [],
+          tempos: [],
+          staves: [],
+          maxNoteDurationTicks: 0,
+        },
+        sourceName: 'x',
+        musicXml: undefined,
+        settings: {
+          tempoScale: 1,
+          activeHands: ['left', 'right'],
+          metronomeEnabled: false,
+          loop: undefined,
+        },
+      })
+
+      await restoreSession(store)
+
+      expect(useLevelStore.getState().levelState).toEqual(initialLevelState())
+      expect(useScoreStore.getState().loaded?.sourceName).toBe('x')
+    })
+
+    it('does not immediately re-save what it just restored (no write amplification)', async () => {
+      const store = new CountingStore()
+      const saved: PersistedLevelState = { levelState: OVERRIDDEN_STATE }
+      await store.put(LEVELS_COLLECTION, LEVELS_KEY, saved)
+      store.putCount = 0
+
+      persist(store)
+      await restoreSession(store)
+      await flush()
+
+      expect(store.putCount).toBe(0)
+    })
+
+    it('a level change does not clobber the score session sharing the same collection', async () => {
+      const store = new MemoryStore()
+      const unsubscribe = persist(store)
+
+      useScoreStore.getState().loadScore({
+        score: SINGLE_NOTE,
+        sourceName: 'shared-collection-score',
+        musicXml: undefined,
+      })
+      useLevelStore.getState().setTrackLevel('playing', 3)
+      await flush()
+      unsubscribe()
+
+      resetStore()
+      await restoreSession(store)
+
+      expect(useScoreStore.getState().loaded?.sourceName).toBe('shared-collection-score')
+      expect(useLevelStore.getState().levelState.levels.playing).toBe(3)
     })
   })
 })

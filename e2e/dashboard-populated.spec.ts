@@ -232,3 +232,29 @@ test('the populated dashboard shows a non-zero streak, weekly minutes and sight-
 
   expect(errors).toEqual([])
 })
+
+test('a manual level override moves the track and survives a reload (roadmap 4.3, REQ-2.3)', async ({
+  page,
+}) => {
+  const errors = collectErrors(page)
+
+  await page.goto('/')
+  await nav(page, 'Progress').click()
+  await expect(page.getByRole('heading', { name: 'Progress', exact: true })).toBeVisible()
+
+  const playingSelect = page.getByTestId('dashboard-level-select-playing')
+  await playingSelect.selectOption('4')
+  await expect(page.getByTestId('dashboard-level-playing')).toContainText('level 4')
+  await expect(page.getByTestId('dashboard-level-playing')).toContainText('(overridden)')
+
+  await page.reload()
+  await nav(page, 'Progress').click()
+  await expect(page.getByRole('heading', { name: 'Progress', exact: true })).toBeVisible()
+
+  await expect(page.getByTestId('dashboard-level-playing')).toContainText('level 4', {
+    timeout: 10_000,
+  })
+  await expect(page.getByTestId('dashboard-level-playing')).toContainText('(overridden)')
+
+  expect(errors).toEqual([])
+})
