@@ -281,6 +281,12 @@ export function useNoteFeedback(options: NoteFeedbackOptions): NoteFeedback {
       clearNoteColors() {
         optionsRef.current.scoreViewerRef.current?.clearNoteColors()
       },
+      setNoteHidden(noteId, hidden) {
+        optionsRef.current.scoreViewerRef.current?.setNoteHidden(noteId, hidden)
+      },
+      clearHiddenNotes() {
+        optionsRef.current.scoreViewerRef.current?.clearHiddenNotes()
+      },
     }
   }
 

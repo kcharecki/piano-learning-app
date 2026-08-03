@@ -10,18 +10,42 @@
 import { makeScore, type Score } from '@core/notation/score.ts'
 import { describe, expect, it, vi } from 'vitest'
 import type { ScoreEngraver } from './engraver.ts'
-import { createOsmdEngraver, DEFAULT_NOTE_COLOR, type OsmdLike } from './osmdEngraver.ts'
+import {
+  createOsmdEngraver,
+  DEFAULT_NOTE_COLOR,
+  HIDDEN_NOTE_COLOR,
+  type OsmdLike,
+} from './osmdEngraver.ts'
 
 // ---------------------------------------------------------------- fake OSMD
 
-/** The exact note shape `osmdEngraver.ts` reads/writes: halfTone, isRest(), NoteheadColor. */
-type FakeNote = { halfTone: number; isRest(): boolean; NoteheadColor: string }
+/**
+ * The exact note shape `osmdEngraver.ts` reads/writes: halfTone, isRest(),
+ * NoteheadColor, and ParentVoiceEntry.StemColor (the stem-recolouring fix —
+ * see the `EngravedNote` doc comment in osmdEngraver.ts).
+ */
+type FakeNote = {
+  halfTone: number
+  isRest(): boolean
+  NoteheadColor: string
+  ParentVoiceEntry: { StemColor: string }
+}
 
 function note(halfTone: number, color = DEFAULT_NOTE_COLOR): FakeNote {
-  return { halfTone, isRest: () => false, NoteheadColor: color }
+  return {
+    halfTone,
+    isRest: () => false,
+    NoteheadColor: color,
+    ParentVoiceEntry: { StemColor: color },
+  }
 }
 function rest(): FakeNote {
-  return { halfTone: 0, isRest: () => true, NoteheadColor: DEFAULT_NOTE_COLOR }
+  return {
+    halfTone: 0,
+    isRest: () => true,
+    NoteheadColor: DEFAULT_NOTE_COLOR,
+    ParentVoiceEntry: { StemColor: DEFAULT_NOTE_COLOR },
+  }
 }
 
 /** One `VerticalSourceStaffEntryContainer`: notes spread across staves/voices at one tick. */
@@ -218,6 +242,10 @@ describe('createOsmdEngraver: id -> engraved-note mapping', () => {
     expect(engravedC60.NoteheadColor).toBe('red')
     expect(engravedC64.NoteheadColor).toBe('green')
     expect(engravedSingle.NoteheadColor).toBe('blue')
+    // The stem is recoloured alongside the notehead (roadmap finding 5a).
+    expect(engravedC60.ParentVoiceEntry.StemColor).toBe('red')
+    expect(engravedC64.ParentVoiceEntry.StemColor).toBe('green')
+    expect(engravedSingle.ParentVoiceEntry.StemColor).toBe('blue')
   })
 
   it('skips rests when counting/flattening a measure, so a real note is still mapped correctly', async () => {
@@ -273,7 +301,13 @@ describe('createOsmdEngraver: id -> engraved-note mapping', () => {
     expect(engravedM1extra.NoteheadColor).toBe(DEFAULT_NOTE_COLOR)
   })
 
-  it('setNoteColor on an unknown id is a no-op', async () => {
+  // `setNoteColor` doesn't gate on the id resolving to a real note before
+  // recording it (see `paint` in osmdEngraver.ts) — it always records the
+  // desired colour, so a call that arrives before the note is mapped is never
+  // silently dropped (roadmap finding 4). But `paint` itself returns `false`
+  // for an id it can't resolve, so — roadmap finding 7 — no render is
+  // scheduled for something that could never have changed on screen.
+  it('setNoteColor on an unknown id does not throw, does not affect any real note, and schedules no render', async () => {
     const score = singleNoteScore()
     const engravedC60 = note(60)
     const fakeOsmd = makeFakeOsmd([measureOf(containerOf(engravedC60))])
@@ -281,11 +315,11 @@ describe('createOsmdEngraver: id -> engraved-note mapping', () => {
     const engraver = await load(score, fakeOsmd, scheduler.scheduleRender)
 
     expect(() => engraver.setNoteColor('no-such-id', 'red')).not.toThrow()
+
+    expect(scheduler.scheduleRender).not.toHaveBeenCalled()
     scheduler.flush()
 
     expect(engravedC60.NoteheadColor).toBe(DEFAULT_NOTE_COLOR)
-    expect(fakeOsmd.renderCount).toBe(0)
-    expect(scheduler.scheduleRender).not.toHaveBeenCalled()
   })
 })
 
@@ -320,6 +354,230 @@ describe('createOsmdEngraver: clearNoteColors', () => {
     expect(engravedM1a.NoteheadColor).toBe(DEFAULT_NOTE_COLOR)
     // m1noteB was never coloured — untouched by clear.
     expect(engravedM1b.NoteheadColor).toBe(untouchedSentinel)
+  })
+})
+
+describe('createOsmdEngraver: setNoteHidden / clearHiddenNotes (roadmap 2.26)', () => {
+  it('setNoteHidden(id, true) paints the note the hidden colour', async () => {
+    const score = singleNoteScore()
+    const [c60] = score.notes
+    if (c60 === undefined) throw new Error('setup')
+    const engravedNote = note(60)
+    const fakeOsmd = makeFakeOsmd([measureOf(containerOf(engravedNote))])
+    const scheduler = makeFakeScheduler()
+    const engraver = await load(score, fakeOsmd, scheduler.scheduleRender)
+
+    engraver.setNoteHidden(c60.id, true)
+    scheduler.flush()
+
+    expect(engravedNote.NoteheadColor).toBe(HIDDEN_NOTE_COLOR)
+    // Hiding recolours the stem too, not just the notehead (roadmap finding 5a).
+    expect(engravedNote.ParentVoiceEntry.StemColor).toBe(HIDDEN_NOTE_COLOR)
+  })
+
+  it('setNoteColor while a note is hidden does not change the rendered colour — hidden wins', async () => {
+    const score = singleNoteScore()
+    const [c60] = score.notes
+    if (c60 === undefined) throw new Error('setup')
+    const engravedNote = note(60)
+    const fakeOsmd = makeFakeOsmd([measureOf(containerOf(engravedNote))])
+    const scheduler = makeFakeScheduler()
+    const engraver = await load(score, fakeOsmd, scheduler.scheduleRender)
+
+    engraver.setNoteHidden(c60.id, true)
+    engraver.setNoteColor(c60.id, 'red')
+    scheduler.flush()
+
+    expect(engravedNote.NoteheadColor).toBe(HIDDEN_NOTE_COLOR)
+  })
+
+  it('setNoteHidden(id, false) reveals the colour requested while hidden, not the default', async () => {
+    const score = singleNoteScore()
+    const [c60] = score.notes
+    if (c60 === undefined) throw new Error('setup')
+    const engravedNote = note(60)
+    const fakeOsmd = makeFakeOsmd([measureOf(containerOf(engravedNote))])
+    const scheduler = makeFakeScheduler()
+    const engraver = await load(score, fakeOsmd, scheduler.scheduleRender)
+
+    engraver.setNoteHidden(c60.id, true)
+    engraver.setNoteColor(c60.id, 'red')
+    engraver.setNoteHidden(c60.id, false)
+    scheduler.flush()
+
+    expect(engravedNote.NoteheadColor).toBe('red')
+  })
+
+  it('clearHiddenNotes reveals every hidden note at once, each with its own last-desired colour', async () => {
+    const score = twoMeasureScore()
+    const [m0note, m1noteA, m1noteB] = score.notes
+    if (m0note === undefined || m1noteA === undefined || m1noteB === undefined) {
+      throw new Error('setup')
+    }
+    const engravedM0 = note(60)
+    const engravedM1a = note(62)
+    const engravedM1b = note(65)
+    const fakeOsmd = makeFakeOsmd([
+      measureOf(containerOf(engravedM0)),
+      measureOf(containerOf(engravedM1a, engravedM1b)),
+    ])
+    const scheduler = makeFakeScheduler()
+    const engraver = await load(score, fakeOsmd, scheduler.scheduleRender)
+
+    engraver.setNoteColor(m1noteA.id, 'green')
+    engraver.setNoteHidden(m0note.id, true)
+    engraver.setNoteHidden(m1noteA.id, true)
+    engraver.setNoteHidden(m1noteB.id, true)
+    scheduler.flush()
+    expect(engravedM0.NoteheadColor).toBe(HIDDEN_NOTE_COLOR)
+    expect(engravedM1a.NoteheadColor).toBe(HIDDEN_NOTE_COLOR)
+    expect(engravedM1b.NoteheadColor).toBe(HIDDEN_NOTE_COLOR)
+
+    engraver.clearHiddenNotes()
+    scheduler.flush()
+
+    expect(engravedM0.NoteheadColor).toBe(DEFAULT_NOTE_COLOR)
+    expect(engravedM1a.NoteheadColor).toBe('green')
+    expect(engravedM1b.NoteheadColor).toBe(DEFAULT_NOTE_COLOR)
+  })
+
+  it('clearNoteColors does NOT reveal a hidden note — hidden still wins over the inverse call', async () => {
+    const score = singleNoteScore()
+    const [c60] = score.notes
+    if (c60 === undefined) throw new Error('setup')
+    const engravedNote = note(60)
+    const fakeOsmd = makeFakeOsmd([measureOf(containerOf(engravedNote))])
+    const scheduler = makeFakeScheduler()
+    const engraver = await load(score, fakeOsmd, scheduler.scheduleRender)
+
+    engraver.setNoteColor(c60.id, 'red')
+    engraver.setNoteHidden(c60.id, true)
+    engraver.clearNoteColors()
+    scheduler.flush()
+
+    expect(engravedNote.NoteheadColor).toBe(HIDDEN_NOTE_COLOR)
+  })
+
+  it('setNoteHidden on an unknown id does not throw, does not affect any real note, and schedules no render', async () => {
+    const score = singleNoteScore()
+    const [c60] = score.notes
+    if (c60 === undefined) throw new Error('setup')
+    const engravedNote = note(60)
+    const fakeOsmd = makeFakeOsmd([measureOf(containerOf(engravedNote))])
+    const scheduler = makeFakeScheduler()
+    const engraver = await load(score, fakeOsmd, scheduler.scheduleRender)
+
+    expect(() => engraver.setNoteHidden('no-such-id', true)).not.toThrow()
+
+    expect(scheduler.scheduleRender).not.toHaveBeenCalled()
+    scheduler.flush()
+
+    expect(engravedNote.NoteheadColor).toBe(DEFAULT_NOTE_COLOR)
+  })
+
+  // Roadmap finding 7: `paint` reports no visible change for a note that is
+  // already showing the colour it's being told to show — hidden wins, so
+  // colouring a hidden note never actually touches `NoteheadColor`/
+  // `StemColor`, and must not cost a wasted full-score re-render.
+  it('setNoteColor on an already-hidden note does not schedule a render — hidden wins and nothing visible changes', async () => {
+    const score = singleNoteScore()
+    const [c60] = score.notes
+    if (c60 === undefined) throw new Error('setup')
+    const engravedNote = note(60)
+    const fakeOsmd = makeFakeOsmd([measureOf(containerOf(engravedNote))])
+    const scheduler = makeFakeScheduler()
+    const engraver = await load(score, fakeOsmd, scheduler.scheduleRender)
+
+    engraver.setNoteHidden(c60.id, true)
+    scheduler.flush()
+    expect(scheduler.pending.length).toBe(0) // flushed: nothing left pending
+
+    engraver.setNoteColor(c60.id, 'red')
+
+    // No new render was scheduled for the already-hidden note's recolour.
+    expect(scheduler.pending.length).toBe(0)
+    expect(engravedNote.NoteheadColor).toBe(HIDDEN_NOTE_COLOR)
+  })
+
+  it('batches multiple hide/reveal calls inside one frame into exactly one render', async () => {
+    const score = twoMeasureScore()
+    const [m0note, m1noteA, m1noteB] = score.notes
+    if (m0note === undefined || m1noteA === undefined || m1noteB === undefined) {
+      throw new Error('setup')
+    }
+    const engravedM0 = note(60)
+    const engravedM1a = note(62)
+    const engravedM1b = note(65)
+    const fakeOsmd = makeFakeOsmd([
+      measureOf(containerOf(engravedM0)),
+      measureOf(containerOf(engravedM1a, engravedM1b)),
+    ])
+    const scheduler = makeFakeScheduler()
+    const engraver = await load(score, fakeOsmd, scheduler.scheduleRender)
+
+    engraver.setNoteHidden(m0note.id, true)
+    engraver.setNoteHidden(m1noteA.id, true)
+    engraver.setNoteHidden(m1noteB.id, true)
+    engraver.setNoteHidden(m0note.id, false)
+
+    expect(fakeOsmd.renderCount).toBe(0)
+    expect(scheduler.scheduleRender).toHaveBeenCalledTimes(1)
+
+    scheduler.flush()
+
+    expect(fakeOsmd.renderCount).toBe(1)
+    expect(engravedM0.NoteheadColor).toBe(DEFAULT_NOTE_COLOR)
+    expect(engravedM1a.NoteheadColor).toBe(HIDDEN_NOTE_COLOR)
+    expect(engravedM1b.NoteheadColor).toBe(HIDDEN_NOTE_COLOR)
+  })
+})
+
+describe('createOsmdEngraver: race with an in-flight load (roadmap finding 4)', () => {
+  // `ScoreViewer` recreates its OSMD engraver instance synchronously whenever
+  // its `score` prop identity changes, but this engraver's internal `osmd`
+  // stays `undefined` until the async `load()` call resolves. A `setNoteHidden`
+  // (or `setNoteColor`) call that lands in that window used to silently no-op
+  // (the old `if (osmd === undefined) return` early return) while the caller
+  // (`useReadAhead`) committed its own bookkeeping as if the hide had
+  // succeeded — so it was never retried, and the note stayed permanently
+  // un-hidden. This drives exactly that ordering with a controllable fake
+  // `load()` promise: the hide call fires strictly BEFORE `load()` resolves.
+  it('a setNoteHidden call made before load() resolves is caught up once noteById is populated, not silently dropped', async () => {
+    const score = singleNoteScore()
+    const [c60] = score.notes
+    if (c60 === undefined) throw new Error('setup')
+    const engravedNote = note(60)
+
+    let resolveLoad: () => void = () => undefined
+    const fakeOsmd: FakeOsmd = {
+      ...makeFakeOsmd([measureOf(containerOf(engravedNote))]),
+      load: () =>
+        new Promise<void>((resolve) => {
+          resolveLoad = resolve
+        }),
+    }
+    const scheduler = makeFakeScheduler()
+    const engraver = createOsmdEngraver({
+      createOsmd: () => fakeOsmd,
+      scheduleRender: scheduler.scheduleRender,
+    })
+
+    const loadPromise = engraver.load(document.createElement('div'), '<score/>', score)
+
+    // The race: this fires while `load()`'s internal `await instance.load(...)`
+    // is still pending — `osmd` is still `undefined` and `noteById` is still
+    // empty at this exact point.
+    engraver.setNoteHidden(c60.id, true)
+    expect(engravedNote.NoteheadColor).toBe(DEFAULT_NOTE_COLOR) // not yet mapped — nothing to paint yet
+
+    resolveLoad()
+    await loadPromise
+    scheduler.flush()
+
+    // The load-tail repaint catches the hide up: the note the fix was
+    // supposed to lose is actually hidden once the engraver knows about it.
+    expect(engravedNote.NoteheadColor).toBe(HIDDEN_NOTE_COLOR)
+    expect(engravedNote.ParentVoiceEntry.StemColor).toBe(HIDDEN_NOTE_COLOR)
   })
 })
 

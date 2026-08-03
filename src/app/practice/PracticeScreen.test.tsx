@@ -36,7 +36,16 @@ import type { FrameDriver } from './useTransportLoop.ts'
 // roadmap-2.20a stop-cursor test reads to prove `PracticeScreen` moves the
 // cursor through this RAW handle, not through `useNoteFeedback`'s
 // intercepting `cursorRef`.
-const { moveCursorToSpy } = vi.hoisted(() => ({ moveCursorToSpy: vi.fn() }))
+// `setNoteHiddenSpy`/`clearHiddenNotesSpy` (roadmap 2.26 finding 6): real
+// `vi.fn()` spies, not the inert `() => {}` stubs this mock used to carry —
+// those would leave `useReadAhead` wired to nothing observable, so a screen
+// that dropped `<ReadAheadControl>` or hardcoded `enabled: false` would still
+// pass every other test in this file.
+const { moveCursorToSpy, setNoteHiddenSpy, clearHiddenNotesSpy } = vi.hoisted(() => ({
+  moveCursorToSpy: vi.fn(),
+  setNoteHiddenSpy: vi.fn(),
+  clearHiddenNotesSpy: vi.fn(),
+}))
 vi.mock('@app/score/ScoreViewer.tsx', () => ({
   ScoreViewer: forwardRef(function MockScoreViewer(
     _props: { readonly musicXml: string },
@@ -46,6 +55,8 @@ vi.mock('@app/score/ScoreViewer.tsx', () => ({
       moveCursorTo: moveCursorToSpy,
       setNoteColor: () => {},
       clearNoteColors: () => {},
+      setNoteHidden: setNoteHiddenSpy,
+      clearHiddenNotes: clearHiddenNotesSpy,
     }))
     return <div data-testid="mock-score-viewer" className="score-viewer" />
   }),
@@ -108,6 +119,8 @@ afterEach(() => {
   cleanup()
   resetStore()
   moveCursorToSpy.mockClear()
+  setNoteHiddenSpy.mockClear()
+  clearHiddenNotesSpy.mockClear()
 })
 
 describe('PracticeScreen', () => {
@@ -707,5 +720,50 @@ describe('PracticeScreen', () => {
     await user.click(screen.getByRole('button', { name: 'Stop' }))
 
     expect(moveCursorToSpy).toHaveBeenCalledWith(1, loop.startTick)
+  })
+
+  // Roadmap 2.26 finding 6 (test-coverage gap): nothing previously proved
+  // `ReadAheadControl` is actually rendered and wired to `useReadAhead` with a
+  // real `currentMeasureIndex`/`scoreViewerRef` — stubbing
+  // `currentMeasureIndex: 0`, dropping `<ReadAheadControl>`, or hardcoding
+  // `enabled: false` would have left the whole suite green. Checking the box
+  // while the cursor sits at rest (measure 1, i.e. index 0) hides nothing —
+  // that's the scope change in `useReadAhead` (there's no measure before the
+  // first one) — so playback is advanced past the first measure boundary
+  // BEFORE the checkbox is checked, which gives `useReadAhead` a real,
+  // non-empty measure-0 to hide once read-ahead turns on.
+  it('wires the Read ahead control to the real score viewer, not a stub (roadmap 2.26)', async () => {
+    loadSampleScoreWithMusicXml()
+    const user = userEvent.setup()
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const midiInput = new FakeMidiInput()
+    const manual = manualDriver()
+
+    render(
+      <PracticeScreen
+        clock={clock}
+        audioOutput={audio}
+        midiInput={midiInput}
+        frameDriver={manual.driver}
+      />,
+    )
+
+    expect(screen.getByRole('checkbox', { name: 'Read ahead' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Play' }))
+    act(() => manual.pump()) // parks the cursor on tick 0, measure 1
+
+    // C_MAJOR_SCALE_RH is two 4-note measures at 120bpm (500ms/quarter) — past
+    // 2000ms puts the cursor in measure 2, so measure 1 (index 0) is now
+    // strictly behind it.
+    act(() => {
+      clock.advance(2100)
+      manual.pump()
+    })
+
+    await user.click(screen.getByRole('checkbox', { name: 'Read ahead' }))
+
+    expect(setNoteHiddenSpy.mock.calls.some(([, hidden]) => hidden === true)).toBe(true)
   })
 })

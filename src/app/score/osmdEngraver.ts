@@ -18,11 +18,15 @@
  * `osmd.render()` re-engraves the ENTIRE score synchronously — expensive
  * enough that calling it once per judged note (four times for a four-note
  * chord, all on the incoming MIDI event's own task) blew the 100ms visual
- * budget. `setNoteColor`/`clearNoteColors` now only mutate `NoteheadColor` on
- * the affected `Note` objects and call `requestRender()`, which coalesces any
- * number of calls within one task into exactly one `render()`, scheduled via
- * the injectable `scheduleRender` (real `requestAnimationFrame` by default).
- * Because `render()` always draws whatever the note objects currently hold,
+ * budget. `setNoteColor`/`clearNoteColors`/`setNoteHidden`/`clearHiddenNotes`
+ * now only mutate `NoteheadColor`/`StemColor` on the affected `Note` objects
+ * (via `paint`) and call `requestRender()` — but only when `paint` reports it
+ * actually changed something visible, so re-painting a note that is already
+ * showing the requested colour (e.g. `setNoteColor` on a note currently
+ * hidden) costs nothing. `requestRender` itself coalesces any number of calls
+ * within one task into exactly one `render()`, scheduled via the injectable
+ * `scheduleRender` (real `requestAnimationFrame` by default). Because
+ * `render()` always draws whatever the note objects currently hold,
  * coalescing never drops a mutation — the frame that eventually fires always
  * sees the LAST colour written, even if a dozen calls raced ahead of it.
  */
@@ -32,8 +36,16 @@ import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
 import { stepsToOnsetAtOrBefore } from './cursorSteps.ts'
 import type { ScoreEngraver } from './engraver.ts'
 
-/** The slice of OSMD's `Note` this file actually touches. */
-type EngravedNote = { NoteheadColor: string }
+/**
+ * The slice of OSMD's `Note` this file actually touches. `NoteheadColor`
+ * recolours the notehead itself; `ParentVoiceEntry.StemColor` (a getter/
+ * setter OSMD exposes on the parent `VoiceEntry`, not on `Note` — see
+ * `VoiceEntry.d.ts`) recolours its stem, so hiding a note occludes both,
+ * not just the head. Beams and ledger lines are a known residual gap: OSMD
+ * has no equally cheap way to recolour those, only a heavier `PrintObject`/
+ * `updateGraphic()` path, which is out of scope here.
+ */
+type EngravedNote = { NoteheadColor: string; readonly ParentVoiceEntry: { StemColor: string } }
 
 type EngravedRawNote = EngravedNote & { readonly halfTone: number; isRest(): boolean }
 type EngravedVoiceEntry = { readonly Notes: readonly EngravedRawNote[] }
@@ -83,6 +95,14 @@ export type OsmdLike = {
 const SCORE_INK = '#e8e6e3'
 /** Exported for `osmdEngraver.test.ts` — the colour `clearNoteColors` restores. */
 export const DEFAULT_NOTE_COLOR = SCORE_INK
+/**
+ * The read-ahead drill (roadmap 2.26, REQ-3.4.5) "hides" a note by painting it
+ * the same colour as the page background rather than toggling engraving
+ * visibility — far cheaper than re-laying-out the measure, and reversible by
+ * the same `NoteheadColor` write `setNoteColor` already uses. Keep this in
+ * step with `--bg` in styles.css.
+ */
+export const HIDDEN_NOTE_COLOR = '#14161a'
 const MAX_CURSOR_STEPS = 10_000
 
 const DEFAULT_OSMD_OPTIONS = {
@@ -228,6 +248,10 @@ export function createOsmdEngraver(opts?: OsmdEngraverOptions): ScoreEngraver {
   let osmd: OsmdLike | undefined
   let noteById = new Map<string, EngravedNote>()
   const coloredIds = new Set<string>()
+  /** Last colour requested via `setNoteColor`, independent of current visibility. */
+  const desiredColor = new Map<string, string>()
+  /** Ids currently occluded for the read-ahead drill — see `setNoteHidden`. */
+  const hiddenIds = new Set<string>()
   let renderPending = false
   /** Every onset the cursor visits, walked once at load — see `collectOnsetTicks`. */
   let onsetTicks: readonly number[] = []
@@ -250,6 +274,29 @@ export function createOsmdEngraver(opts?: OsmdEngraverOptions): ScoreEngraver {
     })
   }
 
+  /**
+   * The single place `NoteheadColor`/`StemColor` are written: hidden always
+   * wins over whatever colour was last requested, so `setNoteColor` and
+   * `setNoteHidden` can never race each other into an inconsistent paint.
+   *
+   * Returns whether it actually changed anything visible — `false` for an id
+   * that isn't (yet) in `noteById`, and `false` when the note already holds
+   * the colour being (re-)written. Callers use this to skip `requestRender()`
+   * when nothing on screen would change (roadmap finding 7): repainting an
+   * already-hidden note costs a full-score re-render for zero visible effect.
+   */
+  function paint(noteId: string): boolean {
+    const note = noteById.get(noteId)
+    if (note === undefined) return false
+    const color = hiddenIds.has(noteId)
+      ? HIDDEN_NOTE_COLOR
+      : (desiredColor.get(noteId) ?? DEFAULT_NOTE_COLOR)
+    const changed = note.NoteheadColor !== color || note.ParentVoiceEntry.StemColor !== color
+    note.NoteheadColor = color
+    note.ParentVoiceEntry.StemColor = color
+    return changed
+  }
+
   return {
     async load(container, musicXml, score) {
       const instance = createOsmd(container)
@@ -260,7 +307,25 @@ export function createOsmdEngraver(opts?: OsmdEngraverOptions): ScoreEngraver {
       instance.cursor.show()
       osmd = instance
       noteById = buildNoteIdMap(instance, score)
-      coloredIds.clear()
+
+      // Catches up any `setNoteColor`/`setNoteHidden` call that arrived
+      // between the engraver being constructed and this `await` resolving
+      // (see the module comment on `ScoreViewer` recreating its engraver
+      // synchronously while `load()` is still in flight — roadmap finding 4).
+      // `hiddenIds`/`desiredColor`/`coloredIds` are NOT cleared here: for this
+      // app's real usage a freshly-constructed engraver already has empty
+      // Sets/Maps, so clearing would be redundant for a normal load and
+      // actively wrong for the race — it would wipe out exactly the
+      // legitimately-early calls this repaint pass exists to catch up. A
+      // stale id left over from a hypothetical previous `load()` on the same
+      // instance is still safe: `paint`'s own `noteById.get(id) === undefined`
+      // guard (until this line ran) makes it a no-op rather than a mispaint.
+      const idsToRepaint = new Set<string>([...hiddenIds, ...coloredIds])
+      let repaintChanged = false
+      for (const id of idsToRepaint) {
+        if (paint(id)) repaintChanged = true
+      }
+      if (repaintChanged) requestRender()
     },
 
     // `measureIndex` is no longer needed to find the onset — `onsetTicks` is
@@ -274,21 +339,45 @@ export function createOsmdEngraver(opts?: OsmdEngraverOptions): ScoreEngraver {
     },
 
     setNoteColor(noteId, color) {
-      const note = noteById.get(noteId)
-      if (note === undefined || osmd === undefined) return
-      note.NoteheadColor = color
+      // Unconditionally recorded even before `osmd`/`noteById` are populated
+      // — `paint` is a safe no-op for an id it doesn't know yet, and the
+      // load-tail repaint above catches this up once it does (roadmap
+      // finding 4).
+      desiredColor.set(noteId, color)
       coloredIds.add(noteId)
-      requestRender()
+      if (paint(noteId)) requestRender()
     },
 
     clearNoteColors() {
-      if (osmd === undefined || coloredIds.size === 0) return
+      if (coloredIds.size === 0) return
+      let changed = false
       for (const id of coloredIds) {
-        const note = noteById.get(id)
-        if (note !== undefined) note.NoteheadColor = DEFAULT_NOTE_COLOR
+        desiredColor.delete(id)
+        if (paint(id)) changed = true
       }
       coloredIds.clear()
-      requestRender()
+      if (changed) requestRender()
+    },
+
+    setNoteHidden(noteId, hidden) {
+      if (hidden) {
+        if (hiddenIds.has(noteId)) return
+        hiddenIds.add(noteId)
+      } else {
+        if (!hiddenIds.has(noteId)) return
+        hiddenIds.delete(noteId)
+      }
+      if (paint(noteId)) requestRender()
+    },
+
+    clearHiddenNotes() {
+      if (hiddenIds.size === 0) return
+      let changed = false
+      for (const id of [...hiddenIds]) {
+        hiddenIds.delete(id)
+        if (paint(id)) changed = true
+      }
+      if (changed) requestRender()
     },
 
     destroy() {
@@ -296,6 +385,8 @@ export function createOsmdEngraver(opts?: OsmdEngraverOptions): ScoreEngraver {
       osmd = undefined
       noteById = new Map()
       coloredIds.clear()
+      desiredColor.clear()
+      hiddenIds.clear()
       renderPending = false
     },
   }

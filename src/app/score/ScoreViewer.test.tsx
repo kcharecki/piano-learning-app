@@ -23,6 +23,8 @@ type FakeEngraver = ScoreEngraver & {
   readonly moveCursorTo: ReturnType<typeof vi.fn>
   readonly setNoteColor: ReturnType<typeof vi.fn>
   readonly clearNoteColors: ReturnType<typeof vi.fn>
+  readonly setNoteHidden: ReturnType<typeof vi.fn>
+  readonly clearHiddenNotes: ReturnType<typeof vi.fn>
   readonly destroy: ReturnType<typeof vi.fn>
 }
 
@@ -32,6 +34,8 @@ function createFakeEngraver(loadResult: Promise<void> = Promise.resolve()): Fake
     moveCursorTo: vi.fn(),
     setNoteColor: vi.fn(),
     clearNoteColors: vi.fn(),
+    setNoteHidden: vi.fn(),
+    clearHiddenNotes: vi.fn(),
     destroy: vi.fn(),
   }
 }
@@ -94,10 +98,14 @@ describe('ScoreViewer', () => {
     ref.current?.moveCursorTo(1, 480)
     ref.current?.setNoteColor('m0.r.0.60', '#ff0000')
     ref.current?.clearNoteColors()
+    ref.current?.setNoteHidden('m0.r.0.60', true)
+    ref.current?.clearHiddenNotes()
 
     expect(engraver.moveCursorTo).toHaveBeenCalledWith(1, 480)
     expect(engraver.setNoteColor).toHaveBeenCalledWith('m0.r.0.60', '#ff0000')
     expect(engraver.clearNoteColors).toHaveBeenCalledTimes(1)
+    expect(engraver.setNoteHidden).toHaveBeenCalledWith('m0.r.0.60', true)
+    expect(engraver.clearHiddenNotes).toHaveBeenCalledTimes(1)
   })
 
   it('shows a readable error if the engraver fails to load, instead of crashing', async () => {

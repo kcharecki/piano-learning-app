@@ -18,6 +18,15 @@ export type ScoreEngraver = {
   setNoteColor(noteId: string, color: string): void
   /** Restore every note coloured by `setNoteColor` back to its default. */
   clearNoteColors(): void
+  /**
+   * Occlude (or reveal) a single note for the read-ahead drill (roadmap 2.26,
+   * REQ-3.4.5), keyed by `ScoreNote.id`. Independent of `setNoteColor`: a
+   * hidden note stays hidden regardless of what colour is requested for it,
+   * and reveals showing whatever colour was last requested (or the default).
+   */
+  setNoteHidden(noteId: string, hidden: boolean): void
+  /** Reveal every note hidden via `setNoteHidden`. Colours from `setNoteColor` are unaffected. */
+  clearHiddenNotes(): void
   /** Release everything the engraver holds — DOM nodes, listeners, the OSMD instance. */
   destroy(): void
 }

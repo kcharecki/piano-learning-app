@@ -584,7 +584,13 @@ describe('usePracticeEngine', () => {
     const manual = manualDriver()
     const moveCursorTo = vi.fn()
     const scoreViewerRef: RefObject<ScoreViewerHandle | null> = {
-      current: { moveCursorTo, setNoteColor: vi.fn(), clearNoteColors: vi.fn() },
+      current: {
+        moveCursorTo,
+        setNoteColor: vi.fn(),
+        clearNoteColors: vi.fn(),
+        setNoteHidden: vi.fn(),
+        clearHiddenNotes: vi.fn(),
+      },
     }
     const { result } = renderHook((p: PracticeEngineOptions) => usePracticeEngine(p), {
       initialProps: makeOptions(clock, {
@@ -620,7 +626,13 @@ describe('usePracticeEngine', () => {
     const manual = manualDriver()
     const moveCursorTo = vi.fn()
     const scoreViewerRef: RefObject<ScoreViewerHandle | null> = {
-      current: { moveCursorTo, setNoteColor: vi.fn(), clearNoteColors: vi.fn() },
+      current: {
+        moveCursorTo,
+        setNoteColor: vi.fn(),
+        clearNoteColors: vi.fn(),
+        setNoteHidden: vi.fn(),
+        clearHiddenNotes: vi.fn(),
+      },
     }
     const { result } = renderHook((p: PracticeEngineOptions) => usePracticeEngine(p), {
       initialProps: makeOptions(clock, { frameDriver: manual.driver, scoreViewerRef }),
@@ -713,7 +725,13 @@ describe('usePracticeEngine', () => {
     const manual = manualDriver()
     const moveCursorTo = vi.fn()
     const scoreViewerRef: RefObject<ScoreViewerHandle | null> = {
-      current: { moveCursorTo, setNoteColor: vi.fn(), clearNoteColors: vi.fn() },
+      current: {
+        moveCursorTo,
+        setNoteColor: vi.fn(),
+        clearNoteColors: vi.fn(),
+        setNoteHidden: vi.fn(),
+        clearHiddenNotes: vi.fn(),
+      },
     }
     const { result } = renderHook((p: PracticeEngineOptions) => usePracticeEngine(p), {
       initialProps: makeOptions(clock, { frameDriver: manual.driver, scoreViewerRef }),

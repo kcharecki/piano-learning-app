@@ -57,6 +57,8 @@ import { usePracticeEngine, type PracticeEngine } from './usePracticeEngine.ts'
 import { useRecorder } from './useRecorder.ts'
 import type { FrameDriver } from './useTransportLoop.ts'
 import { WaitModeControl } from './WaitModeControl.tsx'
+import { ReadAheadControl } from './ReadAheadControl.tsx'
+import { useReadAhead } from './useReadAhead.ts'
 
 /** Note accuracy at or above which a completed pass counts as a clean repetition (REQ-3.9.1). */
 const CLEAN_ACCURACY = 0.95
@@ -86,6 +88,7 @@ export function PracticeScreen(props: PracticeScreenProps) {
   const [rampToBpm, setRampToBpm] = useState(80)
   const [rampStepBpm, setRampStepBpm] = useState(2)
   const [waitModeEnabled, setWaitModeEnabled] = useState(false)
+  const [readAheadEnabled, setReadAheadEnabled] = useState(false)
   const [clock] = useState<Clock>(() => props.clock ?? createBrowserClock())
   const [date] = useState<DateSource>(() => props.date ?? { epochMillis: () => Date.now() })
   const [audioOutput, setAudioOutput] = useState<AudioOutput | undefined>(props.audioOutput)
@@ -164,6 +167,13 @@ export function PracticeScreen(props: PracticeScreenProps) {
     ...(props.frameDriver === undefined ? {} : { frameDriver: props.frameDriver }),
   })
   engineRef.current = engine
+
+  useReadAhead({
+    enabled: readAheadEnabled,
+    score: loaded?.score,
+    currentMeasureIndex: Math.max(0, (engine.position?.measureNumber ?? 1) - 1),
+    scoreViewerRef,
+  })
 
   // Clear stale colouring/counters when a NEW run STARTS, not when one ends
   // (roadmap 2.14): the counters from a just-finished run must survive onto
@@ -419,6 +429,11 @@ export function PracticeScreen(props: PracticeScreenProps) {
         enabled={waitModeEnabled}
         onToggle={setWaitModeEnabled}
         wait={engine.wait}
+        disabled={assessmentRunning}
+      />
+      <ReadAheadControl
+        enabled={readAheadEnabled}
+        onToggle={setReadAheadEnabled}
         disabled={assessmentRunning}
       />
       <RecordPanel

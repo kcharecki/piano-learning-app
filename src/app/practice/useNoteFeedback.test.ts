@@ -58,6 +58,8 @@ type FakeHandle = ScoreViewerHandle & {
   readonly moveCursorTo: ReturnType<typeof vi.fn>
   readonly setNoteColor: ReturnType<typeof vi.fn>
   readonly clearNoteColors: ReturnType<typeof vi.fn>
+  readonly setNoteHidden: ReturnType<typeof vi.fn>
+  readonly clearHiddenNotes: ReturnType<typeof vi.fn>
 }
 
 function fakeScoreViewerRef(): RefObject<ScoreViewerHandle | null> & { current: FakeHandle } {
@@ -66,6 +68,8 @@ function fakeScoreViewerRef(): RefObject<ScoreViewerHandle | null> & { current: 
       moveCursorTo: vi.fn(),
       setNoteColor: vi.fn(),
       clearNoteColors: vi.fn(),
+      setNoteHidden: vi.fn(),
+      clearHiddenNotes: vi.fn(),
     },
   }
 }

@@ -15,6 +15,8 @@ export type ScoreViewerHandle = {
   moveCursorTo(measureIndex: number, tick: number): void
   setNoteColor(noteId: string, color: string): void
   clearNoteColors(): void
+  setNoteHidden(noteId: string, hidden: boolean): void
+  clearHiddenNotes(): void
 }
 
 export type ScoreViewerProps = {
@@ -63,6 +65,8 @@ export const ScoreViewer = forwardRef<ScoreViewerHandle, ScoreViewerProps>(funct
       moveCursorTo: (measureIndex, tick) => engraverRef.current?.moveCursorTo(measureIndex, tick),
       setNoteColor: (noteId, color) => engraverRef.current?.setNoteColor(noteId, color),
       clearNoteColors: () => engraverRef.current?.clearNoteColors(),
+      setNoteHidden: (noteId, hidden) => engraverRef.current?.setNoteHidden(noteId, hidden),
+      clearHiddenNotes: () => engraverRef.current?.clearHiddenNotes(),
     }),
     [],
   )
