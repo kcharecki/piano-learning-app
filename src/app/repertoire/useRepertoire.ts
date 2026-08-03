@@ -17,6 +17,7 @@ import {
   type RepertoirePiece,
   type RepertoireStatus,
 } from '@core/repertoire/repertoire.ts'
+import { GRADED_PIECES, type GradedPiece } from '@content/repertoire/gradedPieces.ts'
 import { useRepertoireStore } from '@app/state/repertoireStore.ts'
 import { useScoreStore } from '@app/state/scoreStore.ts'
 
@@ -38,6 +39,18 @@ export type UseRepertoireResult = {
   readonly addError: string | undefined
   /** Adds the CURRENTLY LOADED score at the given level. No-op when nothing is loaded. */
   addLoadedScore(level: number): void
+  /** The shipped graded catalogue (`GRADED_PIECES`), ascending by level then title. */
+  readonly catalogue: readonly GradedPiece[]
+  /** Catalogue ids already present in the learner's library. */
+  readonly catalogueAddedIds: ReadonlySet<string>
+  /**
+   * Adds one catalogue piece through the same `addPiece` path a manual add
+   * uses. One-at-a-time by design (see the roadmap 4.9a task note): the
+   * learner curates their own repertoire (REQ-3.8.x), so this never bulk-
+   * inserts the whole catalogue on the learner's behalf. A no-op if `pieceId`
+   * is not in `GRADED_PIECES`.
+   */
+  addFromCatalogue(pieceId: string): void
   setStatus(id: string, status: RepertoireStatus): void
   setNotes(id: string, notes: string): void
   /** Days since last practice, or null — core `daysSincePractice`. */
@@ -98,6 +111,24 @@ export function useRepertoire(options: UseRepertoireOptions = {}): UseRepertoire
     return daysSincePractice(piece, date.epochMillis())
   }
 
+  const catalogueAddedIds = useMemo(() => {
+    const ids = new Set(pieces.map((p) => p.id))
+    return new Set(GRADED_PIECES.filter((p) => ids.has(p.id)).map((p) => p.id))
+  }, [pieces])
+
+  function addFromCatalogue(pieceId: string): void {
+    const cataloguePiece = GRADED_PIECES.find((p) => p.id === pieceId)
+    if (cataloguePiece === undefined) return
+    const result = addPieceToStore({
+      id: cataloguePiece.id,
+      title: cataloguePiece.title,
+      composer: cataloguePiece.composer,
+      level: cataloguePiece.level,
+      ...(cataloguePiece.scoreId === undefined ? {} : { scoreId: cataloguePiece.scoreId }),
+    })
+    setAddError(result.ok ? undefined : result.error)
+  }
+
   return {
     pieces,
     due,
@@ -105,6 +136,9 @@ export function useRepertoire(options: UseRepertoireOptions = {}): UseRepertoire
     loadedScoreAlreadyAdded,
     addError,
     addLoadedScore,
+    catalogue: GRADED_PIECES,
+    catalogueAddedIds,
+    addFromCatalogue,
     setStatus: setStatusInStore,
     setNotes: setNotesInStore,
     daysSince,

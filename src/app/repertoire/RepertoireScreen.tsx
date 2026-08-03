@@ -97,6 +97,35 @@ export function RepertoireScreen() {
           </ul>
         )}
       </section>
+
+      {/* REQ-5.2/REQ-3.8.3, roadmap 4.9a: the shipped graded catalogue, added
+          one piece at a time — see `addFromCatalogue`'s doc comment on why
+          this is deliberately not a bulk "add all" control. */}
+      {/* Catalogue add failures (duplicate id, cap reached) surface in the
+          shared alert above, inside .repertoire-add — there is no separate
+          per-row error display. */}
+      <section className="repertoire-catalogue" role="region" aria-label="Graded library">
+        <h3>Graded library</h3>
+        <ul aria-label="Graded pieces">
+          {repertoire.catalogue.map((piece) => {
+            const alreadyAdded = repertoire.catalogueAddedIds.has(piece.id)
+            return (
+              <li key={piece.id} className="repertoire-catalogue-piece">
+                <span className="repertoire-catalogue-title">{piece.title}</span>
+                <span className="repertoire-catalogue-composer">{piece.composer}</span>
+                <span className="repertoire-catalogue-level">Level {piece.level}</span>
+                {alreadyAdded ? (
+                  <span>Already in your library</span>
+                ) : (
+                  <button type="button" onClick={() => repertoire.addFromCatalogue(piece.id)}>
+                    Add
+                  </button>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      </section>
     </section>
   )
 }

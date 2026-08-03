@@ -6,10 +6,13 @@
  * METADATA ONLY. Every entry omits `scoreId` on purpose: this task ships
  * title/composer/level/grading rationale, not MusicXML. None of these 20
  * pieces has a bundled score — inventing a `scoreId` here would fabricate a
- * score that doesn't exist. The screen that seeds a fresh repertoire library
- * from this list (so the learner sees these 20 rows instead of an empty
- * library) is roadmap task 4.9a, not this one; nothing imports
- * `GRADED_PIECES` yet.
+ * score that doesn't exist.
+ *
+ * Imported by `@app/repertoire/useRepertoire.ts` (roadmap 4.9a), which renders
+ * this list on the repertoire screen and adds an entry to the learner's own
+ * library ONE AT A TIME, on request. It never seeds the library: the learner
+ * curates their repertoire (REQ-3.8.x), and silently inserting 20 pieces they
+ * did not choose would be worse than an empty list.
  *
  * Public domain, provenance recorded in `src/content/scores/LICENSE.md`
  * under "Graded repertoire list metadata". Every piece is either of anonymous
@@ -197,7 +200,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     composer: 'Ludwig van Beethoven (1770–1827)',
     level: 4,
     gradingNote:
-      'Full sonata-allegro form in a minor key with syncopated accompaniment figures and wider leaps than the level-3 Kuhlau/Clementi range of sonatinas — level 4\'s "easier sonatinas", "syncopation" and "minor scale forms".',
+      'Full sonata-allegro form in a minor key with syncopated accompaniment figures and wider leaps than the Kuhlau/Clementi sonatinas at the bottom of this level — level 4\'s "easier sonatinas", "syncopation" and "minor scale forms".',
   },
 
   // ---------------------------------------------------------------------

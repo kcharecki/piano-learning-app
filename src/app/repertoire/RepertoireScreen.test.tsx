@@ -12,6 +12,7 @@ import type { RepertoirePiece } from '@core/repertoire/repertoire.ts'
 import type { Score } from '@core/notation/score.ts'
 import { DAY_MS } from '@core/srs/scheduler.ts'
 import { ticks } from '@core/shared/units.ts'
+import { GRADED_PIECES } from '@content/repertoire/gradedPieces.ts'
 import { act, cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -106,5 +107,60 @@ describe('RepertoireScreen', () => {
     const dueRegion = screen.getByRole('region', { name: 'Review due' })
     expect(within(dueRegion).getByText(/Overdue Piece/)).toBeInTheDocument()
     expect(within(dueRegion).queryByText(/Recent Piece/)).not.toBeInTheDocument()
+  })
+
+  it('renders the Graded library region listing the shipped catalogue', () => {
+    render(<RepertoireScreen />)
+
+    const catalogueRegion = screen.getByRole('region', { name: 'Graded library' })
+    const firstEntry = GRADED_PIECES[0]
+    if (firstEntry === undefined) throw new Error('expected a seeded catalogue entry')
+    expect(within(catalogueRegion).getByText(firstEntry.title)).toBeInTheDocument()
+    expect(within(catalogueRegion).getByText(firstEntry.composer)).toBeInTheDocument()
+
+    const row = within(catalogueRegion).getByText(firstEntry.title).closest('li')
+    if (row === null) throw new Error('expected the catalogue row to render as a list item')
+    expect(within(row as HTMLElement).getByText(`Level ${firstEntry.level}`)).toBeInTheDocument()
+  })
+
+  it('an Add click on a catalogue piece reaches the store and the row flips to already-added', async () => {
+    render(<RepertoireScreen />)
+    const user = userEvent.setup()
+    const catalogueRegion = screen.getByRole('region', { name: 'Graded library' })
+    const firstEntry = GRADED_PIECES[0]
+    if (firstEntry === undefined) throw new Error('expected a seeded catalogue entry')
+    const row = within(catalogueRegion).getByText(firstEntry.title).closest('li')
+    if (row === null) throw new Error('expected the catalogue row to render as a list item')
+
+    await user.click(within(row as HTMLElement).getByRole('button', { name: 'Add' }))
+
+    expect(useRepertoireStore.getState().pieces.map((p) => p.id)).toContain(firstEntry.id)
+    expect(within(row as HTMLElement).getByText('Already in your library')).toBeInTheDocument()
+    expect(within(row as HTMLElement).queryByRole('button', { name: 'Add' })).not.toBeInTheDocument()
+  })
+
+  it('a catalogue piece already in the library renders as already-added on first render', () => {
+    const firstEntry = GRADED_PIECES[0]
+    if (firstEntry === undefined) throw new Error('expected a seeded catalogue entry')
+    useRepertoireStore.setState({
+      pieces: [
+        {
+          id: firstEntry.id,
+          title: firstEntry.title,
+          composer: firstEntry.composer,
+          level: firstEntry.level,
+          status: 'learning',
+          sessions: [],
+          bestAccuracy: 0,
+          notes: '',
+        },
+      ],
+    })
+    render(<RepertoireScreen />)
+
+    const catalogueRegion = screen.getByRole('region', { name: 'Graded library' })
+    const row = within(catalogueRegion).getByText(firstEntry.title).closest('li')
+    if (row === null) throw new Error('expected the catalogue row to render as a list item')
+    expect(within(row as HTMLElement).getByText('Already in your library')).toBeInTheDocument()
   })
 })

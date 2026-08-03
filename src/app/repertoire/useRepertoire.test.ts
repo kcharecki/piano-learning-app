@@ -10,6 +10,7 @@ import type { DateSource } from '@core/ports/index.ts'
 import type { RepertoirePiece } from '@core/repertoire/repertoire.ts'
 import type { Score } from '@core/notation/score.ts'
 import { ticks } from '@core/shared/units.ts'
+import { GRADED_PIECES } from '@content/repertoire/gradedPieces.ts'
 import { cleanup, renderHook, act } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { useRepertoireStore } from '@app/state/repertoireStore.ts'
@@ -142,5 +143,57 @@ describe('useRepertoire', () => {
     const piece = result.current.pieces[0]
     if (piece === undefined) throw new Error('expected the seeded piece')
     expect(result.current.daysSince(piece)).toBeCloseTo(3, 9)
+  })
+
+  it('addFromCatalogue lands a real RepertoirePiece preserving the catalogue level and composer', () => {
+    const catalogueEntry = GRADED_PIECES.find((p) => p.level === 5)
+    if (catalogueEntry === undefined) throw new Error('expected a seeded catalogue entry')
+
+    const { result } = renderHook(() => useRepertoire())
+    act(() => result.current.addFromCatalogue(catalogueEntry.id))
+
+    const pieces = useRepertoireStore.getState().pieces
+    expect(pieces).toHaveLength(1)
+    expect(pieces[0]).toMatchObject({
+      id: catalogueEntry.id,
+      title: catalogueEntry.title,
+      composer: catalogueEntry.composer,
+      level: catalogueEntry.level,
+      status: 'learning',
+    })
+    expect(result.current.addError).toBeUndefined()
+    expect(result.current.catalogueAddedIds.has(catalogueEntry.id)).toBe(true)
+  })
+
+  it('addFromCatalogue twice surfaces the duplicate error instead of throwing or double-inserting', () => {
+    const catalogueEntry = GRADED_PIECES[0]
+    if (catalogueEntry === undefined) throw new Error('expected a seeded catalogue entry')
+
+    const { result } = renderHook(() => useRepertoire())
+    act(() => result.current.addFromCatalogue(catalogueEntry.id))
+    expect(result.current.addError).toBeUndefined()
+
+    act(() => result.current.addFromCatalogue(catalogueEntry.id))
+    expect(result.current.addError).toBeDefined()
+    expect(useRepertoireStore.getState().pieces).toHaveLength(1)
+  })
+
+  it('exposes the full catalogue, sorted ascending by level then title', () => {
+    const { result } = renderHook(() => useRepertoire())
+    const catalogue = result.current.catalogue
+    const sorted = [...catalogue].sort(
+      (a, b) => a.level - b.level || a.title.localeCompare(b.title),
+    )
+    expect(catalogue).toEqual(sorted)
+    expect(catalogue.length).toBeGreaterThanOrEqual(20)
+    expect(result.current.catalogueAddedIds.size).toBe(0)
+  })
+
+  it('addFromCatalogue is a no-op for an id not in GRADED_PIECES', () => {
+    const { result } = renderHook(() => useRepertoire())
+    act(() => result.current.addFromCatalogue('not-a-catalogue-id'))
+
+    expect(useRepertoireStore.getState().pieces).toHaveLength(0)
+    expect(result.current.addError).toBeUndefined()
   })
 })
