@@ -124,7 +124,25 @@ export const DEFAULT_NOTE_COLOR = SCORE_INK
  * step with `--bg` in styles.css.
  */
 export const HIDDEN_NOTE_COLOR = '#14161a'
-const MAX_CURSOR_STEPS = 10_000
+/**
+ * Backstop against a runaway walk (e.g. a cursor whose `EndReached` never
+ * flips), not a plausible real-score limit — Pachelbel's Canon in D, 102
+ * measures/1603 notes, produces well under 1_000 onsets. If a real score
+ * ever did exceed this, `collectOnsetTicks` truncates rather than hangs, and
+ * warns once (see below) so the truncation is visible instead of silently
+ * capping the cursor's reach partway through the piece.
+ */
+const MAX_CURSOR_STEPS = 200_000
+/**
+ * `moveCursorToIndex` runs on the main thread inside an animation frame, and
+ * each step is a real, visible-cursor `cursor.next()` — OSMD's full graphical
+ * `Cursor.update()`, not a cheap counter increment. `onsetTicks` (bounded by
+ * `MAX_CURSOR_STEPS` above) can be far longer than any single frame can
+ * afford to walk, so this caps how many steps ONE `moveCursorToIndex` call
+ * may take; a target beyond the budget is approached over several frames
+ * instead of stalling the first one.
+ */
+const MAX_CURSOR_STEPS_PER_MOVE = 4_000
 
 const DEFAULT_OSMD_OPTIONS = {
   autoResize: true,
@@ -224,8 +242,21 @@ function collectOnsetTicks(cursor: OsmdCursor): readonly number[] {
   const onsetTicks: number[] = []
   cursor.reset()
   while (!cursor.iterator.EndReached && onsetTicks.length < MAX_CURSOR_STEPS) {
-    onsetTicks.push(cursor.iterator.CurrentSourceTimestamp.RealValue * 4 * TICKS_PER_QUARTER)
+    onsetTicks.push(Math.round(cursor.iterator.CurrentSourceTimestamp.RealValue * 4 * TICKS_PER_QUARTER))
     cursor.next()
+  }
+  // The loop above exits two ways: EndReached (the whole score was walked —
+  // the ordinary case) or the cap (onsetTicks.length hit MAX_CURSOR_STEPS
+  // first). Only the latter truncates real cursor tracking, and it did so
+  // silently before this fix — the cursor could then never advance past the
+  // last collected onset, which presented in the running app as playback
+  // freezing partway through with nothing in the console.
+  if (!cursor.iterator.EndReached) {
+    console.warn(
+      `osmdEngraver: cursor onset walk hit the ${MAX_CURSOR_STEPS}-step cap ` +
+        'before reaching the end of the score; cursor tracking will be ' +
+        'truncated beyond that onset.',
+    )
   }
   cursor.reset()
   return onsetTicks
@@ -233,7 +264,14 @@ function collectOnsetTicks(cursor: OsmdCursor): readonly number[] {
 
 /**
  * Move the cursor to the onset index `stepsToOnsetAtOrBefore` chose, from
- * wherever it already is. Returns the index it now sits on.
+ * wherever it already is. Returns the index the cursor actually ended up on
+ * — NOT necessarily `to`: the walk stops early either because the real
+ * cursor's `EndReached` flipped, or because it hit `MAX_CURSOR_STEPS_PER_MOVE`
+ * for this call. Returning the real index (rather than the requested one)
+ * is required for correctness, not just the per-frame budget: the caller
+ * stores the return value as `cursorIndex` and uses it as `from` on the next
+ * call, so reporting a index the cursor never reached would make that next
+ * call under-step and leave the cursor permanently behind.
  *
  * Forward is one `next()` per onset crossed — the ordinary case, and usually
  * zero of them. Backward (a seek, a loop wrap, Stop) is the only case that
@@ -241,15 +279,18 @@ function collectOnsetTicks(cursor: OsmdCursor): readonly number[] {
  */
 function moveCursorToIndex(cursor: OsmdCursor, from: number, to: number): number {
   if (to === from) return from
+  let i: number
   if (to < from) {
     cursor.reset()
-    for (let i = 0; i < to && !cursor.iterator.EndReached; i++) cursor.next()
+    const budget = Math.min(to, MAX_CURSOR_STEPS_PER_MOVE)
+    for (i = 0; i < budget && !cursor.iterator.EndReached; i++) cursor.next()
   } else {
-    for (let i = from; i < to && !cursor.iterator.EndReached; i++) cursor.next()
+    const budget = Math.min(to, from + MAX_CURSOR_STEPS_PER_MOVE)
+    for (i = from; i < budget && !cursor.iterator.EndReached; i++) cursor.next()
   }
   cursor.update()
   cursor.show()
-  return to
+  return i
 }
 
 export type OsmdEngraverOptions = {

@@ -195,6 +195,54 @@ function makeFakeCursor(onsetTicks: readonly number[]): {
   return state
 }
 
+/**
+ * A cursor double whose `EndReached` is ALWAYS false and whose per-step work
+ * is pure arithmetic on an index — no backing array, no per-step allocation
+ * — so a walk of hundreds of thousands of steps (as the `MAX_CURSOR_STEPS`
+ * cap test below needs, to prove the walk stops instead of hanging forever
+ * against a cursor that genuinely never ends) stays cheap: O(1) time and
+ * memory per `next()`.
+ */
+function makeUnboundedFakeCursor(): { readonly cursor: OsmdLike['cursor']; state: { index: number } } {
+  const state = { index: 0 }
+  return {
+    state,
+    cursor: {
+      iterator: {
+        // Bounded just above MAX_CURSOR_STEPS (200_000), not literally
+        // forever: a cursor whose EndReached NEVER flips turns the obvious
+        // mutant on the walk's cap guard (deleting
+        // `onsetTicks.length < MAX_CURSOR_STEPS`) into an infinite
+        // synchronous loop, which hangs the whole vitest worker instead of
+        // failing the assertion below — the weakest possible signal for the
+        // regression this test exists to catch. With the bound here, the
+        // same mutant instead produces a clean, fast assertion failure (no
+        // warn call, walk parks past 200_000).
+        get EndReached() {
+          return state.index >= 200_010
+        },
+        CurrentSourceTimestamp: {
+          // OSMD reports whole notes; the engraver multiplies by 4 * TPQ.
+          get RealValue() {
+            return state.index / (4 * 480)
+          },
+        },
+      },
+      reset: () => {
+        state.index = 0
+      },
+      next: () => {
+        state.index += 1
+      },
+      nextMeasure: () => {
+        state.index += 1
+      },
+      update: () => undefined,
+      show: () => undefined,
+    },
+  }
+}
+
 /** A `scheduleRender` double that captures each pending flush instead of running it. */
 function makeFakeScheduler(): {
   readonly scheduleRender: (run: () => void) => void
@@ -1020,5 +1068,82 @@ describe('cursor movement', () => {
     engraver.moveCursorTo(0, 965)
 
     expect(cursor.index).toBe(2)
+  })
+})
+
+describe('createOsmdEngraver: MAX_CURSOR_STEPS cap (roadmap 2.32f)', () => {
+  // Negative case first: an ordinary short score never comes near the cap,
+  // so the cap-reached warning must never fire for it.
+  it('does not warn when the onset walk reaches EndReached well under the cap', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      const cursor = makeFakeCursor([0, 480, 960, 1440, 1920])
+      const fakeOsmd = makeFakeOsmd([measureOf(containerOf(note(60)))])
+      const withCursor: OsmdLike = { ...fakeOsmd, cursor: cursor.cursor }
+      const engraver = createOsmdEngraver({ createOsmd: () => withCursor })
+
+      await engraver.load(document.createElement('div'), '<xml/>', singleNoteScore())
+
+      expect(warn).not.toHaveBeenCalled()
+      // The walk actually collected the onsets (not just reset back to the
+      // start, which `collectOnsetTicks` does unconditionally regardless of
+      // whether anything was collected): five onsets crossed means five
+      // `next()` calls.
+      expect(cursor.calls.next).toBe(5)
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  // Positive case: a cursor that never reports EndReached (modelling a score
+  // with more onsets than any real piece could have) must not hang the walk
+  // forever, must cap the collected onsets at MAX_CURSOR_STEPS, and must warn
+  // exactly once, naming the cap, so a truncated cursor is visible instead of
+  // presenting as "the cursor silently stops moving partway through".
+  it('caps the onset walk at 200_000 steps and warns exactly once, naming the cap, when the score never reports EndReached', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      const unbounded = makeUnboundedFakeCursor()
+      const fakeOsmd = makeFakeOsmd([measureOf(containerOf(note(60)))])
+      const withCursor: OsmdLike = { ...fakeOsmd, cursor: unbounded.cursor }
+      const engraver = createOsmdEngraver({ createOsmd: () => withCursor })
+
+      await engraver.load(document.createElement('div'), '<xml/>', singleNoteScore())
+
+      expect(warn).toHaveBeenCalledTimes(1)
+      const [message] = warn.mock.calls[0] ?? []
+      expect(typeof message).toBe('string')
+      expect(message as string).toContain('osmdEngraver')
+      expect(message as string).toContain('200000')
+
+      // Proves onsetTicks itself was capped, not just the walk that built it:
+      // `collectOnsetTicks` reset the cursor back to index 0 before returning,
+      // so moving to an arbitrarily large tick from here can only ever park on
+      // the LAST collected onset (index 200_000 - 1).
+      //
+      // But a single `moveCursorTo` call may NOT take all 199_999 steps in one
+      // go — each one is a real, visible-cursor `next()` (OSMD's full
+      // graphical `Cursor.update()`), so one frame issuing ~200k of them would
+      // freeze the UI on the very first frame after load. `moveCursorToIndex`
+      // caps each call's work (MAX_CURSOR_STEPS_PER_MOVE, well under the
+      // 200_000 onset cap) and reports back the index it actually reached, so
+      // the first call only makes partial progress...
+      engraver.moveCursorTo(0, Number.MAX_SAFE_INTEGER)
+      const afterFirstMove = unbounded.state.index
+      expect(afterFirstMove).toBeGreaterThan(0)
+      expect(afterFirstMove).toBeLessThan(199_999)
+
+      // ...and subsequent frames (still targeting the same huge tick) pick up
+      // from wherever the cursor actually stopped, eventually converging on
+      // the last collected onset rather than getting stuck behind it forever.
+      for (let i = 0; i < 199_999 / Math.max(afterFirstMove, 1) + 2; i++) {
+        engraver.moveCursorTo(0, Number.MAX_SAFE_INTEGER)
+        if (unbounded.state.index >= 199_999) break
+      }
+
+      expect(unbounded.state.index).toBe(199_999)
+    } finally {
+      warn.mockRestore()
+    }
   })
 })
