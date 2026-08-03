@@ -15,12 +15,15 @@
   // the roadmap task that will wire it: when that task lands, DELETE the line — a permanent entry
   // here is how "green tests, never executed" hides. Nothing may be added without a task id.
   "ignore": [
-    // roadmap 4.9 — the shipped curriculum content this validates. Nothing
-    // authors a Curriculum yet, so nothing calls the validator. This is the
-    // LAST entry in this list; when 4.9 lands, delete it and the list with it.
+    // roadmap 4.9b — the lesson screen. `CURRICULUM` is now authored (4.9) and
+    // `curriculum.test.ts` runs `validateCurriculum` over it, but a test is not
+    // production reachability: under --production nothing imports either the
+    // content or the validator. Both lines go when the lesson screen renders
+    // `CURRICULUM`; neither may outlive 4.9b.
     "src/core/curriculum/model.ts",
-    // roadmap 4.9a — seeds a fresh repertoire library from this list. Delete
-    // this line when 4.9a lands.
-    "src/content/repertoire/gradedPieces.ts"
+    "src/content/curriculum/*.ts",
+    // roadmap 4.9b — the demonstrations each lesson names via `demoScoreId`.
+    // Reachable only once the lesson screen engraves them.
+    "src/content/scores/demoScores.ts"
   ]
 }
