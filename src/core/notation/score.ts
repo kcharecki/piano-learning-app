@@ -596,19 +596,28 @@ export function measureRange(
  * new press is expected. `toleranceTicks` measures from the group's first onset,
  * so a long stream of near-simultaneous notes cannot drift into one group.
  *
- * @public — `core/practice/matcher.ts`'s `buildExpected` re-derives this exact
- * grouping rule (notes sharing a `startTick`) internally instead of calling this,
- * and its own comment cross-references `chordGroups` by name as "the same rule".
- * That is a genuine dedup opportunity, but `matcher.ts` is out of this module's
- * scope to edit — kept live and documented here rather than deleted.
+ * Takes the note list rather than a whole `Score` so a caller can group an
+ * already hand-filtered subset — `core/practice/matcher.ts`'s `buildExpected`
+ * calls this on the active (tied- and hand-filtered) notes, because chord SIZES
+ * must be computed over what is actually being practised.
+ *
+ * Input must be sorted ascending by `startTick` (as `Score.notes` always is);
+ * the tolerance rule assumes it.
  */
-export function chordGroups(score: Score, toleranceTicks = 0): readonly (readonly ScoreNote[])[] {
+export function chordGroups(
+  notes: readonly ScoreNote[],
+  toleranceTicks = 0,
+): readonly (readonly ScoreNote[])[] {
   invariant(toleranceTicks >= 0, `chordGroups: negative tolerance ${toleranceTicks}`)
   const groups: ScoreNote[][] = []
   let current: ScoreNote[] | undefined
   let anchor = 0
-  for (const n of score.notes) {
+  for (const n of notes) {
     if (n.tiedFrom) continue
+    invariant(
+      current === undefined || n.startTick >= anchor,
+      'chordGroups: notes must be ascending by startTick',
+    )
     if (current === undefined || n.startTick - anchor > toleranceTicks) {
       current = []
       groups.push(current)

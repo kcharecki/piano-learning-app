@@ -737,7 +737,7 @@ describe('measureRange', () => {
 
 describe('chordGroups', () => {
   it('groups notes sharing an onset', () => {
-    const groups = chordGroups(TWO_HAND_CHORDS)
+    const groups = chordGroups(TWO_HAND_CHORDS.notes)
     expect(groups.map((g) => midis(g))).toEqual([
       [48, 52, 55, 72], // bar 1 beat 1: C major triad under C5
       [74],
@@ -756,11 +756,11 @@ describe('chordGroups', () => {
   })
 
   it('gives each melody note its own group', () => {
-    expect(chordGroups(C_MAJOR_SCALE_RH)).toHaveLength(8)
+    expect(chordGroups(C_MAJOR_SCALE_RH.notes)).toHaveLength(8)
   })
 
   it('skips tied continuations — no new key press is expected', () => {
-    const groups = chordGroups(TIED_NOTES)
+    const groups = chordGroups(TIED_NOTES.notes)
     expect(groups.map((g) => midis(g))).toEqual([[64], [60], [67]])
     expect(groups.flat().every((n) => !n.tiedFrom)).toBe(true)
   })
@@ -772,17 +772,17 @@ describe('chordGroups', () => {
       { midi: 67, startTick: 16 },
       { midi: 72, startTick: 480 },
     ])
-    expect(chordGroups(score, 10).map((g) => midis(g))).toEqual([[60, 64], [67], [72]])
-    expect(chordGroups(score, 20).map((g) => midis(g))).toEqual([[60, 64, 67], [72]])
-    expect(chordGroups(score, 0).map((g) => midis(g))).toEqual([[60], [64], [67], [72]])
+    expect(chordGroups(score.notes, 10).map((g) => midis(g))).toEqual([[60, 64], [67], [72]])
+    expect(chordGroups(score.notes, 20).map((g) => midis(g))).toEqual([[60, 64, 67], [72]])
+    expect(chordGroups(score.notes, 0).map((g) => midis(g))).toEqual([[60], [64], [67], [72]])
   })
 
   it('rejects a negative tolerance', () => {
-    expect(() => chordGroups(C_MAJOR_SCALE_RH, -1)).toThrow(/negative tolerance/)
+    expect(() => chordGroups(C_MAJOR_SCALE_RH.notes, -1)).toThrow(/negative tolerance/)
   })
 
   it('is empty for a score with no notes', () => {
-    expect(chordGroups(makeScore({ id: 's', measures: [{}], notes: [] }))).toEqual([])
+    expect(chordGroups(makeScore({ id: 's', measures: [{}], notes: [] }).notes)).toEqual([])
   })
 })
 
@@ -1067,12 +1067,37 @@ describe('score properties', () => {
   it('chordGroups partitions the notes that need a key press, in order', () => {
     fc.assert(
       fc.property(scoreArb, fc.nat({ max: 200 }), (score, tolerance) => {
-        const groups = chordGroups(score, tolerance)
+        const groups = chordGroups(score.notes, tolerance)
         expect(groups.flatMap((g) => ids(g))).toEqual(ids(score.notes.filter((n) => !n.tiedFrom)))
         for (const group of groups) {
           const anchor = at(group, 0).startTick
           for (const n of group) expect(n.startTick - anchor).toBeLessThanOrEqual(tolerance)
         }
+      }),
+    )
+  })
+
+  it('with default tolerance, agrees with grouping by strict equality of startTick', () => {
+    // `buildExpected` (core/practice/matcher.ts) used to re-derive its own grouping by
+    // strict `startTick` equality before it was rewritten to call `chordGroups`. At
+    // tolerance 0, `chordGroups`'s groups are exactly the maximal runs of equal
+    // `startTick` — this pins that equivalence so an off-by-one in the tolerance
+    // comparison (e.g. `>=` instead of `>`) breaks loudly instead of silently changing
+    // matcher behaviour.
+    fc.assert(
+      fc.property(scoreArb, (score) => {
+        const groups = chordGroups(score.notes)
+        const strictGroups: ScoreNote[][] = []
+        for (const n of score.notes) {
+          if (n.tiedFrom) continue
+          const last = strictGroups[strictGroups.length - 1]
+          if (last !== undefined && at(last, 0).startTick === n.startTick) {
+            last.push(n)
+          } else {
+            strictGroups.push([n])
+          }
+        }
+        expect(groups.map((g) => ids(g))).toEqual(strictGroups.map((g) => ids(g)))
       }),
     )
   })

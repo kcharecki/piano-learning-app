@@ -665,6 +665,17 @@ describe('NoteMatcher — hand filtering', () => {
     const matcher = matcherFor(TWO_HAND_CHORDS, { hands: ['left', 'right'] })
     expect(matcher.pendingNotes()).toHaveLength(25)
   })
+
+  it('shrinks a two-hand chord to a lone note when only one hand is practised', () => {
+    const m = matcherFor(TWO_HAND_CHORDS, rightOnly)
+    const r = verdictOf(m, 72, 75)
+    expect(r.verdict).toBe('correct')
+    expect(r.deviationMs).toBe(75)
+    // chordSize 1, so the narrow 50 ms onTime band, not the 80 ms chord window.
+    expect(r.timing).toBe('late')
+    // …the same press is onTime when both hands make it a 4-note chord.
+    expect(verdictOf(matcherFor(TWO_HAND_CHORDS), 72, 75).timing).toBe('onTime')
+  })
 })
 
 // ================================================================ bookkeeping

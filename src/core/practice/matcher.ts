@@ -65,7 +65,7 @@
  *    value. REQ-3.3.2 is about which key and when, and release timing is far
  *    noisier than onset timing on a beginner's keyboard.
  */
-import type { Hand, Score, ScoreNote } from '@core/notation/score.ts'
+import { chordGroups, type Hand, type Score, type ScoreNote } from '@core/notation/score.ts'
 import { at, invariant } from '@core/shared/invariant.ts'
 import {
   isValidMidi,
@@ -151,23 +151,38 @@ function requireTime(value: number, where: string): number {
 
 /**
  * Onset milliseconds plus chord-group sizes. A chord is what the score writes as
- * one — notes sharing a `startTick`, the same rule `chordGroups()` applies — and
- * NOT notes that happen to land close together in milliseconds: grouping by
- * elapsed time would turn any run faster than the group window into a "chord",
- * and would do so more eagerly the faster the practice tempo.
+ * one — notes sharing a `startTick` — grouped by `chordGroups()`, and NOT notes
+ * that happen to land close together in milliseconds: grouping by elapsed time
+ * would turn any run faster than the group window into a "chord", and would do
+ * so more eagerly the faster the practice tempo.
+ *
+ * `chordGroups` takes the note list rather than a whole `Score` deliberately:
+ * chord SIZES must be computed over `notes` as handed to this function — already
+ * filtered to the hand(s) being practised — because a two-hand chord practised
+ * right-hand-only is a smaller chord.
+ *
+ * `chordGroups` also skips `tiedFrom` notes, but the caller (`NoteMatcher`'s
+ * constructor) has already filtered those out before `notes` reaches here, so
+ * that skip is a no-op on this path. The invariant below asserts that
+ * precondition rather than silently letting a tied note vanish from the
+ * output — every input note must produce exactly one `Expected`.
  *
  * Notes arrive sorted by tick and `tickToMs` is monotonic, so the resulting `ms`
  * array is non-decreasing — the ordering every cursor in the matcher relies on.
+ * `chordGroups` preserves input order (it only partitions into consecutive
+ * runs), so flattening its groups lines back up with `notes` index-for-index.
  */
 function buildExpected(notes: readonly ScoreNote[], tempo: TempoMap): readonly Expected[] {
-  const sizes = new Array<number>(notes.length).fill(1)
-  let start = 0
-  for (let i = 1; i <= notes.length; i++) {
-    if (i === notes.length || at(notes, i).startTick !== at(notes, start).startTick) {
-      for (let j = start; j < i; j++) sizes[j] = i - start
-      start = i
-    }
-  }
+  const groups = chordGroups(notes)
+  const sizes: number[] = []
+  for (const group of groups) for (let i = 0; i < group.length; i++) sizes.push(group.length)
+  // Deliberately uncoverable: `buildExpected` is private with one call site
+  // (`NoteMatcher`'s constructor), which already strips `tiedFrom` before calling this.
+  // Kept as a programmer-error guard against a future call site skipping that filter.
+  invariant(
+    sizes.length === notes.length,
+    'buildExpected: input must already be tied-filtered — chordGroups dropped a tiedFrom note',
+  )
   return notes.map((note, i) => ({
     note,
     ms: tickToMs(tempo, note.startTick) as number,
