@@ -23,6 +23,7 @@ import { SightReadingScreen } from '@app/sightreading/SightReadingScreen.tsx'
 import { TechniqueScreen } from '@app/technique/TechniqueScreen.tsx'
 import { TheoryScreen } from '@app/theory/TheoryScreen.tsx'
 import type { Exercise } from '@core/curriculum/types.ts'
+import { techniqueDrillById } from '@core/technique/library.ts'
 import { useState } from 'react'
 
 const NAV_ITEMS = [
@@ -63,7 +64,26 @@ function destinationFor(exercise: Exercise): ScreenId {
   }
 }
 
-function renderScreen(screen: ScreenId, open: (exercise: Exercise) => void) {
+/**
+ * The technique drill a planned session item asked for (roadmap 2.34). The
+ * plan names a `drillId`; the screen also needs the level that drill lives at,
+ * because `useTechniqueDrill` builds its picker from `techniqueLibrary(level)`
+ * and would drop an id that is not in that level's list.
+ */
+type OpenedTechnique = { readonly drillId: string; readonly level: number }
+
+/** The planned drill, if this exercise names one the library actually knows. */
+function openedTechniqueOf(exercise: Exercise): OpenedTechnique | undefined {
+  const drillId = exercise.params?.['drillId']
+  const drill = typeof drillId === 'string' ? techniqueDrillById(drillId) : undefined
+  return drill === undefined ? undefined : { drillId: drill.id, level: drill.level }
+}
+
+function renderScreen(
+  screen: ScreenId,
+  open: (exercise: Exercise) => void,
+  technique: OpenedTechnique | undefined,
+) {
   switch (screen) {
     case 'today':
       return <SessionPlanScreen onOpen={open} />
@@ -78,7 +98,18 @@ function renderScreen(screen: ScreenId, open: (exercise: Exercise) => void) {
     case 'rhythm':
       return <RhythmScreen />
     case 'technique':
-      return <TechniqueScreen />
+      // `key` remounts the screen when the plan names a different drill, so
+      // `initialDrillId`/`initialLevel` (read once into `useState`) are
+      // re-read instead of being ignored on a second Today → Technique hop.
+      return technique === undefined ? (
+        <TechniqueScreen />
+      ) : (
+        <TechniqueScreen
+          key={technique.drillId}
+          initialDrillId={technique.drillId}
+          initialLevel={technique.level}
+        />
+      )
     case 'metronome':
       return <MetronomeScreen />
     case 'theory':
@@ -92,6 +123,12 @@ function renderScreen(screen: ScreenId, open: (exercise: Exercise) => void) {
 
 export function Shell() {
   const [screen, setScreen] = useState<ScreenId>('practice')
+  const [technique, setTechnique] = useState<OpenedTechnique | undefined>(undefined)
+
+  function open(exercise: Exercise): void {
+    if (exercise.kind === 'technique') setTechnique(openedTechniqueOf(exercise))
+    setScreen(destinationFor(exercise))
+  }
 
   return (
     <div className="shell">
@@ -111,9 +148,7 @@ export function Shell() {
           ))}
         </ul>
       </nav>
-      <main className="shell-main">
-        {renderScreen(screen, (exercise) => setScreen(destinationFor(exercise)))}
-      </main>
+      <main className="shell-main">{renderScreen(screen, open, technique)}</main>
     </div>
   )
 }

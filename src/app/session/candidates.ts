@@ -9,12 +9,12 @@
  *
  * Each `Exercise.params` is exactly what the shell needs to open the real
  * destination — never an invented drill the app cannot run:
- *  - `technique`: **empty**, deliberately — there is no technique-drill
- *    screen in the app yet (no `NAV_ITEMS` entry, no `onOpen` case can route
- *    `params.drillId`), so emitting one would be exactly the forbidden case
- *    of an exercise nothing can open. `planSession` redistributes this
- *    segment's share over the other three. Restore this once a technique
- *    screen exists to open `techniqueDrillById(params.drillId)`.
+ *  - `technique`: one `Exercise` per drill at the playing-track level, each
+ *    carrying `params.drillId`. `Shell.tsx` resolves that id through
+ *    `techniqueDrillById` and hands the drill's id AND its level to
+ *    `TechniqueScreen` (roadmap 2.34) — the level matters because
+ *    `useTechniqueDrill` builds its picker from `techniqueLibrary(level)` and
+ *    silently drops an id absent from that list.
  *  - `sight-reading`: a single "keep sight-reading" `Exercise` — the trainer
  *    itself generates the actual exercise and reads its level from the
  *    store, so there is nothing further to parametrise.
@@ -25,7 +25,7 @@
  *
  * ## Ambiguities flagged, not resolved silently
  *
- * 1. (superseded — technique now emits no candidates; see above.)
+ * 1. (superseded — technique candidates are emitted and routed; see above.)
  * 2. `FlashcardScreen` keeps its deck kind in private `useState` and its
  *    props expose only port-injection seams — there is no
  *    `initialKind`/`drillKind` prop the shell can pass, so the second deck
