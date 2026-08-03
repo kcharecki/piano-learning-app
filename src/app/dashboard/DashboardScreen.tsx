@@ -48,6 +48,14 @@ export function DashboardScreen(props: DashboardScreenProps) {
     value: round(p.bpm),
   }))
 
+  const assessmentRunCounts: Record<string, number> = {}
+  const assessmentPoints: readonly TrendChartPoint[] = data.assessmentTrend.map((p) => {
+    const run = (assessmentRunCounts[p.scoreId] ?? 0) + 1
+    assessmentRunCounts[p.scoreId] = run
+    return { label: `${p.scoreTitle} run ${run}`, value: round(p.accuracy * 100) }
+  })
+  const assessmentBestByScoreEntries = Object.entries(data.assessmentBestByScore)
+
   return (
     <div className="dashboard-screen">
       <h2>Progress</h2>
@@ -141,6 +149,37 @@ export function DashboardScreen(props: DashboardScreenProps) {
             ariaLabel="Sight-reading accuracy over time"
             valueSuffix="%"
           />
+        )}
+      </section>
+
+      <section aria-label="Assessment accuracy" role="region">
+        <h3>Assessment accuracy</h3>
+        {data.assessmentTrend.length === 0 ? (
+          <p role="status" data-testid="dashboard-assessment-empty">
+            Nothing recorded yet — no repertoire assessment has been run.
+          </p>
+        ) : (
+          <>
+            <TrendChart
+              points={assessmentPoints}
+              kind="line"
+              ariaLabel="Assessment accuracy over time"
+              valueSuffix="%"
+            />
+            <h4>Best accuracy per piece</h4>
+            <ul aria-label="Best assessment accuracy per piece">
+              {assessmentBestByScoreEntries.map(([scoreId, accuracy]) => {
+                const scoreTitle =
+                  [...data.assessmentTrend].reverse().find((p) => p.scoreId === scoreId)
+                    ?.scoreTitle ?? scoreId
+                return (
+                  <li key={scoreId} data-testid={`dashboard-assessment-best-${scoreId}`}>
+                    {scoreTitle}: {round(accuracy * 100)}%
+                  </li>
+                )
+              })}
+            </ul>
+          </>
         )}
       </section>
 

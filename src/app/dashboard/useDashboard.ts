@@ -60,7 +60,7 @@ import { TRACKS, type Track } from '@core/curriculum/types.ts'
 import type { CriterionStatus } from '@core/progress/levels.ts'
 import { tempoHistory, bestCleanBpm, type TechniqueAttempt, type TempoPoint } from '@core/technique/evenness.ts'
 import { maintenanceDue, type RepertoirePiece } from '@core/repertoire/repertoire.ts'
-import { useProgressStore } from '@app/state/progressStore.ts'
+import { useProgressStore, type StoredAssessment } from '@app/state/progressStore.ts'
 import { useSightReadingStore } from '@app/state/sightReadingStore.ts'
 import { useFlashcardStore } from '@app/state/flashcardStore.ts'
 import { useTechniqueStore } from '@app/state/techniqueStore.ts'
@@ -85,6 +85,13 @@ export type UseDashboardOptions = {
 export type SightReadingTrendPoint = {
   readonly at: number
   readonly accuracy: number
+}
+
+export type AssessmentTrendPoint = {
+  readonly at: number
+  readonly accuracy: number
+  readonly scoreId: string
+  readonly scoreTitle: string
 }
 
 export type DashboardTrackLevel = {
@@ -115,6 +122,20 @@ export type DashboardData = {
   readonly sightReadingLevel: number
   /** Oldest first. `[]` until at least one sight-reading run has been graded. */
   readonly sightReadingTrend: readonly SightReadingTrendPoint[]
+  /**
+   * Every recorded repertoire assessment (`useProgressStore.assessments`,
+   * REQ-3.3.4) as a trend point, oldest first — a separate source from
+   * `sightReadingTrend` above (generated sight-reading exercise runs) and
+   * never conflated with it. `[]` until one is recorded.
+   */
+  readonly assessmentTrend: readonly AssessmentTrendPoint[]
+  /**
+   * Best accuracy (0..1) among the RETAINED assessments per `scoreId`, from
+   * `assessmentTrend` — capped at `MAX_STORED_ASSESSMENTS` (see
+   * `progressStore.ts`); an older, better run that has since been evicted is
+   * not counted. `{}` until one is recorded.
+   */
+  readonly assessmentBestByScore: Readonly<Record<string, number>>
   readonly retention: RetentionStats
   /** `useTechniqueStore`'s persisted attempts, newest first (the store's own order). `[]` until a drill has been run. */
   readonly techniqueAttempts: readonly TechniqueAttempt[]
@@ -143,6 +164,7 @@ export function useDashboard(options: UseDashboardOptions = {}): DashboardData {
   const utcOffsetMinutes = options.utcOffsetMinutes ?? -new Date().getTimezoneOffset()
 
   const practiceEntries = useProgressStore((s) => s.practiceEntries)
+  const assessments = useProgressStore((s) => s.assessments)
   const sightReadingLevel = useSightReadingStore((s) => s.level)
   const sightReadingHistory = useSightReadingStore((s) => s.history)
   const cardsById = useFlashcardStore((s) => s.cardsById)
@@ -165,6 +187,26 @@ export function useDashboard(options: UseDashboardOptions = {}): DashboardData {
     const sightReadingTrend = [...sightReadingHistory]
       .sort((a, b) => a.readAt - b.readAt)
       .map((r) => ({ at: r.readAt, accuracy: r.accuracy }))
+
+    // `assessments` (from `useProgressStore`, roadmap 2.24) is stored NEWEST
+    // first, capped — reverse to oldest-first to match `sightReadingTrend`
+    // and `techniqueTrend` above and how `TrendChart`/the screen read a
+    // series left-to-right.
+    const assessmentTrend: readonly AssessmentTrendPoint[] = [...assessments]
+      .sort((a, b) => a.at - b.at)
+      .map((a: StoredAssessment) => ({
+        at: a.at,
+        accuracy: a.result.accuracy,
+        scoreId: a.scoreId,
+        scoreTitle: a.scoreTitle,
+      }))
+    const assessmentBestByScore: Readonly<Record<string, number>> = assessmentTrend.reduce<
+      Record<string, number>
+    >((best, p) => {
+      const prior = best[p.scoreId]
+      if (prior === undefined || p.accuracy > prior) best[p.scoreId] = p.accuracy
+      return best
+    }, {})
 
     // `levelState` (from `useLevelStore`, roadmap 4.3) is the curriculum
     // track level for all three tracks — see the module comment for why this
@@ -206,6 +248,8 @@ export function useDashboard(options: UseDashboardOptions = {}): DashboardData {
       dailyMinutes: dailyTotals(practiceEntries, from, now, utcOffsetMinutes),
       sightReadingLevel,
       sightReadingTrend,
+      assessmentTrend,
+      assessmentBestByScore,
       retention: retentionStats(theoryCards, now),
       techniqueAttempts,
       techniqueTrend,
@@ -219,6 +263,7 @@ export function useDashboard(options: UseDashboardOptions = {}): DashboardData {
     date,
     utcOffsetMinutes,
     practiceEntries,
+    assessments,
     sightReadingLevel,
     sightReadingHistory,
     cardsById,

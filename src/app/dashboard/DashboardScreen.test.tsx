@@ -9,6 +9,8 @@ import type { PracticeEntry } from '@core/progress/log.ts'
 import { DAY_MS } from '@core/srs/scheduler.ts'
 import type { SightReadingRecord } from '@core/sightreading/session.ts'
 import type { RepertoirePiece } from '@core/repertoire/repertoire.ts'
+import type { AssessmentResult } from '@core/practice/assessment.ts'
+import type { StoredAssessment } from '@app/state/progressStore.ts'
 import { initialLevelState } from '@core/progress/levels.ts'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -55,6 +57,7 @@ describe('DashboardScreen — empty state', () => {
     expect(screen.getByRole('region', { name: 'Current level per track' })).toBeTruthy()
     expect(screen.getByRole('region', { name: 'Practice streak and weekly time' })).toBeTruthy()
     expect(screen.getByRole('region', { name: 'Sight-reading accuracy trend' })).toBeTruthy()
+    expect(screen.getByRole('region', { name: 'Assessment accuracy' })).toBeTruthy()
     expect(screen.getByRole('region', { name: 'Technique tempo trends' })).toBeTruthy()
     expect(screen.getByRole('region', { name: 'Theory retention stats' })).toBeTruthy()
     expect(screen.getByRole('region', { name: 'Repertoire status' })).toBeTruthy()
@@ -81,6 +84,7 @@ describe('DashboardScreen — empty state', () => {
     expect(screen.getByTestId('dashboard-criteria-empty')).toBeTruthy()
     expect(screen.getByTestId('dashboard-weekly-empty')).toBeTruthy()
     expect(screen.getByTestId('dashboard-sightreading-empty')).toBeTruthy()
+    expect(screen.getByTestId('dashboard-assessment-empty')).toBeTruthy()
     expect(screen.getByTestId('dashboard-technique-empty')).toBeTruthy()
     expect(screen.getByTestId('dashboard-retention-empty')).toBeTruthy()
     expect(screen.getByTestId('dashboard-repertoire-empty')).toBeTruthy()
@@ -89,6 +93,29 @@ describe('DashboardScreen — empty state', () => {
     expect(screen.getByTestId('dashboard-retention-total').textContent).toBe('0')
   })
 })
+
+function assessmentResult(accuracy: number, completedAt: number): AssessmentResult {
+  return {
+    scoreId: 'irrelevant',
+    accuracy,
+    timingConsistency: 1,
+    meanAbsDeviationMs: 0,
+    tempoBpm: 120,
+    measures: [],
+    counts: { correct: 0, wrongPitch: 0, missed: 0, extra: 0 },
+    completedAt,
+  }
+}
+
+function storedAssessment(
+  id: string,
+  scoreId: string,
+  scoreTitle: string,
+  at: number,
+  accuracy: number,
+): StoredAssessment {
+  return { id, scoreId, scoreTitle, at, result: assessmentResult(accuracy, at) }
+}
 
 describe('DashboardScreen — seeded data', () => {
   it('renders the real streak and weekly minutes computed from the seeded practice log', () => {
@@ -154,6 +181,39 @@ describe('DashboardScreen — seeded data', () => {
     // one (unscaled accuracy, wrong point order) — read the actual values back.
     const titles = [...container.querySelectorAll('circle title')].map((t) => t.textContent)
     expect(titles).toEqual(['Run 1: 60%', 'Run 2: 95%'])
+  })
+
+  it('renders the real assessment accuracy trend and per-piece best accuracy from the seeded assessment history (roadmap 4.7c)', () => {
+    // 'piece-a's best run is in the MIDDLE (0.95) — a "latest" or "first"
+    // readout would display 0.7 or 0.6 instead.
+    const assessments: StoredAssessment[] = [
+      storedAssessment('a3', 'piece-a', 'Fur Elise', NOW - 1_000, 0.7),
+      storedAssessment('b1', 'piece-b', 'Clair de Lune', NOW - 2_000, 0.5),
+      storedAssessment('a2', 'piece-a', 'Fur Elise', NOW - 3_000, 0.95),
+      storedAssessment('a1', 'piece-a', 'Fur Elise', NOW - 5_000, 0.6),
+    ]
+    useProgressStore.setState({ assessments })
+
+    const { container } = render(
+      <DashboardScreen date={new FakeDateSource(NOW)} utcOffsetMinutes={0} />,
+    )
+
+    expect(screen.queryByTestId('dashboard-assessment-empty')).toBeNull()
+    expect(screen.getByRole('img', { name: 'Assessment accuracy over time' })).toBeTruthy()
+    const titles = [...container.querySelectorAll('circle title')].map((t) => t.textContent)
+    expect(titles).toEqual([
+      'Fur Elise run 1: 60%',
+      'Fur Elise run 2: 95%',
+      'Clair de Lune run 1: 50%',
+      'Fur Elise run 3: 70%',
+    ])
+
+    expect(screen.getByTestId('dashboard-assessment-best-piece-a').textContent).toBe(
+      'Fur Elise: 95%',
+    )
+    expect(screen.getByTestId('dashboard-assessment-best-piece-b').textContent).toBe(
+      'Clair de Lune: 50%',
+    )
   })
 
   it('renders the real retention stats from the seeded flashcard SRS state, theory cards only', () => {

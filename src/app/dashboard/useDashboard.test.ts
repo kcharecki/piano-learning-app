@@ -23,7 +23,7 @@ import { MIN_LEVEL } from '@core/sightreading/adaptive.ts'
 import type { SightReadingRecord } from '@core/sightreading/session.ts'
 import { TRACKS } from '@core/curriculum/types.ts'
 import { initialLevelState, type LevelState } from '@core/progress/levels.ts'
-import { renderHook, cleanup } from '@testing-library/react'
+import { act, renderHook, cleanup } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { useProgressStore } from '@app/state/progressStore.ts'
 import { useSightReadingStore } from '@app/state/sightReadingStore.ts'
@@ -33,6 +33,8 @@ import { useRepertoireStore } from '@app/state/repertoireStore.ts'
 import { useLevelStore } from '@app/state/levelStore.ts'
 import type { RepertoirePiece } from '@core/repertoire/repertoire.ts'
 import type { TechniqueAttempt } from '@core/technique/evenness.ts'
+import type { StoredAssessment } from '@app/state/progressStore.ts'
+import type { AssessmentResult } from '@core/practice/assessment.ts'
 import { useDashboard, type UseDashboardOptions } from './useDashboard.ts'
 
 class FakeDateSource implements DateSource {
@@ -106,6 +108,8 @@ describe('useDashboard — empty stores', () => {
 
     expect(data.sightReadingLevel).toBe(MIN_LEVEL)
     expect(data.sightReadingTrend).toEqual([])
+    expect(data.assessmentTrend).toEqual([])
+    expect(data.assessmentBestByScore).toEqual({})
 
     expect(data.retention).toEqual({ total: 0, due: 0, young: 0, mature: 0, averageEase: 0 })
 
@@ -217,6 +221,92 @@ describe('useDashboard — sight-reading history', () => {
       { at: NOW - 5_000, accuracy: 0.7 },
       { at: NOW - 1_000, accuracy: 0.9 },
     ])
+  })
+})
+
+function assessmentResult(accuracy: number, completedAt: number): AssessmentResult {
+  return {
+    scoreId: 'irrelevant', // StoredAssessment.scoreId is the one the hook reads
+    accuracy,
+    timingConsistency: 1,
+    meanAbsDeviationMs: 0,
+    tempoBpm: 120,
+    measures: [],
+    counts: { correct: 0, wrongPitch: 0, missed: 0, extra: 0 },
+    completedAt,
+  }
+}
+
+function storedAssessment(
+  id: string,
+  scoreId: string,
+  scoreTitle: string,
+  at: number,
+  accuracy: number,
+): StoredAssessment {
+  return { id, scoreId, scoreTitle, at, result: assessmentResult(accuracy, at) }
+}
+
+describe('useDashboard — repertoire assessment history (roadmap 4.7c, REQ-3.3.4)', () => {
+  it('reports an oldest-first trend across scores and the MAXIMUM accuracy per scoreId, not the latest or first', () => {
+    // 'piece-a' has its best run in the MIDDLE (0.95) — the mutant that
+    // matters: a "latest" or "first" reduction would report 0.7 or 0.6.
+    // Seeded neither ascending nor descending by `at` — `applyProgressSnapshot`
+    // can replace `assessments` wholesale with any storage order, so a
+    // `.reverse()` mutant in place of the real `.sort` must also fail here.
+    const assessments: StoredAssessment[] = [
+      storedAssessment('a2', 'piece-a', 'Fur Elise', NOW - 3_000, 0.95),
+      storedAssessment('a3', 'piece-a', 'Fur Elise', NOW - 1_000, 0.7),
+      storedAssessment('b1', 'piece-b', 'Clair de Lune', NOW - 2_000, 0.5),
+      storedAssessment('a1', 'piece-a', 'Fur Elise', NOW - 5_000, 0.6),
+    ]
+    useProgressStore.setState({ assessments })
+
+    const { result } = setup()
+    const data = result.current
+
+    expect(data.assessmentTrend).toEqual([
+      { at: NOW - 5_000, accuracy: 0.6, scoreId: 'piece-a', scoreTitle: 'Fur Elise' },
+      { at: NOW - 3_000, accuracy: 0.95, scoreId: 'piece-a', scoreTitle: 'Fur Elise' },
+      { at: NOW - 2_000, accuracy: 0.5, scoreId: 'piece-b', scoreTitle: 'Clair de Lune' },
+      { at: NOW - 1_000, accuracy: 0.7, scoreId: 'piece-a', scoreTitle: 'Fur Elise' },
+    ])
+    expect(data.assessmentBestByScore).toEqual({ 'piece-a': 0.95, 'piece-b': 0.5 })
+  })
+
+  it('keeps the assessment trend and the sight-reading trend as two separate, non-conflated sources', () => {
+    const assessments: StoredAssessment[] = [
+      storedAssessment('a1', 'piece-a', 'Fur Elise', NOW - 1_000, 0.8),
+    ]
+    useProgressStore.setState({ assessments })
+    const sightReadingHistory: SightReadingRecord[] = [
+      { pieceId: 'p1', readAt: NOW - 4_000, accuracy: 0.4, level: 1 },
+    ]
+    useSightReadingStore.setState({ level: 1, history: sightReadingHistory })
+
+    const { result } = setup()
+    const data = result.current
+
+    expect(data.assessmentTrend).toEqual([
+      { at: NOW - 1_000, accuracy: 0.8, scoreId: 'piece-a', scoreTitle: 'Fur Elise' },
+    ])
+    expect(data.sightReadingTrend).toEqual([{ at: NOW - 4_000, accuracy: 0.4 }])
+  })
+
+  it('recomputes when an assessment is added AFTER the initial render, not just on mount', () => {
+    const { result } = setup()
+    expect(result.current.assessmentTrend).toEqual([])
+
+    act(() => {
+      useProgressStore
+        .getState()
+        .addAssessment(storedAssessment('a2', 'piece-a', 'Fur Elise', NOW - 1_000, 0.9))
+    })
+
+    expect(result.current.assessmentTrend).toEqual([
+      { at: NOW - 1_000, accuracy: 0.9, scoreId: 'piece-a', scoreTitle: 'Fur Elise' },
+    ])
+    expect(result.current.assessmentBestByScore).toEqual({ 'piece-a': 0.9 })
   })
 })
 
