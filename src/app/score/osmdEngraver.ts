@@ -50,7 +50,11 @@ type EngravedNote = { NoteheadColor: string; readonly ParentVoiceEntry: { StemCo
 type EngravedRawNote = EngravedNote & { readonly halfTone: number; isRest(): boolean }
 type EngravedVoiceEntry = { readonly Notes: readonly EngravedRawNote[] }
 type EngravedStaffEntry = { readonly VoiceEntries: readonly EngravedVoiceEntry[] }
-type EngravedContainer = { readonly StaffEntries: readonly EngravedStaffEntry[] }
+// OSMD leaves a slot `undefined` when a staff has no entry at that container's
+// vertical timestamp (e.g. one staff rests while another sounds a note) — this
+// is a sparse array, not a dense one, however implausible the SDK's own types
+// make it look.
+type EngravedContainer = { readonly StaffEntries: readonly (EngravedStaffEntry | undefined)[] }
 type EngravedSourceMeasure = {
   readonly VerticalSourceStaffEntryContainers: readonly EngravedContainer[]
 }
@@ -149,6 +153,7 @@ function flattenMeasureNotes(containers: readonly EngravedContainer[]): Engraved
   for (const container of containers) {
     const atThisTick: { halfTone: number; note: EngravedNote }[] = []
     for (const staffEntry of container.StaffEntries) {
+      if (staffEntry === undefined) continue
       for (const voiceEntry of staffEntry.VoiceEntries) {
         for (const note of voiceEntry.Notes) {
           if (!note.isRest()) atThisTick.push({ halfTone: note.halfTone, note })

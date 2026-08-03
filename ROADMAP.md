@@ -293,6 +293,21 @@ recovered it commit by commit and recorded the evidence each box was ticked on.
       note map is built, instead of gating on the engraver being ready); and an e2e spec whose
       assertions rested on a miscounted "ink colour" total and ran after Stop had already rewound
       the cursor, silently revealing everything before the assertions checked it.
+- [x] 2.26a `app/score`: `osmdEngraver.ts`'s `buildNoteIdMap` threw for the app's OWN bundled sample
+      score (and any score where one staff rests while another sounds a note at the same tick —
+      OSMD leaves that `StaffEntries` slot `undefined`, not an entry with an empty voice, and
+      `flattenMeasureNotes` read `.VoiceEntries` off it unguarded). The catch-all `try/catch` around
+      the whole function swallowed the `TypeError` silently, leaving `noteById` permanently EMPTY
+      for that score — so correct/wrong/missed note colouring AND 2.26's read-ahead occlusion have
+      both been completely inert against the bundled Twinkle Twinkle sample since the day each
+      shipped, invisible to every e2e because they all drove custom small fixtures instead of the
+      score a user actually sees first. Found only by running 2.26's proof action in a real browser
+      against the bundled sample per CLAUDE.md — every existing unit and e2e test passed throughout.
+      *Proved: `osmdEngraver.test.ts` gained a fake `StaffEntries` array with a genuine `undefined`
+      slot (not a rest — a missing entry), reproducing the exact crash; it now maps and paints the
+      real note instead of throwing. Re-verified live: read-ahead against the bundled sample now
+      visibly occludes measures 1-4 while a fake-missed note behind the cursor still paints amber,
+      proving colour and hidden-state composition also recovered, not just the mapping.*
 - [x] 2.27 `app/practice`: tempo ramping (REQ-3.9.1's own worked example, "+2 BPM per clean
       repetition"). `startRamp`/`advanceRamp` in `core/timing/metronome.ts` have never been called
       by production code.

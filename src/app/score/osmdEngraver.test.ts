@@ -49,11 +49,25 @@ function rest(): FakeNote {
 }
 
 /** One `VerticalSourceStaffEntryContainer`: notes spread across staves/voices at one tick. */
-type FakeContainer = { readonly StaffEntries: { readonly VoiceEntries: { readonly Notes: FakeNote[] }[] }[] }
+type FakeContainer = {
+  readonly StaffEntries: ({ readonly VoiceEntries: { readonly Notes: FakeNote[] }[] } | undefined)[]
+}
 
 /** Wraps a flat list of `FakeNote`s, each in its own staff/voice, into one container. */
 function containerOf(...notes: FakeNote[]): FakeContainer {
   return { StaffEntries: notes.map((n) => ({ VoiceEntries: [{ Notes: [n] }] })) }
+}
+
+/**
+ * A container where some staves have NO entry at this vertical tick at all —
+ * OSMD leaves that `StaffEntries` slot `undefined` rather than an entry with
+ * an empty/rest voice, e.g. one hand sounds a note while the other rests.
+ * `null` in `slots` models that gap; a `FakeNote` models a real entry.
+ */
+function sparseContainerOf(...slots: (FakeNote | undefined)[]): FakeContainer {
+  return {
+    StaffEntries: slots.map((n) => (n === undefined ? undefined : { VoiceEntries: [{ Notes: [n] }] })),
+  }
 }
 
 type FakeMeasure = { readonly VerticalSourceStaffEntryContainers: readonly FakeContainer[] }
@@ -267,6 +281,33 @@ describe('createOsmdEngraver: id -> engraved-note mapping', () => {
     engraver.setNoteColor(only.id, 'purple')
 
     expect(engravedNote.NoteheadColor).toBe('purple')
+  })
+
+  it('does not throw, and still maps the real note, when a staff has NO entry at all at a tick (sparse StaffEntries)', async () => {
+    // Regression: OSMD leaves a `StaffEntries` slot `undefined` — not an entry
+    // with an empty voice — when one staff rests while another sounds a note
+    // at the same tick. The bundled sample score hits this on nearly every
+    // measure (right hand plays while the left hand's chord is silent, or vice
+    // versa), and `buildNoteIdMap`'s `try/catch` was silently swallowing a
+    // `TypeError` here, leaving the WHOLE map empty for that entire score —
+    // note colouring (correct/wrong/missed feedback) and read-ahead occlusion
+    // were both completely inert against the app's own default score. Caught
+    // only by actually running the app, not by this suite before this test.
+    const score = makeScore({
+      id: 'sparse-staff-entries',
+      measures: [{}],
+      notes: [{ midi: 60, startTick: 0, durationTicks: 480, hand: 'right' }],
+    })
+    const [only] = score.notes
+    if (only === undefined) throw new Error('setup')
+
+    const engravedNote = note(60)
+    const fakeOsmd = makeFakeOsmd([measureOf(sparseContainerOf(engravedNote, undefined))])
+
+    const engraver = await load(score, fakeOsmd)
+    engraver.setNoteHidden(only.id, true)
+
+    expect(engravedNote.NoteheadColor).toBe(HIDDEN_NOTE_COLOR)
   })
 
   it('leaves a measure with a mismatched note count UNMAPPED, while other measures still map', async () => {
