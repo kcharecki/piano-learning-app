@@ -341,8 +341,3 @@ export function toCsv(entries: readonly PracticeEntry[]): string {
   }
   return lines.join('\n')
 }
-
-/** Serialize entries as pretty-printed JSON for REQ-3.10.4's data export. */
-export function toJson(entries: readonly PracticeEntry[]): string {
-  return JSON.stringify(entries, null, 2)
-}

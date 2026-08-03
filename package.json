@@ -26,7 +26,7 @@
     "knip:prod:all": "knip --production",
     "mutate": "stryker run",
     "verify": "npm run typecheck && npm run lint && npm run test:all",
-    "verify:full": "npm run verify && npm run knip && npm run knip:prod && npm run test:e2e",
+    "verify:full": "npm run verify && npm run knip && npm run knip:prod:all && npm run test:e2e",
     "checkpoint": "node scripts/checkpoint.mjs"
   },
   "dependencies": {

@@ -28,12 +28,10 @@
  * wrong spelling.
  */
 import { at, invariant } from '@core/shared/invariant.ts'
-import type { Midi } from '@core/shared/units.ts'
 import {
   type Alter,
   diatonicStep,
   type Letter,
-  pitchClass,
   pitchName,
   spell,
   type SpelledPitch,
@@ -403,6 +401,12 @@ export function scaleNotes(
  * The classical descending form of the melodic minor, which is simply the
  * natural minor written top to bottom: A G F E D C B A. Returned descending,
  * starting an octave above the tonic.
+ *
+ * @public — the documented single-octave reference for this exact algorithm: both
+ * `technique/library.ts` (`scaleUpAndDown`) and `eartraining/chords.ts` cite this function by
+ * name in their own doc comments as the form they generalise (to any octave count) or intend to
+ * reach for. It completes {@link scaleNotes}/{@link buildScale} — both live in production — for
+ * the one case where ascent and descent are different pitches, not just a mirrored run.
  */
 export function melodicMinorDescending(tonic: SpelledPitch): readonly SpelledPitch[] {
   return [...scaleNotes(tonic, 'naturalMinor')].reverse()
@@ -416,25 +420,13 @@ export function melodicMinorDescending(tonic: SpelledPitch): readonly SpelledPit
  * Which degree `p` is, 1-based, or null if it is not in the scale. Matching is
  * by **spelling** and ignores the octave: in C major, E of any octave is degree
  * 3, and Fb is not in the scale at all even though it sounds like E.
+ *
+ * @public — documented inverse of `noteAtDegree`, which is live in
+ * `harmony.ts`; no production caller needs the reverse direction yet.
  */
 export function degreeOf(scale: Scale, p: SpelledPitch): number | null {
   const index = scale.notes.findIndex((n) => n.letter === p.letter && n.alter === p.alter)
   return index === -1 ? null : index + 1
-}
-
-/** {@link degreeOf} as a predicate — by spelling. */
-export function isInScale(scale: Scale, p: SpelledPitch): boolean {
-  return degreeOf(scale, p) !== null
-}
-
-/**
- * Is this sounding note one of the scale's pitch classes? By **sound**, so
- * MIDI 60 is in C major whether it would be written C, B# or Dbb — the question
- * a MIDI keyboard asks, where {@link isInScale} is the question a score asks.
- */
-export function containsPitchClass(scale: Scale, note: Midi): boolean {
-  const pc = pitchClass(note)
-  return scale.notes.some((n) => spelledPitchClass(n) === pc)
 }
 
 /**

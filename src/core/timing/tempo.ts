@@ -246,16 +246,6 @@ export function effectiveBpmAtTick(map: TempoMap, tick: Ticks): Bpm {
   return asBpm(bpmAtTick(map, tick) * map.scale)
 }
 
-/**
- * Wall-clock length of the tick span `[fromTick, toTick)`, tempo changes inside
- * it included. Signed: a backwards span gives a negative duration, which keeps it
- * additive (`d(a,b) + d(b,c) === d(a,c)` for any a, b, c).
- */
-export function tickDurationMs(map: TempoMap, fromTick: Ticks, toTick: Ticks): Millis {
-  requireMarks(map)
-  return asMillis((unscaledMs(map.marks, toTick) - unscaledMs(map.marks, fromTick)) / map.scale)
-}
-
 // -------------------------------------------------------------- beat helpers
 
 /**
@@ -268,7 +258,16 @@ export function beatsToTicks(beats: number): Ticks {
   return asTicks(beats * TICKS_PER_QUARTER)
 }
 
-/** Ticks -> quarter-note beats. 480 ticks is 1 beat; 720 is 1.5. */
+/**
+ * Ticks -> quarter-note beats. 480 ticks is 1 beat; 720 is 1.5.
+ *
+ * @public — the documented exact inverse of `beatsToTicks`, itself live in
+ * `core/timing/transport.ts` ("so the conversion is an exact inverse of
+ * ticksToBeats" is `beatsToTicks`'s own doc comment, above). The identical
+ * arithmetic is also already duplicated by hand in
+ * `core/notation/musicxmlwriter.ts` (`durationTicks / TICKS_PER_QUARTER`),
+ * which is outside this module's ownership to rewire.
+ */
 export function ticksToBeats(tick: Ticks): number {
   invariant(Number.isFinite(tick), `ticks must be a finite number, got ${tick}`)
   return tick / TICKS_PER_QUARTER

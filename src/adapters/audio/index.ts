@@ -25,6 +25,14 @@ export type SelectAudioOutputOptions = {
  * thunk, not an `AudioContext`, so the (comparatively expensive, and
  * autoplay-gated) context is only ever constructed when it is actually the
  * chosen output.
+ *
+ * @public — completes this module's live `createWebAudioOutput` export with
+ * REQ-4.7's full MIDI-out-first preference order. `app/practice/createDefaultAudioOutput.ts`
+ * calls `createWebAudioOutput` directly instead of this (documented there,
+ * and in ROADMAP.md 1.18, as MIDI-out not yet plumbed to the practice
+ * screen — `useMidiConnection` discards the `MidiOutput` it gets from
+ * `createWebMidi`, so there is nothing to pass in yet). Not a duplicate to
+ * dedupe: `createDefaultAudioOutput` never attempts MIDI selection itself.
  */
 export function selectAudioOutput(opts: SelectAudioOutputOptions): AudioOutput {
   if (opts.midi !== undefined && opts.midi.selectedDeviceId !== null) {

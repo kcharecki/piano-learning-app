@@ -143,6 +143,10 @@ export function identifyChord(notes: readonly Midi[]): readonly ChordMatch[] {
  * drill wants. With `allowDoubling` the written voicing must still be present
  * but extra doublings of chord tones — including a repeat of a note already in
  * the voicing — are forgiven.
+ *
+ * @public — the counterpart to {@link identifyChord} (live in production via `analysis.ts`):
+ * identifyChord answers "what chord is this", matchesChord answers "is this the chord I asked
+ * for", which a drill needs to grade a played voicing. Re-exported from `chords.ts`.
  */
 export function matchesChord(
   played: readonly Midi[],

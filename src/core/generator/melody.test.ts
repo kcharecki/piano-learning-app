@@ -16,7 +16,6 @@ import {
 import {
   defaultParamsForLevel,
   generateMelody,
-  rhythmDifficulty,
   type GeneratorParams,
   type HandIndependence,
   type MidiRange,
@@ -570,8 +569,10 @@ describe('defaultParamsForLevel', () => {
   })
 
   it('is monotonically harder in rhythm as level rises', () => {
+    // RHYTHMS is already ordered easiest-to-hardest, so its index is a stand-in
+    // for a difficulty score.
     const difficulties = [1, 2, 3, 4, 5].map((level) =>
-      rhythmDifficulty(defaultParamsForLevel(level).rhythm),
+      RHYTHMS.indexOf(defaultParamsForLevel(level).rhythm),
     )
     for (let i = 1; i < difficulties.length; i++) {
       expect(at(difficulties, i)).toBeGreaterThanOrEqual(at(difficulties, i - 1))

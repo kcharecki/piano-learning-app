@@ -20,7 +20,10 @@ import {
   type TimeSignature,
 } from '@core/notation/score.ts'
 import { at } from '@core/shared/invariant.ts'
-import { EIGHTH, HALF, QUARTER, TICKS_PER_QUARTER, WHOLE, dotted } from '@core/shared/units.ts'
+import { EIGHTH, HALF, QUARTER, TICKS_PER_QUARTER, WHOLE } from '@core/shared/units.ts'
+
+/** Dotted value: 1.5x the base — inlined here since `units.ts` dropped the unused helper. */
+const dotted = (t: number): number => t * 1.5
 
 export type TestNote = {
   readonly midi: number

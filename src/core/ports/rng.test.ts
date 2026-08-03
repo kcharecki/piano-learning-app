@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import fc from 'fast-check'
-import { pick, pickWeighted, randomInt, seededRng, shuffle } from './rng.ts'
+import { pick, pickWeighted, randomInt, seededRng } from './rng.ts'
 import { scriptedRng } from '@test/fakes.ts'
 
 describe('seededRng', () => {
@@ -131,34 +131,5 @@ describe('pickWeighted', () => {
   it('rejects a set with no positive weight', () => {
     expect(() => pickWeighted(seededRng(1), [['x', 0] as const])).toThrow(RangeError)
     expect(() => pickWeighted(seededRng(1), [])).toThrow(RangeError)
-  })
-})
-
-describe('shuffle', () => {
-  it('does not mutate the input', () => {
-    const original = [1, 2, 3, 4, 5]
-    const copy = [...original]
-    shuffle(seededRng(3), original)
-    expect(original).toEqual(copy)
-  })
-
-  it('is a permutation of the input', () => {
-    fc.assert(
-      fc.property(fc.array(fc.integer(), { maxLength: 30 }), fc.integer(), (items, seed) => {
-        const result = shuffle(seededRng(seed), items)
-        expect(result).toHaveLength(items.length)
-        expect([...result].sort((a, b) => a - b)).toEqual([...items].sort((a, b) => a - b))
-      }),
-    )
-  })
-
-  it('actually reorders for a reasonable input', () => {
-    const items = Array.from({ length: 20 }, (_, i) => i)
-    expect(shuffle(seededRng(5), items)).not.toEqual(items)
-  })
-
-  it('is reproducible from a seed', () => {
-    const items = Array.from({ length: 20 }, (_, i) => i)
-    expect(shuffle(seededRng(11), items)).toEqual(shuffle(seededRng(11), items))
   })
 })

@@ -10,7 +10,6 @@ import {
   minutesByKind,
   PracticeTimer,
   toCsv,
-  toJson,
   totalMinutes,
   type PracticeEntry,
 } from './log.ts'
@@ -372,17 +371,6 @@ describe('streak properties', () => {
 })
 
 // ------------------------------------------------------------------- export
-
-describe('toJson', () => {
-  it('round-trips entries through JSON.parse exactly', () => {
-    const entries = [
-      entry({ itemId: 'x', tempoBpm: 120, accuracy: 0.9, note: 'note' }),
-      entry({ kind: 'lesson' }),
-    ]
-    const parsed = JSON.parse(toJson(entries)) as PracticeEntry[]
-    expect(parsed).toEqual(entries)
-  })
-})
 
 describe('toCsv', () => {
   it('has a header row naming every field', () => {

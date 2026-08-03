@@ -13,7 +13,6 @@ import {
   notesInRange,
   scoreDurationTicks,
   soundingAtTick,
-  transposeScore,
   validateScore,
   type Hand,
   type Score,
@@ -736,34 +735,6 @@ describe('measureRange', () => {
   })
 })
 
-describe('transposeScore', () => {
-  it('shifts every note and re-derives the ids', () => {
-    const up = transposeScore(C_MAJOR_SCALE_RH, 2) // C major → D major
-    expect(midis(up.notes)).toEqual([62, 64, 66, 67, 69, 71, 73, 74])
-    expect(at(up.notes, 0).id).toBe('m0.r.0.62')
-    expect(validateScore(up).ok).toBe(true)
-  })
-
-  it('is a no-op for 0 semitones', () => {
-    expect(transposeScore(C_MAJOR_SCALE_RH, 0)).toBe(C_MAJOR_SCALE_RH)
-  })
-
-  it('leaves rhythm, hands and key signatures alone', () => {
-    const down = transposeScore(TWO_HAND_CHORDS, -12)
-    expect(down.notes.map((n) => n.startTick)).toEqual(
-      TWO_HAND_CHORDS.notes.map((n) => n.startTick),
-    )
-    expect(down.notes.map((n) => n.hand)).toEqual(TWO_HAND_CHORDS.notes.map((n) => n.hand))
-    expect(down.measures).toBe(TWO_HAND_CHORDS.measures)
-  })
-
-  it('throws rather than wrapping around the end of the keyboard', () => {
-    expect(() => transposeScore(C_MAJOR_SCALE_RH, 60)).toThrow(/leaves MIDI range/)
-    expect(() => transposeScore(C_MAJOR_SCALE_RH, -70)).toThrow(/leaves MIDI range/)
-    expect(() => transposeScore(C_MAJOR_SCALE_RH, 1.5)).toThrow(/whole number/)
-  })
-})
-
 describe('chordGroups', () => {
   it('groups notes sharing an onset', () => {
     const groups = chordGroups(TWO_HAND_CHORDS)
@@ -1045,25 +1016,6 @@ describe('score properties', () => {
         for (const n of score.notes) {
           expect(measureAtTick(score, n.startTick)?.index).toBe(n.measureIndex)
         }
-      }),
-    )
-  })
-
-  it('transposing by +n then -n is the identity', () => {
-    fc.assert(
-      fc.property(scoreArb, fc.integer({ min: -20, max: 20 }), (score, semitones) => {
-        const roundTrip = transposeScore(transposeScore(score, semitones), -semitones)
-        expect(roundTrip.notes).toEqual(score.notes)
-      }),
-    )
-  })
-
-  it('transposition preserves note order and count', () => {
-    fc.assert(
-      fc.property(scoreArb, fc.integer({ min: -20, max: 20 }), (score, semitones) => {
-        const moved = transposeScore(score, semitones)
-        expect(validateScore(moved).ok).toBe(true)
-        expect(midis(moved.notes)).toEqual(midis(score.notes).map((m) => m + semitones))
       }),
     )
   })

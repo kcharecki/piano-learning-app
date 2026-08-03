@@ -4,10 +4,8 @@ import { isErr, isOk, unwrap } from '@core/shared/result.ts'
 import { midi, type Midi } from '@core/shared/units.ts'
 import {
   type Alter,
-  compareSpelled,
   diatonicStep,
   fromMidi,
-  isEnharmonic,
   type Letter,
   LETTERS,
   letterIndex,
@@ -20,7 +18,6 @@ import {
   type SpelledPitch,
   spelledPitchClass,
   toMidi,
-  transposeMidi,
   tryToMidi,
 } from './pitch.ts'
 
@@ -243,10 +240,10 @@ describe('fromMidi', () => {
     )
   })
 
-  it('sharp and flat spellings of the same note are enharmonic (property)', () => {
+  it('sharp and flat spellings of the same note sound alike (property)', () => {
     fc.assert(
       fc.property(arbMidi, (n) => {
-        expect(isEnharmonic(fromMidi(n, false), fromMidi(n, true))).toBe(true)
+        expect(toMidi(fromMidi(n, false))).toBe(toMidi(fromMidi(n, true)))
       }),
     )
   })
@@ -535,202 +532,14 @@ describe('diatonicStep', () => {
   })
 
   it('is strictly increasing in the number of steps (property)', () => {
+    // No `compareSpelled` left to lean on: check the staff-position arithmetic
+    // (letter index plus seven per octave) advances by exactly one directly.
+    const staffPosition = (s: SpelledPitch): number => letterIndex(s.letter) + 7 * s.octave
     fc.assert(
       fc.property(arbSpelled, fc.integer({ min: -20, max: 20 }), (p, steps) => {
         const lower = diatonicStep(p, steps)
         const upper = diatonicStep(p, steps + 1)
-        expect(compareSpelled(lower, upper)).toBeLessThan(0)
-      }),
-    )
-  })
-})
-
-// ---------------------------------------------------------------------------
-// transposeMidi
-// ---------------------------------------------------------------------------
-
-describe('transposeMidi', () => {
-  it('moves by semitones', () => {
-    expect(transposeMidi(midi(60), 12)).toBe(72)
-    expect(transposeMidi(midi(60), -12)).toBe(48)
-    expect(transposeMidi(midi(60), 0)).toBe(60)
-    expect(transposeMidi(midi(60), 7)).toBe(67) // up a perfect fifth
-  })
-
-  it('throws when the result leaves the MIDI range', () => {
-    expect(() => transposeMidi(midi(0), -1)).toThrow(RangeError)
-    expect(() => transposeMidi(midi(127), 1)).toThrow(RangeError)
-    expect(() => transposeMidi(midi(60), 0.5)).toThrow(RangeError)
-  })
-
-  it('allows the exact boundaries', () => {
-    expect(transposeMidi(midi(1), -1)).toBe(0)
-    expect(transposeMidi(midi(126), 1)).toBe(127)
-  })
-
-  it('is inverted by the opposite interval (property)', () => {
-    fc.assert(
-      fc.property(arbMidi, fc.integer({ min: -127, max: 127 }), (n, i) => {
-        const moved = n + i
-        if (moved < 0 || moved > 127) {
-          expect(() => transposeMidi(n, i)).toThrow(RangeError)
-          return
-        }
-        expect(transposeMidi(transposeMidi(n, i), -i)).toBe(n)
-      }),
-    )
-  })
-
-  it('preserves pitch class when transposing by octaves (property)', () => {
-    fc.assert(
-      fc.property(arbMidi, fc.integer({ min: -4, max: 4 }), (n, octaves) => {
-        const moved = n + octaves * 12
-        fc.pre(moved >= 0 && moved <= 127)
-        expect(pitchClass(transposeMidi(n, octaves * 12))).toBe(pitchClass(n))
-      }),
-    )
-  })
-})
-
-// ---------------------------------------------------------------------------
-// isEnharmonic
-// ---------------------------------------------------------------------------
-
-describe('isEnharmonic', () => {
-  it('matches different spellings of the same sounding note', () => {
-    expect(isEnharmonic(spell('C', 1, 4), spell('D', -1, 4))).toBe(true)
-    expect(isEnharmonic(spell('B', 1, 3), spell('C', 0, 4))).toBe(true)
-    expect(isEnharmonic(spell('C', -1, 4), spell('B', 0, 3))).toBe(true)
-    expect(isEnharmonic(spell('E', 1, 4), spell('F', 0, 4))).toBe(true)
-    expect(isEnharmonic(spell('F', 2, 2), spell('G', 0, 2))).toBe(true)
-  })
-
-  it('separates notes an octave apart', () => {
-    expect(isEnharmonic(spell('C', 0, 4), spell('C', 0, 5))).toBe(false)
-    expect(isEnharmonic(spell('C', 1, 4), spell('D', -1, 5))).toBe(false)
-  })
-
-  it('is reflexive (property)', () => {
-    fc.assert(
-      fc.property(arbSpelled, (p) => {
-        expect(isEnharmonic(p, p)).toBe(true)
-      }),
-    )
-  })
-
-  it('is symmetric (property)', () => {
-    fc.assert(
-      fc.property(arbSpelled, arbSpelled, (a, b) => {
-        expect(isEnharmonic(a, b)).toBe(isEnharmonic(b, a))
-      }),
-    )
-  })
-
-  it('is transitive (property)', () => {
-    // Biased towards collisions: all three share a sounding pitch class.
-    fc.assert(
-      fc.property(arbSpelled, arbSpelled, arbSpelled, (a, b, c) => {
-        if (isEnharmonic(a, b) && isEnharmonic(b, c)) expect(isEnharmonic(a, c)).toBe(true)
-      }),
-    )
-    fc.assert(
-      fc.property(arbMidi, fc.boolean(), fc.boolean(), (n, f1, f2) => {
-        const a = fromMidi(n, f1)
-        const b = fromMidi(n, f2)
-        const c = fromMidi(n, !f1)
-        expect(isEnharmonic(a, b) && isEnharmonic(b, c)).toBe(true)
-        expect(isEnharmonic(a, c)).toBe(true)
-      }),
-    )
-  })
-
-  it('agrees with equality of sounding MIDI (property)', () => {
-    fc.assert(
-      fc.property(arbPlayable, arbPlayable, (a, b) => {
-        expect(isEnharmonic(a, b)).toBe(toMidi(a) === toMidi(b))
-      }),
-    )
-  })
-})
-
-// ---------------------------------------------------------------------------
-// compareSpelled
-// ---------------------------------------------------------------------------
-
-describe('compareSpelled', () => {
-  it('orders by sounding pitch first', () => {
-    expect(compareSpelled(spell('C', 0, 4), spell('D', 0, 4))).toBeLessThan(0)
-    expect(compareSpelled(spell('D', 0, 4), spell('C', 0, 4))).toBeGreaterThan(0)
-    expect(compareSpelled(spell('C', 0, 4), spell('C', 0, 4))).toBe(0)
-    expect(compareSpelled(spell('B', 0, 3), spell('C', 0, 4))).toBeLessThan(0)
-  })
-
-  it('breaks enharmonic ties by letter', () => {
-    // All three sound as MIDI 60; the order is C4 < Dbb4 < B#3.
-    const sorted = [spell('B', 1, 3), spell('D', -2, 4), spell('C', 0, 4)].sort(compareSpelled)
-    expect(sorted.map(pitchName)).toEqual(['C4', 'Dbb4', 'B#3'])
-  })
-
-  it('sorts a chord into pitch order', () => {
-    // C major triad, deliberately scrambled.
-    const chord = [spell('G', 0, 4), spell('C', 0, 4), spell('E', 0, 4)]
-    expect([...chord].sort(compareSpelled).map(pitchName)).toEqual(['C4', 'E4', 'G4'])
-  })
-
-  it('is consistent with toMidi (property)', () => {
-    fc.assert(
-      fc.property(arbPlayable, arbPlayable, (a, b) => {
-        const cmp = compareSpelled(a, b)
-        const diff = toMidi(a) - toMidi(b)
-        if (diff !== 0) expect(Math.sign(cmp)).toBe(Math.sign(diff))
-        else expect(cmp).toBe(letterIndex(a.letter) - letterIndex(b.letter))
-      }),
-    )
-  })
-
-  it('is antisymmetric (property)', () => {
-    fc.assert(
-      fc.property(arbSpelled, arbSpelled, (a, b) => {
-        const ab = Math.sign(compareSpelled(a, b))
-        const ba = Math.sign(compareSpelled(b, a))
-        // Asserted as a sum rather than `ab === -ba`: when a and b are the same
-        // pitch both signs are 0, and `-Math.sign(0)` is -0, which `toBe` treats
-        // as different from 0 (it compares with Object.is). Since both values
-        // are in {-1, 0, 1}, summing to zero says exactly the same thing.
-        expect(ab + ba).toBe(0)
-        expect(ab === 0).toBe(ba === 0)
-      }),
-    )
-  })
-
-  it('returns 0 only for identical spellings (property)', () => {
-    fc.assert(
-      fc.property(arbSpelled, arbSpelled, (a, b) => {
-        if (compareSpelled(a, b) === 0) expect(a).toEqual(b)
-      }),
-    )
-  })
-
-  it('is transitive (property)', () => {
-    fc.assert(
-      fc.property(arbSpelled, arbSpelled, arbSpelled, (a, b, c) => {
-        if (compareSpelled(a, b) <= 0 && compareSpelled(b, c) <= 0) {
-          expect(compareSpelled(a, c)).toBeLessThanOrEqual(0)
-        }
-      }),
-    )
-  })
-
-  it('produces a stable sort of an arbitrary set (property)', () => {
-    fc.assert(
-      fc.property(fc.array(arbSpelled, { maxLength: 20 }), (pitches) => {
-        const sorted = [...pitches].sort(compareSpelled)
-        for (let i = 1; i < sorted.length; i++) {
-          const prev = sorted[i - 1]
-          const cur = sorted[i]
-          if (prev === undefined || cur === undefined) continue
-          expect(compareSpelled(prev, cur)).toBeLessThanOrEqual(0)
-        }
+        expect(staffPosition(upper)).toBe(staffPosition(lower) + 1)
       }),
     )
   })
@@ -774,7 +583,7 @@ describe('real music', () => {
     const cFlat = unwrap(parsePitch('Cb4'))
     expect(toMidi(cFlat)).toBe(59)
     expect(cFlat.octave).toBe(4) // written octave 4 even though it sounds as B3
-    expect(isEnharmonic(cFlat, unwrap(parsePitch('B3')))).toBe(true)
+    expect(toMidi(cFlat)).toBe(toMidi(unwrap(parsePitch('B3'))))
   })
 
   it('spells the leading tone of C# minor as B#, not C', () => {
@@ -782,8 +591,7 @@ describe('real music', () => {
     const leadingTone = unwrap(parsePitch('B#3'))
     expect(toMidi(leadingTone)).toBe(60)
     expect(leadingTone.octave).toBe(3) // written octave 3 even though it sounds as C4
-    expect(isEnharmonic(leadingTone, unwrap(parsePitch('C4')))).toBe(true)
-    expect(compareSpelled(leadingTone, unwrap(parsePitch('C4')))).toBeGreaterThan(0)
+    expect(toMidi(leadingTone)).toBe(toMidi(unwrap(parsePitch('C4'))))
   })
 
   it('spells the C harmonic minor scale', () => {

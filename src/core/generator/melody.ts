@@ -82,15 +82,6 @@ const RHYTHM_POOLS: Readonly<Record<RhythmStyle, Pool>> = {
   syncopated: [3, 4, 1, 3, 2, 3, 4, 1],
 }
 
-/** How "hard" each rhythm style reads, for `defaultParamsForLevel`'s monotonic ladder. */
-const RHYTHM_DIFFICULTY: Readonly<Record<RhythmStyle, number>> = {
-  'whole-half': 0,
-  quarters: 1,
-  eighths: 2,
-  dotted: 3,
-  syncopated: 4,
-}
-
 // ---------------------------------------------------------------------------
 // small pure helpers
 // ---------------------------------------------------------------------------
@@ -658,5 +649,3 @@ export function defaultParamsForLevel(level: number): GeneratorParams {
   }
 }
 
-/** Exposed for tests that want to assert the difficulty ladder directly. */
-export const rhythmDifficulty = (style: RhythmStyle): number => RHYTHM_DIFFICULTY[style]

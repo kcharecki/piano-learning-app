@@ -377,6 +377,13 @@ function alignDictation(
  * output is a direct index into it; `answer` is sorted internally before
  * grading, and `givenIndex` is mapped back to the caller's original array
  * position.
+ *
+ * @public — the grading half of this module's live generate/grade pair.
+ * `generateMelodicDictation`/`generateRhythmicDictation` are already wired
+ * into `app/eartraining/useEarTraining.ts`; `gradeDictation` is not yet, only
+ * because `EarAnswer` has no answer variant for dictation items yet — see
+ * that module's own comment and ROADMAP.md 3.10/3.11. Not abandoned, just
+ * pending the answer-input UI.
  */
 export function gradeDictation(
   item: EarItem,

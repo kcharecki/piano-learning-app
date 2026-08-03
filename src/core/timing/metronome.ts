@@ -349,6 +349,14 @@ export function clicksInRange(
  *
  * Bars are whole numbers, and the total is capped by `clicksInRange` at
  * `MAX_CLICKS`: `clicksForBars(s, 1e7)` is an error, not forty million objects.
+ *
+ * @public — the batch materialiser for the count-in half of REQ-3.9.1 (see the
+ * module docstring: "count-in and gradual tempo ramping"). It is the sibling
+ * of `clicksInRange`, which is live in production (`app/metronome/useMetronome.ts`,
+ * `app/practice/usePracticeEngine.ts`), and the only consumer of
+ * `MetronomeSettings.countInBars`, which `validateMetronomeSettings` (also
+ * live) already validates. No screen has grown a "count me in" control yet —
+ * that is a UI gap, not a reason to delete the core behaviour it depends on.
  */
 export function clicksForBars(settings: MetronomeSettings, bars: number): readonly Click[] {
   invariant(Number.isInteger(bars) && bars >= 0, `bars must be a whole number >= 0, got ${bars}`)

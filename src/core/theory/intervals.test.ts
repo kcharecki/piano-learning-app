@@ -18,13 +18,9 @@ import {
   intervalFromSemitones,
   intervalLongName,
   intervalName,
-  invert,
-  isCompound,
-  isConsonant,
   makeInterval,
   parseInterval,
   SIMPLE_INTERVALS,
-  simplify,
   transposeSpelled,
   tryIntervalBetween,
   tryTransposeSpelled,
@@ -98,9 +94,6 @@ const arbNumber = fc.integer({ min: 1, max: 22 })
 const arbInterval: fc.Arbitrary<Interval> = arbNumber.chain((n) =>
   fc.constantFrom(...qualitiesFor(n)).map((q) => iv(n, q)),
 )
-const arbSimpleInterval: fc.Arbitrary<Interval> = fc
-  .integer({ min: 1, max: 8 })
-  .chain((n) => fc.constantFrom(...qualitiesFor(n)).map((q) => iv(n, q)))
 const arbDrillInterval = fc.constantFrom(...SIMPLE_INTERVALS)
 
 /** Extreme spellings (Fb to B#) exceed every quality; skip those pairs. */
@@ -636,183 +629,6 @@ describe('parseInterval', () => {
 })
 
 // ---------------------------------------------------------------------------
-// simplify / isCompound
-// ---------------------------------------------------------------------------
-
-describe('simplify', () => {
-  it('reduces compounds to within an octave, and keeps the octave an octave', () => {
-    expect(intervalName(simplify(iv(9, 'major')))).toBe('M2')
-    expect(intervalName(simplify(iv(10, 'minor')))).toBe('m3')
-    expect(intervalName(simplify(iv(11, 'perfect')))).toBe('P4')
-    expect(intervalName(simplify(iv(13, 'major')))).toBe('M6')
-    expect(intervalName(simplify(iv(15, 'perfect')))).toBe('P8')
-    expect(intervalName(simplify(iv(16, 'major')))).toBe('M2')
-    expect(intervalName(simplify(iv(22, 'perfect')))).toBe('P8')
-  })
-
-  it('leaves simple intervals alone, including the unison and the octave', () => {
-    expect(simplify(iv(1, 'perfect'))).toEqual(iv(1, 'perfect'))
-    expect(simplify(iv(8, 'perfect'))).toEqual(iv(8, 'perfect'))
-    expect(simplify(iv(4, 'augmented'))).toEqual(iv(4, 'augmented'))
-    for (const i of SIMPLE_INTERVALS) expect(simplify(i)).toEqual(i)
-  })
-
-  it('keeps the quality and recomputes the semitones', () => {
-    expect(simplify(iv(9, 'minor'))).toEqual(iv(2, 'minor'))
-    expect(simplify(iv(11, 'augmented'))).toEqual(iv(4, 'augmented'))
-  })
-
-  it('is idempotent', () => {
-    fc.assert(
-      fc.property(arbInterval, (i) => {
-        expect(simplify(simplify(i))).toEqual(simplify(i))
-      }),
-    )
-  })
-
-  it('always produces a simple interval', () => {
-    fc.assert(
-      fc.property(arbInterval, (i) => {
-        expect(isCompound(simplify(i))).toBe(false)
-        expect(simplify(i).number).toBeGreaterThanOrEqual(1)
-        expect(simplify(i).number).toBeLessThanOrEqual(8)
-      }),
-    )
-  })
-})
-
-describe('isCompound', () => {
-  it('counts anything larger than an octave', () => {
-    expect(isCompound(iv(1, 'perfect'))).toBe(false)
-    expect(isCompound(iv(7, 'major'))).toBe(false)
-    expect(isCompound(iv(8, 'perfect'))).toBe(false)
-    expect(isCompound(iv(9, 'major'))).toBe(true)
-    expect(isCompound(iv(15, 'perfect'))).toBe(true)
-    for (const i of SIMPLE_INTERVALS) expect(isCompound(i)).toBe(false)
-  })
-})
-
-// ---------------------------------------------------------------------------
-// invert
-// ---------------------------------------------------------------------------
-
-describe('invert', () => {
-  it('inverts number as 9 - n and mirrors the quality', () => {
-    const table: readonly [string, string][] = [
-      ['P1', 'P8'],
-      ['m2', 'M7'],
-      ['M2', 'm7'],
-      ['m3', 'M6'],
-      ['M3', 'm6'],
-      ['P4', 'P5'],
-      ['A4', 'd5'],
-      ['d5', 'A4'],
-      ['P5', 'P4'],
-      ['m6', 'M3'],
-      ['M6', 'm3'],
-      ['m7', 'M2'],
-      ['M7', 'm2'],
-      ['P8', 'P1'],
-      ['AA4', 'dd5'],
-      ['dd3', 'AA6'],
-      ['d7', 'A2'],
-      ['d1', 'A8'],
-    ]
-    for (const [from, to] of table) {
-      expect(intervalName(invert(unwrap(parseInterval(from))))).toBe(to)
-    }
-  })
-
-  it('simplifies a compound before inverting', () => {
-    expect(intervalName(invert(iv(9, 'major')))).toBe('m7')
-    expect(intervalName(invert(iv(11, 'perfect')))).toBe('P5')
-    expect(intervalName(invert(iv(15, 'perfect')))).toBe('P1')
-  })
-
-  it('is its own inverse on simple intervals', () => {
-    fc.assert(
-      fc.property(arbSimpleInterval, (i) => {
-        expect(invert(invert(i))).toEqual(i)
-      }),
-    )
-  })
-
-  it('pairs with the original to span an octave', () => {
-    fc.assert(
-      fc.property(arbSimpleInterval, (i) => {
-        expect(i.semitones + invert(i).semitones).toBe(12)
-      }),
-    )
-  })
-
-  it('inverting a compound equals inverting its simple form', () => {
-    fc.assert(
-      fc.property(arbInterval, (i) => {
-        expect(invert(i)).toEqual(invert(simplify(i)))
-      }),
-    )
-  })
-})
-
-// ---------------------------------------------------------------------------
-// isConsonant
-// ---------------------------------------------------------------------------
-
-describe('isConsonant', () => {
-  it('accepts the perfect and imperfect consonances', () => {
-    for (const name of ['P1', 'm3', 'M3', 'P5', 'm6', 'M6', 'P8']) {
-      expect(isConsonant(unwrap(parseInterval(name)))).toBe(true)
-    }
-  })
-
-  it('rejects the dissonances — including the perfect fourth', () => {
-    for (const name of ['m2', 'M2', 'P4', 'A4', 'd5', 'm7', 'M7', 'A5', 'd4', 'dd3', 'AA6']) {
-      expect(isConsonant(unwrap(parseInterval(name)))).toBe(false)
-    }
-  })
-
-  it('judges compounds by their simple form', () => {
-    expect(isConsonant(iv(10, 'major'))).toBe(true) // major tenth = major third
-    expect(isConsonant(iv(12, 'perfect'))).toBe(true) // twelfth = fifth
-    expect(isConsonant(iv(15, 'perfect'))).toBe(true) // double octave
-    expect(isConsonant(iv(11, 'perfect'))).toBe(false) // eleventh = fourth
-    expect(isConsonant(iv(9, 'major'))).toBe(false)
-  })
-
-  it('agrees with the drill vocabulary, semitone by semitone', () => {
-    const expected = [
-      true,
-      false,
-      false,
-      true,
-      true,
-      false,
-      false,
-      true,
-      true,
-      true,
-      false,
-      false,
-      true,
-    ]
-    expect(SIMPLE_INTERVALS.map(isConsonant)).toEqual(expected)
-  })
-
-  it('survives inversion — except for the fourth/fifth pair', () => {
-    // Treating P4 as a dissonance is the one place the rule is not
-    // inversionally symmetric: P4 inverts to P5, dissonance to consonance.
-    expect(isConsonant(iv(4, 'perfect'))).toBe(false)
-    expect(isConsonant(invert(iv(4, 'perfect')))).toBe(true)
-    fc.assert(
-      fc.property(arbSimpleInterval, (i) => {
-        fc.pre(!(i.quality === 'perfect' && (i.number === 4 || i.number === 5)))
-        expect(isConsonant(invert(i))).toBe(isConsonant(i))
-      }),
-    )
-  })
-})
-
-// ---------------------------------------------------------------------------
 // transposeSpelled
 // ---------------------------------------------------------------------------
 
@@ -1085,7 +901,7 @@ describe('SIMPLE_INTERVALS', () => {
         at(SIMPLE_INTERVALS, index - 1).semitones,
       )
     }
-    for (const i of SIMPLE_INTERVALS) expect(isCompound(i)).toBe(false)
+    for (const i of SIMPLE_INTERVALS) expect(i.number).toBeLessThanOrEqual(8)
   })
 
   it('names every one of them in full', () => {

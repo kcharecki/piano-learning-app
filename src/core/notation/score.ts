@@ -591,27 +591,16 @@ export function measureRange(
 }
 
 /**
- * Shift every note by `semitones`. Key signatures are left alone: respelling a
- * key needs the theory module, which the score model deliberately does not know
- * about. Throws if any note would leave the MIDI range.
- */
-export function transposeScore(score: Score, semitones: number): Score {
-  invariant(Number.isInteger(semitones), `transposeScore: ${semitones} is not a whole number`)
-  if (semitones === 0) return score
-  // A constant shift preserves both sort keys, so the order still holds.
-  const notes = score.notes.map((n) => {
-    const shifted = n.midi + semitones
-    invariant(isValidMidi(shifted), `transposing ${n.id} by ${semitones} leaves MIDI range`)
-    return { ...n, midi: asMidi(shifted) }
-  })
-  return { ...score, notes: assignIds(notes) }
-}
-
-/**
  * Notes grouped by simultaneous onset — what the matcher waits for.
  * Notes with `tiedFrom` are excluded: they continue an earlier key press, so no
  * new press is expected. `toleranceTicks` measures from the group's first onset,
  * so a long stream of near-simultaneous notes cannot drift into one group.
+ *
+ * @public — `core/practice/matcher.ts`'s `buildExpected` re-derives this exact
+ * grouping rule (notes sharing a `startTick`) internally instead of calling this,
+ * and its own comment cross-references `chordGroups` by name as "the same rule".
+ * That is a genuine dedup opportunity, but `matcher.ts` is out of this module's
+ * scope to edit — kept live and documented here rather than deleted.
  */
 export function chordGroups(score: Score, toleranceTicks = 0): readonly (readonly ScoreNote[])[] {
   invariant(toleranceTicks >= 0, `chordGroups: negative tolerance ${toleranceTicks}`)

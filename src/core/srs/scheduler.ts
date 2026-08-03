@@ -164,6 +164,11 @@ export function dueCards(cards: readonly Card[], now: number, limit?: number): r
  * Days until the next review if `card` were graded `grade` right now, for
  * display ("next: 4 days") without committing to the review. Matches the
  * un-fuzzed interval `review` would produce for the same card and grade.
+ * @public — one of the module doc's five intentional exports (`Card`, `newCard`,
+ * `review`, `dueCards`, `nextReviewIn`, `retentionStats`), sibling of `review` and
+ * `dueCards` which are live in `TheoryDrillPanel.tsx`/`useFlashcardDrill.ts`/
+ * `session.ts`. No grading UI currently previews the interval before committing,
+ * but the function this preview needs already exists as this module's public API.
  */
 export function nextReviewIn(card: Card, grade: Grade): number {
   if (grade === 'again') return AGAIN_INTERVAL_DAYS

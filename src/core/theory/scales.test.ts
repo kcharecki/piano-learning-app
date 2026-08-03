@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import fc from 'fast-check'
 import { at, InvariantError } from '@core/shared/invariant.ts'
 import { unwrap } from '@core/shared/result.ts'
-import { midi } from '@core/shared/units.ts'
 import { intervalBetween } from './intervals.ts'
 import {
   type Alter,
@@ -16,10 +15,8 @@ import {
 } from './pitch.ts'
 import {
   buildScale,
-  containsPitchClass,
   degreeName,
   degreeOf,
-  isInScale,
   melodicMinorDescending,
   noteAtDegree,
   type Scale,
@@ -586,7 +583,7 @@ describe('scaleNotes', () => {
 // membership
 // ---------------------------------------------------------------------------
 
-describe('degreeOf / isInScale', () => {
+describe('degreeOf', () => {
   const cMajor = scale('C4', 'major')
 
   it('finds the 1-based degree', () => {
@@ -602,8 +599,6 @@ describe('degreeOf / isInScale', () => {
 
   it('returns null for a note outside the scale', () => {
     expect(degreeOf(cMajor, p('F#4'))).toBeNull()
-    expect(isInScale(cMajor, p('F#4'))).toBe(false)
-    expect(isInScale(cMajor, p('E4'))).toBe(true)
   })
 
   it('is spelling-sensitive: Fb is not in C major even though it sounds like E', () => {
@@ -615,34 +610,6 @@ describe('degreeOf / isInScale', () => {
     const cBlues = scale('C4', 'blues')
     expect(degreeOf(cBlues, p('Gb4'))).toBe(4)
     expect(degreeOf(cBlues, p('G4'))).toBe(5)
-  })
-})
-
-describe('containsPitchClass', () => {
-  const cMajor = scale('C4', 'major')
-
-  it('answers by sound, so any octave of E is in C major', () => {
-    expect(containsPitchClass(cMajor, midi(64))).toBe(true)
-    expect(containsPitchClass(cMajor, midi(52))).toBe(true)
-    expect(containsPitchClass(cMajor, midi(61))).toBe(false)
-  })
-
-  it('accepts enharmonic spellings that isInScale rejects', () => {
-    // MIDI 64 is E. Written as Fb it is not *in* C major, but it sounds in it —
-    // which is the difference between what a score asks and what MIDI asks.
-    expect(isInScale(cMajor, p('Fb4'))).toBe(false)
-    expect(containsPitchClass(cMajor, toMidi(p('Fb4')))).toBe(true)
-  })
-
-  it('handles a scale whose spelling crosses the octave: Cb major contains B natural', () => {
-    const cbMajor = scale('Cb4', 'major')
-    expect(containsPitchClass(cbMajor, midi(59))).toBe(true) // B, the sound of Cb
-    expect(containsPitchClass(cbMajor, midi(60))).toBe(false) // C natural is not in Cb major
-  })
-
-  it('a chromatic scale contains every pitch class', () => {
-    const chromatic = scale('F#3', 'chromatic')
-    for (let n = 60; n < 72; n++) expect(containsPitchClass(chromatic, midi(n))).toBe(true)
   })
 })
 
@@ -1088,35 +1055,6 @@ describe('properties', () => {
         expect(last.alter).toBe(tonic.alter)
         expect(last.octave).toBe(tonic.octave + octaves)
       }),
-    )
-  })
-
-  it('everything spelled in the scale also sounds in it', () => {
-    fc.assert(
-      fc.property(arbTonic, arbType, (tonic, type) => {
-        const built = tryBuild(tonic, type)
-        if (built === null) return
-        for (const note of built.notes) {
-          expect(isInScale(built, note)).toBe(true)
-          expect(containsPitchClass(built, toMidi(note))).toBe(true)
-        }
-      }),
-    )
-  })
-
-  it('a pitch class the scale does not sound is not one of its notes', () => {
-    fc.assert(
-      fc.property(
-        arbTonic,
-        arbHeptatonicType,
-        fc.integer({ min: 60, max: 71 }),
-        (tonic, type, note) => {
-          const built = tryBuild(tonic, type)
-          if (built === null) return
-          if (containsPitchClass(built, midi(note))) return
-          for (const n of built.notes) expect(toMidi(n) % 12).not.toBe(note % 12)
-        },
-      ),
     )
   })
 

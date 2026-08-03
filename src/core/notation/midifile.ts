@@ -20,38 +20,30 @@
  *    `parseMidiFile` returns a `Score` or an error and has no channel for a
  *    warning, so a dangling note is simply clamped to the end of its track.
  *
- * `writeMidiFile` is the recorder's export path. It emits format 1: a conductor
- * track (name, tempo, time and key signatures) followed by one track per hand.
- * Two things cannot survive the trip and are adjusted on the way out: velocity 0
- * (a note-on with velocity 0 *is* a note-off) is raised to 1, and a zero-length
- * note is given one tick.
+ * This module only reads SMF; there is no writer. Nothing in the app exports a
+ * `Score` back out as a MIDI file — the one format writer this app ships is
+ * `writeMusicXml` (`@core/notation/musicxmlwriter.ts`).
  */
-import { at, invariant } from '@core/shared/invariant.ts'
+import { at } from '@core/shared/invariant.ts'
 import { err, ok, type Result } from '@core/shared/result.ts'
 import { TICKS_PER_QUARTER } from '@core/shared/units.ts'
 import {
   makeScore,
   measureDurationTicks,
-  scoreDurationTicks,
   type Hand,
-  type Measure,
   type MeasureInput,
   type Score,
-  type ScoreNote,
   type ScoreNoteInput,
   type TimeSignature,
 } from './score.ts'
 
 const MTHD = 0x4d546864
 const MTRK = 0x4d54726b
-const MTHD_BYTES: readonly number[] = [0x4d, 0x54, 0x68, 0x64]
-const MTRK_BYTES: readonly number[] = [0x4d, 0x54, 0x72, 0x6b]
 
 const MICROS_PER_MINUTE = 60_000_000
 const DEFAULT_BPM = 120
 const MIDDLE_C = 60
 const DEFAULT_TIME_SIGNATURE: TimeSignature = { beats: 4, beatType: 4 }
-const HAND_ORDER: readonly Hand[] = ['right', 'left']
 
 /** Refuse absurd files rather than allocating a measure list the size of a city. */
 const MAX_MUSIC_TICKS = TICKS_PER_QUARTER * 4 * 10_000
@@ -61,9 +53,6 @@ const MAX_MUSIC_TICKS = TICKS_PER_QUARTER * 4 * 10_000
  * file can ask for 1.2 million measures while staying inside MAX_MUSIC_TICKS.
  */
 const MAX_MEASURE_COUNT = 10_000
-/** Three bytes of microseconds per quarter note — about 3.58 bpm at the slow end. */
-const MAX_MICROS_PER_QUARTER = 0xffffff
-
 /**
  * Data-byte counts for the system-common messages. They are illegal inside an
  * SMF, but do turn up in files dumped straight off the wire; knowing their
@@ -189,13 +178,6 @@ function decodeText(data: Uint8Array): string {
   let out = ''
   for (let i = 0; i < data.length; i++) out += String.fromCharCode(data[i] ?? 0)
   return out
-}
-
-function encodeText(text: string): number[] {
-  return [...text].map((ch) => {
-    const code = ch.charCodeAt(0)
-    return code > 0xff ? 0x3f : code
-  })
 }
 
 function applyMeta(track: TrackData, type: number, data: Uint8Array, tick: number): void {
@@ -564,211 +546,4 @@ export function parseMidiFile(bytes: Uint8Array, opts?: { id?: string }): Result
   } catch (cause) {
     return err(`could not build a score: ${cause instanceof Error ? cause.message : String(cause)}`)
   }
-}
-
-// --------------------------------------------------------------------- writing
-
-function vlqBytes(value: number): number[] {
-  const out = [value & 0x7f]
-  let rest = Math.floor(value / 0x80)
-  while (rest > 0) {
-    out.unshift((rest & 0x7f) | 0x80)
-    rest = Math.floor(rest / 0x80)
-  }
-  return out
-}
-
-function metaEvent(type: number, data: readonly number[]): number[] {
-  return [0xff, type, ...vlqBytes(data.length), ...data]
-}
-
-/** `order` breaks ties inside one tick: note-offs must precede note-ons. */
-type TimedBytes = {
-  readonly tick: number
-  readonly order: number
-  readonly bytes: readonly number[]
-}
-
-function pushAll(out: number[], src: readonly number[]): void {
-  for (const b of src) out.push(b)
-}
-
-function chunkBytes(type: readonly number[], body: readonly number[]): number[] {
-  const n = body.length
-  const out = [...type, (n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff]
-  pushAll(out, body)
-  return out
-}
-
-function encodeTrack(events: readonly TimedBytes[], endTick: number): number[] {
-  const sorted = [...events].sort((a, b) => a.tick - b.tick || a.order - b.order)
-  const body: number[] = []
-  let previous = 0
-  for (const e of sorted) {
-    pushAll(body, vlqBytes(e.tick - previous))
-    pushAll(body, e.bytes)
-    previous = e.tick
-  }
-  pushAll(body, vlqBytes(Math.max(0, endTick - previous)))
-  pushAll(body, [0xff, 0x2f, 0x00])
-  return chunkBytes(MTRK_BYTES, body)
-}
-
-/**
- * 4 → 2, 8 → 3. SMF writes the denominator as an exponent, so a metre whose
- * beat type is not a power of two has no encoding at all — rounding the
- * exponent would silently publish a different metre (4/3 as 4/4). `makeScore`
- * already refuses such a metre; this is the writer's own guard, so a
- * hand-assembled `Score` fails loudly here instead of on the reader's desk.
- */
-function denominatorPower(beatType: number): number {
-  const power = Math.log2(beatType)
-  invariant(
-    Number.isInteger(power) && power >= 0 && power <= 7,
-    `cannot write time signature with beat type ${beatType}: SMF needs a power of two from 1 to 128`,
-  )
-  return power
-}
-
-/**
- * The numerator is a single byte, so a metre with more than 255 beats to the bar
- * has no encoding either — and `beats & 0xff` would publish a different metre
- * just as surely as a rounded exponent does (400/4 written as 144/4). Nothing in
- * the score model bounds `beats`: `<beats>200+200</beats>` is a legal additive
- * MusicXML metre and parses to a valid 400/4 `Score`. Refuse it here, the way
- * `denominatorPower` refuses a beat type SMF cannot spell.
- */
-function timeSignatureMeta(ts: TimeSignature): number[] {
-  invariant(
-    Number.isInteger(ts.beats) && ts.beats >= 1 && ts.beats <= 0xff,
-    `cannot write time signature with ${ts.beats} beats: SMF holds 1 to 255 beats to the bar`,
-  )
-  return metaEvent(0x58, [ts.beats, denominatorPower(ts.beatType), 24, 8])
-}
-
-/**
- * The metre to write at the start of `m`.
- *
- * A bar SHORTER than its metre — a pickup, or an incomplete final bar — keeps
- * its own signature: the reader is told where it really ends by a second
- * signature event at the next barline, which is what `buildConductorTrack`
- * plants. A bar LONGER than its metre cannot be written that way, because the
- * reader would break it at the natural barline first; it is written as the
- * metre it actually fills (a 2400-tick 4/4 bar becomes 5/4). A length no metre
- * can express at all keeps its signature and is re-barred on the way back in.
- */
-function writtenTimeSignature(m: Measure): TimeSignature {
-  const ts = m.timeSignature
-  if (m.durationTicks <= measureDurationTicks(ts)) return ts
-  const beats = (m.durationTicks * ts.beatType) / (TICKS_PER_QUARTER * 4)
-  const writable = Number.isInteger(beats) && beats > 0 && beats <= 0xff
-  return writable ? { beats, beatType: ts.beatType } : ts
-}
-
-function buildConductorTrack(score: Score): number[] {
-  const events: TimedBytes[] = []
-  if (score.meta.title.length > 0) {
-    events.push({ tick: 0, order: 0, bytes: metaEvent(0x03, encodeText(score.meta.title)) })
-  }
-  for (const t of score.tempos) {
-    // Below about 3.5763 bpm a quarter note lasts longer than the three bytes
-    // the event has to say it in; clamp, rather than let the high bits fall off
-    // and turn 3 bpm into 18.6. The other end matters too, absurd as it looks:
-    // above about 120,000,000 bpm the rounded value is 0 µs, and a set-tempo of 0
-    // is dropped by the reader — the mark would vanish and the score come back at
-    // the 120 bpm default, so one microsecond is the floor.
-    const micros = Math.round(MICROS_PER_MINUTE / t.bpm)
-    const clamped = Math.min(MAX_MICROS_PER_QUARTER, Math.max(1, micros))
-    const bytes = metaEvent(0x51, [(clamped >> 16) & 0xff, (clamped >> 8) & 0xff, clamped & 0xff])
-    events.push({ tick: t.tick, order: 1, bytes })
-  }
-  let ts: TimeSignature | undefined
-  let fifths: number | undefined
-  // True when the bar just written ended before its metre said it should — a
-  // pickup, or a bar split by a repeat. The reader lays bars of the full metre
-  // length, so the grid has to be re-anchored with a fresh signature event at
-  // the next barline even when the metre itself has not changed. Without this a
-  // 480-tick pickup comes back as a full 1440-tick bar and every later barline,
-  // and every note straddling one, shifts with it.
-  let previousWasShort = false
-  let lastSigTick = 0
-  for (const m of score.measures) {
-    const written = writtenTimeSignature(m)
-    if (
-      ts === undefined ||
-      previousWasShort ||
-      ts.beats !== written.beats ||
-      ts.beatType !== written.beatType
-    ) {
-      ts = written
-      lastSigTick = m.startTick
-      events.push({ tick: m.startTick, order: 2, bytes: timeSignatureMeta(written) })
-    }
-    previousWasShort = m.durationTicks < measureDurationTicks(written)
-    if (fifths !== m.keyFifths) {
-      fifths = m.keyFifths
-      const bytes = metaEvent(0x59, [fifths < 0 ? fifths + 256 : fifths, 0])
-      events.push({ tick: m.startTick, order: 3, bytes })
-    }
-  }
-  // The reader lays full bars onward from the last signature, so if the music
-  // stops mid-bar — a short final measure, or a bar of a length no metre can
-  // express — one more signature at that tick is what marks the closing
-  // barline. Without it the final bar comes back padded to its full metre.
-  const endTick = scoreDurationTicks(score)
-  if (ts !== undefined && (endTick - lastSigTick) % measureDurationTicks(ts) !== 0) {
-    events.push({ tick: endTick, order: 2, bytes: timeSignatureMeta(ts) })
-  }
-  return encodeTrack(events, endTick)
-}
-
-function buildHandTrack(notes: readonly ScoreNote[], hand: Hand, endTick: number): number[] {
-  const channel = hand === 'right' ? 0 : 1
-  const events: TimedBytes[] = [
-    {
-      tick: 0,
-      order: 0,
-      bytes: metaEvent(0x03, encodeText(hand === 'right' ? 'Right hand' : 'Left hand')),
-    },
-  ]
-  for (const n of notes) {
-    // Velocity 0 would be read back as a note-off, and a zero-length note has no
-    // note-off to pair with, so both are nudged to the smallest representable value.
-    const velocity = Math.max(1, n.velocity)
-    const off = n.startTick + Math.max(1, n.durationTicks)
-    events.push({ tick: n.startTick, order: 1, bytes: [0x90 | channel, n.midi, velocity] })
-    events.push({ tick: off, order: 0, bytes: [0x80 | channel, n.midi, 0x40] })
-  }
-  return encodeTrack(events, endTick)
-}
-
-/**
- * Format 1: a conductor track carrying the meta events, then one track per hand
- * that has notes. Round-trips pitch, onset, duration and the bar grid — a bar
- * that is not the full length of its metre gets a second signature event at the
- * barline that ends it, which is how a pickup survives. Ties, fingering, voices
- * and staff assignment have no SMF representation and are lost.
- *
- * Throws (programmer error) on a metre SMF cannot encode — a beat type that is
- * not a power of two from 1 to 128, or more than 255 beats to the bar; see
- * `denominatorPower` and `timeSignatureMeta`.
- */
-export function writeMidiFile(score: Score): Uint8Array {
-  const endTick = scoreDurationTicks(score)
-  const trackChunks = [buildConductorTrack(score)]
-  for (const hand of HAND_ORDER) {
-    const notes = score.notes.filter((n) => n.hand === hand)
-    if (notes.length > 0) trackChunks.push(buildHandTrack(notes, hand, endTick))
-  }
-  const header = chunkBytes(MTHD_BYTES, [
-    0,
-    1,
-    (trackChunks.length >> 8) & 0xff,
-    trackChunks.length & 0xff,
-    (TICKS_PER_QUARTER >> 8) & 0xff,
-    TICKS_PER_QUARTER & 0xff,
-  ])
-  const out: number[] = header
-  for (const chunk of trackChunks) pushAll(out, chunk)
-  return Uint8Array.from(out)
 }

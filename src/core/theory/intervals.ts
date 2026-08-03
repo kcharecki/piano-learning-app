@@ -124,17 +124,6 @@ const ABBREV_TO_QUALITY: Record<string, IntervalQuality> = {
   dd: 'doublyDiminished',
 }
 
-/** Inversion swaps each quality with its mirror; perfect is its own mirror. */
-const INVERTED_QUALITY: Record<IntervalQuality, IntervalQuality> = {
-  perfect: 'perfect',
-  major: 'minor',
-  minor: 'major',
-  augmented: 'diminished',
-  diminished: 'augmented',
-  doublyAugmented: 'doublyDiminished',
-  doublyDiminished: 'doublyAugmented',
-}
-
 const NUMBER_NAMES: readonly string[] = [
   'unison',
   'second',
@@ -243,8 +232,8 @@ function forceInterval(n: number, quality: IntervalQuality): Interval {
  * augmented apply to everything.
  *
  * A diminished unison is accepted even though it is a contested object — it
- * spans -1 semitones, and allowing it is what keeps `invert` total (it is the
- * inversion of the augmented octave).
+ * spans -1 semitones, but callers building interval tables (the augmented
+ * octave's mirror) need it to exist.
  */
 export function makeInterval(number: number, quality: IntervalQuality): Result<Interval, string> {
   if (!Number.isInteger(number)) {
@@ -330,6 +319,11 @@ export function tryIntervalBetween(a: SpelledPitch, b: SpelledPitch): Result<Int
  * {@link tryIntervalBetween} for callers holding spellings they already know are
  * measurable — the scale, chord and key vocabulary this module builds itself.
  * Throws an InvariantError on the pairs that variant reports as an Err.
+ *
+ * @public — no production caller yet (nothing in the app measures a
+ * pre-built pair of spellings today), but it is the assertion other modules'
+ * test suites reach for directly (`flashcards.test.ts`, `scales.test.ts`),
+ * so it is not dead.
  */
 export function intervalBetween(a: SpelledPitch, b: SpelledPitch): Interval {
   const measured = tryIntervalBetween(a, b)
@@ -349,54 +343,6 @@ export function intervalName(i: Interval): string {
 /** `'perfect fifth'`, `'minor third'`, `'augmented fourth'`, `'doubly diminished third'`. */
 export function intervalLongName(i: Interval): string {
   return `${QUALITY_LONG[i.quality]} ${numberName(i.number)}`
-}
-
-// ---------------------------------------------------------------------------
-// algebra
-// ---------------------------------------------------------------------------
-
-/** Larger than an octave. The octave itself is simple. */
-export function isCompound(i: Interval): boolean {
-  return i.number > LETTERS_PER_OCTAVE + 1
-}
-
-/** Reduce to within an octave: a 9th becomes a 2nd, a 15th an octave, an octave stays an octave. */
-export function simplify(i: Interval): Interval {
-  if (i.number === 1) return i
-  const within = ((i.number - 1) % LETTERS_PER_OCTAVE) + 1
-  const simple = within === 1 ? LETTERS_PER_OCTAVE + 1 : within
-  if (simple === i.number) return i
-  return forceInterval(simple, i.quality)
-}
-
-/**
- * Turn the interval upside down: the number inverts as 9 - n, major swaps with
- * minor and augmented with diminished. Compound intervals are simplified first,
- * so `invert` always returns a simple interval.
- */
-export function invert(i: Interval): Interval {
-  const simple = simplify(i)
-  return forceInterval(LETTERS_PER_OCTAVE + 2 - simple.number, INVERTED_QUALITY[simple.quality])
-}
-
-/**
- * Consonance in the common-practice sense: P1, m3, M3, P5, m6, M6 and P8.
- *
- * The perfect fourth is deliberately counted as a **dissonance**. Above a bass
- * it demands resolution and is treated as a dissonance throughout species
- * counterpoint and figured-bass practice; calling it consonant would make the
- * app teach the wrong answer. Compound intervals are judged by their simple
- * form, so a major tenth is consonant and a perfect eleventh is not.
- */
-export function isConsonant(i: Interval): boolean {
-  const simple = simplify(i)
-  if (simple.quality === 'perfect') {
-    return simple.number === 1 || simple.number === 5 || simple.number === 8
-  }
-  if (simple.quality === 'major' || simple.quality === 'minor') {
-    return simple.number === 3 || simple.number === 6
-  }
-  return false
 }
 
 // ---------------------------------------------------------------------------
@@ -486,6 +432,10 @@ const DIMINISHED_FIFTH = forceInterval(5, 'diminished')
  *
  * Throws on a negative or fractional count (programmer error) — use
  * `intervalDirection` for direction, an interval has none.
+ *
+ * @public — no production caller yet, but `eartraining/intervals.test.ts`
+ * uses it directly to build the "off by one semitone" distractor it grades
+ * against, so it is not dead.
  */
 export function intervalFromSemitones(semitones: number, preferQuality?: 'diatonic'): Interval {
   if (!Number.isInteger(semitones) || semitones < 0) {

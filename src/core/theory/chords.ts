@@ -291,6 +291,11 @@ function parseNoteText(
  * "Chord member" means the *written* note, letter and accidental both. `C/Fb`
  * and `C/B#` sound like C/E and C, but accepting them would silently respell
  * the caller's input, and spelling is what this module exists to preserve.
+ *
+ * @public — completes the {@link chordSymbol} pair: chordSymbol (live in production, see
+ * `app/theory/ChordScaleReference.tsx`) turns a `Chord` into text; this is its documented
+ * inverse, turning text back into a `Chord`, with the round-trip enforced by its own
+ * property tests below.
  */
 export function parseChordSymbol(text: string): Result<Chord, string> {
   const trimmed = text.trim()
@@ -334,4 +339,12 @@ export function parseChordSymbol(text: string): Result<Chord, string> {
 // recognition — implemented next door, re-exported so callers keep one import
 // ---------------------------------------------------------------------------
 
-export { type ChordMatch, identifyChord, matchesChord } from './chord-recognition.ts'
+export { type ChordMatch, identifyChord } from './chord-recognition.ts'
+
+/**
+ * @public — completes `identifyChord`'s recognition API (identifyChord is live in production,
+ * see `analysis.ts`'s score-reading `identifyChord` calls): identifyChord answers "what chord is
+ * this", matchesChord answers "is this the chord I asked for", which a drill needs to grade a
+ * played voicing. See the doc comment above this re-export block, and `chord-recognition.ts`.
+ */
+export { matchesChord } from './chord-recognition.ts'

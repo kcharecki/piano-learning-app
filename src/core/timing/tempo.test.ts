@@ -18,7 +18,6 @@ import {
   MAX_TEMPO_SCALE,
   MIN_TEMPO_SCALE,
   msToTick,
-  tickDurationMs,
   ticksToBeats,
   tickToMs,
   withScale,
@@ -332,40 +331,6 @@ describe('clampScale', () => {
   })
 })
 
-// ------------------------------------------------------------ tickDurationMs
-
-describe('tickDurationMs', () => {
-  const at120 = makeTempoMap([mark(0, 120)])
-  const changing = makeTempoMap([mark(0, 120), mark(1920, 60)])
-
-  it('measures a span at a constant tempo', () => {
-    expect(tickDurationMs(at120, asTicks(0), asTicks(QUARTER_TICKS))).toBe(500)
-    expect(tickDurationMs(at120, asTicks(480), asTicks(960))).toBe(500)
-  })
-
-  it('is zero for an empty span', () => {
-    expect(tickDurationMs(at120, asTicks(960), asTicks(960))).toBe(0)
-  })
-
-  it('is negative for a backwards span', () => {
-    expect(tickDurationMs(at120, asTicks(960), asTicks(480))).toBe(-500)
-  })
-
-  it('includes tempo changes inside the span', () => {
-    // 1440..2400 spans the change: 480 ticks at 120 (500 ms) + 480 at 60 (1000 ms).
-    expect(tickDurationMs(changing, asTicks(1440), asTicks(2400))).toBe(1500)
-  })
-
-  it('follows the practice scale', () => {
-    expect(tickDurationMs(withScale(changing, 0.5), asTicks(1440), asTicks(2400))).toBe(3000)
-  })
-
-  it('throws when handed a map with no marks', () => {
-    expect(() => tickDurationMs({ marks: [], scale: 1 }, asTicks(0), asTicks(1))).toThrow(
-      InvariantError,
-    )
-  })
-})
 
 // -------------------------------------------------------------- beat helpers
 
@@ -483,33 +448,6 @@ describe('properties', () => {
     )
   })
 
-  it('tickDurationMs is additive across any split point', () => {
-    fc.assert(
-      fc.property(arbMap, arbTick, arbTick, arbTick, (map, a, b, c) => {
-        const first = tickDurationMs(map, a, b)
-        const second = tickDurationMs(map, b, c)
-        const whole = tickDurationMs(map, a, c)
-        // The two halves can be huge and nearly cancel, so the tolerance is
-        // relative to the terms rather than to the (possibly zero) result.
-        const magnitude = Math.max(1, Math.abs(first), Math.abs(second))
-        expect(Math.abs(first + second - whole)).toBeLessThanOrEqual(1e-9 * magnitude)
-      }),
-    )
-  })
-
-  it('tickDurationMs agrees with the difference of tickToMs', () => {
-    fc.assert(
-      fc.property(arbMap, arbTick, arbTick, (map, a, b) => {
-        const from = tickToMs(map, a)
-        const to = tickToMs(map, b)
-        const magnitude = Math.max(1, Math.abs(from), Math.abs(to))
-        expect(Math.abs(tickDurationMs(map, a, b) - (to - from))).toBeLessThanOrEqual(
-          1e-9 * magnitude,
-        )
-      }),
-    )
-  })
-
   it('scaling by s then by 1/s is the identity on durations', () => {
     fc.assert(
       fc.property(arbMap, fc.integer({ min: 50, max: 200 }), arbTick, (map, percent, tick) => {
@@ -561,7 +499,7 @@ describe('properties', () => {
         const oneBeatOn = asTicks(m.tick + beatsToTicks(1))
         const next = map.marks[i + 1]
         fc.pre(next === undefined || next.tick >= oneBeatOn)
-        nearly(tickDurationMs(map, m.tick, oneBeatOn), 60_000 / (m.bpm * map.scale))
+        nearly(tickToMs(map, oneBeatOn) - tickToMs(map, m.tick), 60_000 / (m.bpm * map.scale))
       }),
     )
   })

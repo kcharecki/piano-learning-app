@@ -18,6 +18,15 @@ import type { PracticeEntry } from '@core/progress/log.ts'
 /** REQ-3.8.2's four statuses, in their natural progression. */
 export type RepertoireStatus = 'learning' | 'polishing' | 'performance-ready' | 'maintained'
 
+/**
+ * @public — roadmap 4.5's consumer screen doesn't call this yet; see the
+ * roadmap triage note added for 2.32. No store persists a `RepertoirePiece`
+ * list anywhere in the app (`snapshot.ts` hardcodes `repertoire: []`,
+ * `useDashboard.ts` hardcodes `repertoirePieces: []`) — a whole domain module
+ * (statuses, practice history, maintenance prompts) with no screen wired to
+ * it, not dead code. Sibling of `addPiece`/`setStatus`/`recordSession`/
+ * `setNotes`/`maintenanceDue`/`sessionFromEntry` below, all in the same boat.
+ */
 export const REPERTOIRE_STATUSES: readonly RepertoireStatus[] = [
   'learning',
   'polishing',
@@ -42,6 +51,11 @@ export type RepertoireSession = {
  * both appends the `PracticeEntry` and calls `recordSession` with the result
  * of this adapter. Never construct a `RepertoireSession` from a second,
  * independent record of the same practice session.
+ * @public — roadmap 4.5's consumer screen doesn't call this yet; see the
+ * roadmap triage note added for 2.32. `usePracticeLog.ts`'s `stop()` does not
+ * actually call `recordSession` with this adapter's result today (checked:
+ * no reference to `repertoire`/`recordSession` anywhere in that file) — the
+ * doc comment above describes the intended wiring, not the current state.
  */
 export function sessionFromEntry(entry: PracticeEntry): RepertoireSession {
   const minutes = (entry.endedAt - entry.startedAt) / 60_000
@@ -82,6 +96,8 @@ type NewPieceInput = {
  * whitespace-only) title, or a level outside 1..5. `composer` is otherwise
  * unchecked — REQ-3.8.3 lets the learner assign the level manually, and
  * nothing here second-guesses the rest of an imported score's metadata.
+ * @public — roadmap 4.5's consumer screen doesn't call this yet; see the
+ * roadmap triage note added for 2.32 (see `REPERTOIRE_STATUSES`'s note).
  */
 export function addPiece(
   pieces: readonly RepertoirePiece[],
@@ -112,7 +128,11 @@ export function addPiece(
   return ok([...pieces, newPiece])
 }
 
-/** Replace the status of the piece with the given id. Status changes are free-form: a learner may move a piece back to 'learning'. */
+/**
+ * Replace the status of the piece with the given id. Status changes are free-form: a learner may move a piece back to 'learning'.
+ * @public — roadmap 4.5's consumer screen doesn't call this yet; see the
+ * roadmap triage note added for 2.32 (see `REPERTOIRE_STATUSES`'s note).
+ */
 export function setStatus(
   pieces: readonly RepertoirePiece[],
   id: string,
@@ -126,6 +146,8 @@ export function setStatus(
  * it. Pure. Throws if `id` does not match a piece in the library — an unknown
  * id here means a stale caller reference, and silently dropping the session
  * would leave maintenance prompts firing with no signal anywhere.
+ * @public — roadmap 4.5's consumer screen doesn't call this yet; see the
+ * roadmap triage note added for 2.32 (see `REPERTOIRE_STATUSES`'s note).
  */
 export function recordSession(
   pieces: readonly RepertoirePiece[],
@@ -146,7 +168,11 @@ export function recordSession(
   })
 }
 
-/** Replace the free-text notes for the piece with the given id. */
+/**
+ * Replace the free-text notes for the piece with the given id.
+ * @public — roadmap 4.5's consumer screen doesn't call this yet; see the
+ * roadmap triage note added for 2.32 (see `REPERTOIRE_STATUSES`'s note).
+ */
 export function setNotes(
   pieces: readonly RepertoirePiece[],
   id: string,
@@ -173,6 +199,8 @@ const DEFAULT_MAINTENANCE_INTERVAL_DAYS = 21
  * REQ-3.8.4: which 'maintained' pieces are due for review, most overdue
  * first. A piece never practised is due immediately, and sorts ahead of any
  * practised piece (it has no bound on how overdue it is).
+ * @public — roadmap 4.5's consumer screen doesn't call this yet; see the
+ * roadmap triage note added for 2.32 (see `REPERTOIRE_STATUSES`'s note).
  */
 export function maintenanceDue(
   pieces: readonly RepertoirePiece[],

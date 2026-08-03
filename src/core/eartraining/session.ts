@@ -53,8 +53,8 @@
  * map) fails loudly via `invariant` rather than silently vanishing from
  * consideration.
  */
-import type { Card, Grade, RetentionStats } from '@core/srs/scheduler.ts'
-import { dueCards, newCard, retentionStats, review } from '@core/srs/scheduler.ts'
+import type { Card, Grade } from '@core/srs/scheduler.ts'
+import { dueCards, newCard, review } from '@core/srs/scheduler.ts'
 import type { EarItemKind } from '@core/eartraining/item.ts'
 import type { Rng } from '@core/ports/rng.ts'
 import { invariant } from '@core/shared/invariant.ts'
@@ -204,8 +204,4 @@ export function nextDueItemId(
   const due = dueCards(relevant, now)
   const mostOverdue = due[0]
   return mostOverdue === undefined ? null : mostOverdue.id
-}
-
-export function earStats(state: EarSessionState, now: number): RetentionStats {
-  return retentionStats(state.cards, now)
 }

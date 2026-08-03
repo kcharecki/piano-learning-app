@@ -8,10 +8,7 @@ import { spell, toMidi } from './pitch.ts'
 import {
   chordForRomanNumeral,
   classifyCadence,
-  COMMON_PROGRESSIONS,
   diatonicChords,
-  functionOf,
-  matchProgression,
   romanNumeralFor,
 } from './harmony.ts'
 
@@ -220,16 +217,6 @@ describe('harmonic-minor mediant (III+)', () => {
   })
 })
 
-describe('COMMON_PROGRESSIONS entries normalize to distinct keys', () => {
-  it('every progression matches itself, not an earlier colliding entry', () => {
-    // If two entries normalized to the same key, matchProgression would silently return
-    // whichever comes first in the array for both of them - this catches that directly.
-    for (const progression of COMMON_PROGRESSIONS) {
-      expect(matchProgression(progression.numerals)?.name).toBe(progression.name)
-    }
-  })
-})
-
 describe('borrowed chords', () => {
   it('parses bVII, bIII, bVI in a major key', () => {
     const bVII = unwrap(chordForRomanNumeral('bVII', C_MAJOR))
@@ -243,38 +230,6 @@ describe('borrowed chords', () => {
 
   it('rejects borrowed chords analysed against a minor key', () => {
     expect(chordForRomanNumeral('bVII', A_MINOR).ok).toBe(false)
-  })
-})
-
-describe('functionOf', () => {
-  it.each([
-    ['I', 'tonic'],
-    ['iii', 'tonic'],
-    ['vi', 'tonic'],
-    ['ii', 'predominant'],
-    ['IV', 'predominant'],
-    ['V', 'dominant'],
-    ['vii°', 'dominant'],
-  ] as const)('%s is %s', (text, expected) => {
-    const chord = unwrap(chordForRomanNumeral(text, C_MAJOR))
-    const numeral = romanNumeralFor(chord, C_MAJOR)
-    expect(numeral).not.toBeNull()
-    if (numeral) expect(functionOf(numeral, C_MAJOR)).toBe(expected)
-  })
-
-  it('bVII (the borrowed subtonic) is not a dominant-function chord: it has no leading tone', () => {
-    const bVII = unwrap(chordForRomanNumeral('bVII', C_MAJOR))
-    const numeral = romanNumeralFor(bVII, C_MAJOR)
-    expect(numeral).not.toBeNull()
-    if (numeral) expect(functionOf(numeral, C_MAJOR)).toBe('predominant')
-  })
-
-  it('an applied chord takes the function of what it resolves to, not of its own root', () => {
-    const chord = unwrap(chordForRomanNumeral('V/ii', C_MAJOR))
-    const numeral = romanNumeralFor(chord, C_MAJOR)
-    expect(numeral?.appliedTo).toBe(2)
-    // V/ii resolves to ii, which is predominant — not dominant, despite reading "V".
-    expect(numeral && functionOf(numeral, C_MAJOR)).toBe('predominant')
   })
 })
 
@@ -344,36 +299,6 @@ describe('classifyCadence', () => {
     const iv = buildChord(spell('D', 0, 4), 'minor', 0)
     const naturalV = unwrap(chordForRomanNumeral('v', A_MINOR))
     expect(classifyCadence(iv, naturalV, A_MINOR)).toBe('none')
-  })
-})
-
-describe('COMMON_PROGRESSIONS / matchProgression', () => {
-  it('recognises a plain listed progression', () => {
-    const match = matchProgression(['I', 'IV', 'V', 'I'])
-    expect(match?.name).toBe(at(COMMON_PROGRESSIONS, 0).name)
-  })
-
-  it('is case-insensitive', () => {
-    // 'i-v-VI-iv' has no minor-key twin in COMMON_PROGRESSIONS, unlike 'i-iv-V-i' (which
-    // shares its normalized form with 'I-IV-V-I' by design, see the next test) — so this
-    // exercises case-insensitivity without also pinning down which entry a collision resolves to.
-    const match = matchProgression(['i', 'v', 'VI', 'iv'])
-    expect(match?.numerals).toEqual(['I', 'V', 'vi', 'IV'])
-  })
-
-  it('the authentic-cadence progression matches both its major and minor spelling', () => {
-    const authentic = at(COMMON_PROGRESSIONS, 0)
-    expect(matchProgression(['I', 'IV', 'V', 'I'])?.name).toBe(authentic.name)
-    expect(matchProgression(['i', 'iv', 'V', 'i'])?.name).toBe(authentic.name)
-  })
-
-  it('is inversion-insensitive', () => {
-    const match = matchProgression(['I6', 'IV', 'V6/4', 'I'])
-    expect(match?.numerals).toEqual(['I', 'IV', 'V', 'I'])
-  })
-
-  it('returns null for an unrecognised sequence', () => {
-    expect(matchProgression(['ii', 'iii', 'vi'])).toBeNull()
   })
 })
 

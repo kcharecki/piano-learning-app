@@ -53,8 +53,6 @@ export type CadenceType =
   | 'deceptive'
   | 'none'
 
-export type Progression = { readonly name: string; readonly numerals: readonly string[] }
-
 // ---------------------------------------------------------------------------
 // diatonic quality tables — the single source of truth for every degree
 // ---------------------------------------------------------------------------
@@ -469,20 +467,8 @@ export function chordForRomanNumeral(text: string, key: Key): Result<Chord, stri
 }
 
 // ---------------------------------------------------------------------------
-// function, cadence, progressions
+// cadence, progressions
 // ---------------------------------------------------------------------------
-
-export function functionOf(numeral: RomanNumeral, _key: Key): HarmonicFunction {
-  // A borrowed bVII (the subtonic) has no leading tone, so it is definitionally not a
-  // dominant-function chord, unlike bIII/bVI which land on defensible tonic-function degrees.
-  if (numeral.alter !== 0 && numeral.degree === 7 && numeral.appliedTo === undefined) {
-    return 'predominant'
-  }
-  const degree = numeral.appliedTo ?? numeral.degree
-  if (degree === 1 || degree === 3 || degree === 6) return 'tonic'
-  if (degree === 2 || degree === 4) return 'predominant'
-  return 'dominant'
-}
 
 /**
  * Classify the cadence formed by the last two chords of a phrase. `sopranoMidi` is the top
@@ -516,28 +502,4 @@ export function classifyCadence(
   // fallback after the authentic-cadence check above already claimed V-I.
   if (pn.degree === 5 && isDominant(penultimate)) return 'deceptive'
   return 'none'
-}
-
-/** Named common progressions, for recognition and for generating drill items. */
-export const COMMON_PROGRESSIONS: readonly Progression[] = [
-  { name: 'I-IV-V-I / i-iv-V-i (authentic)', numerals: ['I', 'IV', 'V', 'I'] },
-  { name: 'I-V-vi-IV (pop)', numerals: ['I', 'V', 'vi', 'IV'] },
-  { name: 'vi-IV-I-V (pop, rotated)', numerals: ['vi', 'IV', 'I', 'V'] },
-  { name: 'I-vi-IV-V (50s progression)', numerals: ['I', 'vi', 'IV', 'V'] },
-  { name: 'ii-V-I (jazz cadence)', numerals: ['ii', 'V', 'I'] },
-  { name: 'i-VI-III-VII (natural minor loop)', numerals: ['i', 'VI', 'III', 'VII'] },
-]
-
-/** Degree + sign + applied-target only — the part case and figures do not change. */
-function normalize(numeral: string): string {
-  const parsed = parseRomanText(numeral)
-  if (!parsed.ok) return numeral
-  const { sign, degree, appliedDegree } = parsed.value
-  return `${sign}${degree}${appliedDegree === undefined ? '' : `/${appliedDegree}`}`
-}
-
-/** The named progression a numeral sequence spells, or null. Case- and inversion-insensitive. */
-export function matchProgression(numerals: readonly string[]): Progression | null {
-  const key = numerals.map(normalize).join('-')
-  return COMMON_PROGRESSIONS.find((p) => p.numerals.map(normalize).join('-') === key) ?? null
 }

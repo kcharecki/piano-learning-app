@@ -157,6 +157,12 @@ export function pitchName(p: SpelledPitch): string {
  * Parse scientific pitch notation. The letter is case-insensitive; sharps may
  * be written `#` or `s` (`Cs4` = `C#4`) and flats `b`. Returns an Err rather
  * than throwing, because this reads text from files and from the user.
+ *
+ * @public — no production caller yet (nothing reads pitch text on an import
+ * path today), but it is the shared `'C#4'`-style fixture builder several
+ * other modules' test suites import directly (`chords.test.ts`,
+ * `chord-recognition.test.ts`, `scale-fingering.test.ts`, `scales.test.ts`),
+ * so it is not dead — just not yet wired to a production reader.
  */
 export function parsePitch(text: string): Result<SpelledPitch, string> {
   const trimmed = text.trim()
@@ -222,28 +228,7 @@ export function diatonicStep(p: SpelledPitch, steps: number): SpelledPitch {
   return spell(letter, p.alter, p.octave + octaveShift)
 }
 
-/** Transpose a sounding note. Throws a RangeError if it leaves 0–127. */
-export function transposeMidi(note: Midi, semitones: number): Midi {
-  return midi(note + semitones)
-}
-
-/** Do these two spellings sound the same note? Reflexive: C4 matches C4. */
-export function isEnharmonic(a: SpelledPitch, b: SpelledPitch): boolean {
-  return soundingSemitone(a) === soundingSemitone(b)
-}
-
 /** `pitchName(fromMidi(note, preferFlats))` — the common one-liner. */
 export function midiToName(note: Midi, preferFlats = false): string {
   return pitchName(fromMidi(note, preferFlats))
-}
-
-/**
- * Order by sounding pitch, then by letter so that enharmonics get a stable,
- * total order (C4 < Dbb4 < B#3, all sounding 60). Negative, zero or positive
- * in the usual `Array.prototype.sort` sense.
- */
-export function compareSpelled(a: SpelledPitch, b: SpelledPitch): number {
-  const bySound = soundingSemitone(a) - soundingSemitone(b)
-  if (bySound !== 0) return bySound
-  return letterIndex(a.letter) - letterIndex(b.letter)
 }

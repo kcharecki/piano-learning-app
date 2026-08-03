@@ -4,7 +4,6 @@ import { scriptedRng } from '@test/fakes.ts'
 import type { EarItemKind } from '@core/eartraining/item.ts'
 import {
   adaptEarLevel,
-  earStats,
   EAR_MAX_LEVEL,
   EAR_MIN_LEVEL,
   emptyEarSession,
@@ -332,24 +331,5 @@ describe('nextDueItemId', () => {
         },
       ),
     )
-  })
-})
-
-// ---------------------------------------------------------------------------
-// earStats
-// ---------------------------------------------------------------------------
-
-describe('earStats', () => {
-  it('reports zeros for an empty session', () => {
-    const stats = earStats(emptyEarSession(), T0)
-    expect(stats.total).toBe(0)
-    expect(stats.due).toBe(0)
-  })
-
-  it('counts a card as due once its relearning step has elapsed', () => {
-    const state = recordEarAttempt(emptyEarSession(), attempt(false), T0)
-    const stats = earStats(state, T0 + DAY_MS)
-    expect(stats.total).toBe(1)
-    expect(stats.due).toBe(1)
   })
 })

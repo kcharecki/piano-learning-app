@@ -3,15 +3,20 @@ import { describe, expect, it } from 'vitest'
 import { at } from '@core/shared/invariant.ts'
 import { isErr, isOk, unwrap } from '@core/shared/result.ts'
 import { makeInterval, transposeSpelled } from './intervals.ts'
-import { LETTERS, type Letter, spell, type SpelledPitch, spelledPitchClass } from './pitch.ts'
+import {
+  type Alter,
+  LETTERS,
+  type Letter,
+  spell,
+  type SpelledPitch,
+  spelledPitchClass,
+} from './pitch.ts'
 import {
   accidentalsOf,
   alterFor,
   CIRCLE_OF_FIFTHS,
   closelyRelatedKeys,
-  dominantKey,
   enharmonicKey,
-  fifthsDistance,
   FLAT_ORDER,
   type Key,
   keyFromFifths,
@@ -20,11 +25,8 @@ import {
   keySignatureForTonic,
   type KeySignature,
   type Mode,
-  parallelKey,
-  parseKeyName,
   relativeKey,
   SHARP_ORDER,
-  subdominantKey,
 } from './keys.ts'
 
 // ---------------------------------------------------------------------------
@@ -51,8 +53,25 @@ const MINOR_THIRD = unwrap(makeInterval(3, 'minor'))
 
 const name = (k: Key): string => keyName(k)
 const names = (keys: readonly Key[]): string[] => keys.map(name)
-const tonicOf = (text: string): SpelledPitch => unwrap(parseKeyName(text)).tonic
-const named = (text: string): Key => unwrap(parseKeyName(text))
+
+/**
+ * Builds a key from a name like 'Eb major' for compact test fixtures. Deliberately
+ * local and minimal: the production parser (`parseKeyName`) was deleted at roadmap
+ * 2.32 for having no production caller, but the tests still want short names for
+ * the many keys exercised below.
+ */
+function named(text: string): Key {
+  const match = /^([A-Ga-g])([#sSbB]*)\s*(major|minor)$/.exec(text.trim())
+  if (match === null) throw new Error(`bad fixture key name '${text}'`)
+  const letter = at(match, 1).toUpperCase() as Letter
+  const accidentals = at(match, 2).toLowerCase()
+  const flats = [...accidentals].filter((c) => c === 'b').length
+  const sharps = accidentals.length - flats
+  const mode = at(match, 3) as Mode
+  return unwrap(keyOf(spell(letter, (sharps - flats) as Alter, 4), mode))
+}
+
+const tonicOf = (text: string): SpelledPitch => named(text).tonic
 
 /** `enharmonicKey` where the twin is known to exist — keeps the assertions readable. */
 function twinOf(k: Key): Key {
@@ -446,7 +465,7 @@ describe('alterFor', () => {
 })
 
 // ---------------------------------------------------------------------------
-// keyName / parseKeyName
+// keyName
 // ---------------------------------------------------------------------------
 
 describe('keyName', () => {
@@ -458,68 +477,8 @@ describe('keyName', () => {
   })
 })
 
-describe('parseKeyName', () => {
-  it('parses the canonical spellings', () => {
-    expect(unwrap(parseKeyName('Bb major'))).toEqual(keyFromFifths(-2, 'major'))
-    expect(unwrap(parseKeyName('F# minor'))).toEqual(keyFromFifths(3, 'minor'))
-  })
-
-  it('is forgiving about case, sharp spelling and abbreviation', () => {
-    expect(unwrap(parseKeyName('  eb MAJOR '))).toEqual(keyFromFifths(-3, 'major'))
-    expect(unwrap(parseKeyName('Fs min'))).toEqual(keyFromFifths(3, 'minor'))
-    expect(unwrap(parseKeyName('c maj'))).toEqual(keyFromFifths(0, 'major'))
-    expect(unwrap(parseKeyName('Bbminor'))).toEqual(keyFromFifths(-5, 'minor'))
-  })
-
-  it('assumes major when the mode is left out', () => {
-    expect(unwrap(parseKeyName('C'))).toEqual(keyFromFifths(0, 'major'))
-    expect(unwrap(parseKeyName('F#'))).toEqual(keyFromFifths(6, 'major'))
-  })
-
-  it('rejects an empty name', () => {
-    expect(isErr(parseKeyName(''))).toBe(true)
-    expect(isErr(parseKeyName('   '))).toBe(true)
-    const empty = parseKeyName('')
-    if (isErr(empty)) expect(empty.error).toBe('empty key name')
-  })
-
-  it('rejects letters outside A-G and other junk', () => {
-    for (const bad of ['H major', '7 major', 'C major!', 'C major minor', '#', 'major']) {
-      expect(isErr(parseKeyName(bad))).toBe(true)
-    }
-  })
-
-  it('rejects an unknown mode', () => {
-    const lydian = parseKeyName('C lydian')
-    expect(isErr(lydian)).toBe(true)
-    if (isErr(lydian)) expect(lydian.error).toContain('lydian')
-  })
-
-  it('rejects mixed and excessive accidentals', () => {
-    const mixed = parseKeyName('C#b major')
-    expect(isErr(mixed)).toBe(true)
-    if (isErr(mixed)) expect(mixed.error).toContain('mixed sharps and flats')
-    const many = parseKeyName('Cbbb major')
-    expect(isErr(many)).toBe(true)
-    if (isErr(many)) expect(many.error).toContain('too many accidentals')
-  })
-
-  it('rejects a well-formed name that is not a standard key', () => {
-    expect(isErr(parseKeyName('G# major'))).toBe(true)
-    expect(isErr(parseKeyName('Dbb minor'))).toBe(true)
-  })
-
-  it('round-trips every standard key name', () => {
-    fc.assert(
-      fc.property(arbKey, (key) => {
-        expect(unwrap(parseKeyName(keyName(key)))).toEqual(key)
-      }),
-    )
-  })
-})
-
 // ---------------------------------------------------------------------------
-// relative / parallel
+// relative
 // ---------------------------------------------------------------------------
 
 describe('relativeKey', () => {
@@ -562,118 +521,9 @@ describe('relativeKey', () => {
   })
 })
 
-describe('parallelKey', () => {
-  it('pairs A major (+3) with A minor (0)', () => {
-    const aMajor = named('A major')
-    const aMinor = parallelKey(aMajor)
-    expect(name(aMinor)).toBe('A minor')
-    expect(aMajor.signature.fifths).toBe(3)
-    expect(aMinor.signature.fifths).toBe(0)
-  })
-
-  it('pairs C minor (-3) with C major (0)', () => {
-    expect(parallelKey(named('C minor'))).toEqual(keyFromFifths(0, 'major'))
-  })
-
-  it('keeps the tonic and moves the signature three fifths', () => {
-    fc.assert(
-      fc.property(arbKey, (key) => {
-        const parallel = parallelKey(key)
-        expect(parallel.tonic).toEqual(key.tonic)
-        expect(parallel.mode).not.toBe(key.mode)
-        const shift = key.mode === 'major' ? -3 : 3
-        expect(parallel.signature.fifths).toBe(key.signature.fifths + shift)
-      }),
-    )
-  })
-
-  it('is its own inverse, even where the parallel is theoretical', () => {
-    fc.assert(
-      fc.property(arbKey, (key) => {
-        expect(parallelKey(parallelKey(key))).toEqual(key)
-      }),
-    )
-  })
-
-  it('produces theoretical signatures at the far edge of the circle', () => {
-    // Cb major has 7 flats, so Cb minor would need 10 — a real key nobody writes.
-    const cbMinor = parallelKey(named('Cb major'))
-    expect(keyName(cbMinor)).toBe('Cb minor')
-    expect(cbMinor.signature.fifths).toBe(-10)
-    // ...and it is spelled B minor in practice.
-    expect(name(twinOf(cbMinor))).toBe('B minor')
-    // The sharp side mirrors it: A# minor (+7) has parallel A# major (+10) = Bb major.
-    const aSharpMajor = parallelKey(named('A# minor'))
-    expect(aSharpMajor.signature.fifths).toBe(10)
-    expect(name(twinOf(aSharpMajor))).toBe('Bb major')
-  })
-})
-
 // ---------------------------------------------------------------------------
-// dominant / subdominant / closely related
+// closely related
 // ---------------------------------------------------------------------------
-
-describe('dominantKey and subdominantKey', () => {
-  it('walks the circle for C major', () => {
-    const c = keyFromFifths(0, 'major')
-    expect(name(dominantKey(c))).toBe('G major')
-    expect(name(subdominantKey(c))).toBe('F major')
-  })
-
-  it('keeps the mode', () => {
-    const aMinor = keyFromFifths(0, 'minor')
-    expect(name(dominantKey(aMinor))).toBe('E minor')
-    expect(name(subdominantKey(aMinor))).toBe('D minor')
-  })
-
-  it('wraps enharmonically past the ends of the circle', () => {
-    // G# major (+8) is unwritable, so the dominant of C# major comes back as Ab major.
-    expect(name(dominantKey(named('C# major')))).toBe('Ab major')
-    // Fb major (-8) likewise: the subdominant of Cb major is written E major.
-    expect(name(subdominantKey(named('Cb major')))).toBe('E major')
-  })
-
-  it('raises the fifths by exactly one station of the circle', () => {
-    fc.assert(
-      fc.property(arbKey, (key) => {
-        const step = dominantKey(key).signature.fifths - key.signature.fifths
-        expect(((step % 12) + 12) % 12).toBe(1)
-      }),
-    )
-  })
-
-  it('lowers the fifths by exactly one station of the circle', () => {
-    fc.assert(
-      fc.property(arbKey, (key) => {
-        const step = subdominantKey(key).signature.fifths - key.signature.fifths
-        expect(((step % 12) + 12) % 12).toBe(11)
-      }),
-    )
-  })
-
-  it('puts the dominant tonic a fifth above the tonic', () => {
-    fc.assert(
-      fc.property(arbKey, (key) => {
-        expect(spelledPitchClass(dominantKey(key).tonic)).toBe(
-          (spelledPitchClass(key.tonic) + 7) % 12,
-        )
-        expect(spelledPitchClass(subdominantKey(key).tonic)).toBe(
-          (spelledPitchClass(key.tonic) + 5) % 12,
-        )
-      }),
-    )
-  })
-
-  it('undo each other, up to enharmonic spelling', () => {
-    fc.assert(
-      fc.property(arbKey, (key) => {
-        const there = subdominantKey(dominantKey(key))
-        expect(fifthsDistance(there.signature, key.signature)).toBe(0)
-        expect(spelledPitchClass(there.tonic)).toBe(spelledPitchClass(key.tonic))
-      }),
-    )
-  })
-})
 
 describe('closelyRelatedKeys', () => {
   it('gives C major its five neighbours', () => {
@@ -778,73 +628,10 @@ describe('closelyRelatedKeys', () => {
     )
   })
 
-  it('never strays more than one station round the circle', () => {
-    fc.assert(
-      fc.property(arbKey, (key) => {
-        for (const related of closelyRelatedKeys(key)) {
-          expect(fifthsDistance(related.signature, key.signature)).toBeLessThanOrEqual(1)
-        }
-      }),
-    )
-  })
-
   it('never includes the key itself', () => {
     fc.assert(
       fc.property(arbKey, (key) => {
         expect(names(closelyRelatedKeys(key))).not.toContain(keyName(key))
-      }),
-    )
-  })
-})
-
-// ---------------------------------------------------------------------------
-// fifthsDistance
-// ---------------------------------------------------------------------------
-
-describe('fifthsDistance', () => {
-  const sig = (text: string): KeySignature => unwrap(parseKeyName(text)).signature
-
-  it('counts neighbours as one and the tritone as six', () => {
-    expect(fifthsDistance(sig('C major'), sig('G major'))).toBe(1)
-    expect(fifthsDistance(sig('C major'), sig('F major'))).toBe(1)
-    expect(fifthsDistance(sig('C major'), sig('F# major'))).toBe(6)
-    expect(fifthsDistance(sig('C major'), sig('D major'))).toBe(2)
-  })
-
-  it('ignores the mode: relative keys share a signature', () => {
-    expect(fifthsDistance(sig('C major'), sig('A minor'))).toBe(0)
-  })
-
-  it('takes the short way round: Cb major and C# major are two apart, not fourteen', () => {
-    // Cb major is written B major (+5); B to C# is two fifths.
-    expect(fifthsDistance(sig('Cb major'), sig('C# major'))).toBe(2)
-  })
-
-  it('is zero for a signature against itself', () => {
-    fc.assert(
-      fc.property(arbKey, (key) => {
-        expect(fifthsDistance(key.signature, key.signature)).toBe(0)
-      }),
-    )
-  })
-
-  it('is symmetric and never exceeds six', () => {
-    fc.assert(
-      fc.property(arbKey, arbKey, (a, b) => {
-        const forward = fifthsDistance(a.signature, b.signature)
-        expect(forward).toBe(fifthsDistance(b.signature, a.signature))
-        expect(forward).toBeGreaterThanOrEqual(0)
-        expect(forward).toBeLessThanOrEqual(6)
-      }),
-    )
-  })
-
-  it('obeys the triangle inequality', () => {
-    fc.assert(
-      fc.property(arbKey, arbKey, arbKey, (a, b, c) => {
-        expect(fifthsDistance(a.signature, c.signature)).toBeLessThanOrEqual(
-          fifthsDistance(a.signature, b.signature) + fifthsDistance(b.signature, c.signature),
-        )
       }),
     )
   })
@@ -902,16 +689,17 @@ describe('enharmonicKey', () => {
     )
   })
 
-  it('rescues every theoretical key a parallel produces', () => {
+  it('rescues every theoretical key closelyRelatedKeys produces', () => {
     fc.assert(
       fc.property(arbKey, (key) => {
-        const parallel = parallelKey(key)
-        if (Math.abs(parallel.signature.fifths) <= 7) return
-        const twin = enharmonicKey(parallel)
-        expect(twin).not.toBeNull()
-        if (twin === null) return
-        expect(Math.abs(twin.signature.fifths)).toBeLessThanOrEqual(7)
-        expect(spelledPitchClass(twin.tonic)).toBe(spelledPitchClass(parallel.tonic))
+        for (const related of closelyRelatedKeys(key)) {
+          if (Math.abs(related.signature.fifths) <= 7) continue
+          const twin = enharmonicKey(related)
+          expect(twin).not.toBeNull()
+          if (twin === null) continue
+          expect(Math.abs(twin.signature.fifths)).toBeLessThanOrEqual(7)
+          expect(spelledPitchClass(twin.tonic)).toBe(spelledPitchClass(related.tonic))
+        }
       }),
     )
   })

@@ -48,10 +48,5 @@ export const HALF = ticks(TICKS_PER_QUARTER * 2)
 export const QUARTER = ticks(TICKS_PER_QUARTER)
 export const EIGHTH = ticks(TICKS_PER_QUARTER / 2)
 export const SIXTEENTH = ticks(TICKS_PER_QUARTER / 4)
-export const TRIPLET_EIGHTH = ticks(TICKS_PER_QUARTER / 3)
-
-/** Dotted value: 1.5× the base. */
-export const dotted = (t: Ticks): Ticks => ticks(t * 1.5)
 
 export const addTicks = (a: Ticks, b: Ticks): Ticks => ticks(a + b)
-export const subTicks = (a: Ticks, b: Ticks): Ticks => ticks(a - b)

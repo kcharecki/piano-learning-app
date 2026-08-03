@@ -37,16 +37,6 @@ export function pickWeighted<T>(rng: Rng, items: readonly (readonly [T, number])
   return items[items.length - 1]![0]
 }
 
-/** Fisher–Yates, returning a new array. */
-export function shuffle<T>(rng: Rng, items: readonly T[]): T[] {
-  const out = [...items]
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = randomInt(rng, 0, i)
-    ;[out[i], out[j]] = [out[j] as T, out[i] as T]
-  }
-  return out
-}
-
 /**
  * mulberry32 — small, fast, well-distributed 32-bit PRNG. Deterministic from a
  * seed, so the same seed always yields the same exercise. Used in production

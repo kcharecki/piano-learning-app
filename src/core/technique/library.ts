@@ -555,6 +555,16 @@ export function techniqueLibrary(level: number): readonly TechniqueDrill[] {
   return ALL_DRILLS.filter((d) => d.level === level)
 }
 
+/**
+ * @public — roadmap 4.4a's consumer doesn't call this yet: `Shell.tsx` renders
+ * `<TechniqueScreen />` with no props, so a session-plan technique candidate's
+ * `params.drillId` (built in `src/app/session/candidates.ts`, which explicitly
+ * names `techniqueDrillById(params.drillId)` as its intended opener) never
+ * reaches `useTechniqueDrill`'s `initialDrillId` — the screen always opens on
+ * its level's first drill regardless of which one the plan picked. A real
+ * wiring gap, flagged for the main thread rather than fixed here (out of this
+ * module's file ownership). See the roadmap triage note added for 2.32.
+ */
 export function techniqueDrillById(id: string): TechniqueDrill | undefined {
   return BY_ID.get(id)
 }
