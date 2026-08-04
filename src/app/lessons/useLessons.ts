@@ -26,16 +26,25 @@ import {
   lessonById,
   lessonMinutes,
   lessonsForLevel,
+  lessonsForTrack,
   nextLesson,
 } from '@core/curriculum/model.ts'
-import type { Lesson } from '@core/curriculum/types.ts'
+import { TRACKS, type Lesson, type Track } from '@core/curriculum/types.ts'
 import { writeMusicXml } from '@core/notation/musicxmlwriter.ts'
 
 export type UseLessonsResult = {
   readonly level: number
   readonly levels: readonly number[]
   setLevel(level: number): void
-  /** Lessons of `level`, in `lessonsForLevel` order. */
+  /**
+   * Which track the list is filtered to, or `undefined` for all three. Level 1
+   * alone ships 16 lessons across three tracks, so an unfiltered list buries
+   * the theory thread REQ-3.1.2 cares about among the playing lessons.
+   */
+  readonly track: Track | undefined
+  setTrack(track: Track | undefined): void
+  readonly tracks: readonly Track[]
+  /** Lessons of `level`, in `lessonsForLevel` order, narrowed by `track` via `lessonsForTrack`. */
   readonly lessons: readonly Lesson[]
   /** `undefined` when `lessons` is empty. */
   readonly selected: Lesson | undefined
@@ -66,9 +75,16 @@ export function useLessons(): UseLessonsResult {
   const loadScore = useScoreStore((s) => s.loadScore)
 
   const [level, setLevelRaw] = useState<number>(() => CURRICULUM_LEVELS[0] ?? 1)
+  const [track, setTrack] = useState<Track | undefined>(undefined)
   const [selectedLessonId, setSelectedLessonId] = useState<string | undefined>(undefined)
 
-  const lessons = useMemo(() => lessonsForLevel(CURRICULUM, level), [level])
+  const lessons = useMemo(
+    () =>
+      track === undefined
+        ? lessonsForLevel(CURRICULUM, level)
+        : lessonsForTrack(CURRICULUM, level, track),
+    [level, track],
+  )
 
   // `selected` is derived, not stored directly: it is `selectedLessonId`'s
   // lesson ONLY when that lesson actually lives in the current `level`,
@@ -123,6 +139,9 @@ export function useLessons(): UseLessonsResult {
     level,
     levels: CURRICULUM_LEVELS,
     setLevel,
+    track,
+    setTrack,
+    tracks: TRACKS,
     lessons,
     selected,
     selectLesson,

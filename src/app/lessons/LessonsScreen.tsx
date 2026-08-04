@@ -41,6 +41,9 @@ export function LessonsScreen({ onOpen }: LessonsScreenProps) {
     levels,
     setLevel,
     lessons,
+    track,
+    setTrack,
+    tracks,
     selected,
     selectLesson,
     selectedMinutes,
@@ -69,6 +72,27 @@ export function LessonsScreen({ onOpen }: LessonsScreenProps) {
             onClick={() => setLevel(n)}
           >
             Level {n}
+          </button>
+        ))}
+      </div>
+
+      {/* Level 1 alone ships 16 lessons across three tracks, so the theory
+          thread REQ-3.1.2 cares about is otherwise buried among the playing
+          lessons. Filtering runs through `lessonsForTrack`, not a local
+          `.filter`, so the screen and the model agree on what a track is. */}
+      <div role="group" aria-label="Track">
+        <button type="button" aria-pressed={track === undefined} onClick={() => setTrack(undefined)}>
+          All tracks
+        </button>
+        {tracks.map((t) => (
+          <button
+            key={t}
+            type="button"
+            aria-pressed={track === t}
+            data-testid={`lessons-track-${t}`}
+            onClick={() => setTrack(t)}
+          >
+            {t}
           </button>
         ))}
       </div>

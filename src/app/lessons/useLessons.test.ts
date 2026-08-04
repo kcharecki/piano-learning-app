@@ -10,7 +10,7 @@
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { CURRICULUM } from '@content/curriculum/curriculum.ts'
-import { lessonsForLevel, nextLesson } from '@core/curriculum/model.ts'
+import { lessonsForLevel, lessonsForTrack, nextLesson } from '@core/curriculum/model.ts'
 import { useScoreStore } from '@app/state/scoreStore.ts'
 import { useLessons } from './useLessons.ts'
 
@@ -128,5 +128,28 @@ describe('useLessons', () => {
     if (selected === undefined) throw new Error('expected a default selection')
     const expected = selected.exercises.reduce((sum, e) => sum + e.estimatedMinutes, 0)
     expect(result.current.selectedMinutes).toBe(expected)
+  })
+
+  it('setTrack narrows the list to that track, and All tracks restores it', () => {
+    const { result } = renderHook(() => useLessons())
+
+    const all = result.current.lessons
+    // The filter is only worth testing where it actually removes something —
+    // a level whose lessons are all one track would pass a no-op filter too.
+    expect(new Set(all.map((l) => l.track)).size).toBeGreaterThan(1)
+
+    act(() => result.current.setTrack('theory'))
+    const theory = result.current.lessons
+    expect(theory.length).toBeGreaterThan(0)
+    expect(theory.length).toBeLessThan(all.length)
+    expect(theory.every((l) => l.track === 'theory')).toBe(true)
+    // Derived from the model, not from the hook's own output: a filter that
+    // returned the wrong subset would still satisfy `every(track === theory)`.
+    expect(theory.map((l) => l.id)).toEqual(
+      lessonsForTrack(CURRICULUM, result.current.level, 'theory').map((l) => l.id),
+    )
+
+    act(() => result.current.setTrack(undefined))
+    expect(result.current.lessons.map((l) => l.id)).toEqual(all.map((l) => l.id))
   })
 })

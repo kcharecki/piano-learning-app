@@ -31,6 +31,8 @@
  * `knip.jsonc`, so that edit is left to the main thread.
  */
 import type { Curriculum, CurriculumLevel, ExitCriterion, Lesson, Unit } from '@core/curriculum/types.ts'
+import { validateCurriculum } from '@core/curriculum/model.ts'
+import { invariant } from '@core/shared/invariant.ts'
 import { techniqueDrillById } from '@core/technique/library.ts'
 import { LEVEL_1_LESSONS } from '@content/curriculum/lessonsLevel1.ts'
 import { LEVEL_2_LESSONS } from '@content/curriculum/lessonsLevel2.ts'
@@ -250,8 +252,31 @@ const LEVEL_3: CurriculumLevel = {
 // the curriculum
 // ---------------------------------------------------------------------------
 
-/** The shipped curriculum: levels 1-3. Validated by curriculum.test.ts. */
-export const CURRICULUM: Curriculum = {
+const AUTHORED: Curriculum = {
   levels: [LEVEL_1, LEVEL_2, LEVEL_3],
   lessons: [...LEVEL_1_LESSONS, ...LEVEL_2_LESSONS, ...LEVEL_3_LESSONS],
 }
+
+/**
+ * The shipped curriculum: levels 1-3, validated at module load.
+ *
+ * The validation runs in PRODUCTION, not only in `curriculum.test.ts`. This
+ * content is authored by hand, so a broken cross-reference — a unit naming a
+ * lesson that does not exist, a lesson no unit lists, a duplicate id — is
+ * programmer error, and the project's rule for programmer error is to throw.
+ * Failing at load is what makes it loud: the alternative is a lesson screen
+ * that silently renders a shorter list than the author wrote, which is exactly
+ * the class of quiet content rot this codebase keeps paying for.
+ *
+ * It is also what keeps `validateCurriculum` honest. Called only from a test,
+ * it was an export nothing in the running app reached — `knip --production`
+ * said so — and a validator that never runs where the data is actually used is
+ * not a gate, it is a comment.
+ */
+const validated = validateCurriculum(AUTHORED)
+invariant(
+  validated.ok,
+  `curriculum: authored content is invalid — ${validated.ok ? '' : validated.error.join('; ')}`,
+)
+
+export const CURRICULUM: Curriculum = AUTHORED
