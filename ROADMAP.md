@@ -601,9 +601,22 @@ therefore not optional polish: until they land, all of 3.1–3.6 is production-u
 - [x] 3.6 ‖ `core/eartraining/dictation`: melodic and rhythmic dictation grading (REQ-3.6.2)
       *Proof: e2e via 3.10 — play back a heard phrase through the fake MIDI keyboard, see a
       per-note result with pitch and rhythm scored separately.*
-- [ ] 3.7 `content/theory`: theory lesson content for levels 1–3 with diagrams + play tasks
-      *Proof: every lesson passes `validateCurriculum` and each one is reachable and readable in
-      the app.*
+- [x] 3.7 `content/theory`: theory lesson content for levels 1–3 with diagrams + play tasks
+      *Done: theory-track lessons at all three levels, plus 15 keyboard-diagram specs referenced
+      from lesson markdown as `[diagram:<id>]`. `validateCurriculum` now runs at content
+      module-load in production, not only in a test — a hand-authored cross-reference break is
+      programmer error and fails loudly instead of silently shortening a list. Reachable and
+      readable through the Lessons destination (4.9b), with a track filter so the theory thread
+      is not buried among 16 level-1 lessons.
+      The valuable review findings were not structural — they were that the shipped teaching
+      prose was musically WRONG, which no type-check would have caught: the two-octave lesson
+      taught CONTRARY motion while the drill it assigns builds both hands strictly parallel, and
+      told the learner to make both thumb-tucks land together when in parallel C major they never
+      coincide; the F major lesson had the missing flat arriving "too early" when it arrives a
+      step late; the bass-clef lesson claimed the clef sits "two lines lower" than treble, wrong
+      as a symbol and as pitch; and the "finding middle C" diagram spanned three octaves while
+      highlighting by PITCH CLASS, lighting up C3, C4 and C5 identically — the one diagram whose
+      whole job is to disambiguate middle C. All fixed.*
 - [x] 3.8 `app`: interactive circle of fifths, keyboard/staff explorer (REQ-3.5.3)
       *Proved by `e2e/screens.spec.ts`: clicking G major on the circle CHANGES what the reference
       below shows (the text is captured before and compared, so a circle wired to nothing fails)
@@ -686,7 +699,7 @@ therefore not optional polish: until they land, all of 3.1–3.6 is production-u
       `practiceLog` record for entropy — you cannot practise YESTERDAY inside a test, and the real
       totals rounded to exactly 1, which a constant-rendering dashboard would have satisfied. The
       real cycle is kept and its write path still asserted; only the distinctive totals are injected.*
-- [ ] 4.7c `app/dashboard`: a repertoire assessment's accuracy has no home anywhere on the dashboard.
+- [x] 4.7c `app/dashboard`: a repertoire assessment's accuracy has no home anywhere on the dashboard.
       Found while writing 4.7b's e2e. `useDashboard`'s "Sight-reading accuracy trend" reads
       `useSightReadingStore.history`, which ONLY generated sight-reading exercise runs write — a run
       through `AssessmentPanel` writes `useProgressStore.assessments` and is displayed nowhere, so
@@ -721,17 +734,62 @@ therefore not optional polish: until they land, all of 3.1–3.6 is production-u
       on-screen stats: a cold boot renders 0 before hydration lands, so the screen alone cannot tell
       a real wipe from an unhydrated store, and without that gate every later assertion would pass
       trivially against a wipe that did nothing.*
-- [ ] 4.8a `app/score`: click a notehead to select it, so fingering and highlight annotations are
+- [x] 4.8a `app/score`: click a notehead to select it, so fingering and highlight annotations are
       editable. The panel's controls are disabled without a selection today, which is honest but
       leaves half of REQ-3.2.6 unreachable.
       *Proof: e2e — click a notehead, set finger 3, assert the engraved score shows it after a
       reload.*
-- [ ] 4.9 `content`: 30 lessons L1–2, technique library through L3, 20 graded repertoire pieces (REQ-5.2)
-      *Proof: `validateCurriculum` is green over the shipped content in a test, and the lesson
-      list renders all 30 in the app.*
-- [ ] 4.9a `app/repertoire`: seed an empty repertoire library from `GRADED_PIECES`
-      *Proof: e2e — open the repertoire screen with no stored library and see the 20 graded
-      pieces listed.*
+- [x] 4.9 `content`: 30 lessons L1–2, technique library through L3, 20 graded repertoire pieces (REQ-5.2)
+      *Done: 40 lessons (16 at L1, 14 at L2 — 30 across the two — and 10 at L3), 14 demo scores,
+      20 graded public-domain repertoire pieces with per-piece grading rationale against §2.
+      "Technique library through L3" needed no work: `techniqueLibrary` already covered levels
+      1–5 with a test asserting each is non-empty — the task text was stale, not the code.
+      `validateCurriculum` is green over the shipped content AND now runs in production at module
+      load; the lesson list renders in the app through the Lessons destination (4.9b).
+      Demo scores are a registry of short `Score` values built with the core constructors, not 30
+      hand-authored MusicXML files: every lesson needs a resolvable `demoScoreId`, and data that
+      is diffable and unit-testable beats 30 XML blobs. The repertoire entries are METADATA only
+      — none carries a `scoreId`, because no MusicXML is bundled for them and inventing one would
+      fabricate a demonstration.*
+- [x] 4.9a `app/repertoire`: seed an empty repertoire library from `GRADED_PIECES`
+      *Done, but NOT as "seed" — the task title is what shipped wrong, not the code. The screen
+      lists the catalogue and adds ONE AT A TIME on request: the learner curates their own
+      repertoire (REQ-3.8.x), so inserting 20 pieces they never chose would be worse than an
+      empty list. Proved by `e2e/repertoire-seed.spec.ts` — add one named piece through the real
+      control, reload, read it back out of `COLLECTIONS.repertoire`.
+      Review proved the first version vacuous BY MUTATION rather than by argument: both the unit
+      test and the e2e pinned level-1 pieces, so hardcoding `level: 1` left all 16 tests and the
+      e2e green — the contract's headline claim, that the catalogue's level is preserved, was
+      tested by nothing. Both now use a level-5 entry.*
+- [x] 4.9b `app/lessons`: the lesson screen — the only consumer the authored curriculum, the demo
+      score registry and `core/curriculum/model.ts` will ever have. Until it exists all three are
+      production-unreachable and sit behind knip ignores naming this task. It must also close the
+      gap 4.9 recorded rather than hid: a `play` exercise carries no params and `Shell` routes it
+      to whatever score happens to be loaded, so the screen has to load the lesson's own
+      `demoScoreId` into `scoreStore` BEFORE opening it, or every play task lands on an unrelated
+      score.
+      *Proved by `e2e/lessons.spec.ts`, driving a NAMED non-default lesson: its explanation and
+      rendered diagram are read off the screen, then its playing task is opened and the loaded
+      score asserted to be that lesson's own demonstration — with a different score loaded first,
+      so "the right score loaded" cannot be satisfied by "nothing changed". The knip ignore list
+      is now EMPTY: the curriculum, the demo scores and `core/curriculum/model.ts` are all
+      reachable from `src/main.tsx`.
+      Review ran mutants instead of reasoning about them, and three survived the first version:
+      hardcoding the demo id left 17/17 green (both proofs drove level 1's FIRST lesson, which is
+      the default selection and whose demo is exactly that id — the headline claim was proved by
+      nothing); dropping the level/selection sync guard left it green; collapsing the paragraph
+      splitter left it green. All three now die — I re-ran the first by hand after the fix (1
+      failed / 18 passed, green again on restore). `onOpen` was also optional while the analogous
+      `SessionPlanScreen` requires it, so a Shell wiring omission would have left every Open
+      control dead under a green suite; it is required now.*
+- [ ] 4.9c `app/drills`: every `theory-quiz` exercise in the authored curriculum opens the same
+      note-naming deck regardless of its title ("Quiz: the circle of fifths and key signatures"
+      opens `staff-to-key`), because `FlashcardScreen` keeps its deck kind in private `useState`
+      and exposes no prop the shell can pass. `candidates.ts` has documented this since 4.7a and
+      drops the second deck rather than shipping a dead destination. Give it an `initialKind` prop
+      and route `params.drillKind`.
+      *Proof: e2e — open a curriculum theory quiz whose named deck is NOT the default, and assert
+      the prompt shown belongs to that deck rather than the note-naming one.*
 - [ ] 4.10 M4 acceptance pass — full §9 acceptance criteria review
 
 ## Backlog / optional
