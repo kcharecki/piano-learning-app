@@ -7,7 +7,12 @@
  * wiring between them.
  */
 import { useFlashcardStore } from '@app/state/flashcardStore.ts'
-import { buildDeck, type IntervalOnStaffCard } from '@core/drills/flashcards.ts'
+import {
+  buildDeck,
+  type IntervalOnStaffCard,
+  type KeySignatureCard,
+  type NoteNameCard,
+} from '@core/drills/flashcards.ts'
 import { seededRng } from '@core/ports/rng.ts'
 import { midi } from '@core/shared/units.ts'
 import { DAY_MS } from '@core/srs/scheduler.ts'
@@ -269,6 +274,123 @@ describe('useFlashcardDrill — answering an interval card', () => {
 
     act(() => result.current.answerInterval({ number: 3, quality: 'major' }))
 
+    expect(result.current.lastGrade).toBeUndefined()
+    expect(result.current.card?.id).toBe(cardId)
+  })
+})
+
+// roadmap 3.11 (REQ-3.5.2): before this task, `DrillKind` only ever narrowed to
+// two of `core/drills/flashcards.ts`'s four decks, so the `note-name` and
+// `key-signature` decks were fully built and graded by core but unreachable
+// from this hook. Every test below fails against the pre-3.11 `DrillKind`
+// union (a stub that keeps only 'staff-to-key' | 'interval-on-staff' does not
+// even type-check `kind: 'note-name'`), which is the point: it proves the two
+// decks are now actually wired, not just present in core.
+describe('useFlashcardDrill — kind selection includes note-name and key-signature (roadmap 3.11)', () => {
+  it('draws a note-name card when kind is note-name', () => {
+    const { result } = setup({ kind: 'note-name' })
+
+    expect(result.current.card).toBeDefined()
+    expect(result.current.card?.kind).toBe('note-name')
+    expect(result.current.deckSize).toBe(buildDeck('note-name', 1).length)
+  })
+
+  it('draws a key-signature card when kind is key-signature', () => {
+    const { result } = setup({ kind: 'key-signature' })
+
+    expect(result.current.card).toBeDefined()
+    expect(result.current.card?.kind).toBe('key-signature')
+    expect(result.current.deckSize).toBe(buildDeck('key-signature', 1).length)
+  })
+})
+
+describe('useFlashcardDrill — answering a note-name card (roadmap 3.11)', () => {
+  it('a correct note-name answer grades correctly and advances to a new card', () => {
+    const rng = scriptedRng([0])
+    const { result } = setup({ kind: 'note-name', rng })
+    const expected = buildDeck('note-name', 1)[0] as NoteNameCard
+    expect(result.current.card?.id).toBe(expected.id)
+
+    act(() => result.current.answerNoteName(expected.answer))
+
+    // Kills a mutant that always grades a note-name answer wrong (or always
+    // 'again'), and one that fails to advance `current` after grading.
+    expect(result.current.lastGrade).toEqual({ correct: true, grade: 'easy' })
+    expect(result.current.stats.total).toBe(1)
+    expect(result.current.card?.id).not.toBe(expected.id)
+  })
+
+  it('a wrong note-name answer grades again', () => {
+    const rng = scriptedRng([0])
+    const { result } = setup({ kind: 'note-name', rng })
+    const expected = buildDeck('note-name', 1)[0] as NoteNameCard
+    const wrongLetter = expected.answer.letter === 'C' ? 'D' : 'C'
+
+    // Kills a mutant that grades a note-name answer by alter alone (ignoring
+    // letter) or that always reports 'correct: true'.
+    act(() =>
+      result.current.answerNoteName({ letter: wrongLetter, alter: expected.answer.alter }),
+    )
+
+    expect(result.current.lastGrade).toEqual({ correct: false, grade: 'again' })
+  })
+
+  it('answerNoteName is a no-op while a staff-to-key card is showing', () => {
+    const { result } = setup({ kind: 'staff-to-key' })
+    const cardId = result.current.card?.id
+
+    act(() => result.current.answerNoteName({ letter: 'C', alter: 0 }))
+
+    // Kills a mutant that drops the `card.kind !== 'note-name'` guard and
+    // grades whatever card happens to be showing.
+    expect(result.current.lastGrade).toBeUndefined()
+    expect(result.current.card?.id).toBe(cardId)
+  })
+})
+
+describe('useFlashcardDrill — answering a key-signature card (roadmap 3.11)', () => {
+  it('a correct key-signature answer grades correctly and advances to a new card', () => {
+    const rng = scriptedRng([0])
+    const { result } = setup({ kind: 'key-signature', rng })
+    const expected = buildDeck('key-signature', 1)[0] as KeySignatureCard
+    expect(result.current.card?.id).toBe(expected.id)
+
+    act(() => result.current.answerKeySignature(expected.answer))
+
+    // Kills a mutant that only compares majorTonic (or only minorTonic) when
+    // grading a key-signature answer, and one that fails to advance `current`.
+    expect(result.current.lastGrade).toEqual({ correct: true, grade: 'easy' })
+    expect(result.current.stats.total).toBe(1)
+    expect(result.current.card?.id).not.toBe(expected.id)
+  })
+
+  it('a wrong key-signature answer grades again', () => {
+    const rng = scriptedRng([0])
+    const { result } = setup({ kind: 'key-signature', rng })
+
+    act(() =>
+      result.current.answerKeySignature({
+        majorTonic: { letter: 'C', alter: 2 },
+        minorTonic: { letter: 'A', alter: 2 },
+      }),
+    )
+
+    expect(result.current.lastGrade).toEqual({ correct: false, grade: 'again' })
+  })
+
+  it('answerKeySignature is a no-op while an interval-on-staff card is showing', () => {
+    const rng = scriptedRng([0])
+    const { result } = setup({ kind: 'interval-on-staff', rng })
+    const cardId = result.current.card?.id
+
+    act(() =>
+      result.current.answerKeySignature({
+        majorTonic: { letter: 'C', alter: 0 },
+        minorTonic: { letter: 'A', alter: 0 },
+      }),
+    )
+
+    // Kills a mutant that drops the `card.kind !== 'key-signature'` guard.
     expect(result.current.lastGrade).toBeUndefined()
     expect(result.current.card?.id).toBe(cardId)
   })

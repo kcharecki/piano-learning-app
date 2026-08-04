@@ -1,10 +1,15 @@
 /**
- * Flashcard drill wiring (roadmap 2.12/2.25, REQ-3.4.5) for the two kinds that
- * have an answer UI: `'staff-to-key'` (a note appears on the staff; the
- * learner plays it, on the on-screen keyboard or a real MIDI keyboard, both
- * funnelling into `answerNote(midi)`) and `'interval-on-staff'` (two notes
- * appear on one staff; the learner names the interval via
- * `answerInterval({ number, quality })`, `IntervalAnswerPad.tsx`'s job).
+ * Flashcard drill wiring (roadmap 2.12/2.25/3.11, REQ-3.4.5/REQ-3.5.2) for the
+ * four kinds that have an answer UI: `'staff-to-key'` (a note appears on the
+ * staff; the learner plays it, on the on-screen keyboard or a real MIDI
+ * keyboard, both funnelling into `answerNote(midi)`), `'interval-on-staff'`
+ * (two notes appear on one staff; the learner names the interval via
+ * `answerInterval({ number, quality })`, `IntervalAnswerPad.tsx`'s job),
+ * `'note-name'` (a note appears on the staff; the learner names its letter
+ * and accidental via `answerNoteName`, `NoteNameAnswerPad.tsx`'s job), and
+ * `'key-signature'` (a key signature appears; the learner names the major
+ * key and its relative minor together via `answerKeySignature`,
+ * `KeySignatureAnswerPad.tsx`'s job).
  *
  * No music logic lives here: `buildDeck`/`gradeAnswer` (REQ-3.4.5's grading)
  * and `newCard`/`review`/`dueCards`/`retentionStats` (`core/srs/scheduler.ts`)
@@ -12,16 +17,16 @@
  * (`useFlashcardStore`), asks `nextCard` what to show, times the answer, and
  * writes the graded card back.
  *
- * `kind` picks which deck `buildDeck` builds and which of the two answer
- * functions is live for the current card; the other is simply a no-op while
- * a card of the other kind is showing (never a crash — an on-screen keyboard
- * press cannot arrive for an interval card and vice versa, but a stray event
- * during the render that swaps `current` is possible and must stay inert).
- * SRS state (`cardsById`) is one flat map keyed by flashcard id, and ids are
- * already namespaced by kind (`staff-to-key-64` vs
- * `interval-on-staff-60-3-major`), so switching `kind` only changes which
- * deck's cards `nextCard` considers — it never touches, resets, or filters
- * the stored SRS state itself.
+ * `kind` picks which deck `buildDeck` builds and which of the four answer
+ * functions is live for the current card; the other three are simply a no-op
+ * while a card of a different kind is showing (never a crash — an on-screen
+ * keyboard press cannot arrive for an interval card and vice versa, but a
+ * stray event during the render that swaps `current` is possible and must
+ * stay inert). SRS state (`cardsById`) is one flat map keyed by flashcard id,
+ * and ids are already namespaced by kind (`staff-to-key-64` vs
+ * `interval-on-staff-60-3-major` vs `note-name-64` vs `key-signature--3`), so
+ * switching `kind` only changes which deck's cards `nextCard` considers — it
+ * never touches, resets, or filters the stored SRS state itself.
  *
  * ## Two different clocks (roadmap M2 defect fix — REQ-3.9.4)
  *
@@ -49,9 +54,14 @@ import {
   gradeAnswer,
   nextCard,
   type Flashcard,
+  type FlashcardKind,
   type GradeResult,
   type IntervalAnswer,
   type IntervalOnStaffCard,
+  type KeySignatureAnswer,
+  type KeySignatureCard,
+  type NoteNameAnswer,
+  type NoteNameCard,
   type StaffToKeyCard,
 } from '@core/drills/flashcards.ts'
 import {
@@ -62,15 +72,22 @@ import {
   type RetentionStats,
 } from '@core/srs/scheduler.ts'
 import type { Clock, DateSource, MidiInput, Rng } from '@core/ports/index.ts'
+import { assertNever } from '@core/shared/invariant.ts'
 import { midi as asMidi, type Midi } from '@core/shared/units.ts'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createBrowserRng } from '@app/sightreading/rng.ts'
 
-/** The two flashcard kinds this hook can drive — the ones with answer UI. */
-export type DrillKind = 'staff-to-key' | 'interval-on-staff'
+/**
+ * The flashcard kinds this hook can drive — now every kind core builds, so
+ * this is `FlashcardKind` itself rather than a hand-copied union (roadmap
+ * 3.11). Two copies of the same four strings could drift silently in the
+ * "core gains a fifth deck" direction: the new kind stays assignable to
+ * `buildDeck`, so nothing fails to compile and the deck is simply unreachable.
+ */
+export type DrillKind = FlashcardKind
 
-/** The card shown to the learner: whichever of the two kinds `kind` selects. */
-export type DrillCard = StaffToKeyCard | IntervalOnStaffCard
+/** The card shown to the learner: whichever of the four kinds `kind` selects. */
+export type DrillCard = StaffToKeyCard | IntervalOnStaffCard | NoteNameCard | KeySignatureCard
 
 export type UseFlashcardDrillOptions = {
   readonly level: number
@@ -99,6 +116,10 @@ export type UseFlashcardDrill = {
   readonly answerNote: (note: Midi) => void
   /** Answers an `'interval-on-staff'` card. A no-op while the current card is any other kind. */
   readonly answerInterval: (answer: IntervalAnswer) => void
+  /** Answers a `'note-name'` card. A no-op while the current card is any other kind. */
+  readonly answerNoteName: (answer: NoteNameAnswer) => void
+  /** Answers a `'key-signature'` card. A no-op while the current card is any other kind. */
+  readonly answerKeySignature: (answer: KeySignatureAnswer) => void
 }
 
 function isStaffToKey(card: Flashcard): card is StaffToKeyCard {
@@ -109,9 +130,28 @@ function isIntervalOnStaff(card: Flashcard): card is IntervalOnStaffCard {
   return card.kind === 'interval-on-staff'
 }
 
+function isNoteName(card: Flashcard): card is NoteNameCard {
+  return card.kind === 'note-name'
+}
+
+function isKeySignature(card: Flashcard): card is KeySignatureCard {
+  return card.kind === 'key-signature'
+}
+
 function buildDrillDeck(kind: DrillKind, level: number): readonly DrillCard[] {
   const deck = buildDeck(kind, level)
-  return kind === 'staff-to-key' ? deck.filter(isStaffToKey) : deck.filter(isIntervalOnStaff)
+  switch (kind) {
+    case 'staff-to-key':
+      return deck.filter(isStaffToKey)
+    case 'interval-on-staff':
+      return deck.filter(isIntervalOnStaff)
+    case 'note-name':
+      return deck.filter(isNoteName)
+    case 'key-signature':
+      return deck.filter(isKeySignature)
+    default:
+      return assertNever(kind)
+  }
 }
 
 /**
@@ -199,6 +239,28 @@ export function useFlashcardDrill(options: UseFlashcardDrillOptions): UseFlashca
     promptShownAtRef.current = clockNow
   }
 
+  function answerNoteName(answer: NoteNameAnswer): void {
+    const card = current
+    if (card === undefined || card.kind !== 'note-name') return
+    const clockNow = clock.now()
+    const dateNow = date.epochMillis()
+    const elapsedMs = clockNow - promptShownAtRef.current
+    const result = gradeAnswer(card, answer, elapsedMs)
+    commitAnswer(card, result, dateNow)
+    promptShownAtRef.current = clockNow
+  }
+
+  function answerKeySignature(answer: KeySignatureAnswer): void {
+    const card = current
+    if (card === undefined || card.kind !== 'key-signature') return
+    const clockNow = clock.now()
+    const dateNow = date.epochMillis()
+    const elapsedMs = clockNow - promptShownAtRef.current
+    const result = gradeAnswer(card, answer, elapsedMs)
+    commitAnswer(card, result, dateNow)
+    promptShownAtRef.current = clockNow
+  }
+
   const answerNoteRef = useRef(answerNote)
   answerNoteRef.current = answerNote
 
@@ -232,5 +294,7 @@ export function useFlashcardDrill(options: UseFlashcardDrillOptions): UseFlashca
     midi,
     answerNote,
     answerInterval,
+    answerNoteName,
+    answerKeySignature,
   }
 }

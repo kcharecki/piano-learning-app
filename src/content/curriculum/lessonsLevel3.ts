@@ -10,10 +10,15 @@
  * `unitId` values here are the level-3 unit ids authored in
  * `@content/curriculum/curriculum.ts`, which owns the units and wires each
  * lesson id into exactly one of them.
+ *
+ * `theoryQuizEx` takes its `drillKind` explicitly (roadmap 3.11, REQ-3.5.2) —
+ * see `lessonsLevel1.ts`'s module comment for the rationale and the gap-topic
+ * convention (no matching deck -> `'staff-to-key'` + a generic title).
  */
 import type { Exercise, Lesson } from '@core/curriculum/types.ts'
 import { demoScoreById } from '@content/scores/demoScores.ts'
 import { techniqueDrillById } from '@core/technique/library.ts'
+import type { FlashcardKind } from '@core/drills/flashcards.ts'
 
 // ---------------------------------------------------------------------------
 // exercise helpers — see lessonsLevel1.ts for rationale.
@@ -38,13 +43,19 @@ function techniqueEx(id: string, drillId: string, minutes = 6): Exercise {
   }
 }
 
-function theoryQuizEx(id: string, title: string, minutes = 8): Exercise {
+function theoryQuizEx(
+  id: string,
+  title: string,
+  drillKind: FlashcardKind,
+  minutes = 8,
+  drillLevel?: number,
+): Exercise {
   return {
     id,
     kind: 'theory-quiz',
     title,
     estimatedMinutes: minutes,
-    params: { drillKind: 'staff-to-key' },
+    params: drillLevel === undefined ? { drillKind } : { drillKind, drillLevel },
   }
 }
 
@@ -144,7 +155,17 @@ export const LEVEL_3_LESSONS: readonly Lesson[] = [
       'you instantly know its neighbours, which are the keys a piece is most likely to modulate into.',
     demoScoreId: demo('demo-i-iv-v-i-c-major'),
     exercises: [
-      theoryQuizEx('l3-circle-of-fifths-ex1', 'Quiz: the circle of fifths and key signatures'),
+      // Finding 1: `buildKeySignatureDeck`'s default level-1 deck only holds
+      // fifths -1..+1 (F/C/G), so a lesson about the WHOLE circle of fifths
+      // was drilling three of its fifteen keys. `MAX_DRILL_LEVEL` was raised
+      // to 7 (finding 6) precisely so this quiz can open the full ±7 circle.
+      theoryQuizEx(
+        'l3-circle-of-fifths-ex1',
+        'Quiz: the circle of fifths and key signatures',
+        'key-signature',
+        8,
+        7,
+      ),
       techniqueEx('l3-circle-of-fifths-ex2', 'scale-g-major-2oct-hands-together', 6),
     ],
   },
@@ -163,7 +184,11 @@ export const LEVEL_3_LESSONS: readonly Lesson[] = [
       '[diagram:a-minor-triad]',
     demoScoreId: demo('demo-c-major-triad-blocked'),
     exercises: [
-      theoryQuizEx('l3-relative-minors-ex1', 'Quiz: relative minors and shared key signatures'),
+      theoryQuizEx(
+        'l3-relative-minors-ex1',
+        'Quiz: relative minors and shared key signatures',
+        'key-signature',
+      ),
       techniqueEx('l3-relative-minors-ex2', 'chord-inversions-a-minor-hands-right', 6),
     ],
   },
@@ -181,7 +206,14 @@ export const LEVEL_3_LESSONS: readonly Lesson[] = [
       'changing how settled or unsettled the chord feels even though its spelling is unchanged.',
     demoScoreId: demo('demo-c-major-triad-blocked'),
     exercises: [
-      theoryQuizEx('l3-triad-inversions-ex1', 'Quiz: identify root position, first and second inversion'),
+      // No deck tests triad inversions — a gap topic (see
+      // lessonsLevel1.ts's module comment). Parenthetical distinguishes this
+      // from the other gap-topic quizzes (finding 4).
+      theoryQuizEx(
+        'l3-triad-inversions-ex1',
+        'Quiz: find the notes on the keyboard (triad inversions)',
+        'staff-to-key',
+      ),
       techniqueEx('l3-triad-inversions-ex2', 'chord-inversions-c-major-hands-right', 6),
     ],
   },
@@ -200,7 +232,17 @@ export const LEVEL_3_LESSONS: readonly Lesson[] = [
       'system feel like one idea rather than seven separate facts to memorise.',
     demoScoreId: demo('demo-c-major-scale-one-octave-rh'),
     exercises: [
-      theoryQuizEx('l3-intervals-extended-ex1', 'Quiz: identify sixths, sevenths and octaves'),
+      // Finding 1: `INTERVAL_NUMBERS_BY_LEVEL` only reaches `[2,3,4,5,6,7,8]`
+      // (sevenths and the octave included) at level 4 — level 3 stops at
+      // `[2,3,4,5,6]`, missing 7 and 8 — so the quiz must open at level 4,
+      // not the default level 1, to actually contain what it names.
+      theoryQuizEx(
+        'l3-intervals-extended-ex1',
+        'Quiz: identify sixths, sevenths and octaves',
+        'interval-on-staff',
+        8,
+        4,
+      ),
       playEx('l3-intervals-extended-ex2', 'Play a second through an octave from the same starting note', 6),
     ],
   },

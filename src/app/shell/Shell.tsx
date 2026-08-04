@@ -84,20 +84,50 @@ function openedTechniqueOf(exercise: Exercise): OpenedTechnique | undefined {
 
 /**
  * The flashcard deck a planned item asked for (roadmap 4.9c). `candidates.ts`
- * emits both decks with `params.drillKind`, and a curriculum theory quiz names
- * one too; without this every one of them opened the note-naming deck whatever
- * its title promised.
+ * emits decks with `params.drillKind`, and a curriculum theory quiz names one
+ * too; without this every one of them opened the note-naming deck whatever its
+ * title promised.
+ *
+ * The membership test is over the whole `FlashcardKind` union deliberately
+ * (roadmap 3.11). This was a two-way `===` chain while the curriculum had
+ * already been retargeted at all four decks, so the seven lessons naming
+ * `note-name` or `key-signature` fell through to `undefined` and opened the
+ * default staff-to-key deck — the exact dishonest-title defect the retarget
+ * was meant to remove, made invisible by a silent fallback.
  */
-function openedDeckOf(exercise: Exercise): DrillKind | undefined {
+const DECK_KINDS: ReadonlySet<string> = new Set<DrillKind>([
+  'staff-to-key',
+  'interval-on-staff',
+  'note-name',
+  'key-signature',
+])
+
+/** The deck a planned item opens, and the level it opens at if it named one. */
+type OpenedDeck = { readonly kind: DrillKind; readonly level?: number }
+
+function openedDeckOf(exercise: Exercise): OpenedDeck | undefined {
   const kind = exercise.params?.['drillKind']
-  return kind === 'staff-to-key' || kind === 'interval-on-staff' ? kind : undefined
+  if (typeof kind !== 'string' || !DECK_KINDS.has(kind)) return undefined
+  const level = openedDeckLevelOf(exercise)
+  return level === undefined ? { kind: kind as DrillKind } : { kind: kind as DrillKind, level }
+}
+
+/**
+ * The deck level a planned item asked for, if it named one (roadmap 3.11).
+ * A quiz titled "identify fourths and fifths" needs level 2+, because the
+ * level-1 interval deck holds only seconds and thirds; the circle-of-fifths
+ * quiz needs level 7 to see the whole circle. `FlashcardScreen` clamps.
+ */
+function openedDeckLevelOf(exercise: Exercise): number | undefined {
+  const level = exercise.params?.['drillLevel']
+  return typeof level === 'number' && Number.isFinite(level) ? level : undefined
 }
 
 function renderScreen(
   screen: ScreenId,
   open: (exercise: Exercise) => void,
   technique: OpenedTechnique | undefined,
-  deck: DrillKind | undefined,
+  deck: OpenedDeck | undefined,
 ) {
   switch (screen) {
     case 'today':
@@ -110,12 +140,18 @@ function renderScreen(
       return <SightReadingScreen />
     case 'flashcards':
       // `key` for the same reason the technique case has one: `initialKind`
-      // only seeds `useState`, so a second Today → Flashcards hop naming a
-      // different deck would otherwise be ignored.
+      // and `initialLevel` only seed `useState`, so a second Today → Flashcards
+      // hop naming a different deck or level would otherwise be ignored.
       return deck === undefined ? (
         <FlashcardScreen />
+      ) : deck.level === undefined ? (
+        <FlashcardScreen key={deck.kind} initialKind={deck.kind} />
       ) : (
-        <FlashcardScreen key={deck} initialKind={deck} />
+        <FlashcardScreen
+          key={`${deck.kind}:${deck.level}`}
+          initialKind={deck.kind}
+          initialLevel={deck.level}
+        />
       )
     case 'ear-training':
       return <EarTrainingScreen />
@@ -148,7 +184,7 @@ function renderScreen(
 export function Shell() {
   const [screen, setScreen] = useState<ScreenId>('practice')
   const [technique, setTechnique] = useState<OpenedTechnique | undefined>(undefined)
-  const [deck, setDeck] = useState<DrillKind | undefined>(undefined)
+  const [deck, setDeck] = useState<OpenedDeck | undefined>(undefined)
 
   function open(exercise: Exercise): void {
     if (exercise.kind === 'technique') setTechnique(openedTechniqueOf(exercise))

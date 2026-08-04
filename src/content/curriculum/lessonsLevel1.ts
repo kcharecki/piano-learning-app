@@ -11,12 +11,25 @@
  * that renders this content is the scheduled follow-on task (roadmap
  * 3.7/4.9's next item).
  *
- * Two known destination gaps for that follow-on task, present in every
- * lesson file (Level1/2/3), not just here:
- *  - `theoryQuizEx`'s `drillKind: 'staff-to-key'` is currently the ONLY deck
- *    `FlashcardScreen` can open (`candidates.ts`: no prop exists to select a
- *    deck) — every theory-quiz exercise opens note-naming regardless of its
- *    topic-specific title. Needs a `drillKind` prop on `FlashcardScreen`.
+ * `theoryQuizEx` takes its `drillKind` explicitly (roadmap 3.11, REQ-3.5.2)
+ * so each quiz opens the deck its title actually promises, rather than every
+ * quiz opening `'staff-to-key'` regardless of topic. Some topics here have no
+ * matching deck yet (note values, time signatures) — those stay on
+ * `'staff-to-key'` as the best available practice and are titled generically
+ * ("find the notes on the keyboard"), with the lesson's own topic named in a
+ * parenthetical suffix so the several gap-topic quizzes read as distinct
+ * lessons rather than one repeated title, rather than claiming to quiz
+ * something the deck cannot test; a follow-up task routes them to the
+ * MIDI-answered theory drill panel instead.
+ *
+ * `theoryQuizEx` also takes an optional `drillLevel` (finding 1): when a
+ * title names something the deck only contains from a level above 1 (e.g.
+ * "fourths and fifths" needs `interval-on-staff` level >= 2), the quiz must
+ * say so explicitly, or the deck it opens at the default level 1 cannot
+ * possibly contain what the title promises.
+ *
+ * Two known destination gaps remain for the lesson-screen follow-on task,
+ * present in every lesson file (Level1/2/3), not just here:
  *  - `playEx` exercises carry no way to reach the lesson's own
  *    `demoScoreId`: `Shell.tsx` routes `'play'` to `<ScoreScreen />` with
  *    whatever happens to be in `scoreStore`, not the lesson's demo. Needs
@@ -29,6 +42,7 @@
 import type { Exercise, Lesson } from '@core/curriculum/types.ts'
 import { demoScoreById } from '@content/scores/demoScores.ts'
 import { techniqueDrillById } from '@core/technique/library.ts'
+import type { FlashcardKind } from '@core/drills/flashcards.ts'
 
 // ---------------------------------------------------------------------------
 // exercise helpers — fail fast at module load if an id is wrong, rather than
@@ -55,13 +69,19 @@ function techniqueEx(id: string, drillId: string, minutes = 6): Exercise {
   }
 }
 
-function theoryQuizEx(id: string, title: string, minutes = 8): Exercise {
+function theoryQuizEx(
+  id: string,
+  title: string,
+  drillKind: FlashcardKind,
+  minutes = 8,
+  drillLevel?: number,
+): Exercise {
   return {
     id,
     kind: 'theory-quiz',
     title,
     estimatedMinutes: minutes,
-    params: { drillKind: 'staff-to-key' },
+    params: drillLevel === undefined ? { drillKind } : { drillKind, drillLevel },
   }
 }
 
@@ -159,7 +179,12 @@ export const LEVEL_1_LESSONS: readonly Lesson[] = [
       'note shared by both clefs, which is why it is such a useful landmark for beginning readers.',
     demoScoreId: demo('demo-middle-c-position-rh'),
     exercises: [
-      theoryQuizEx('l1-staff-and-clefs-ex1', 'Quiz: treble and bass clef, staff lines and spaces'),
+      // The note-name deck's level-1 range (MIDI 56-64) includes 4 black
+      // keys (G#3, A#3, C#4, D#4) that this — the very first lesson in the
+      // curriculum — never taught, and no deck/level offers a white-key-only
+      // subset (finding 3). Retitled honestly to what the deck actually
+      // drills rather than "staff lines and spaces", which it does not test.
+      theoryQuizEx('l1-staff-and-clefs-ex1', 'Quiz: name notes around middle C', 'note-name'),
       techniqueEx('l1-staff-and-clefs-ex2', 'five-finger-c-major-hands-right', 6),
     ],
   },
@@ -177,7 +202,10 @@ export const LEVEL_1_LESSONS: readonly Lesson[] = [
       'a normal tempo possible — it is worth drilling on its own before combining it with rhythm.',
     demoScoreId: demo('demo-middle-c-position-rh'),
     exercises: [
-      theoryQuizEx('l1-note-names-treble-ex1', 'Quiz: name notes on the treble staff'),
+      // `buildNoteNameDeck` takes no clef parameter (finding 2): the treble
+      // and bass lessons' quizzes were a byte-identical nine-card deck under
+      // two different titles. Both retitled to the one honest description.
+      theoryQuizEx('l1-note-names-treble-ex1', 'Quiz: name notes around middle C', 'note-name'),
       playEx('l1-note-names-treble-ex2', 'Play the C position run while naming each note aloud', 6),
     ],
   },
@@ -196,7 +224,8 @@ export const LEVEL_1_LESSONS: readonly Lesson[] = [
       'the same shared landmark between the two clefs.',
     demoScoreId: demo('demo-middle-c-position-lh'),
     exercises: [
-      theoryQuizEx('l1-note-names-bass-ex1', 'Quiz: name notes on the bass staff'),
+      // Same fix, same reason as l1-note-names-treble-ex1 above (finding 2).
+      theoryQuizEx('l1-note-names-bass-ex1', 'Quiz: name notes around middle C', 'note-name'),
       playEx('l1-note-names-bass-ex2', 'Play the C position run while naming each note aloud', 6),
     ],
   },
@@ -216,7 +245,17 @@ export const LEVEL_1_LESSONS: readonly Lesson[] = [
       'the pitches are added on top.',
     demoScoreId: demo('demo-rhythm-reading-4-4'),
     exercises: [
-      theoryQuizEx('l1-note-values-ex1', 'Quiz: identify whole, half and quarter notes'),
+      // No deck tests note duration (whole/half/quarter) — a gap topic (see
+      // module comment). Kept on 'staff-to-key' as generic note-reading
+      // practice, retitled so it no longer claims to quiz durations. The
+      // parenthetical names this lesson's own topic so it reads as distinct
+      // from the seven other gap-topic quizzes sharing the same base title
+      // (finding 4), without promising the deck tests note values.
+      theoryQuizEx(
+        'l1-note-values-ex1',
+        'Quiz: find the notes on the keyboard (whole/half/quarter notes)',
+        'staff-to-key',
+      ),
       playEx('l1-note-values-ex2', 'Clap, then play, the whole/half/quarter rhythm demonstration', 6),
     ],
   },
@@ -234,7 +273,14 @@ export const LEVEL_1_LESSONS: readonly Lesson[] = [
       'start of each measure, is the foundation every later rhythm skill builds on.',
     demoScoreId: demo('demo-rhythm-reading-4-4'),
     exercises: [
-      theoryQuizEx('l1-time-signature-4-4-ex1', 'Quiz: reading and counting in 4/4'),
+      // No deck tests time signatures — a gap topic (see module comment).
+      // Parenthetical distinguishes this from the other gap-topic quizzes
+      // (finding 4) without claiming the deck tests 4/4 itself.
+      theoryQuizEx(
+        'l1-time-signature-4-4-ex1',
+        'Quiz: find the notes on the keyboard (4/4 time)',
+        'staff-to-key',
+      ),
       playEx('l1-time-signature-4-4-ex2', 'Play along counting "1-2-3-4" out loud', 6),
     ],
   },
@@ -251,7 +297,13 @@ export const LEVEL_1_LESSONS: readonly Lesson[] = [
       'difference in feel obvious in a way that reading definitions alone does not.',
     demoScoreId: demo('demo-waltz-rhythm-3-4'),
     exercises: [
-      theoryQuizEx('l1-time-signature-3-4-ex1', 'Quiz: reading and counting in 3/4'),
+      // No deck tests time signatures — a gap topic (see module comment).
+      // Same distinguishing-parenthetical fix as the 4/4 lesson above.
+      theoryQuizEx(
+        'l1-time-signature-3-4-ex1',
+        'Quiz: find the notes on the keyboard (3/4 time)',
+        'staff-to-key',
+      ),
       playEx('l1-time-signature-3-4-ex2', 'Play the waltz-rhythm demonstration, counting "1-2-3"', 6),
     ],
   },
@@ -270,7 +322,11 @@ export const LEVEL_1_LESSONS: readonly Lesson[] = [
       'each note name individually, is what lets a reader track a melody\'s shape at speed.',
     demoScoreId: demo('demo-steps-vs-skips'),
     exercises: [
-      theoryQuizEx('l1-steps-and-skips-ex1', 'Quiz: identify steps and skips on the staff'),
+      theoryQuizEx(
+        'l1-steps-and-skips-ex1',
+        'Quiz: identify steps and skips on the staff',
+        'interval-on-staff',
+      ),
       playEx('l1-steps-and-skips-ex2', 'Play the steps-vs-skips demonstration, hands separately', 6),
     ],
   },

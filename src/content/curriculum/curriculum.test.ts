@@ -9,12 +9,13 @@
  */
 import { describe, expect, it } from 'vitest'
 import { lessonsForLevel, lessonsForTrack, nextLesson, validateCurriculum } from '@core/curriculum/model.ts'
-import type { Lesson } from '@core/curriculum/types.ts'
+import type { Exercise, Lesson } from '@core/curriculum/types.ts'
 import { PIANO_HIGHEST_MIDI, PIANO_LOWEST_MIDI } from '@core/shared/units.ts'
 import { CURRICULUM } from '@content/curriculum/curriculum.ts'
 import { LESSON_DIAGRAMS, lessonDiagramById } from '@content/curriculum/diagrams.ts'
 import { demoScoreById } from '@content/scores/demoScores.ts'
 import { techniqueDrillById } from '@core/technique/library.ts'
+import type { FlashcardKind } from '@core/drills/flashcards.ts'
 
 const DIAGRAM_REF = /^\[diagram:([a-z0-9-]+)\]$/
 const BLACK_KEY_PITCH_CLASSES = new Set([1, 3, 6, 8, 10])
@@ -153,6 +154,165 @@ describe('CURRICULUM id references all resolve', () => {
             `level ${level.number} criterion ${criterion.id} pieceId '${check.pieceId}'`,
           ).toBeDefined()
         }
+      }
+    }
+  })
+})
+
+/** The `theory-quiz` exercise's `drillKind` for a lesson, or `undefined` if
+ *  the lesson has no theory-quiz exercise or its `drillKind` is not one of
+ *  the four real decks. */
+function theoryQuizDrillKind(lessonId: string): FlashcardKind | undefined {
+  const lesson = CURRICULUM.lessons.find((l) => l.id === lessonId)
+  const quiz = lesson?.exercises.find((ex: Exercise) => ex.kind === 'theory-quiz')
+  const kind = quiz?.params?.['drillKind']
+  return kind === 'staff-to-key' ||
+    kind === 'interval-on-staff' ||
+    kind === 'note-name' ||
+    kind === 'key-signature'
+    ? kind
+    : undefined
+}
+
+describe('theory-quiz exercises open the deck their title promises (roadmap 3.11, REQ-3.5.2)', () => {
+  // Before roadmap 3.11, `theoryQuizEx` hardcoded `params.drillKind:
+  // 'staff-to-key'` in every lessons file, so every assertion below would
+  // have failed against the pre-3.11 content: "the circle of fifths and key
+  // signatures", "identify root position, first and second inversion" and
+  // "spelling the C major triad" all opened the same note-naming-by-keyboard
+  // deck. Pinning specific, differently-themed lessons to specific decks
+  // catches a regression that collapses them back onto one deck, or swaps
+  // two, not just "some deck is set".
+  it('the circle of fifths lesson opens the key-signature deck', () => {
+    expect(theoryQuizDrillKind('l3-circle-of-fifths')).toBe('key-signature')
+  })
+
+  it('the relative minors lesson opens the key-signature deck (both tonics, exactly what it teaches)', () => {
+    expect(theoryQuizDrillKind('l3-relative-minors')).toBe('key-signature')
+  })
+
+  it('the G major scale lesson opens the key-signature deck', () => {
+    expect(theoryQuizDrillKind('l2-g-major-scale')).toBe('key-signature')
+  })
+
+  it('the level-3 sixths/sevenths/octaves lesson opens the interval-on-staff deck', () => {
+    expect(theoryQuizDrillKind('l3-intervals-extended')).toBe('interval-on-staff')
+  })
+
+  it('the seconds-and-thirds interval lesson opens the interval-on-staff deck', () => {
+    expect(theoryQuizDrillKind('l2-intervals-second-third')).toBe('interval-on-staff')
+  })
+
+  it('the steps-and-skips lesson opens the interval-on-staff deck', () => {
+    expect(theoryQuizDrillKind('l1-steps-and-skips')).toBe('interval-on-staff')
+  })
+
+  it('the treble note-naming lesson opens the note-name deck', () => {
+    expect(theoryQuizDrillKind('l1-note-names-treble')).toBe('note-name')
+  })
+
+  it('the bass note-naming lesson opens the note-name deck', () => {
+    expect(theoryQuizDrillKind('l1-note-names-bass')).toBe('note-name')
+  })
+
+  // Finding 7: the two `not.toBe` pair tests that used to sit here were
+  // trivially implied by the `toBe` assertions above them (if A is
+  // 'key-signature' and B is 'note-name', A !== B always follows) and killed
+  // no mutant those didn't already kill. Deleted, not kept.
+
+  it('all four decks are named by at least one lesson', () => {
+    const kinds = new Set(
+      CURRICULUM.lessons.map((lesson) => theoryQuizDrillKind(lesson.id)).filter((k) => k !== undefined),
+    )
+    expect(kinds).toEqual(
+      new Set(['staff-to-key', 'interval-on-staff', 'note-name', 'key-signature']),
+    )
+  })
+
+  it('every lesson still on staff-to-key is a documented topic with no matching deck', () => {
+    // roadmap 3.11's gap list: rhythm/duration, time signatures, chord/triad
+    // spelling, and triad inversions have no flashcard deck yet (see
+    // lessonsLevel1.ts's module comment). Every OTHER theory-quiz lesson must
+    // have moved off the pre-3.11 default. (l2-c-major-scale moved off this
+    // list under finding 5: unlike triad spelling, C major's key signature —
+    // 0 fifths — IS in the key-signature deck, so it now gets the same
+    // key-signature-deck treatment as the G/F major scale lessons.)
+    //
+    // Finding 9: this test can only catch DRIFT away from this specific,
+    // hand-picked id list — e.g. a future edit that quietly moves one of
+    // these eight lessons off 'staff-to-key' without updating the set here,
+    // or that adds a new gap-topic lesson without adding its id here, fails
+    // loudly. It does NOT verify that staying on 'staff-to-key' is the right
+    // call for any of these eight — that judgement was made by hand when
+    // 3.11/finding-1 shipped and is only re-checked for accidental drift, not
+    // re-validated, every time this test runs.
+    const gapTopics = new Set([
+      'l1-note-values',
+      'l1-time-signature-4-4',
+      'l1-time-signature-3-4',
+      'l2-c-major-triad',
+      'l2-dominant-chord-and-i-v-i',
+      'l2-i-iv-v-i-progression',
+      'l3-triad-inversions',
+    ])
+    const unexpectedlyOnStaffToKey = CURRICULUM.lessons
+      .filter((lesson) => theoryQuizDrillKind(lesson.id) === 'staff-to-key')
+      .map((lesson) => lesson.id)
+      .filter((id) => !gapTopics.has(id))
+    expect(unexpectedlyOnStaffToKey).toEqual([])
+  })
+})
+
+/** A lesson's `theory-quiz` `params.drillLevel`, or `undefined` if absent or
+ *  not a number. */
+function theoryQuizDrillLevel(lessonId: string): number | undefined {
+  const lesson = CURRICULUM.lessons.find((l) => l.id === lessonId)
+  const quiz = lesson?.exercises.find((ex: Exercise) => ex.kind === 'theory-quiz')
+  const level = quiz?.params?.['drillLevel']
+  return typeof level === 'number' ? level : undefined
+}
+
+describe('theory-quiz drillLevel opens a deck that can actually contain the title (finding 1)', () => {
+  // Before finding 1, every quiz below defaulted to FlashcardScreen's level
+  // 1 regardless of what its title promised, so each assertion here fails
+  // against that default: `buildDeck('interval-on-staff', 1)` only offers
+  // 2nds/3rds (no 4ths/5ths, no 6ths/7ths/octaves), and
+  // `buildDeck('key-signature', 1)` only offers fifths -1..1 (not the whole
+  // circle).
+  it('the fourths/fifths interval lesson opens interval-on-staff at level 2 (where 4ths/5ths first appear)', () => {
+    expect(theoryQuizDrillLevel('l2-intervals-fourth-fifth')).toBe(2)
+  })
+
+  it('the sixths/sevenths/octave lesson opens interval-on-staff at level 4 (where the full 2..8 set first appears)', () => {
+    expect(theoryQuizDrillLevel('l3-intervals-extended')).toBe(4)
+  })
+
+  it('the circle-of-fifths lesson opens key-signature at level 7 (the full ±7 writable circle)', () => {
+    expect(theoryQuizDrillLevel('l3-circle-of-fifths')).toBe(7)
+  })
+
+  it('every theory-quiz drillLevel, where set, is a whole number within [1, 7]', () => {
+    // 1 and 7 restate FlashcardScreen.tsx's MIN_DRILL_LEVEL/MAX_DRILL_LEVEL
+    // rather than importing them: that file is JSX under the 'ui' vitest
+    // project (happy-dom + the React plugin), and this test runs under the
+    // 'core' project (plain node, no JSX transform), so importing it here
+    // would fail to load.
+    const MIN_DRILL_LEVEL = 1
+    const MAX_DRILL_LEVEL = 7
+    for (const lesson of CURRICULUM.lessons) {
+      for (const exercise of lesson.exercises) {
+        if (exercise.kind !== 'theory-quiz') continue
+        const level = exercise.params?.['drillLevel']
+        if (level === undefined) continue
+        expect(typeof level, `${exercise.id} drillLevel is a number`).toBe('number')
+        if (typeof level !== 'number') continue
+        expect(Number.isInteger(level), `${exercise.id} drillLevel is a whole number`).toBe(true)
+        expect(level, `${exercise.id} drillLevel >= MIN_DRILL_LEVEL`).toBeGreaterThanOrEqual(
+          MIN_DRILL_LEVEL,
+        )
+        expect(level, `${exercise.id} drillLevel <= MAX_DRILL_LEVEL`).toBeLessThanOrEqual(
+          MAX_DRILL_LEVEL,
+        )
       }
     }
   })

@@ -93,6 +93,29 @@ export default tseslint.config(
       ],
     },
   },
+  // Curriculum content is data. It may name domain concepts (`@core`), but a
+  // lesson must never depend on the screen that happens to render it: the
+  // curriculum outlives any particular UI, and a content->app import means a
+  // component rename can break the syllabus. Added in roadmap 3.11, when
+  // retargeting the lesson quizzes pulled `DrillKind` out of a React hook and
+  // nothing complained.
+  {
+    files: ['src/content/**/*.ts', 'src/content/**/*.tsx'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@app/*', '@adapters/*'],
+              message:
+                'src/content is data — import the shared type from @core instead of from a screen or hook.',
+            },
+          ],
+        },
+      ],
+    },
+  },
   {
     files: ['**/*.test.ts', '**/*.test.tsx', 'src/test/**/*.ts'],
     rules: {

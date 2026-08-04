@@ -8,10 +8,15 @@
  * `unitId` values here are the level-2 unit ids authored in
  * `@content/curriculum/curriculum.ts`, which owns the units and wires each
  * lesson id into exactly one of them.
+ *
+ * `theoryQuizEx` takes its `drillKind` explicitly (roadmap 3.11, REQ-3.5.2) —
+ * see `lessonsLevel1.ts`'s module comment for the rationale and the gap-topic
+ * convention (no matching deck -> `'staff-to-key'` + a generic title).
  */
 import type { Exercise, Lesson } from '@core/curriculum/types.ts'
 import { demoScoreById } from '@content/scores/demoScores.ts'
 import { techniqueDrillById } from '@core/technique/library.ts'
+import type { FlashcardKind } from '@core/drills/flashcards.ts'
 
 // ---------------------------------------------------------------------------
 // exercise helpers — see lessonsLevel1.ts for rationale.
@@ -36,13 +41,19 @@ function techniqueEx(id: string, drillId: string, minutes = 6): Exercise {
   }
 }
 
-function theoryQuizEx(id: string, title: string, minutes = 8): Exercise {
+function theoryQuizEx(
+  id: string,
+  title: string,
+  drillKind: FlashcardKind,
+  minutes = 8,
+  drillLevel?: number,
+): Exercise {
   return {
     id,
     kind: 'theory-quiz',
     title,
     estimatedMinutes: minutes,
-    params: { drillKind: 'staff-to-key' },
+    params: drillLevel === undefined ? { drillKind } : { drillKind, drillLevel },
   }
 }
 
@@ -136,7 +147,13 @@ export const LEVEL_2_LESSONS: readonly Lesson[] = [
       '[diagram:c-major-scale]',
     demoScoreId: demo('demo-c-major-scale-one-octave-rh'),
     exercises: [
-      theoryQuizEx('l2-c-major-scale-ex1', 'Quiz: the C major scale and its whole/half-step pattern'),
+      // Finding 5: G major and F major below were retitled onto the
+      // key-signature deck (naming the scale's key signature, not its
+      // whole/half-step construction, which no deck tests); C major (0
+      // fifths) is equally in the level-1 key-signature deck and gets the
+      // same treatment for consistency, rather than being left on the
+      // generic staff-to-key gap-topic title.
+      theoryQuizEx('l2-c-major-scale-ex1', 'Quiz: the key signature of C major', 'key-signature'),
       techniqueEx('l2-c-major-scale-ex2', 'scale-c-major-1oct-hands-right', 6),
     ],
   },
@@ -154,7 +171,10 @@ export const LEVEL_2_LESSONS: readonly Lesson[] = [
       '[diagram:g-major-scale]',
     demoScoreId: demo('demo-c-major-scale-one-octave-rh'),
     exercises: [
-      theoryQuizEx('l2-g-major-scale-ex1', 'Quiz: the G major scale and its key signature'),
+      // The key-signature deck tests naming G major (1 sharp) and its
+      // relative minor, but not the scale's whole/half-step pattern — the
+      // title is narrowed to only what the quiz actually drills.
+      theoryQuizEx('l2-g-major-scale-ex1', 'Quiz: the key signature of G major', 'key-signature'),
       techniqueEx('l2-g-major-scale-ex2', 'scale-g-major-1oct-hands-right', 6),
     ],
   },
@@ -173,7 +193,8 @@ export const LEVEL_2_LESSONS: readonly Lesson[] = [
       '[diagram:f-major-scale]',
     demoScoreId: demo('demo-c-major-scale-one-octave-rh'),
     exercises: [
-      theoryQuizEx('l2-f-major-scale-ex1', 'Quiz: the F major scale and its key signature'),
+      // Same narrowing as the G major scale quiz above.
+      theoryQuizEx('l2-f-major-scale-ex1', 'Quiz: the key signature of F major', 'key-signature'),
       techniqueEx('l2-f-major-scale-ex2', 'scale-f-major-1oct-hands-right', 6),
     ],
   },
@@ -198,7 +219,14 @@ export const LEVEL_2_LESSONS: readonly Lesson[] = [
     // rather than leaning on the inversion-cycling demo as level-2 content.
     demoScoreId: demo('demo-c-major-triad-blocked'),
     exercises: [
-      theoryQuizEx('l2-c-major-triad-ex1', 'Quiz: spelling the C major triad'),
+      // No deck tests triad spelling — a gap topic (see
+      // lessonsLevel1.ts's module comment). Parenthetical distinguishes this
+      // from the other gap-topic quizzes (finding 4).
+      theoryQuizEx(
+        'l2-c-major-triad-ex1',
+        'Quiz: find the notes on the keyboard (the C major triad)',
+        'staff-to-key',
+      ),
       playEx('l2-c-major-triad-ex2', 'Play the C major triad, root position, blocked and broken', 6),
     ],
   },
@@ -217,7 +245,14 @@ export const LEVEL_2_LESSONS: readonly Lesson[] = [
       '[diagram:g-major-triad]',
     demoScoreId: demo('demo-i-v-i-c-major'),
     exercises: [
-      theoryQuizEx('l2-dominant-chord-and-i-v-i-ex1', 'Quiz: the dominant chord and the I-V-I progression'),
+      // No deck tests chords/progressions — a gap topic (see
+      // lessonsLevel1.ts's module comment). Parenthetical distinguishes this
+      // from the other gap-topic quizzes (finding 4).
+      theoryQuizEx(
+        'l2-dominant-chord-and-i-v-i-ex1',
+        'Quiz: find the notes on the keyboard (the dominant chord)',
+        'staff-to-key',
+      ),
       playEx('l2-dominant-chord-and-i-v-i-ex2', 'Play the I-V-I progression in C major', 6),
     ],
   },
@@ -240,7 +275,14 @@ export const LEVEL_2_LESSONS: readonly Lesson[] = [
       'progression comes later.',
     demoScoreId: demo('demo-i-iv-v-i-c-major'),
     exercises: [
-      theoryQuizEx('l2-i-iv-v-i-progression-ex1', 'Quiz: the subdominant (IV) chord'),
+      // No deck tests chords — a gap topic (see lessonsLevel1.ts's module
+      // comment). Parenthetical distinguishes this from the other gap-topic
+      // quizzes (finding 4).
+      theoryQuizEx(
+        'l2-i-iv-v-i-progression-ex1',
+        'Quiz: find the notes on the keyboard (the subdominant chord)',
+        'staff-to-key',
+      ),
       playEx('l2-i-iv-v-i-progression-ex2', 'Play I, then IV, then back to I', 6),
     ],
   },
@@ -261,7 +303,11 @@ export const LEVEL_2_LESSONS: readonly Lesson[] = [
       '[diagram:interval-third]',
     demoScoreId: demo('demo-steps-vs-skips'),
     exercises: [
-      theoryQuizEx('l2-intervals-second-third-ex1', 'Quiz: identify seconds and thirds'),
+      theoryQuizEx(
+        'l2-intervals-second-third-ex1',
+        'Quiz: identify seconds and thirds',
+        'interval-on-staff',
+      ),
       playEx('l2-intervals-second-third-ex2', 'Play seconds and thirds from several starting notes', 6),
     ],
   },
@@ -281,7 +327,17 @@ export const LEVEL_2_LESSONS: readonly Lesson[] = [
       '[diagram:interval-fifth]',
     demoScoreId: demo('demo-c-major-triad-broken'),
     exercises: [
-      theoryQuizEx('l2-intervals-fourth-fifth-ex1', 'Quiz: identify fourths and fifths'),
+      // Finding 1: `INTERVAL_NUMBERS_BY_LEVEL[0]` (level 1) is `[2, 3]` —
+      // fourths and fifths first appear at level 2 (`[2, 3, 4, 5]`), so the
+      // quiz must open the deck at level 2, not the default level 1, or it
+      // can never draw the interval this lesson is about.
+      theoryQuizEx(
+        'l2-intervals-fourth-fifth-ex1',
+        'Quiz: identify fourths and fifths',
+        'interval-on-staff',
+        8,
+        2,
+      ),
       playEx('l2-intervals-fourth-fifth-ex2', 'Play fourths and fifths from several starting notes', 6),
     ],
   },

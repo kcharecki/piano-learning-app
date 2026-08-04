@@ -6,7 +6,12 @@
  * `useFlashcardDrill.test.ts`.
  */
 import { useFlashcardStore } from '@app/state/flashcardStore.ts'
-import { buildDeck, type IntervalOnStaffCard } from '@core/drills/flashcards.ts'
+import {
+  buildDeck,
+  type IntervalOnStaffCard,
+  type KeySignatureCard,
+  type NoteNameCard,
+} from '@core/drills/flashcards.ts'
 import { seededRng } from '@core/ports/rng.ts'
 import { act, render, screen, cleanup, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -143,6 +148,79 @@ describe('FlashcardScreen — drill kind selector (roadmap 2.25)', () => {
   })
 })
 
+// roadmap 3.11 (REQ-3.5.2): `useFlashcardDrill.test.ts` proves the hook can
+// drive all four decks; these prove the two new ones are actually reachable
+// from the screen a learner drives — the Drill selector, the answer pad, and
+// the stats counter all wire together, not just the hook in isolation.
+describe('FlashcardScreen — note-name and key-signature drills (roadmap 3.11, REQ-3.5.2)', () => {
+  function accidentalSuffix(alter: number): string {
+    if (alter === 1) return '♯'
+    if (alter === -1) return '♭'
+    if (alter === 2) return '\u{1D12A}'
+    if (alter === -2) return '\u{1D12B}'
+    return ''
+  }
+
+  it('selecting Name the note renders the note-name answer pad instead of the keyboard', async () => {
+    const user = userEvent.setup()
+    render(<FlashcardScreen rng={seededRng(1)} midiInput={new FakeMidiInput()} />)
+
+    await user.selectOptions(screen.getByLabelText('Drill'), 'note-name')
+
+    expect(screen.getByRole('group', { name: 'Note name answer' })).toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'On-screen keyboard' })).toBeNull()
+    expect(screen.getByRole('img', { name: /staff/i })).toBeInTheDocument()
+  })
+
+  it('answering the note-name drill correctly grades it and updates the stats counter', async () => {
+    const user = userEvent.setup()
+    const rng = scriptedRng([0])
+    render(<FlashcardScreen rng={rng} midiInput={new FakeMidiInput()} />)
+
+    await user.selectOptions(screen.getByLabelText('Drill'), 'note-name')
+
+    // scriptedRng([0]) always picks the deck's first card, deterministically.
+    const expected = buildDeck('note-name', 1)[0] as NoteNameCard
+    const label = `${expected.answer.letter}${accidentalSuffix(expected.answer.alter)}`
+
+    await user.click(screen.getByRole('button', { name: label }))
+
+    expect(screen.getByTestId('flashcard-feedback')).toHaveTextContent(/correct/i)
+    expect(screen.getByTestId('flashcard-stats-total')).toHaveTextContent('1')
+  })
+
+  it('selecting Key signature renders the fifths readout and the key-signature answer pad', async () => {
+    const user = userEvent.setup()
+    render(<FlashcardScreen rng={seededRng(1)} midiInput={new FakeMidiInput()} />)
+
+    await user.selectOptions(screen.getByLabelText('Drill'), 'key-signature')
+
+    expect(screen.getByRole('group', { name: 'Key signature answer' })).toBeInTheDocument()
+    expect(screen.getByTestId('key-signature-prompt')).toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'On-screen keyboard' })).toBeNull()
+  })
+
+  it('answering the key-signature drill correctly grades it and updates the stats counter', async () => {
+    const user = userEvent.setup()
+    const rng = scriptedRng([0])
+    render(<FlashcardScreen rng={rng} midiInput={new FakeMidiInput()} />)
+
+    await user.selectOptions(screen.getByLabelText('Drill'), 'key-signature')
+
+    // scriptedRng([0]) always picks the deck's first card, deterministically —
+    // level 1's first key-signature card is fifths -1: F major / D minor.
+    const expected = buildDeck('key-signature', 1)[0] as KeySignatureCard
+    const label =
+      `${expected.answer.majorTonic.letter}${accidentalSuffix(expected.answer.majorTonic.alter)} major / ` +
+      `${expected.answer.minorTonic.letter}${accidentalSuffix(expected.answer.minorTonic.alter)} minor`
+
+    await user.click(screen.getByRole('button', { name: label }))
+
+    expect(screen.getByTestId('flashcard-feedback')).toHaveTextContent(/correct/i)
+    expect(screen.getByTestId('flashcard-stats-total')).toHaveTextContent('1')
+  })
+})
+
 describe('FlashcardScreen — initialKind prop (roadmap 4.9c, REQ-3.5.2, REQ-3.1.4)', () => {
   it('opens the interval deck first when initialKind is interval-on-staff', () => {
     render(
@@ -182,6 +260,45 @@ describe('FlashcardScreen — initialKind prop (roadmap 4.9c, REQ-3.5.2, REQ-3.1
     expect(screen.getByLabelText('Drill')).toHaveValue('staff-to-key')
     expect(screen.getByRole('group', { name: 'On-screen keyboard' })).toBeInTheDocument()
     expect(screen.queryByRole('group', { name: 'Interval answer' })).toBeNull()
+  })
+})
+
+describe('FlashcardScreen — initialLevel prop (finding 1, roadmap 3.11/4.9c, REQ-3.5.2)', () => {
+  it('opens at the given initialLevel', () => {
+    render(<FlashcardScreen rng={seededRng(1)} midiInput={new FakeMidiInput()} initialLevel={3} />)
+
+    expect(screen.getByTestId('flashcard-level')).toHaveTextContent('Level 3')
+  })
+
+  it('clamps an initialLevel above the max down to MAX_DRILL_LEVEL', () => {
+    render(
+      <FlashcardScreen rng={seededRng(1)} midiInput={new FakeMidiInput()} initialLevel={99} />,
+    )
+
+    expect(screen.getByTestId('flashcard-level')).toHaveTextContent('Level 7')
+  })
+
+  it('clamps an initialLevel below the min up to MIN_DRILL_LEVEL', () => {
+    render(<FlashcardScreen rng={seededRng(1)} midiInput={new FakeMidiInput()} initialLevel={0} />)
+
+    expect(screen.getByTestId('flashcard-level')).toHaveTextContent('Level 1')
+  })
+
+  it('still defaults to Level 1 when initialLevel is omitted', () => {
+    render(<FlashcardScreen rng={seededRng(1)} midiInput={new FakeMidiInput()} />)
+
+    expect(screen.getByTestId('flashcard-level')).toHaveTextContent('Level 1')
+  })
+
+  it('the learner can still change level after initialLevel seeds it', async () => {
+    const user = userEvent.setup()
+    render(<FlashcardScreen rng={seededRng(1)} midiInput={new FakeMidiInput()} initialLevel={3} />)
+
+    expect(screen.getByTestId('flashcard-level')).toHaveTextContent('Level 3')
+
+    await user.click(screen.getByRole('button', { name: 'Increase level' }))
+
+    expect(screen.getByTestId('flashcard-level')).toHaveTextContent('Level 4')
   })
 })
 

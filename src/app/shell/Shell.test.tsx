@@ -88,6 +88,30 @@ describe('Shell', () => {
     expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument()
   })
 
+  // Roadmap 3.11. The curriculum names all four decks, but `openedDeckOf`
+  // matched only two and returned `undefined` for the rest — and `undefined`
+  // falls back to the default staff-to-key deck rather than failing, so seven
+  // lessons silently opened the note-naming drill their titles disowned. This
+  // drives the real path (Lessons -> lesson -> Open) and asserts on the deck
+  // and level the learner actually lands on, which is the only thing a silent
+  // fallback cannot fake.
+  it('opens a lesson quiz on the deck and level that lesson named', async () => {
+    const user = userEvent.setup()
+    render(<Shell />)
+
+    await user.click(screen.getByRole('button', { name: 'Lessons' }))
+    await user.click(screen.getByRole('button', { name: 'Level 3' }))
+    await user.click(screen.getByRole('button', { name: 'The Circle of Fifths' }))
+    await user.click(
+      screen.getByRole('button', { name: 'Open Quiz: the circle of fifths and key signatures' }),
+    )
+
+    expect(screen.getByLabelText('Drill')).toHaveValue('key-signature')
+    // Level 1 holds only fifths -1..+1, so a circle-of-fifths quiz that opened
+    // at the default level would drill three signatures out of fifteen.
+    expect(screen.getByTestId('flashcard-level')).toHaveTextContent('Level 7')
+  })
+
   it('switches back to Practice', async () => {
     const user = userEvent.setup()
     render(<Shell />)
