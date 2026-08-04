@@ -9,9 +9,12 @@
 import { ExportPanel } from '@app/progress/ExportPanel.tsx'
 import { ACTIVITY_KINDS } from '@core/progress/log.ts'
 import { MIN_LEVEL, MAX_LEVEL, type Track } from '@core/curriculum/types.ts'
+import { canAdvance, type ProgressEvidence } from '@core/progress/levels.ts'
+import { levelAt } from '@core/curriculum/model.ts'
+import { CURRICULUM } from '@content/curriculum/curriculum.ts'
 import { useLevelStore } from '@app/state/levelStore.ts'
 import { TrendChart, type TrendChartPoint } from './TrendChart.tsx'
-import { useDashboard, type UseDashboardOptions } from './useDashboard.ts'
+import { useDashboard, type DashboardTrackLevel, type UseDashboardOptions } from './useDashboard.ts'
 
 const LEVEL_OPTIONS: readonly number[] = Array.from(
   { length: MAX_LEVEL - MIN_LEVEL + 1 },
@@ -87,21 +90,26 @@ export function DashboardScreen(props: DashboardScreenProps) {
           ))}
         </ul>
         <h4>Exit criteria toward the next level</h4>
-        {data.curriculumAvailable ? (
-          <ul aria-label="Exit criteria">
-            {data.levels.flatMap((l) =>
-              l.criteria.map((c, i) => (
-                <li key={`${l.track}-${i}`} data-testid={`dashboard-criterion-${l.track}-${i}`}>
-                  {c.criterion.description}: {c.met ? 'met' : 'not met'}
-                </li>
-              )),
-            )}
-          </ul>
-        ) : (
-          <p role="status" data-testid="dashboard-criteria-empty">
-            No curriculum content loaded yet — nothing to check.
-          </p>
-        )}
+        <ul aria-label="Exit criteria by track">
+          {data.levels.map((l) => (
+            <li key={l.track} data-testid={`dashboard-criteria-${l.track}`}>
+              <h5>{TRACK_LABELS[l.track]}</h5>
+              {l.criteria.length === 0 ? (
+                <p role="status" data-testid={`dashboard-criteria-empty-${l.track}`}>
+                  No curriculum content loaded for level {l.level} — nothing to check.
+                </p>
+              ) : (
+                <TrackAdvancePanel
+                  track={l.track}
+                  level={l.level}
+                  overridden={l.overridden}
+                  criteria={l.criteria}
+                  evidence={data.evidence}
+                />
+              )}
+            </li>
+          ))}
+        </ul>
       </section>
 
       <section aria-label="Practice streak and weekly time" role="region">
@@ -257,5 +265,70 @@ export function DashboardScreen(props: DashboardScreenProps) {
           to take it out and put it back (roadmap 4.6a). */}
       <ExportPanel />
     </div>
+  )
+}
+
+type TrackAdvancePanelProps = {
+  readonly track: Track
+  readonly level: number
+  readonly overridden: boolean
+  readonly criteria: DashboardTrackLevel['criteria']
+  readonly evidence: ProgressEvidence
+}
+
+/**
+ * One track's exit-criteria checklist plus its "Advance" control (roadmap
+ * 2.36's second half, REQ-2.2). `canAdvance` — the real core function, never
+ * re-derived from `criteria` by hand — decides whether every criterion is
+ * met; an overridden track is disabled regardless of that, because
+ * `advanceTrack`/`advance` (`@core/progress/levels.ts`) silently no-op on an
+ * overridden track, and REQ-2.3 requires that reason to be visible rather
+ * than a control that looks live but does nothing when clicked.
+ */
+function TrackAdvancePanel({ track, level, overridden, criteria, evidence }: TrackAdvancePanelProps) {
+  const curriculumLevel = levelAt(CURRICULUM, level)
+  // Defensive only: the caller already gates on `criteria.length > 0`, which
+  // only happens once `curriculumLevel` was found — see useDashboard.ts.
+  if (curriculumLevel === undefined) return null
+
+  const meetsAllCriteria = canAdvance(
+    useLevelStore.getState().levelState,
+    curriculumLevel,
+    track,
+    evidence,
+  )
+  const disabled = overridden || !meetsAllCriteria
+  const disabledReason = overridden
+    ? 'This track was placed manually and will not auto-advance.'
+    : meetsAllCriteria
+      ? undefined
+      : 'Not every exit criterion is met yet.'
+
+  return (
+    <>
+      <ul aria-label={`${TRACK_LABELS[track]} exit criteria`}>
+        {criteria.map((c, i) => (
+          <li key={c.criterion.id} data-testid={`dashboard-criterion-${track}-${i}`}>
+            <span data-testid={`dashboard-criterion-status-${track}-${i}`}>
+              {c.met ? 'Met' : 'Not met'}
+            </span>{' '}
+            {c.criterion.description} ({round(c.progress * 100)}%)
+          </li>
+        ))}
+      </ul>
+      <button
+        type="button"
+        data-testid={`dashboard-advance-${track}`}
+        disabled={disabled}
+        onClick={() => useLevelStore.getState().advanceTrack(curriculumLevel, track, evidence)}
+      >
+        Advance {TRACK_LABELS[track]}
+      </button>
+      {disabled && (
+        <p role="status" data-testid={`dashboard-advance-disabled-reason-${track}`}>
+          {disabledReason}
+        </p>
+      )}
+    </>
   )
 }

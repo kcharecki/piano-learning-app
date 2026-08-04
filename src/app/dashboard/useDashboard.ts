@@ -30,12 +30,36 @@
  * sight-reading, while `sightReadingLevel` (from `useSightReadingStore`,
  * unchanged) keeps feeding the sight-reading section's own trend display.
  *
- * The one section still genuinely missing a data source is exit criteria:
- * no shipped curriculum content (roadmap 4.9) exists to supply a
- * `CurriculumLevel`'s `exitCriteria`, so `trackProgress`/`canAdvance` cannot
- * be called meaningfully yet. `levels[].criteria` stays `[]` and
- * `curriculumAvailable` stays `false` so the screen renders an explicit
- * "nothing to check yet" instead of a blank checklist.
+ * **Exit criteria (roadmap 2.36's second half, REQ-2.2, REQ-3.10.2)**:
+ * `@content/curriculum/curriculum.ts` now ships levels 1-3 with real
+ * `exitCriteria`, so `levels[].criteria` is populated by calling
+ * `trackProgress` for whichever `CurriculumLevel` matches a track's current
+ * `levelState` number (via `levelAt`) — never for any other level, because
+ * `trackProgress`'s own `invariant` requires `level.number === state.levels[track]`.
+ * A track whose current level is not authored (e.g. a manual override past
+ * level 3) gets `criteria: []` for that track, and `curriculumAvailable`
+ * (now "true when the authored curriculum covers every track's current
+ * level") goes `false` — the screen still renders honestly instead of
+ * crashing on the invariant or fabricating criteria.
+ *
+ * The `ProgressEvidence` passed to `trackProgress` is assembled entirely
+ * from values this hook already computes elsewhere in the same memo —
+ * `assessments`/`techniqueBpm` reuse `assessmentBestByScore`/
+ * `techniqueBestBpmByDrill` verbatim, `theoryRetention` and
+ * `sightReadingAccuracy` are one honest reduction each over `retention`/
+ * `sightReadingTrend` (documented at their call sites below), and
+ * `sightReadingLevel` is the same adaptive-trainer number already exposed as
+ * `DashboardData.sightReadingLevel` — the exit-check semantics ("has the
+ * learner reached sight-reading level N at that accuracy") are about the
+ * adaptive trainer's own progression, not the curriculum track level, so
+ * reusing it here is correct, not a collision with the module comment above.
+ * `earTrainingLevel` has NO honest source: `useEarTrainingStore`'s
+ * `EarSessionState.levels` is keyed per `EarItemKind` (roadmap 3.10), and no
+ * shipped exit criterion evaluates an `ear-training` check yet, so there is
+ * no single number to reduce six kind-levels into. `0` is passed — below
+ * `EAR_MIN_LEVEL` (1), so any future `ear-training` check reads as simply
+ * unmet rather than picking a flattering kind or an average that would
+ * advance the learner on evidence that was never collected for that check.
  *
  * The other three sections (practice streak & weekly time, sight-reading
  * accuracy trend, theory retention) read real, already-persisted state:
@@ -57,9 +81,11 @@ import {
 } from '@core/progress/log.ts'
 import { DAY_MS, retentionStats, type RetentionStats } from '@core/srs/scheduler.ts'
 import { TRACKS, type Track } from '@core/curriculum/types.ts'
-import type { CriterionStatus } from '@core/progress/levels.ts'
+import { trackProgress, type CriterionStatus, type ProgressEvidence } from '@core/progress/levels.ts'
+import { levelAt } from '@core/curriculum/model.ts'
 import { tempoHistory, bestCleanBpm, type TechniqueAttempt, type TempoPoint } from '@core/technique/evenness.ts'
 import { maintenanceDue, type RepertoirePiece } from '@core/repertoire/repertoire.ts'
+import { CURRICULUM } from '@content/curriculum/curriculum.ts'
 import { useProgressStore, type StoredAssessment } from '@app/state/progressStore.ts'
 import { useSightReadingStore } from '@app/state/sightReadingStore.ts'
 import { useFlashcardStore } from '@app/state/flashcardStore.ts'
@@ -68,6 +94,8 @@ import { useRepertoireStore } from '@app/state/repertoireStore.ts'
 import { useLevelStore } from '@app/state/levelStore.ts'
 
 const WEEK_DAYS = 7
+/** Matches `adaptLevel`'s own default window (`@core/sightreading/adaptive.ts`) — see its use below. */
+const SIGHT_READING_ACCURACY_WINDOW = 3
 
 export type UseDashboardOptions = {
   /** Wall-clock reading for "now". Defaults to the real browser clock. */
@@ -100,7 +128,12 @@ export type DashboardTrackLevel = {
   readonly level: number
   /** REQ-2.3: true once this track has been placed by hand. */
   readonly overridden: boolean
-  /** Still `[]` — no shipped curriculum content supplies `exitCriteria` yet (roadmap 4.9). */
+  /**
+   * `trackProgress` over this track's exit criteria at its current level, or
+   * `[]` when the authored curriculum has no `CurriculumLevel` for `level`
+   * (e.g. an override past the highest shipped level) — see the module
+   * comment.
+   */
   readonly criteria: readonly CriterionStatus[]
 }
 
@@ -153,8 +186,16 @@ export type DashboardData = {
   /** `maintenanceDue(repertoirePieces, now)` — 'maintained' pieces overdue for review, most overdue first. */
   readonly repertoireDue: readonly RepertoirePiece[]
   readonly levels: readonly DashboardTrackLevel[]
-  /** `false` until shipped curriculum content exists (roadmap 4.9) — see the module comment. */
+  /** True when the authored curriculum covers every track's current level (see the module comment). */
   readonly curriculumAvailable: boolean
+  /**
+   * The same `ProgressEvidence` used to compute `levels[].criteria`, exposed
+   * so `DashboardScreen` can call the real `canAdvance`/pass to
+   * `advanceTrack` for its "Advance" control instead of re-deriving
+   * "every criterion met" from `criteria` by hand (not part of the original
+   * frozen contract — a new field, no existing field's name or type changes).
+   */
+  readonly evidence: ProgressEvidence
 }
 
 const defaultDate: DateSource = { epochMillis: () => Date.now() }
@@ -208,22 +249,11 @@ export function useDashboard(options: UseDashboardOptions = {}): DashboardData {
       return best
     }, {})
 
-    // `levelState` (from `useLevelStore`, roadmap 4.3) is the curriculum
-    // track level for all three tracks — see the module comment for why this
-    // is deliberately NOT the same number as `sightReadingLevel` below.
-    // `criteria` stays `[]`: no shipped curriculum content (roadmap 4.9)
-    // exists to supply a `CurriculumLevel`'s `exitCriteria`, so
-    // `trackProgress`/`canAdvance` cannot be called meaningfully yet.
-    const levels: readonly DashboardTrackLevel[] = TRACKS.map((track) => ({
-      track,
-      level: levelState.levels[track],
-      overridden: levelState.overridden[track],
-      criteria: [],
-    }))
-
     // Grouped by drill so `tempoHistory`/`bestCleanBpm` (both drill-scoped)
     // apply correctly, then flattened for the single trend chart the screen
-    // renders.
+    // renders. Computed here (ahead of `assessmentTrend`'s siblings below) so
+    // `techniqueBestBpmByDrill` exists before the evidence block that reuses
+    // it needs it.
     const techniqueDrillIds = Array.from(new Set(techniqueAttempts.map((a) => a.drillId)))
     const techniqueTrend: readonly TechniqueTrendPoint[] = techniqueDrillIds
       .flatMap((drillId) =>
@@ -236,6 +266,70 @@ export function useDashboard(options: UseDashboardOptions = {}): DashboardData {
 
     const theoryCardIdPrefixes = ['key-signature-', 'interval-on-staff-']
     const theoryCards = cards.filter((c) => theoryCardIdPrefixes.some((p) => c.id.startsWith(p)))
+    const retention = retentionStats(theoryCards, now)
+
+    // Best accuracy across ALL pieces, from `assessmentBestByScore` above —
+    // no second accuracy computation, just its max (0 when no assessment has
+    // ever been recorded, which correctly leaves an `assessment` check unmet).
+    const bestAssessmentAccuracy = Object.values(assessmentBestByScore).reduce(
+      (best, accuracy) => Math.max(best, accuracy),
+      0,
+    )
+
+    // Mean accuracy of the most recent `SIGHT_READING_ACCURACY_WINDOW` reads
+    // from `sightReadingTrend` (already oldest-first, computed above) — the
+    // same window size `adaptLevel`'s own default uses
+    // (`@core/sightreading/adaptive.ts`), so "recent" means the same thing
+    // here as it does when the trainer itself decides whether to move the
+    // level. `0` when nothing has been read yet.
+    const recentSightReadingReads = sightReadingTrend.slice(-SIGHT_READING_ACCURACY_WINDOW)
+    const sightReadingAccuracy =
+      recentSightReadingReads.length === 0
+        ? 0
+        : recentSightReadingReads.reduce((sum, r) => sum + r.accuracy, 0) /
+          recentSightReadingReads.length
+
+    // `retention` (above) has no direct 0..1 "retention rate" field — the
+    // most honest reduction is the fraction of theory cards that have
+    // graduated to a MATURE_THRESHOLD_DAYS-or-longer interval (durable
+    // retention), out of every theory card tracked. A card still `due` often
+    // or on a short `young` interval has not yet demonstrated retention, so
+    // it does not count toward this ratio. `0` when there are no theory
+    // cards yet, which correctly leaves a `theory-quiz` check unmet.
+    const theoryRetention = retention.total === 0 ? 0 : retention.mature / retention.total
+
+    // `earTrainingLevel` has no honest source — see the module comment.
+    const evidence: ProgressEvidence = {
+      assessments: assessmentBestByScore,
+      bestAssessmentAccuracy,
+      sightReadingLevel,
+      sightReadingAccuracy,
+      theoryRetention,
+      earTrainingLevel: 0,
+      techniqueBpm: techniqueBestBpmByDrill,
+    }
+
+    // `levelState` (from `useLevelStore`, roadmap 4.3) is the curriculum
+    // track level for all three tracks — see the module comment for why this
+    // is deliberately NOT the same number as `sightReadingLevel` below.
+    // `criteria` is populated by calling `trackProgress` for whichever
+    // authored `CurriculumLevel` matches a track's current level; a track
+    // whose current level has no authored content gets `[]` rather than a
+    // call that would throw `trackProgress`'s own invariant.
+    let curriculumAvailable = true
+    const levels: readonly DashboardTrackLevel[] = TRACKS.map((track) => {
+      const levelNumber = levelState.levels[track]
+      const level = levelAt(CURRICULUM, levelNumber)
+      if (level === undefined) curriculumAvailable = false
+      const criteria =
+        level === undefined ? [] : trackProgress(levelState, level, track, evidence)
+      return {
+        track,
+        level: levelNumber,
+        overridden: levelState.overridden[track],
+        criteria,
+      }
+    })
 
     return {
       now,
@@ -250,14 +344,15 @@ export function useDashboard(options: UseDashboardOptions = {}): DashboardData {
       sightReadingTrend,
       assessmentTrend,
       assessmentBestByScore,
-      retention: retentionStats(theoryCards, now),
+      retention,
       techniqueAttempts,
       techniqueTrend,
       techniqueBestBpmByDrill,
       repertoirePieces,
       repertoireDue: maintenanceDue(repertoirePieces, now),
       levels,
-      curriculumAvailable: false,
+      curriculumAvailable,
+      evidence,
     }
   }, [
     date,

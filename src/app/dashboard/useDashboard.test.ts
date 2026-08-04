@@ -22,7 +22,14 @@ import { DAY_MS, retentionStats, type Card } from '@core/srs/scheduler.ts'
 import { MIN_LEVEL } from '@core/sightreading/adaptive.ts'
 import type { SightReadingRecord } from '@core/sightreading/session.ts'
 import { TRACKS } from '@core/curriculum/types.ts'
-import { initialLevelState, type LevelState } from '@core/progress/levels.ts'
+import {
+  initialLevelState,
+  trackProgress,
+  type LevelState,
+  type ProgressEvidence,
+} from '@core/progress/levels.ts'
+import { levelAt } from '@core/curriculum/model.ts'
+import { CURRICULUM } from '@content/curriculum/curriculum.ts'
 import { act, renderHook, cleanup } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { useProgressStore } from '@app/state/progressStore.ts'
@@ -117,13 +124,33 @@ describe('useDashboard — empty stores', () => {
     expect(data.repertoirePieces).toEqual([])
     expect(data.repertoireDue).toEqual([])
 
-    expect(data.curriculumAvailable).toBe(false)
+    // The shipped curriculum (roadmap 4.9) covers levels 1-3, and every track
+    // starts at level 1 (initialLevelState), so curriculumAvailable is true
+    // and criteria are populated — never a hardcoded `[]` — even with zero
+    // evidence recorded anywhere. Derive the expectation from the real core
+    // function/content rather than restating each CriterionStatus by hand.
+    expect(data.curriculumAvailable).toBe(true)
     expect(data.levels).toHaveLength(TRACKS.length)
     const initial = initialLevelState()
+    const emptyEvidence: ProgressEvidence = {
+      assessments: {},
+      bestAssessmentAccuracy: 0,
+      sightReadingLevel: MIN_LEVEL,
+      sightReadingAccuracy: 0,
+      theoryRetention: 0,
+      earTrainingLevel: 0,
+      techniqueBpm: {},
+    }
+    const level1 = levelAt(CURRICULUM, 1)
+    if (level1 === undefined) throw new Error('test setup: CURRICULUM must ship level 1')
     for (const l of data.levels) {
       expect(l.level).toBe(initial.levels[l.track])
       expect(l.overridden).toBe(initial.overridden[l.track])
-      expect(l.criteria).toEqual([])
+      expect(l.criteria).toEqual(trackProgress(initial, level1, l.track, emptyEvidence))
+      // Nothing has been recorded anywhere, so every criterion at level 1 —
+      // which always has at least one — must read unmet.
+      expect(l.criteria.length).toBeGreaterThan(0)
+      expect(l.criteria.every((c) => !c.met)).toBe(true)
     }
 
     expect(data.techniqueTrend).toEqual([])
@@ -404,8 +431,12 @@ describe('useDashboard — technique tempo trend', () => {
 
 describe('useDashboard — level store (roadmap 2.36)', () => {
   it('reports the real curriculum level and overridden flag per track from useLevelStore', () => {
+    // Every track placed at level 4 or 5 — outside the shipped curriculum's
+    // levels 1-3 (roadmap 4.9) — so this test's own criteria assertion below
+    // is unaffected by exit-criteria content; the exit-criteria/curriculumAvailable
+    // behaviour itself is covered by the dedicated describe block below.
     const levelState: LevelState = {
-      levels: { playing: 4, 'sight-reading': 2, theory: 5 },
+      levels: { playing: 4, 'sight-reading': 5, theory: 4 },
       overridden: { playing: true, 'sight-reading': false, theory: true },
     }
     useLevelStore.setState({ levelState })
@@ -420,6 +451,7 @@ describe('useDashboard — level store (roadmap 2.36)', () => {
       expect(row?.overridden).toBe(levelState.overridden[track])
       expect(row?.criteria).toEqual([])
     }
+    expect(data.curriculumAvailable).toBe(false)
   })
 
   it('keeps the curriculum sight-reading level and the adaptive sightReadingLevel independent — they are different numbers', () => {
@@ -441,5 +473,116 @@ describe('useDashboard — level store (roadmap 2.36)', () => {
     const sightReadingRow = data.levels.find((l) => l.track === 'sight-reading')
     expect(sightReadingRow?.level).toBe(5)
     expect(data.sightReadingLevel).not.toBe(sightReadingRow?.level)
+  })
+})
+
+describe('useDashboard — exit criteria evidence assembly (roadmap 2.36 second half, REQ-2.2)', () => {
+  it('builds evidence from real store state and matches trackProgress for a track with SOME criteria met and others not', () => {
+    // 'playing' at level 1 has exactly two exit checks: assessment and
+    // technique (see LEVEL_1_EXIT_CRITERIA in curriculum.ts) — seed one met,
+    // one unmet, so a "both true" or "both false" mutant in the evidence
+    // assembly would be caught.
+    useProgressStore.setState({
+      assessments: [
+        storedAssessment(
+          'a1',
+          'demo-lh-root-rh-melody-simple-piece',
+          'Simple piece',
+          NOW - 1_000,
+          0.9, // >= the 0.75 threshold: MET
+        ),
+      ],
+    })
+    useTechniqueStore.setState({
+      attempts: [
+        {
+          drillId: 'five-finger-c-major-hands-right',
+          at: NOW - 1_000,
+          bpm: 40, // below the 56 bpm threshold: UNMET
+          evenness: 0.9,
+          accuracy: 1,
+          clean: true,
+        },
+      ],
+    })
+    // 'sight-reading' at level 1 needs level >= 1 and mean recent accuracy
+    // >= 0.8 — both cleared, so this track's single criterion is fully MET.
+    useSightReadingStore.setState({
+      level: 1,
+      history: [
+        { pieceId: 'p1', readAt: NOW - 3_000, accuracy: 0.9, level: 1 },
+        { pieceId: 'p2', readAt: NOW - 2_000, accuracy: 0.85, level: 1 },
+        { pieceId: 'p3', readAt: NOW - 1_000, accuracy: 0.8, level: 1 },
+      ],
+    })
+    // 'theory' at level 1 needs >= 0.7 retention — one young (non-mature)
+    // card gives a mature-ratio of 0, so this track's criterion is UNMET.
+    useFlashcardStore.setState({
+      cardsById: {
+        'key-signature-0': {
+          id: 'key-signature-0',
+          due: NOW + DAY_MS,
+          intervalDays: 5,
+          ease: 2.5,
+          reps: 1,
+          lapses: 0,
+          introducedAt: NOW - 5 * DAY_MS,
+        },
+      },
+    })
+
+    const { result } = setup()
+    const data = result.current
+
+    const level1 = levelAt(CURRICULUM, 1)
+    if (level1 === undefined) throw new Error('test setup: CURRICULUM must ship level 1')
+
+    // Mirrors exactly what the hook itself derives from the state seeded
+    // above (see useDashboard.ts's inline comments for each reduction).
+    const expectedEvidence: ProgressEvidence = {
+      assessments: { 'demo-lh-root-rh-melody-simple-piece': 0.9 },
+      bestAssessmentAccuracy: 0.9,
+      sightReadingLevel: 1,
+      sightReadingAccuracy: (0.9 + 0.85 + 0.8) / 3,
+      theoryRetention: 0,
+      earTrainingLevel: 0,
+      techniqueBpm: { 'five-finger-c-major-hands-right': 40 },
+    }
+    const initial = initialLevelState()
+
+    for (const track of TRACKS) {
+      const row = data.levels.find((l) => l.track === track)
+      const expected = trackProgress(initial, level1, track, expectedEvidence)
+      expect(row?.criteria).toEqual(expected)
+    }
+
+    const playingRow = data.levels.find((l) => l.track === 'playing')
+    expect(playingRow?.criteria.map((c) => c.met)).toEqual([true, false])
+    const sightReadingRow = data.levels.find((l) => l.track === 'sight-reading')
+    expect(sightReadingRow?.criteria.every((c) => c.met)).toBe(true)
+    const theoryRow = data.levels.find((l) => l.track === 'theory')
+    expect(theoryRow?.criteria.every((c) => !c.met)).toBe(true)
+
+    expect(data.curriculumAvailable).toBe(true)
+  })
+
+  it('reports curriculumAvailable false when a manual override places a track at a level the content does not cover', () => {
+    useLevelStore.setState({
+      levelState: {
+        levels: { playing: 1, 'sight-reading': 1, theory: 5 },
+        overridden: { playing: false, 'sight-reading': false, theory: true },
+      },
+    })
+
+    const { result } = setup()
+    const data = result.current
+
+    const theoryRow = data.levels.find((l) => l.track === 'theory')
+    expect(theoryRow?.criteria).toEqual([])
+    expect(data.curriculumAvailable).toBe(false)
+    // The other two tracks are still covered — curriculumAvailable is a
+    // whole-dashboard AND across tracks, not per-track.
+    const playingRow = data.levels.find((l) => l.track === 'playing')
+    expect(playingRow?.criteria.length).toBeGreaterThan(0)
   })
 })

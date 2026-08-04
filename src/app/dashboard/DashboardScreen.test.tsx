@@ -81,7 +81,12 @@ describe('DashboardScreen — empty state', () => {
     expect(
       (screen.getByTestId('dashboard-level-select-sight-reading') as HTMLSelectElement).value,
     ).toBe(String(initial.levels['sight-reading']))
-    expect(screen.getByTestId('dashboard-criteria-empty')).toBeTruthy()
+    // The shipped curriculum covers level 1 (every track starts there), so
+    // this is NOT the "no curriculum content" empty state any more — it is a
+    // real checklist with nothing yet met. See the dedicated describe block
+    // below for the checklist/Advance-control assertions.
+    expect(screen.queryByTestId('dashboard-criteria-empty-playing')).toBeNull()
+    expect(screen.getByTestId('dashboard-criterion-status-playing-0').textContent).toBe('Not met')
     expect(screen.getByTestId('dashboard-weekly-empty')).toBeTruthy()
     expect(screen.getByTestId('dashboard-sightreading-empty')).toBeTruthy()
     expect(screen.getByTestId('dashboard-assessment-empty')).toBeTruthy()
@@ -323,5 +328,118 @@ describe('DashboardScreen — level per track (roadmap 2.36, REQ-2.1/REQ-2.3)', 
       initialLevelState().levels.theory,
     )
     expect(useLevelStore.getState().levelState.overridden.theory).toBe(false)
+  })
+})
+
+describe('DashboardScreen — exit criteria checklist and Advance control (roadmap 2.36 second half, REQ-2.2)', () => {
+  it('renders met and unmet criteria distinguishably, and disables Advance while a criterion is unmet', () => {
+    // 'playing' at level 1 has an assessment check (met) and a technique
+    // check (left unmet — no technique attempts seeded).
+    useProgressStore.setState({
+      assessments: [
+        storedAssessment(
+          'a1',
+          'demo-lh-root-rh-melody-simple-piece',
+          'Simple piece',
+          NOW - 1_000,
+          0.9,
+        ),
+      ],
+    })
+
+    render(<DashboardScreen date={new FakeDateSource(NOW)} utcOffsetMinutes={0} />)
+
+    expect(screen.getByTestId('dashboard-criterion-status-playing-0').textContent).toBe('Met')
+    expect(screen.getByTestId('dashboard-criterion-status-playing-1').textContent).toBe('Not met')
+
+    const advanceButton = screen.getByTestId('dashboard-advance-playing') as HTMLButtonElement
+    expect(advanceButton.disabled).toBe(true)
+    expect(screen.getByTestId('dashboard-advance-disabled-reason-playing').textContent).toBe(
+      'Not every exit criterion is met yet.',
+    )
+  })
+
+  it('shows a per-track honest empty state, with no Advance control, for a track whose level has no authored content', () => {
+    useLevelStore.setState({
+      levelState: {
+        levels: { playing: 1, 'sight-reading': 1, theory: 5 },
+        overridden: { playing: false, 'sight-reading': false, theory: true },
+      },
+    })
+
+    render(<DashboardScreen date={new FakeDateSource(NOW)} utcOffsetMinutes={0} />)
+
+    expect(screen.getByTestId('dashboard-criteria-empty-theory')).toBeTruthy()
+    expect(screen.queryByTestId('dashboard-advance-theory')).toBeNull()
+    // The other tracks still get a real checklist.
+    expect(screen.queryByTestId('dashboard-criteria-empty-playing')).toBeNull()
+    expect(screen.getByTestId('dashboard-advance-playing')).toBeTruthy()
+  })
+
+  it('disables Advance on an overridden track even when every criterion is met, and states why', () => {
+    // 'sight-reading' at level 1 needs level >= 1 and mean recent accuracy
+    // >= 0.8 — both cleared, so every criterion is met, but the track was
+    // placed manually, so advanceTrack no-ops and the control must say so.
+    useSightReadingStore.setState({
+      level: 1,
+      history: [
+        { pieceId: 'p1', readAt: NOW - 3_000, accuracy: 0.9, level: 1 },
+        { pieceId: 'p2', readAt: NOW - 2_000, accuracy: 0.85, level: 1 },
+        { pieceId: 'p3', readAt: NOW - 1_000, accuracy: 0.8, level: 1 },
+      ],
+    })
+    useLevelStore.setState({
+      levelState: {
+        levels: { playing: 1, 'sight-reading': 1, theory: 1 },
+        overridden: { playing: false, 'sight-reading': true, theory: false },
+      },
+    })
+
+    render(<DashboardScreen date={new FakeDateSource(NOW)} utcOffsetMinutes={0} />)
+
+    expect(screen.getByTestId('dashboard-criterion-status-sight-reading-0').textContent).toBe(
+      'Met',
+    )
+    const advanceButton = screen.getByTestId(
+      'dashboard-advance-sight-reading',
+    ) as HTMLButtonElement
+    expect(advanceButton.disabled).toBe(true)
+    expect(
+      screen.getByTestId('dashboard-advance-disabled-reason-sight-reading').textContent,
+    ).toBe('This track was placed manually and will not auto-advance.')
+
+    expect(useLevelStore.getState().levelState.levels['sight-reading']).toBe(1)
+  })
+
+  it('makes REQ-2.2 real: clicking Advance when every criterion is met moves the level in the store', async () => {
+    // Same fully-met 'sight-reading' evidence as above, but NOT overridden —
+    // Advance must be enabled and clicking it must actually move the level.
+    useSightReadingStore.setState({
+      level: 1,
+      history: [
+        { pieceId: 'p1', readAt: NOW - 3_000, accuracy: 0.9, level: 1 },
+        { pieceId: 'p2', readAt: NOW - 2_000, accuracy: 0.85, level: 1 },
+        { pieceId: 'p3', readAt: NOW - 1_000, accuracy: 0.8, level: 1 },
+      ],
+    })
+
+    const user = userEvent.setup()
+    render(<DashboardScreen date={new FakeDateSource(NOW)} utcOffsetMinutes={0} />)
+
+    expect(screen.getByTestId('dashboard-criterion-status-sight-reading-0').textContent).toBe(
+      'Met',
+    )
+    const advanceButton = screen.getByTestId(
+      'dashboard-advance-sight-reading',
+    ) as HTMLButtonElement
+    expect(advanceButton.disabled).toBe(false)
+    expect(
+      screen.queryByTestId('dashboard-advance-disabled-reason-sight-reading'),
+    ).toBeNull()
+
+    expect(useLevelStore.getState().levelState.levels['sight-reading']).toBe(1)
+    await user.click(advanceButton)
+    expect(useLevelStore.getState().levelState.levels['sight-reading']).toBe(2)
+    expect(useLevelStore.getState().levelState.overridden['sight-reading']).toBe(false)
   })
 })
