@@ -4,10 +4,14 @@ import type { ActivityKind, PracticeEntry } from '@core/progress/log.ts'
 import type { Card } from '@core/srs/scheduler.ts'
 import type { SightReadingRecord } from '@core/sightreading/session.ts'
 import type { TechniqueAttempt } from '@core/technique/evenness.ts'
+import type { EarItem } from '@core/eartraining/item.ts'
+import { emptyEarSession, type EarSessionState } from '@core/eartraining/session.ts'
+import { ticks } from '@core/shared/units.ts'
 import {
   exportCsv,
   exportJson,
   importProgress,
+  type EarTrainingSnapshot,
   type ProgressSnapshot,
   type RepertoirePieceLike,
   type StoredAssessmentLike,
@@ -311,6 +315,100 @@ describe('round trip', () => {
         techniqueAttempts: [],
       },
     })
+  })
+
+  it(
+    'round-trips a present earTraining session + item cache through exportJson -> ' +
+      'importProgress exactly (roadmap review finding 1: this used to be an app-layer-only ' +
+      'field that a real downloaded-then-reimported file silently dropped)',
+    () => {
+      const earItem: EarItem = {
+        id: 'interval-melodic:48:55:asc',
+        kind: 'interval-melodic',
+        prompt: {
+          id: 'interval-melodic:48:55:asc',
+          meta: { title: '', composer: '' },
+          measures: [],
+          notes: [],
+          tempos: [],
+          staves: [],
+          maxNoteDurationTicks: ticks(0),
+        },
+        answerKey: 'P5',
+        level: 3,
+      }
+      const earSession: EarSessionState = {
+        ...emptyEarSession(),
+        levels: { ...emptyEarSession().levels, 'interval-melodic': 3 },
+        attempts: [{ itemId: earItem.id, kind: earItem.kind, correct: true, at: 7_000, level: 2 }],
+        cards: [
+          { id: earItem.id, due: 8_000, intervalDays: 1, ease: 2.5, reps: 1, lapses: 0, introducedAt: 0 },
+        ],
+        kinds: { [earItem.id]: earItem.kind },
+      }
+      const earTraining: EarTrainingSnapshot = { session: earSession, itemsById: { [earItem.id]: earItem } }
+      const snapshot: ProgressSnapshot = {
+        version: 1,
+        exportedAt: 0,
+        practiceEntries: [],
+        srsCards: [],
+        sightReadingHistory: [],
+        levels: {},
+        repertoire: [],
+        assessments: [],
+        techniqueAttempts: [],
+        earTraining,
+      }
+      const result = importProgress(exportJson(snapshot))
+      expect(result).toEqual({ ok: true, value: snapshot })
+    },
+  )
+
+  it(
+    'leaves earTraining genuinely ABSENT (never defaulted to an empty session) when the source ' +
+      'file has no earTraining key — unlike techniqueAttempts, an absent earTraining must stay ' +
+      'absent so the caller can tell "no data" apart from "empty session" (see the type doc comment)',
+    () => {
+      const olderExport = JSON.stringify({
+        version: 1,
+        exportedAt: 0,
+        practiceEntries: [],
+        srsCards: [],
+        sightReadingHistory: [],
+        levels: {},
+        repertoire: [],
+        assessments: [],
+        techniqueAttempts: [],
+      })
+      const result = importProgress(olderExport)
+      expect(result.ok).toBe(true)
+      if (result.ok) {
+        expect('earTraining' in result.value).toBe(false)
+        expect(result.value.earTraining).toBeUndefined()
+      }
+    },
+  )
+
+  it('rejects an earTraining.session with a malformed card, naming the field', () => {
+    const result = importProgress(
+      JSON.stringify({
+        version: 1,
+        exportedAt: 0,
+        practiceEntries: [],
+        srsCards: [],
+        sightReadingHistory: [],
+        levels: {},
+        repertoire: [],
+        assessments: [],
+        techniqueAttempts: [],
+        earTraining: {
+          session: { ...emptyEarSession(), cards: [{ id: 'x', due: 1 }] },
+          itemsById: {},
+        },
+      }),
+    )
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toMatch(/earTraining\.session\.cards\[0\]/)
   })
 
   it('rejects a techniqueAttempts entry missing a required field, naming the field', () => {

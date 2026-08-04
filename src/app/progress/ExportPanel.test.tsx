@@ -14,6 +14,7 @@ import { MIN_LEVEL as SIGHT_READING_MIN_LEVEL } from '@core/sightreading/adaptiv
 import { exportCsv, exportJson, importProgress, type ProgressSnapshot } from '@core/progress/export.ts'
 import type { Card } from '@core/srs/scheduler.ts'
 import type { PracticeEntry } from '@core/progress/log.ts'
+import { emptyEarSession } from '@core/eartraining/session.ts'
 import { FakeClock } from '@test/fakes.ts'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -166,6 +167,11 @@ describe('ExportPanel downloads', () => {
             itemId: existingAssessment.scoreId,
           },
         ],
+        // roadmap review finding 1 (@core/progress/export.ts): earTraining is
+        // now a first-class ProgressSnapshot field that actually round-trips
+        // through a real file — this suite never touches useEarTrainingStore,
+        // so it round-trips its untouched default.
+        earTraining: { session: emptyEarSession(), itemsById: {} },
       })
     }
     await waitFor(() => expect(revoked).toHaveLength(1))

@@ -45,7 +45,23 @@
  *    `exportJson` writes it and `importProgress` restores it, including for a
  *    file exported before this field existed (`importProgress` defaults a
  *    missing `techniqueAttempts` to `[]` — see that module's doc comment).
- *    Nothing here needs to widen `ProgressSnapshot` locally any more.
+ *  - `earTraining` — `useEarTrainingStore()`'s `session` + `itemsById`
+ *    (roadmap 3.11, REQ-3.6.3). This IS a first-class field of
+ *    `@core/progress/export.ts`'s own `ProgressSnapshot` type (it used to be
+ *    widened onto a LOCAL `ProgressSnapshotWithEarTraining` type here, which
+ *    never actually round-tripped through a real `exportJson`/`importProgress`
+ *    file — that workaround is gone). `gatherProgressSnapshot` always sets it
+ *    from the live store, so it exactly round-trips through a real downloaded-
+ *    then-reimported file exactly like `techniqueAttempts`, EXCEPT for one
+ *    deliberate difference: unlike every other field, `ProgressSnapshot.earTraining`
+ *    is OPTIONAL, and `importProgress` leaves it genuinely absent (not
+ *    defaulted to an empty session) when the source file predates the field —
+ *    see that type's own doc comment for why. `applyProgressSnapshot` below
+ *    honours that: an absent `earTraining` means "leave the store alone", not
+ *    "wipe it to empty", because unlike an empty attempt array, an emptied
+ *    ear-training session actively destroys adapted levels, SRS cards and
+ *    attempt history that a REPLACING import must not touch when the backup
+ *    file simply has nothing to say about it.
  */
 import {
   useProgressStore,
@@ -57,6 +73,7 @@ import { useFlashcardStore } from '@app/state/flashcardStore.ts'
 import { useSightReadingStore } from '@app/state/sightReadingStore.ts'
 import { useTechniqueStore, MAX_STORED_TECHNIQUE_ATTEMPTS } from '@app/state/techniqueStore.ts'
 import { useRepertoireStore, MAX_STORED_REPERTOIRE_PIECES } from '@app/state/repertoireStore.ts'
+import { useEarTrainingStore } from '@app/state/earTrainingStore.ts'
 import {
   MIN_LEVEL as SIGHT_READING_MIN_LEVEL,
   MAX_LEVEL as SIGHT_READING_MAX_LEVEL,
@@ -154,6 +171,7 @@ export function gatherProgressSnapshot(date: DateSource): ProgressSnapshot {
   const sightReading = useSightReadingStore.getState()
   const technique = useTechniqueStore.getState()
   const repertoire = useRepertoireStore.getState()
+  const earTraining = useEarTrainingStore.getState()
 
   return {
     version: 1,
@@ -165,6 +183,7 @@ export function gatherProgressSnapshot(date: DateSource): ProgressSnapshot {
     repertoire: repertoire.pieces.map(toRepertoirePieceLike),
     assessments: progress.assessments.map(toStoredAssessmentLike),
     techniqueAttempts: technique.attempts,
+    earTraining: { session: earTraining.session, itemsById: earTraining.itemsById },
   }
 }
 
@@ -197,4 +216,16 @@ export function applyProgressSnapshot(snapshot: ProgressSnapshot): void {
   useRepertoireStore.getState().hydrate({
     pieces: snapshot.repertoire.map(toRepertoirePiece).slice(0, MAX_STORED_REPERTOIRE_PIECES),
   })
+
+  // Unlike every store above, this is NOT an unconditional replace:
+  // `snapshot.earTraining` is only ever absent when `snapshot` came from an
+  // older exported file that predates the field (see `ProgressSnapshot.earTraining`'s
+  // doc comment in `@core/progress/export.ts`) — and an old backup having
+  // nothing to say about ear training must leave the learner's current
+  // adapted levels, SRS cards and attempt log alone, not wipe them to an
+  // empty session.
+  const earTraining = snapshot.earTraining
+  if (earTraining !== undefined) {
+    useEarTrainingStore.getState().hydrate(earTraining.session, earTraining.itemsById)
+  }
 }

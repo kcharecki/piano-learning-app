@@ -6,7 +6,7 @@
  * `Store` port, so it is exercised in tests with an in-memory fake and the
  * real zustand stores, never a browser database.
  *
- * Ten independent slices are persisted, each following the same shape
+ * Eleven independent slices are persisted, each following the same shape
  * (validate → `restoreSlice` on the way in, `createWriteQueue` +  a
  * `subscribe` on the way out):
  *  - the score session (`useScoreStore`) — the original roadmap-1.23 slice.
@@ -36,6 +36,13 @@
  *    collection (no IndexedDB migration for this slice). Without this, a
  *    manual override (REQ-2.3) or any advancement (REQ-2.2) resets to level 1
  *    on every reload.
+ *  - the ear-training session (`useEarTrainingStore`, roadmap 3.11,
+ *    REQ-3.6.3): the shared `EarSessionState` (per-kind levels, SRS cards,
+ *    id -> kind map, attempt log) plus the generated-item cache `itemsById`.
+ *    Without this, REQ-3.6.3's adapted difficulty — a learner strong on
+ *    intervals but weak on dictation — resets to level 1 on every reload,
+ *    exactly like the sight-reading slice above but per drill kind instead of
+ *    per track.
  *
  * Each slice's write queue is fully independent — its own (collection, key)
  * pair, its own in-flight `put` — so a slow write to one can never block or
@@ -67,9 +74,11 @@ import {
 import { useRepertoireStore, MAX_STORED_REPERTOIRE_PIECES } from '@app/state/repertoireStore.ts'
 import { useTechniqueStore, MAX_STORED_TECHNIQUE_ATTEMPTS } from '@app/state/techniqueStore.ts'
 import { useLevelStore } from '@app/state/levelStore.ts'
+import { useEarTrainingStore } from '@app/state/earTrainingStore.ts'
 import {
   isValidAnnotations,
   isValidAssessments,
+  isValidEarTraining,
   isValidFlashcards,
   isValidLevelState,
   isValidPracticeLog,
@@ -80,6 +89,7 @@ import {
   isValidTechniqueHistory,
   type PersistedAnnotations,
   type PersistedAssessments,
+  type PersistedEarTraining,
   type PersistedFlashcards,
   type PersistedLevelState,
   type PersistedPracticeLog,
@@ -96,6 +106,7 @@ import {
 export type {
   PersistedAnnotations,
   PersistedAssessments,
+  PersistedEarTraining,
   PersistedFlashcards,
   PersistedLevelState,
   PersistedPracticeLog,
@@ -149,6 +160,15 @@ export const REPERTOIRE_KEY = 'repertoire'
 export const LEVELS_COLLECTION = COLLECTIONS.settings
 export const LEVELS_KEY = 'levelState'
 
+/**
+ * Collection + key the ear-training session (per-kind levels, SRS cards, id ->
+ * kind map, attempt log, item cache) lives under (roadmap 3.11, REQ-3.6.3).
+ * Reuses `COLLECTIONS.settings` under its own key — same reasoning as
+ * `LEVELS_COLLECTION` above: no IndexedDB migration for this slice.
+ */
+export const EAR_TRAINING_COLLECTION = COLLECTIONS.settings
+export const EAR_TRAINING_KEY = 'earTraining'
+
 // ----------------------------------------------------------------- restore
 
 /**
@@ -156,7 +176,7 @@ export const LEVELS_KEY = 'levelState'
  * ignores store changes: `restoreSlice` applying a restored value would
  * otherwise be seen as a fresh "changed, write it back" event and re-save the
  * exact bytes just read. One flag per slice, not a single shared flag,
- * because the ten restores are independent of each other. Zustand's `set`
+ * because the eleven restores are independent of each other. Zustand's `set`
  * notifies subscribers synchronously, so toggling a flag around the
  * synchronous `apply()` call below is enough — nothing async ever runs while
  * it is `true`.
@@ -171,13 +191,18 @@ let applyingRestoredPracticeLog = false
 let applyingRestoredTechniqueHistory = false
 let applyingRestoredRepertoire = false
 let applyingRestoredLevels = false
+let applyingRestoredEarTraining = false
 
 /**
  * Reads `key` from `collection`, validates it, and — only if valid — applies
  * it with `setGuard` held `true` for the (synchronous) duration of `apply`.
- * Never throws: a store error or invalid payload resolves to `false` and
- * leaves the caller's state on its defaults, because a learner who cannot
- * start the app has lost more than a learner who lost their saved state.
+ * Never throws: a store error, a `isValid` that itself throws, or an invalid
+ * payload all resolve to `false` and leave the caller's state on its
+ * defaults, because a learner who cannot start the app has lost more than a
+ * learner who lost their saved state. The `get` and `isValid` call share one
+ * `try` deliberately — a throwing validator must degrade exactly like a
+ * throwing store, not escape uncaught and abort every OTHER slice's restore
+ * behind it (see `restoreSession`'s "each independent" contract).
  */
 async function restoreSlice<T>(
   store: Store,
@@ -187,13 +212,14 @@ async function restoreSlice<T>(
   setGuard: (guarding: boolean) => void,
   apply: (value: T) => void,
 ): Promise<boolean> {
-  let raw: unknown
+  let raw: T
   try {
-    raw = await store.get<unknown>(collection, key)
+    const value = await store.get<unknown>(collection, key)
+    if (!isValid(value)) return false
+    raw = value
   } catch {
     return false
   }
-  if (!isValid(raw)) return false
   setGuard(true)
   try {
     apply(raw)
@@ -204,7 +230,7 @@ async function restoreSlice<T>(
 }
 
 /**
- * Restores all ten persisted slices (see the module comment for the full
+ * Restores all eleven persisted slices (see the module comment for the full
  * list). Each is validated and applied independently, so a corrupt or
  * missing slice never prevents the others from restoring. Returns whether
  * the SCORE session specifically was restored, the original roadmap-1.23
@@ -345,6 +371,17 @@ export async function restoreSession(store: Store): Promise<boolean> {
       applyingRestoredLevels = guarding
     },
     (data) => useLevelStore.getState().hydrate({ levelState: data.levelState }),
+  )
+
+  await restoreSlice(
+    store,
+    EAR_TRAINING_COLLECTION,
+    EAR_TRAINING_KEY,
+    isValidEarTraining,
+    (guarding) => {
+      applyingRestoredEarTraining = guarding
+    },
+    (data) => useEarTrainingStore.getState().hydrate(data.session, data.itemsById),
   )
 
   return scoreRestored
@@ -546,9 +583,19 @@ function persistLevels(store: Store): () => void {
   })
 }
 
+/** Subscribes to the ear-training store and writes `session` + `itemsById` on every change to either. */
+function persistEarTraining(store: Store): () => void {
+  const write = createWriteQueue<PersistedEarTraining>(store, EAR_TRAINING_COLLECTION, EAR_TRAINING_KEY)
+  return useEarTrainingStore.subscribe((state, prevState) => {
+    if (applyingRestoredEarTraining) return
+    if (state.session === prevState.session && state.itemsById === prevState.itemsById) return
+    write({ session: state.session, itemsById: state.itemsById })
+  })
+}
+
 /**
- * Starts persisting all ten slices and returns one combined unsubscribe. See
- * the module comment for the mandatory `restoreSession` → `startPersisting`
+ * Starts persisting all eleven slices and returns one combined unsubscribe.
+ * See the module comment for the mandatory `restoreSession` → `startPersisting`
  * call order.
  */
 export function startPersisting(store: Store): () => void {
@@ -563,6 +610,7 @@ export function startPersisting(store: Store): () => void {
     persistTechniqueHistory(store),
     persistRepertoire(store),
     persistLevels(store),
+    persistEarTraining(store),
   ]
   return () => {
     for (const unsubscribe of unsubscribers) unsubscribe()

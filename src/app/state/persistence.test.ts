@@ -11,8 +11,12 @@ import type { PracticeEntry } from '@core/progress/log.ts'
 import type { TechniqueAttempt } from '@core/technique/evenness.ts'
 import type { RepertoirePiece } from '@core/repertoire/repertoire.ts'
 import { initialLevelState, type LevelState } from '@core/progress/levels.ts'
+import type { EarItem } from '@core/eartraining/item.ts'
+import { emptyEarSession, type EarSessionState } from '@core/eartraining/session.ts'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
+  EAR_TRAINING_COLLECTION,
+  EAR_TRAINING_KEY,
   FLASHCARDS_COLLECTION,
   FLASHCARDS_KEY,
   LEVELS_COLLECTION,
@@ -34,6 +38,7 @@ import {
   TECHNIQUE_COLLECTION,
   TECHNIQUE_KEY,
   type PersistedAssessments,
+  type PersistedEarTraining,
   type PersistedFlashcards,
   type PersistedLevelState,
   type PersistedPracticeLog,
@@ -50,6 +55,7 @@ import { useProgressStore, type StoredAssessment } from './progressStore.ts'
 import { useTechniqueStore } from './techniqueStore.ts'
 import { useRepertoireStore, MAX_STORED_REPERTOIRE_PIECES } from './repertoireStore.ts'
 import { useLevelStore } from './levelStore.ts'
+import { useEarTrainingStore } from './earTrainingStore.ts'
 
 const INITIAL_STATE: ScoreStore = useScoreStore.getState()
 
@@ -76,6 +82,7 @@ function resetStore(): void {
   useTechniqueStore.setState({ attempts: [] })
   useRepertoireStore.setState({ pieces: [] })
   useLevelStore.setState({ levelState: initialLevelState() })
+  useEarTrainingStore.setState({ session: emptyEarSession(), itemsById: {} })
 }
 
 /** Waits for the internal write queue to drain: a handful of microtask turns is always enough. */
@@ -1218,6 +1225,208 @@ describe('persistence', () => {
 
       expect(useScoreStore.getState().loaded?.sourceName).toBe('shared-collection-score')
       expect(useLevelStore.getState().levelState.levels.playing).toBe(3)
+    })
+  })
+
+  describe('ear-training persistence (roadmap 3.11, REQ-3.6.3)', () => {
+    const CARD_A: Card = {
+      id: 'interval-melodic:48:55:asc',
+      due: 100,
+      intervalDays: 1,
+      ease: 2.5,
+      reps: 1,
+      lapses: 0,
+      introducedAt: 0,
+    }
+
+    const ITEM_A: EarItem = {
+      id: 'interval-melodic:48:55:asc',
+      kind: 'interval-melodic',
+      prompt: {
+        id: 'interval-melodic:48:55:asc',
+        meta: { title: '', composer: '' },
+        measures: [],
+        notes: [],
+        tempos: [],
+        staves: [],
+        maxNoteDurationTicks: ticks(0),
+      },
+      answerKey: 'P5',
+      level: 3,
+    }
+
+    /**
+     * This is the test that fails without a `hydrate` action wired into
+     * `persistence.ts`: a raised per-kind level, an SRS card and a cached
+     * item all have to survive a reset -> restore round trip, or the
+     * "adaptive" difficulty in REQ-3.6.3 is adaptive for exactly one page
+     * life.
+     */
+    it('round-trips a raised level, an SRS card and a cached item via startPersisting / restoreSession', async () => {
+      const store = new MemoryStore()
+      const unsubscribe = persist(store)
+
+      const attempt = { itemId: ITEM_A.id, kind: ITEM_A.kind, correct: true, at: 100, level: 2 }
+      const raisedSession: EarSessionState = {
+        ...emptyEarSession(),
+        levels: { ...emptyEarSession().levels, 'interval-melodic': 3 },
+        attempts: [attempt],
+        cards: [CARD_A],
+        kinds: { [ITEM_A.id]: ITEM_A.kind },
+      }
+      useEarTrainingStore.getState().setSession(raisedSession)
+      useEarTrainingStore.getState().rememberItem(ITEM_A)
+      await flush()
+      unsubscribe()
+
+      resetStore()
+      expect(useEarTrainingStore.getState().session).toEqual(emptyEarSession())
+      expect(useEarTrainingStore.getState().itemsById).toEqual({})
+
+      const restored = await restoreSession(store)
+      expect(restored).toBe(false) // no score session was ever saved in this test
+      expect(useEarTrainingStore.getState().session.levels['interval-melodic']).toBe(3)
+      expect(useEarTrainingStore.getState().session.cards).toEqual([CARD_A])
+      expect(useEarTrainingStore.getState().session.attempts).toEqual([attempt])
+      expect(useEarTrainingStore.getState().itemsById).toEqual({ [ITEM_A.id]: ITEM_A })
+    })
+
+    it.each([
+      ['not an object', 'nope'],
+      ['session missing', { itemsById: {} }],
+      ['itemsById missing', { session: emptyEarSession() }],
+      [
+        'session.levels missing a kind',
+        { session: { ...emptyEarSession(), levels: { 'interval-melodic': 1 } }, itemsById: {} },
+      ],
+      [
+        'session.cards has a malformed card',
+        {
+          session: { ...emptyEarSession(), cards: [{ ...CARD_A, ease: Number.NaN }] },
+          itemsById: {},
+        },
+      ],
+      [
+        'itemsById has an item missing prompt',
+        { session: emptyEarSession(), itemsById: { a: { ...ITEM_A, prompt: undefined } } },
+      ],
+    ])('degrades to an empty ear-training session on a corrupt payload: %s', async (_label, payload) => {
+      const store = new MemoryStore()
+      await store.put(EAR_TRAINING_COLLECTION, EAR_TRAINING_KEY, payload)
+
+      await restoreSession(store)
+
+      expect(useEarTrainingStore.getState().session).toEqual(emptyEarSession())
+      expect(useEarTrainingStore.getState().itemsById).toEqual({})
+    })
+
+    it('does not immediately re-save what it just restored (guard flag holds, no write amplification)', async () => {
+      const store = new CountingStore()
+      const saved: PersistedEarTraining = {
+        session: { ...emptyEarSession(), cards: [CARD_A], kinds: { [ITEM_A.id]: ITEM_A.kind } },
+        itemsById: { [ITEM_A.id]: ITEM_A },
+      }
+      await store.put(EAR_TRAINING_COLLECTION, EAR_TRAINING_KEY, saved)
+      store.putCount = 0
+
+      persist(store)
+      await restoreSession(store)
+      await flush()
+
+      expect(store.putCount).toBe(0)
+    })
+
+    it(
+      'an ear-training change does not clobber the level state sharing the same collection',
+      async () => {
+        const store = new MemoryStore()
+        const unsubscribe = persist(store)
+
+        useLevelStore.getState().setTrackLevel('playing', 3)
+        useEarTrainingStore.getState().rememberItem(ITEM_A)
+        await flush()
+        unsubscribe()
+
+        resetStore()
+        await restoreSession(store)
+
+        expect(useLevelStore.getState().levelState.levels.playing).toBe(3)
+        expect(useEarTrainingStore.getState().itemsById).toEqual({ [ITEM_A.id]: ITEM_A })
+      },
+    )
+  })
+
+  describe('restoreSlice: a throwing isValid degrades exactly like a throwing store', () => {
+    const SIBLING_CARD: Card = {
+      id: 'sibling-card',
+      due: 1,
+      intervalDays: 1,
+      ease: 2.5,
+      reps: 0,
+      lapses: 0,
+      introducedAt: 0,
+    }
+
+    /**
+     * `get`'s value for `LEVELS_KEY` carries a `levels` object whose every
+     * property is a getter that throws — `isValidLevels` (called from
+     * `isValidLevelState`) reads `v[track]` for each track, so validating this
+     * payload throws instead of returning `false`. Before `restoreSlice` moved
+     * `isValid(raw)` inside its own `try` (roadmap review finding 7), that
+     * throw was uncaught and rejected `restoreSession`'s whole promise — which
+     * `App.tsx`'s `.catch(() => {})` swallows, silently disabling every one of
+     * the eleven persisted slices, not just the level state. `FLASHCARDS_KEY`
+     * carries an ordinary, valid, sibling payload so this test can prove that
+     * did NOT happen.
+     */
+    class HostileValidatorStore implements Store {
+      get<T>(collection: string, id: string): Promise<T | undefined> {
+        if (collection === LEVELS_COLLECTION && id === LEVELS_KEY) {
+          const evilLevels: Record<string, unknown> = {}
+          for (const track of ['playing', 'sight-reading', 'theory']) {
+            Object.defineProperty(evilLevels, track, {
+              enumerable: true,
+              get(): number {
+                throw new Error('boom: a hostile getter, not a real value')
+              },
+            })
+          }
+          return Promise.resolve({
+            levelState: {
+              levels: evilLevels,
+              overridden: { playing: false, 'sight-reading': false, theory: false },
+            },
+          } as T)
+        }
+        if (collection === FLASHCARDS_COLLECTION && id === FLASHCARDS_KEY) {
+          return Promise.resolve({ cardsById: { [SIBLING_CARD.id]: SIBLING_CARD } } as T)
+        }
+        return Promise.resolve(undefined)
+      }
+      getAll<T>(): Promise<T[]> {
+        return Promise.resolve([])
+      }
+      put<T>(_collection: string, _id: string, _value: T): Promise<void> {
+        return Promise.resolve()
+      }
+      delete(): Promise<void> {
+        return Promise.resolve()
+      }
+      clear(): Promise<void> {
+        return Promise.resolve()
+      }
+      collections(): Promise<string[]> {
+        return Promise.resolve([])
+      }
+    }
+
+    it('does not reject restoreSession, degrades only the throwing slice, and leaves sibling slices to restore normally', async () => {
+      const store = new HostileValidatorStore()
+
+      await expect(restoreSession(store)).resolves.toBe(false)
+
+      expect(useLevelStore.getState().levelState).toEqual(initialLevelState())
+      expect(useFlashcardStore.getState().cardsById).toEqual({ [SIBLING_CARD.id]: SIBLING_CARD })
     })
   })
 })

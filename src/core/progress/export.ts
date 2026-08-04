@@ -26,6 +26,9 @@ import { ACTIVITY_KINDS, toCsv, type ActivityKind, type PracticeEntry } from '@c
 import type { Card } from '@core/srs/scheduler.ts'
 import type { SightReadingRecord } from '@core/sightreading/session.ts'
 import type { TechniqueAttempt } from '@core/technique/evenness.ts'
+import type { Score } from '@core/notation/score.ts'
+import type { EarItem, EarItemKind } from '@core/eartraining/item.ts'
+import { EAR_MAX_LEVEL, EAR_MIN_LEVEL, type EarAttempt, type EarSessionState } from '@core/eartraining/session.ts'
 import { err, ok, type Result } from '@core/shared/result.ts'
 import { invariant } from '@core/shared/invariant.ts'
 
@@ -86,6 +89,31 @@ export type ProgressSnapshot = {
    * time — see the comment above its parse site.
    */
   readonly techniqueAttempts: readonly TechniqueAttempt[]
+  /**
+   * Ear-training session + generated-item cache (roadmap 3.11, REQ-3.6.3):
+   * per-kind levels, SRS cards, the id -> kind map, the attempt log, and
+   * every `EarItem` this session has ever generated, keyed by id.
+   *
+   * Unlike every other field above, this one is genuinely OPTIONAL, not
+   * "optional on the wire but always present after parsing" the way
+   * `techniqueAttempts` is (that field defaults a missing key to `[]`,
+   * which is safe because an empty attempt history is indistinguishable
+   * from "no history yet"). An empty ear-training session is NOT
+   * indistinguishable from "no data" — replacing a learner's current
+   * session with `emptyEarSession()` destroys their adapted levels, SRS
+   * cards and attempt log. So `importProgress` leaves this field entirely
+   * absent when the source JSON does not have it (an older export,
+   * written before this field existed), rather than filling in a default
+   * value, and the caller (`@app/state/snapshot.ts`'s
+   * `applyProgressSnapshot`) treats absence as "leave the store alone".
+   */
+  readonly earTraining?: EarTrainingSnapshot
+}
+
+/** See `ProgressSnapshot.earTraining`'s doc comment for why this field is optional. */
+export type EarTrainingSnapshot = {
+  readonly session: EarSessionState
+  readonly itemsById: Readonly<Record<string, EarItem>>
 }
 
 /** One CSV per collection — a single flat CSV cannot represent this without lying. */
@@ -380,6 +408,101 @@ function parseTechniqueAttempt(item: unknown, path: string): Result<TechniqueAtt
   })
 }
 
+const EAR_ITEM_KINDS: readonly EarItemKind[] = [
+  'interval-melodic', 'interval-harmonic', 'chord-quality', 'scale-mode', 'melodic-dictation', 'rhythmic-dictation',
+]
+
+function isEarItemKind(value: unknown): value is EarItemKind {
+  return typeof value === 'string' && (EAR_ITEM_KINDS as readonly string[]).includes(value)
+}
+
+/** Prompt structural check, inlined into `parseEarItem` (its only caller) rather than its own
+ *  function — see `isValidScore`'s identical "structural only" reasoning in
+ *  `@app/state/persistedShapes.ts` for why a full `Score` is never re-validated against its own
+ *  invariants here. */
+function parseEarItem(item: unknown, path: string): Result<EarItem, string> {
+  if (!isRecord(item)) return err(`${path}: expected object, got ${typeOf(item)}`)
+  const id = requireString(item, 'id', path)
+  if (!id.ok) return id
+  const kind = item['kind']
+  if (!isEarItemKind(kind)) return err(`${path}.kind: '${String(kind)}' is not a valid EarItemKind`)
+  const prompt = item['prompt']
+  if (!isRecord(prompt) || !Array.isArray(prompt['notes']) || !isRecord(prompt['meta'])) return err(`${path}.prompt: not a valid Score`)
+  const answerKey = requireString(item, 'answerKey', path)
+  if (!answerKey.ok) return answerKey
+  const level = requireFiniteNumber(item, 'level', path)
+  if (!level.ok) return level
+  return ok({ id: id.value, kind, prompt: prompt as unknown as Score, answerKey: answerKey.value, level: level.value })
+}
+
+function parseEarAttempt(item: unknown, path: string): Result<EarAttempt, string> {
+  if (!isRecord(item)) return err(`${path}: expected object, got ${typeOf(item)}`)
+  const itemId = requireString(item, 'itemId', path)
+  if (!itemId.ok) return itemId
+  const kind = item['kind']
+  if (!isEarItemKind(kind)) return err(`${path}.kind: '${String(kind)}' is not a valid EarItemKind`)
+  const correct = requireBoolean(item, 'correct', path)
+  if (!correct.ok) return correct
+  const at = requireFiniteNumber(item, 'at', path)
+  if (!at.ok) return at
+  const level = requireFiniteNumber(item, 'level', path)
+  if (!level.ok) return level
+  return ok({ itemId: itemId.value, kind, correct: correct.value, at: at.value, level: level.value })
+}
+
+// Unlike `isValidEarLevels` in `@app/state/persistedShapes.ts`, this does not reject an
+// extra/unknown key — this module's own stated policy (see the module doc comment) is
+// that unknown extra fields are dropped, not fatal; every known kind is still required.
+function parseEarLevels(value: unknown, path: string): Result<Readonly<Record<EarItemKind, number>>, string> {
+  if (!isRecord(value)) return err(`${path}: expected object, got ${typeOf(value)}`)
+  const entries: [EarItemKind, number][] = []
+  for (const kind of EAR_ITEM_KINDS) {
+    const level = value[kind]
+    if (typeof level !== 'number' || !Number.isFinite(level) || level < EAR_MIN_LEVEL || level > EAR_MAX_LEVEL) return err(`${path}.${kind}: expected a finite number in [${EAR_MIN_LEVEL}, ${EAR_MAX_LEVEL}], got ${typeOf(level)}`)
+    entries.push([kind, level])
+  }
+  return ok(Object.fromEntries(entries) as Readonly<Record<EarItemKind, number>>)
+}
+
+/** Same anti-prototype-pollution reasoning as `parseLevels` below: `Object.fromEntries`, never `obj[key] =`. */
+function parseEarKinds(value: unknown, path: string): Result<Readonly<Record<string, EarItemKind>>, string> {
+  if (!isRecord(value)) return err(`${path}: expected object, got ${typeOf(value)}`)
+  const entries: [string, EarItemKind][] = []
+  for (const [key, raw] of Object.entries(value)) {
+    if (!isEarItemKind(raw)) return err(`${path}.${key}: '${String(raw)}' is not a valid EarItemKind`)
+    entries.push([key, raw])
+  }
+  return ok(Object.fromEntries(entries))
+}
+
+function parseEarSessionState(value: unknown, path: string): Result<EarSessionState, string> {
+  if (!isRecord(value)) return err(`${path}: expected object, got ${typeOf(value)}`)
+  const levels = parseEarLevels(value['levels'], `${path}.levels`)
+  if (!levels.ok) return levels
+  const attempts = parseArray(value['attempts'], `${path}.attempts`, parseEarAttempt)
+  if (!attempts.ok) return attempts
+  const cards = parseArray(value['cards'], `${path}.cards`, parseCard)
+  if (!cards.ok) return cards
+  const kinds = parseEarKinds(value['kinds'], `${path}.kinds`)
+  if (!kinds.ok) return kinds
+  return ok({ levels: levels.value, attempts: attempts.value, cards: cards.value, kinds: kinds.value })
+}
+
+function parseEarTrainingSnapshot(value: unknown, path: string): Result<EarTrainingSnapshot, string> {
+  if (!isRecord(value)) return err(`${path}: expected object, got ${typeOf(value)}`)
+  const session = parseEarSessionState(value['session'], `${path}.session`)
+  if (!session.ok) return session
+  const itemsByIdRaw = value['itemsById']
+  if (!isRecord(itemsByIdRaw)) return err(`${path}.itemsById: expected object, got ${typeOf(itemsByIdRaw)}`)
+  const itemEntries: [string, EarItem][] = []
+  for (const [key, raw] of Object.entries(itemsByIdRaw)) {
+    const parsed = parseEarItem(raw, `${path}.itemsById.${key}`)
+    if (!parsed.ok) return parsed
+    itemEntries.push([key, parsed.value])
+  }
+  return ok({ session: session.value, itemsById: Object.fromEntries(itemEntries) })
+}
+
 function parseLevels(value: unknown, path: string): Result<Readonly<Record<string, number>>, string> {
   if (!isRecord(value)) return err(`${path}: expected object, got ${typeOf(value)}`)
   const entries: [string, number][] = []
@@ -455,6 +578,14 @@ export function importProgress(text: string): Result<ProgressSnapshot, string> {
       : parseArray(rawTechniqueAttempts, 'techniqueAttempts', parseTechniqueAttempt)
   if (!techniqueAttempts.ok) return techniqueAttempts
 
+  // Unlike every other field, a missing `earTraining` stays MISSING on the
+  // returned snapshot — never defaulted to an empty session. See
+  // `ProgressSnapshot.earTraining`'s doc comment for why: an empty session is
+  // not a safe stand-in for "no data" the way `[]` is for `techniqueAttempts`.
+  const earTraining: Result<EarTrainingSnapshot | undefined, string> =
+    raw['earTraining'] === undefined ? ok(undefined) : parseEarTrainingSnapshot(raw['earTraining'], 'earTraining')
+  if (!earTraining.ok) return earTraining
+
   return ok({
     version: 1,
     exportedAt: exportedAt.value,
@@ -465,6 +596,7 @@ export function importProgress(text: string): Result<ProgressSnapshot, string> {
     repertoire: repertoire.value,
     assessments: assessments.value,
     techniqueAttempts: techniqueAttempts.value,
+    ...(earTraining.value === undefined ? {} : { earTraining: earTraining.value }),
   })
 }
 

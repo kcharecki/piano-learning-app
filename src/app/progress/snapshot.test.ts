@@ -10,6 +10,7 @@ import { useFlashcardStore } from '@app/state/flashcardStore.ts'
 import { useSightReadingStore } from '@app/state/sightReadingStore.ts'
 import { useTechniqueStore } from '@app/state/techniqueStore.ts'
 import { useRepertoireStore } from '@app/state/repertoireStore.ts'
+import { useEarTrainingStore } from '@app/state/earTrainingStore.ts'
 import {
   MIN_LEVEL as SIGHT_READING_MIN_LEVEL,
   MAX_LEVEL as SIGHT_READING_MAX_LEVEL,
@@ -20,6 +21,10 @@ import type { PracticeEntry } from '@core/progress/log.ts'
 import type { SightReadingRecord } from '@core/sightreading/session.ts'
 import type { TechniqueAttempt } from '@core/technique/evenness.ts'
 import type { RepertoirePiece } from '@core/repertoire/repertoire.ts'
+import type { EarItem } from '@core/eartraining/item.ts'
+import { emptyEarSession, type EarSessionState } from '@core/eartraining/session.ts'
+import { ticks } from '@core/shared/units.ts'
+import { exportJson, importProgress } from '@core/progress/export.ts'
 import { FakeClock } from '@test/fakes.ts'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { gatherProgressSnapshot, applyProgressSnapshot, SIGHT_READING_LEVEL_KEY } from './snapshot.ts'
@@ -30,6 +35,7 @@ function resetStores(): void {
   useSightReadingStore.setState({ level: SIGHT_READING_MIN_LEVEL, history: [] })
   useTechniqueStore.setState({ attempts: [] })
   useRepertoireStore.setState({ pieces: [] })
+  useEarTrainingStore.setState({ session: emptyEarSession(), itemsById: {} })
 }
 
 beforeEach(resetStores)
@@ -109,6 +115,30 @@ const repertoirePieceInput = {
 
 const repertoireSession = { at: 6_000, minutes: 20, accuracy: 0.8 }
 
+const earItem: EarItem = {
+  id: 'interval-melodic:48:55:asc',
+  kind: 'interval-melodic',
+  prompt: {
+    id: 'interval-melodic:48:55:asc',
+    meta: { title: '', composer: '' },
+    measures: [],
+    notes: [],
+    tempos: [],
+    staves: [],
+    maxNoteDurationTicks: ticks(0),
+  },
+  answerKey: 'P5',
+  level: 3,
+}
+
+const earSession: EarSessionState = {
+  ...emptyEarSession(),
+  levels: { ...emptyEarSession().levels, 'interval-melodic': 3 },
+  attempts: [{ itemId: earItem.id, kind: earItem.kind, correct: true, at: 7_000, level: 2 }],
+  cards: [{ id: earItem.id, due: 8_000, intervalDays: 1, ease: 2.5, reps: 1, lapses: 0, introducedAt: 0 }],
+  kinds: { [earItem.id]: earItem.kind },
+}
+
 function seedStores(): void {
   useProgressStore.getState().addPracticeEntry(practiceEntry)
   useProgressStore.getState().addAssessment(assessment)
@@ -119,6 +149,8 @@ function seedStores(): void {
   useRepertoireStore.getState().addPiece(repertoirePieceInput)
   useRepertoireStore.getState().setStatus(repertoirePieceInput.id, 'maintained')
   useRepertoireStore.getState().recordSession(repertoirePieceInput.id, repertoireSession)
+  useEarTrainingStore.getState().setSession(earSession)
+  useEarTrainingStore.getState().rememberItem(earItem)
 }
 
 describe('gatherProgressSnapshot', () => {
@@ -164,6 +196,53 @@ describe('gather -> clear -> apply round trip', () => {
     expect(useSightReadingStore.getState().level).toBe(4)
     expect(useTechniqueStore.getState().attempts).toEqual([techniqueAttempt])
   })
+
+  it(
+    'restores a raised level, an SRS card and a cached item through a REAL file round trip — ' +
+      'gather -> exportJson -> importProgress -> applyProgressSnapshot, not just the in-memory ' +
+      'gather -> apply cycle every other assertion in this file uses (roadmap 3.11, REQ-3.6.3)',
+    () => {
+      seedStores()
+      const snapshot = gatherProgressSnapshot(new FakeClock(9_999))
+      const imported = importProgress(exportJson(snapshot))
+      expect(imported.ok).toBe(true)
+      if (!imported.ok) return
+
+      resetStores()
+      expect(useEarTrainingStore.getState().session).toEqual(emptyEarSession())
+      expect(useEarTrainingStore.getState().itemsById).toEqual({})
+
+      applyProgressSnapshot(imported.value)
+
+      // Asserted field-by-field (not a deep-equal against the original
+      // `earSession`) because the JSON string is the actual thing under
+      // test here, not object identity of the in-memory value.
+      expect(useEarTrainingStore.getState().session.levels['interval-melodic']).toBe(3)
+      expect(useEarTrainingStore.getState().session.cards).toEqual(earSession.cards)
+      expect(useEarTrainingStore.getState().session.attempts).toEqual(earSession.attempts)
+      expect(useEarTrainingStore.getState().itemsById).toEqual({ [earItem.id]: earItem })
+    },
+  )
+
+  it(
+    'leaves the ear-training store UNCHANGED (never wiped to an empty session) when the ' +
+      'snapshot carries no earTraining — an old backup file predating the field must not ' +
+      'destroy current progress (regression: this used to hydrate emptyEarSession() instead)',
+    () => {
+      seedStores()
+      const snapshot = gatherProgressSnapshot(new FakeClock(0))
+      const { earTraining: _drop, ...withoutEarTraining } = snapshot
+
+      resetStores()
+      useEarTrainingStore.getState().setSession(earSession)
+      useEarTrainingStore.getState().rememberItem(earItem)
+
+      applyProgressSnapshot(withoutEarTraining)
+
+      expect(useEarTrainingStore.getState().session).toEqual(earSession)
+      expect(useEarTrainingStore.getState().itemsById).toEqual({ [earItem.id]: earItem })
+    },
+  )
 
   it('restores a repertoire piece\'s recoverable fields (id, title, composer, status) — not sessions/level/bestAccuracy/notes', () => {
     seedStores()
