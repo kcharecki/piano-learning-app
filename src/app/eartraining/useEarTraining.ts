@@ -46,9 +46,36 @@
  * stays due until `itemsById` (once persisted) has it again. This is a real
  * gap, not a silently-resolved ambiguity — it is called out again in the
  * module's report.
+ *
+ * ## Dictation answers (roadmap 3.11, REQ-3.6.1/3.6.2)
+ *
+ * `melodic-dictation` and `rhythmic-dictation` play back through the same
+ * `scheduleItem` path as every other kind; what they lacked was a way to
+ * answer. `pressDictationNote` records one played-back note — the first press
+ * anchors the prompt's own first onset (`item.prompt.notes[0].startTick`),
+ * never a literal tick 0: a rhythmic prompt often opens on a rest once rests
+ * are allowed (level >= 2), so the true first note can sit at a non-zero
+ * tick, and anchoring to 0 would mis-score a note-perfect answer every time.
+ * Every later press is placed by how much wall-clock time elapsed since that
+ * first press, converted to ticks against the prompt's own tempo (`msToTick`,
+ * never a hand-rolled ms/tick ratio) and added to that same anchor — and
+ * `submitDictation` hands the recorded notes to `gradeDictation` and files
+ * the result through the same `answer()` -> `recordEarAttempt` path every
+ * other drill uses, so SRS and level adaptation see a dictation attempt
+ * exactly like any other. Timestamps come from the same clock `scheduleItem`
+ * already reads (`AudioOutput.now()`), never `Date.now()`/`performance.now()`
+ * directly — see `audio.ts`'s own doc on why every `atMs` must share one
+ * epoch. A real MIDI keyboard answers a dictation prompt too (REQ-3.6.2):
+ * `midi.input`'s `noteOn` events reach `pressDictationNote` the same way
+ * `useFlashcardDrill`'s own MIDI wiring reaches `answerNote`.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createDefaultAudioOutput } from '@app/practice/createDefaultAudioOutput.ts'
+import {
+  useMidiConnection,
+  type ConnectMidi,
+  type MidiConnection,
+} from '@app/practice/useMidiConnection.ts'
 import { useEarTrainingStore } from '@app/state/earTrainingStore.ts'
 import type { EarGrade, EarItem, EarItemKind } from '@core/eartraining/item.ts'
 import { generateIntervalItem, gradeIntervalAnswer } from '@core/eartraining/intervals.ts'
@@ -58,13 +85,18 @@ import {
   gradeChordQualityAnswer,
   gradeScaleModeAnswer,
 } from '@core/eartraining/chords.ts'
-import { generateMelodicDictation, generateRhythmicDictation } from '@core/eartraining/dictation.ts'
+import {
+  gradeDictation,
+  generateMelodicDictation,
+  generateRhythmicDictation,
+  type DictationAnswerNote,
+} from '@core/eartraining/dictation.ts'
 import { nextDueItemId, recordEarAttempt, type EarAttempt } from '@core/eartraining/session.ts'
 import { retentionStats, type RetentionStats } from '@core/srs/scheduler.ts'
-import { makeTempoMap, tickToMs } from '@core/timing/tempo.ts'
-import type { AudioOutput, DateSource, Rng } from '@core/ports/index.ts'
+import { makeTempoMap, msToTick, tickToMs } from '@core/timing/tempo.ts'
+import type { AudioOutput, DateSource, MidiInput, Rng } from '@core/ports/index.ts'
 import { seededRng } from '@core/ports/rng.ts'
-import { addTicks, millis } from '@core/shared/units.ts'
+import { addTicks, millis, ticks, type Midi, type Millis } from '@core/shared/units.ts'
 import type { ChordQuality } from '@core/theory/chords.ts'
 import type { Interval } from '@core/theory/intervals.ts'
 import type { ScaleType } from '@core/theory/scales.ts'
@@ -72,11 +104,10 @@ import type { ScaleType } from '@core/theory/scales.ts'
 export type EarTrainingPhase = 'idle' | 'playing' | 'answering' | 'graded'
 
 /**
- * One answer, tagged by which drill it is for. Only the four kinds with an
- * on-screen answer pad appear here — `melodic-dictation` and
- * `rhythmic-dictation` can already be generated and played (see
- * `generateItemForKind` below) but have no answer variant yet; see the
- * module's report.
+ * One answer, tagged by which drill it is for. `'dictation'` answers both
+ * dictation kinds — `melodic-dictation` and `rhythmic-dictation` — the same
+ * way `gradeDictation` itself does not need a separate answer shape per kind,
+ * only a different grading rule once it has `item.kind` to look at.
  */
 export type EarAnswer =
   | {
@@ -87,6 +118,7 @@ export type EarAnswer =
     }
   | { readonly kind: 'chord-quality'; readonly quality: ChordQuality }
   | { readonly kind: 'scale-mode'; readonly type: ScaleType }
+  | { readonly kind: 'dictation'; readonly notes: readonly DictationAnswerNote[] }
 
 export type UseEarTrainingOptions = {
   /** Which drill to draw from. Defaults to `'interval-melodic'`. */
@@ -95,6 +127,10 @@ export type UseEarTrainingOptions = {
   readonly date?: DateSource
   readonly audioOutput?: AudioOutput
   readonly rng?: Rng
+  /** MIDI injection seams — see `useFlashcardDrill`'s identical three-way
+   *  options. A ready-made input skips `connectMidi` entirely. */
+  readonly midiInput?: MidiInput
+  readonly connectMidi?: ConnectMidi
 }
 
 export type UseEarTraining = {
@@ -106,12 +142,32 @@ export type UseEarTraining = {
   /** Retention stats for the current `kind`'s cards only — see `useFlashcardDrill`'s equivalent. */
   readonly stats: RetentionStats
   readonly kind: EarItemKind
+  /** MIDI connection state — REQ-3.6.2 ("using any key on the MIDI
+   *  keyboard"). A real press reaches `pressDictationNote` exactly like an
+   *  on-screen key press; see `useFlashcardDrill`'s identical wiring. */
+  readonly midi: MidiConnection
   setKind(kind: EarItemKind): void
   /** Generate (SRS-due, else fresh) and play the next item for the current kind. */
   start(): void
   /** Play the current item again — the core interaction of an ear drill. No-op with no item yet. */
   replay(): void
   answer(answer: EarAnswer): void
+  /** Notes recorded so far for the current dictation item, oldest first. Empty for every other kind. */
+  readonly dictationNotes: readonly DictationAnswerNote[]
+  /** Record one played note. The first press anchors the prompt's own first
+   *  onset; later presses are placed by elapsed time against the prompt's
+   *  tempo. No-op unless the current item is a dictation item. */
+  readonly pressDictationNote: (note: Midi) => void
+  /** Drop everything recorded so far so the learner can try again. */
+  readonly clearDictation: () => void
+  /** Grade what has been recorded with `gradeDictation` and record the attempt
+   *  through the same path every other answer uses, so adaptation and SRS see it.
+   *  No-op if no dictation item is loaded. */
+  readonly submitDictation: () => void
+}
+
+function isDictationKind(kind: EarItemKind): boolean {
+  return kind === 'melodic-dictation' || kind === 'rhythmic-dictation'
 }
 
 const DEFAULT_KIND: EarItemKind = 'interval-melodic'
@@ -142,6 +198,8 @@ function gradeAnswerForItem(item: EarItem, answer: EarAnswer): EarGrade {
       return gradeChordQualityAnswer(item, answer.quality)
     case 'scale-mode':
       return gradeScaleModeAnswer(item, answer.type)
+    case 'dictation':
+      return gradeDictation(item, answer.notes)
   }
 }
 
@@ -167,11 +225,35 @@ export function useEarTraining(options: UseEarTrainingOptions = {}): UseEarTrain
   const [date] = useState<DateSource>(() => options.date ?? { epochMillis: () => Date.now() })
   const [rng] = useState<Rng>(() => options.rng ?? seededRng(Date.now()))
   const audioRef = useRef<AudioOutput | undefined>(options.audioOutput)
+  const midi = useMidiConnection(
+    options.midiInput !== undefined
+      ? { midiInput: options.midiInput }
+      : options.connectMidi !== undefined
+        ? { connect: options.connectMidi }
+        : {},
+  )
 
   const [kind, setKindState] = useState<EarItemKind>(options.kind ?? DEFAULT_KIND)
   const [phase, setPhase] = useState<EarTrainingPhase>('idle')
   const [item, setItem] = useState<EarItem | undefined>(undefined)
   const [grade, setGrade] = useState<EarGrade | undefined>(undefined)
+  const [dictationNotes, setDictationNotes] = useState<readonly DictationAnswerNote[]>([])
+  // Mirrors `dictationNotes` synchronously, alongside every `setDictationNotes`
+  // call below — `submitDictation` reads this, not the state variable, so a
+  // press and a submit dispatched inside the same React batch (as a MIDI
+  // event and a UI click both can) still submit the note the press just
+  // recorded, not a stale pre-press snapshot closed over when submitDictation
+  // was defined. See the review finding this fixes.
+  const dictationNotesRef = useRef<readonly DictationAnswerNote[]>([])
+  function setDictationNotesBoth(next: readonly DictationAnswerNote[]): void {
+    dictationNotesRef.current = next
+    setDictationNotes(next)
+  }
+  // Wall-clock time (on the AudioOutput's own Clock epoch) of the first
+  // recorded press, so every later press can be placed relative to it. Not
+  // state: it never needs to trigger a render on its own, only alongside a
+  // dictationNotes update.
+  const firstPressMsRef = useRef<Millis | undefined>(undefined)
 
   // A new kind always starts idle, with no stale item/grade from the
   // previous drill lingering — mirrors `useFlashcardDrill`'s deck-change
@@ -181,6 +263,8 @@ export function useEarTraining(options: UseEarTrainingOptions = {}): UseEarTrain
     setItem(undefined)
     setGrade(undefined)
     setPhase('idle')
+    setDictationNotesBoth([])
+    firstPressMsRef.current = undefined
   }, [kind])
 
   // See the module comment: real playback runs on the AudioOutput's own
@@ -214,6 +298,8 @@ export function useEarTraining(options: UseEarTrainingOptions = {}): UseEarTrain
     if (cached === undefined) rememberItem(next)
     setItem(next)
     setGrade(undefined)
+    setDictationNotesBoth([])
+    firstPressMsRef.current = undefined
     playItemNow(next)
   }
 
@@ -224,13 +310,27 @@ export function useEarTraining(options: UseEarTrainingOptions = {}): UseEarTrain
     // second answer on the same item record a duplicate EarAttempt while the
     // learner can see the answer. See the review finding this fixes.
     scheduleItem(getAudioOutput(), item)
+    // A dictation in progress must not survive a replay: pressDictationNote
+    // anchors every later press to the *first* press's wall-clock time, and
+    // replaying touches neither `dictationNotes` nor `firstPressMsRef` — so a
+    // replay heard mid-answer would silently fold the whole replay's
+    // listening time into the next press's elapsed offset, corrupting an
+    // otherwise-correct answer. Clearing (rather than disabling Replay while
+    // notes are recorded) keeps Replay available as "hear it again, start
+    // over", which is the more useful escape hatch for an ear-training drill
+    // than resuming a half-entered answer would be. See the review finding
+    // this fixes.
+    if (isDictationKind(item.kind)) clearDictation()
     if (phase !== 'graded') setPhase('playing')
   }
 
   function answer(a: EarAnswer): void {
     if (item === undefined) return
     if (phase !== 'answering' && phase !== 'playing') return
-    if (item.kind !== a.kind) return
+    // 'dictation' answers both dictation kinds — see EarAnswer's own comment
+    // — so the ordinary item.kind === a.kind check does not apply to it.
+    const kindMatches = a.kind === 'dictation' ? isDictationKind(item.kind) : item.kind === a.kind
+    if (!kindMatches) return
 
     const now = date.epochMillis()
     const g = gradeAnswerForItem(item, a)
@@ -251,6 +351,66 @@ export function useEarTraining(options: UseEarTrainingOptions = {}): UseEarTrain
     setPhase('graded')
   }
 
+  // See the module comment: the first press anchors the prompt's own first
+  // onset (never a literal tick 0 — a rhythmic prompt often opens on a rest
+  // once rests are allowed, level >= 2, so the true first note can sit at a
+  // non-zero tick), every later press is placed by elapsed wall-clock time
+  // against the prompt's own tempo — never a second AudioOutput.now() read
+  // turned into an absolute tick without a shared origin. See the review
+  // finding this fixes.
+  function pressDictationNote(note: Midi): void {
+    if (item === undefined || !isDictationKind(item.kind)) return
+    if (phase !== 'answering' && phase !== 'playing') return
+
+    const firstNote = item.prompt.notes[0]
+    const baseTick = firstNote === undefined ? ticks(0) : firstNote.startTick
+    const nowMs = getAudioOutput().now()
+    if (firstPressMsRef.current === undefined) {
+      firstPressMsRef.current = nowMs
+      setDictationNotesBoth([{ midi: note, startTick: baseTick }])
+      return
+    }
+    const tempoMap = makeTempoMap(item.prompt.tempos)
+    const elapsedTicks = msToTick(tempoMap, millis(nowMs - firstPressMsRef.current))
+    // Math.max(0, ...) guards a backwards clock reading: `AudioOutput.now()`
+    // (the webaudio adapter) can re-snap its epoch offset after a jump of
+    // more than 250ms, e.g. a backgrounded tab — an unguarded negative result
+    // would be written into a domain object through `ticks()`'s unchecked
+    // cast. See the review finding this fixes.
+    const startTick = ticks(Math.max(0, baseTick + Math.round(elapsedTicks)))
+    setDictationNotesBoth([...dictationNotesRef.current, { midi: note, startTick }])
+  }
+
+  function clearDictation(): void {
+    setDictationNotesBoth([])
+    firstPressMsRef.current = undefined
+  }
+
+  function submitDictation(): void {
+    if (item === undefined || !isDictationKind(item.kind)) return
+    // A submit with nothing recorded would grade every prompt note 'missing'
+    // and record a real EarAttempt — the view's `disabled` on Submit is the
+    // only other guard, and a MIDI-driven submit (once wired) would not go
+    // through the view at all. See the review finding this fixes.
+    if (dictationNotesRef.current.length === 0) return
+    answer({ kind: 'dictation', notes: dictationNotesRef.current })
+  }
+
+  const pressDictationNoteRef = useRef(pressDictationNote)
+  pressDictationNoteRef.current = pressDictationNote
+
+  // A real MIDI press answers a dictation prompt exactly like an on-screen
+  // key press (REQ-3.6.2: "using any key on the MIDI keyboard") — and is a
+  // no-op via `pressDictationNote` itself while a non-dictation item is
+  // showing, the same way `useFlashcardDrill`'s equivalent wiring is a no-op
+  // for a mismatched card kind. See the review finding this fixes.
+  useEffect(() => {
+    if (midi.input === undefined) return undefined
+    return midi.input.onEvent((event) => {
+      if (event.type === 'noteOn') pressDictationNoteRef.current(event.note)
+    })
+  }, [midi.input])
+
   const stats = useMemo(
     () =>
       retentionStats(
@@ -268,9 +428,14 @@ export function useEarTraining(options: UseEarTrainingOptions = {}): UseEarTrain
     levels: session.levels,
     stats,
     kind,
+    midi,
     setKind: setKindState,
     start,
     replay,
     answer,
+    dictationNotes,
+    pressDictationNote,
+    clearDictation,
+    submitDictation,
   }
 }

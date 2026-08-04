@@ -6,9 +6,10 @@
  */
 import { useEarTrainingStore } from '@app/state/earTrainingStore.ts'
 import { emptyEarSession } from '@core/eartraining/session.ts'
+import { seededRng } from '@core/ports/rng.ts'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { FakeClock, RecordingAudioOutput, scriptedRng } from '@test/fakes.ts'
+import { FakeClock, FakeMidiInput, RecordingAudioOutput, scriptedRng } from '@test/fakes.ts'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { EarTrainingScreen } from './EarTrainingScreen.tsx'
 
@@ -27,41 +28,165 @@ function setup() {
   const audioOutput = new RecordingAudioOutput(clock)
   const date = new FakeClock(1_700_000_000_000)
   const rng = scriptedRng([0])
-  render(<EarTrainingScreen date={date} audioOutput={audioOutput} rng={rng} />)
-  return { audioOutput }
+  const midiInput = new FakeMidiInput()
+  render(<EarTrainingScreen date={date} audioOutput={audioOutput} rng={rng} midiInput={midiInput} />)
+  return { audioOutput, clock }
 }
 
 describe('EarTrainingScreen — drill selector', () => {
-  it('lists all six drills, all selectable — dictation has no answer pad yet, not no selector entry', () => {
+  it('lists all six drills, all selectable', () => {
     setup()
 
-    expect(
-      screen.getByRole('option', { name: 'Melodic dictation (not yet answerable)' }),
-    ).toBeEnabled()
-    expect(
-      screen.getByRole('option', { name: 'Rhythmic dictation (not yet answerable)' }),
-    ).toBeEnabled()
+    expect(screen.getByRole('option', { name: 'Melodic dictation' })).toBeEnabled()
+    expect(screen.getByRole('option', { name: 'Rhythmic dictation' })).toBeEnabled()
     expect(screen.getByRole('option', { name: 'Interval (melodic)' })).toBeEnabled()
     expect(screen.getByRole('option', { name: 'Chord quality' })).toBeEnabled()
-  })
-
-  it('selecting melodic dictation and pressing Play plays it, but shows the not-yet-answerable status instead of a pad', async () => {
-    const user = userEvent.setup()
-    const { audioOutput } = setup()
-
-    await user.selectOptions(screen.getByLabelText('Drill'), 'Melodic dictation (not yet answerable)')
-    await user.click(screen.getByRole('button', { name: 'Play' }))
-
-    expect(audioOutput.playedNotes.length).toBeGreaterThan(0)
-    expect(screen.getByRole('status')).toHaveTextContent(
-      'This drill plays back, but answering it is not yet implemented.',
-    )
   })
 
   it('before any Play press, shows a prompt instead of an answer pad', () => {
     setup()
 
-    expect(screen.getByRole('status')).toHaveTextContent('Press Play to hear the first item.')
+    // Not `getByRole('status')`: `MidiDeviceStatus` (review finding — the
+    // MIDI connection is now surfaced on this screen) renders its own
+    // `role="status"` element too, so this needs the exact prompt text.
+    expect(screen.getByText('Press Play to hear the first item.')).toBeInTheDocument()
+  })
+})
+
+describe('EarTrainingScreen — melodic dictation', () => {
+  it('selecting it and pressing Play plays it and reveals the dictation answer pad', async () => {
+    const user = userEvent.setup()
+    const { audioOutput } = setup()
+
+    await user.selectOptions(screen.getByLabelText('Drill'), 'Melodic dictation')
+    await user.click(screen.getByRole('button', { name: 'Play' }))
+
+    expect(audioOutput.playedNotes.length).toBeGreaterThan(0)
+    expect(screen.getByRole('group', { name: 'Dictation controls' })).toBeInTheDocument()
+    expect(screen.getByTestId('dictation-note-count')).toHaveTextContent('0 notes recorded')
+  })
+
+  it('pressing back the exact prompt notes at the exact moments they played, then submitting, grades it correct with a per-note breakdown', async () => {
+    const user = userEvent.setup()
+    const { audioOutput, clock } = setup()
+
+    await user.selectOptions(screen.getByLabelText('Drill'), 'Melodic dictation')
+    await user.click(screen.getByRole('button', { name: 'Play' }))
+
+    // Replay each note's own onset time (recorded by RecordingAudioOutput as
+    // `at`) before pressing it back, so the answer lands on the same ticks
+    // the prompt did — this is what `pressDictationNote`'s ms->tick
+    // conversion is supposed to reconstruct. A stub Submit that never calls
+    // gradeDictation would leave no feedback and no per-note list; a stub
+    // that ignores the pressed pitches would still grade this 'Correct' even
+    // for wrong notes, which the note-count assertion below guards against.
+    const noteOns = audioOutput.calls.filter((c) => c.kind === 'noteOn')
+    for (const call of noteOns) {
+      clock.setTime(call.at)
+      await user.click(screen.getByRole('button', { name: `Key ${call.note}` }))
+    }
+    expect(screen.getByTestId('dictation-note-count')).toHaveTextContent(`${noteOns.length} note`)
+
+    await user.click(screen.getByRole('button', { name: 'Submit' }))
+
+    expect(screen.getByTestId('eartraining-feedback')).toHaveTextContent('Correct')
+    expect(screen.getByTestId('dictation-pitch-accuracy')).toHaveTextContent('100%')
+    expect(screen.getByTestId('dictation-rhythm-accuracy')).toHaveTextContent('100%')
+    const result = screen.getByTestId('dictation-result')
+    expect(result.children).toHaveLength(noteOns.length)
+    expect(result).toHaveTextContent(/^(Note \d+: correct)+$/)
+  })
+
+  it('Clear empties the recorded notes back to zero', async () => {
+    const user = userEvent.setup()
+    setup()
+    await user.selectOptions(screen.getByLabelText('Drill'), 'Melodic dictation')
+    await user.click(screen.getByRole('button', { name: 'Play' }))
+    const [firstKey] = screen.getAllByRole('button', { name: /^Key \d+$/ })
+    if (firstKey === undefined) throw new Error('expected at least one keyboard key')
+    await user.click(firstKey)
+    expect(screen.getByTestId('dictation-note-count')).toHaveTextContent('1 note recorded')
+
+    await user.click(screen.getByRole('button', { name: 'Clear' }))
+
+    expect(screen.getByTestId('dictation-note-count')).toHaveTextContent('0 notes recorded')
+  })
+})
+
+describe('EarTrainingScreen — rhythmic dictation', () => {
+  it('says any key counts, since only timing is graded', async () => {
+    const user = userEvent.setup()
+    setup()
+
+    await user.selectOptions(screen.getByLabelText('Drill'), 'Rhythmic dictation')
+    await user.click(screen.getByRole('button', { name: 'Play' }))
+
+    expect(screen.getByText(/any key counts/i)).toBeInTheDocument()
+  })
+
+  // Review finding: the drill was previously "listed but disabled" here —
+  // no key was ever pressed, nothing was ever submitted, only a static
+  // instruction string was asserted, so this would have passed with the
+  // entire rhythmic answer path deleted. That gap is exactly why the
+  // tick-0 anchor bug (next test) shipped unnoticed: a melodic prompt always
+  // starts at tick 0, so no test anywhere could see a late-starting prompt.
+  it('pressing back a rhythmic prompt at the exact moments it played, then submitting, grades it correct', async () => {
+    const user = userEvent.setup()
+    const { audioOutput, clock } = setup()
+
+    await user.selectOptions(screen.getByLabelText('Drill'), 'Rhythmic dictation')
+    await user.click(screen.getByRole('button', { name: 'Play' }))
+
+    const noteOns = audioOutput.calls.filter((c) => c.kind === 'noteOn')
+    for (const call of noteOns) {
+      clock.setTime(call.at)
+      await user.click(screen.getByRole('button', { name: `Key ${call.note}` }))
+    }
+    await user.click(screen.getByRole('button', { name: 'Submit' }))
+
+    expect(screen.getByTestId('eartraining-feedback')).toHaveTextContent('Correct')
+    expect(screen.getByTestId('dictation-rhythm-accuracy')).toHaveTextContent('100%')
+  })
+
+  // Regression test for the review finding: `pressDictationNote` used to
+  // hard-anchor the first press to `ticks(0)`, but a rhythmic prompt's first
+  // leaf can be a rest once rests are allowed (level >= 2) — measured over
+  // 1500 generated items, 18.6% of rhythmic prompts started later than tick
+  // 0, and a note-perfect, rhythm-perfect playback of one graded
+  // `correct: false` every time against the old anchor. Level 2 / seed 3 is
+  // known (found by exhaustive search) to produce exactly such a prompt.
+  // This exercises the bug through the real UI path (Play's own scheduling,
+  // not a hand-built clock reading), unlike the equivalent hook-level test.
+  it('a rhythmic prompt whose first onset is not tick 0, played back through the UI, still grades correct', async () => {
+    const user = userEvent.setup()
+    const clock = new FakeClock(0)
+    const audioOutput = new RecordingAudioOutput(clock)
+    const date = new FakeClock(1_700_000_000_000)
+    const midiInput = new FakeMidiInput()
+    useEarTrainingStore.setState((s) => ({
+      session: { ...s.session, levels: { ...s.session.levels, 'rhythmic-dictation': 2 } },
+    }))
+    render(
+      <EarTrainingScreen
+        date={date}
+        audioOutput={audioOutput}
+        rng={seededRng(3)}
+        midiInput={midiInput}
+      />,
+    )
+
+    await user.selectOptions(screen.getByLabelText('Drill'), 'Rhythmic dictation')
+    await user.click(screen.getByRole('button', { name: 'Play' }))
+
+    const noteOns = audioOutput.calls.filter((c) => c.kind === 'noteOn')
+    expect(noteOns[0]?.at).not.toBe(0) // confirms this seed still exercises the bug
+    for (const call of noteOns) {
+      clock.setTime(call.at)
+      await user.click(screen.getByRole('button', { name: `Key ${call.note}` }))
+    }
+    await user.click(screen.getByRole('button', { name: 'Submit' }))
+
+    expect(screen.getByTestId('eartraining-feedback')).toHaveTextContent('Correct')
   })
 })
 

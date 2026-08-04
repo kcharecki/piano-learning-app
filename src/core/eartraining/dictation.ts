@@ -50,10 +50,10 @@ import {
   type GeneratorParams,
 } from '@core/generator/melody.ts'
 import { generateRhythm, rhythmToScore, type RhythmParams, type RhythmPattern } from '@core/generator/rhythm.ts'
-import type { TimeSignature } from '@core/notation/score.ts'
+import type { Score, TimeSignature } from '@core/notation/score.ts'
 import { keyName, type Key } from '@core/theory/keys.ts'
 import type { EarGrade, EarItem } from '@core/eartraining/item.ts'
-import { midi as asMidi, EIGHTH, type Midi, type Ticks } from '@core/shared/units.ts'
+import { midi as asMidi, ticks as asTicks, EIGHTH, type Midi, type Ticks } from '@core/shared/units.ts'
 import type { Rng } from '@core/ports/rng.ts'
 
 // ---------------------------------------------------------------------------
@@ -74,6 +74,35 @@ type Complexity = 1 | 2 | 3 | 4 | 5
 function clampComplexity(level: number): Complexity {
   return Math.min(5, Math.max(1, Math.round(level))) as Complexity
 }
+
+/**
+ * REQ-3.6.1: "a 2-8 note phrase". `defaultParamsForLevel`'s own `bars` is
+ * tuned for a full sight-reading piece, not a dictation snippet — 4 bars of
+ * quarters at level 2, 8 bars of eighths at levels 3-5, dozens of notes
+ * either way — so it cannot be used unmodified here. These are the floor and
+ * ceiling every generated phrase is bounded to instead.
+ */
+const MIN_DICTATION_NOTES = 2
+const MAX_DICTATION_NOTES = 8
+
+/**
+ * How many times `generateRhythmicDictation` grows `bars` by one, looking for
+ * the floor, before giving up on that path and forcing it instead. See that
+ * function's own comment for why melodic dictation never needs this.
+ */
+const MAX_BAR_GROWTH_ATTEMPTS = 6
+
+/**
+ * The floor on `bars` for melodic dictation, kept as its own constant rather
+ * than reusing `MIN_DICTATION_NOTES` (a note count, not a bar count) for both:
+ * the two only agree in value because `generateMelodicLine` always places at
+ * least one note per bar (`buildBarDurations` never returns an empty list for
+ * a bar), so `bars === MIN_MELODIC_BARS` happens to guarantee
+ * `notes.length >= MIN_DICTATION_NOTES` today. That is a property of the
+ * generator, not a coincidence of the two constants sharing a value, so it is
+ * named separately here rather than left implicit in a shared symbol.
+ */
+const MIN_MELODIC_BARS = 2
 
 /** Small, deterministic, non-cryptographic string hash — good enough for a stable content id. */
 function fnv1a(text: string): string {
@@ -97,35 +126,108 @@ function notesKey(
 }
 
 /**
+ * Trim `score.measures` to end at the last note's own measure. A trailing
+ * measure with no notes in it is legal by `validateScore` (it only checks
+ * that a note lies within its own measure, never that every measure has
+ * one), but a declared-and-empty tail is exactly the kind of unresolved
+ * ending this module's bounding exists to avoid — measured over 2000
+ * rhythmic draws, 436 left trailing empty measures before this trim existed.
+ * A score with no notes at all keeps just its first measure.
+ *
+ * Only called when `opts.bars` was NOT the caller's own explicit choice: an
+ * explicit `bars` is respected as-is (see both generators' own comments — it
+ * is only ever trimmed by note count, never by measure count), so trimming
+ * measures out from under it would silently override what the caller asked
+ * for.
+ */
+function trimTrailingEmptyMeasures(score: Score): Score {
+  const lastNote = score.notes[score.notes.length - 1]
+  const lastIndex = lastNote === undefined ? 0 : lastNote.measureIndex
+  if (lastIndex >= score.measures.length - 1) return score
+  return { ...score, measures: score.measures.slice(0, lastIndex + 1) }
+}
+
+/**
+ * Trim `score.notes` to at most `max`, in onset order, and recompute the
+ * derived `maxNoteDurationTicks` to match. Does not touch `score.measures` —
+ * see `trimTrailingEmptyMeasures`, which callers apply separately once they
+ * know whether `bars` was an explicit override.
+ */
+function truncateNotes(score: Score, max: number): Score {
+  if (score.notes.length <= max) return score
+  const notes = score.notes.slice(0, max)
+  let maxDuration = 0
+  for (const n of notes) if (n.durationTicks > maxDuration) maxDuration = n.durationTicks
+  return { ...score, notes, maxNoteDurationTicks: asTicks(maxDuration) }
+}
+
+/**
  * A melodic dictation phrase: a single-hand melody from {@link generateMelody},
  * reusing the level ladder from {@link defaultParamsForLevel} and overriding
  * only what `opts` states. `hands` is forced to `'right'` regardless of the
  * level's own default — dictation grades one monophonic line, and the answer
  * type (`DictationAnswerNote`) has no hand to disambiguate a second one.
+ *
+ * Bounded to `MIN_DICTATION_NOTES..MAX_DICTATION_NOTES` notes (REQ-3.6.1) when
+ * `opts.bars` is left unset: `generateMelodicLine` always places at least one
+ * note per bar (`buildBarDurations` never returns an empty list for a bar), so
+ * `bars === MIN_DICTATION_NOTES` is a hard floor on the note count — no retry
+ * loop needed, unlike the rhythmic generator below. The ceiling is enforced by
+ * trimming, not by shrinking `bars`, since a busier style (levels 3-5) can
+ * pack more than 8 notes into even a single bar. An explicit `opts.bars` is
+ * respected as the caller's own choice (see the 'honours a bars override'
+ * test) and is only ever trimmed from above, never grown.
  */
 export function generateMelodicDictation(level: number, opts: DictationOptions, rng: Rng): EarItem {
   const defaults = defaultParamsForLevel(level)
   const key = opts.key ?? defaults.key
-  const bars = opts.bars ?? defaults.bars
   const range: Range = opts.range ?? defaults.rightRange
 
-  const params: GeneratorParams = {
-    ...defaults,
-    key,
-    bars,
-    hands: 'right',
-    rightRange: range,
+  function build(bars: number): Score {
+    const params: GeneratorParams = {
+      ...defaults,
+      key,
+      bars,
+      hands: 'right',
+      rightRange: range,
+    }
+    const result = generateMelody(params, rng)
+    if (!result.ok) {
+      invariant(
+        false,
+        `generateMelodicDictation: could not generate a level-${level} melody for the given ` +
+          `options (bars=${bars}, key=${keyName(key)}, range=${range.low}..${range.high}): ` +
+          `${result.error}`,
+      )
+    }
+    return result.value
   }
-  const result = generateMelody(params, rng)
-  if (!result.ok) {
-    invariant(
-      false,
-      `generateMelodicDictation: could not generate a level-${level} melody for the given ` +
-        `options (bars=${bars}, key=${keyName(key)}, range=${range.low}..${range.high}): ` +
-        `${result.error}`,
-    )
+
+  let bars = opts.bars ?? 1
+  let score = build(bars)
+  if (opts.bars === undefined && score.notes.length < MIN_DICTATION_NOTES) {
+    bars = MIN_MELODIC_BARS
+    score = build(bars)
   }
-  const score = result.value
+  // Prefer shrinking `bars` over slicing mid-phrase: a smaller bar count that
+  // still clears the floor keeps the generator's own tonic-ending note in the
+  // phrase (melody.ts:14's guarantee), where truncateNotes slicing the raw
+  // note list cannot — measured over 2000 draws, 111 of the 259 that hit the
+  // ceiling ended mid-phrase because of exactly this. Only relevant when
+  // `bars` grew past 1 above: `build(1)` is already the smallest phrase this
+  // generator can draw, so there is nothing left to shrink to, and the
+  // ceiling can only be enforced by `truncateNotes`' trim below.
+  if (opts.bars === undefined) {
+    while (score.notes.length > MAX_DICTATION_NOTES && bars > 1) {
+      const shrunk = build(bars - 1)
+      if (shrunk.notes.length < MIN_DICTATION_NOTES) break
+      bars -= 1
+      score = shrunk
+    }
+  }
+  score = truncateNotes(score, MAX_DICTATION_NOTES)
+  if (opts.bars === undefined) score = trimTrailingEmptyMeasures(score)
+
   const answerKey = notesKey(score.notes, true)
   const id = `dictation:melodic:${keyName(key)}:${bars}b:${range.low}-${range.high}:${fnv1a(answerKey)}`
   const clampedLevel = Math.min(5, Math.max(1, Math.round(level)))
@@ -137,6 +239,17 @@ export function generateMelodicDictation(level: number, opts: DictationOptions, 
  * rendered as a single repeated pitch at the middle of `range` (or the
  * level's default range) via {@link rhythmToScore}. `opts.key` is not
  * meaningful here — rhythm has no scale — and is ignored.
+ *
+ * Bounded the same way melodic dictation is (REQ-3.6.1), but rests
+ * (`allowRests`, on from complexity 2) break the "one note per bar" floor
+ * that makes the melodic generator's bound a single retry: a bar can, in the
+ * worst case, subdivide into onsets that are all rests, so growing `bars`
+ * only raises the *odds* of clearing `MIN_DICTATION_NOTES`, it does not
+ * guarantee it the way adding a bar does for a melody. So this retries with
+ * more bars first — `MAX_BAR_GROWTH_ATTEMPTS` covers the overwhelming
+ * majority of draws — and only if the floor is still unmet falls back to one
+ * final draw with rests forced off, which, like the melodic generator, does
+ * guarantee at least one real onset per bar.
  */
 export function generateRhythmicDictation(
   level: number,
@@ -144,23 +257,56 @@ export function generateRhythmicDictation(
   rng: Rng,
 ): EarItem {
   const defaults = defaultParamsForLevel(level)
-  const bars = opts.bars ?? defaults.bars
   const range: Range = opts.range ?? defaults.rightRange
   const complexity = clampComplexity(level)
   const timeSignature: TimeSignature = defaults.timeSignature
-
-  const rhythmParams: RhythmParams = {
-    bars,
-    timeSignature,
-    complexity,
-    allowRests: complexity >= 2,
-    allowTies: complexity >= 4,
-  }
-  const pattern: RhythmPattern = generateRhythm(rhythmParams, rng)
   const pitch = asMidi(Math.round((range.low + range.high) / 2))
-  const score = rhythmToScore(pattern, { midi: pitch })
 
-  const onsetTicks = pattern.onsets.filter((o) => !o.isRest).map((o) => o.tick)
+  function build(bars: number, allowRests: boolean): { score: Score; onsetTicks: readonly Ticks[] } {
+    const rhythmParams: RhythmParams = {
+      bars,
+      timeSignature,
+      complexity,
+      allowRests,
+      allowTies: complexity >= 4,
+    }
+    const pattern: RhythmPattern = generateRhythm(rhythmParams, rng)
+    const score = rhythmToScore(pattern, { midi: pitch })
+    const onsetTicks = pattern.onsets.filter((o) => !o.isRest).map((o) => o.tick)
+    return { score, onsetTicks }
+  }
+
+  let bars = opts.bars ?? 1
+  const baseAllowRests = complexity >= 2
+  let built = build(bars, baseAllowRests)
+
+  if (opts.bars === undefined) {
+    let attempts = 0
+    while (built.onsetTicks.length < MIN_DICTATION_NOTES && attempts < MAX_BAR_GROWTH_ATTEMPTS) {
+      bars += 1
+      built = build(bars, baseAllowRests)
+      attempts += 1
+    }
+    if (built.onsetTicks.length < MIN_DICTATION_NOTES) {
+      bars = Math.max(bars, MIN_DICTATION_NOTES)
+      built = build(bars, false)
+    }
+  }
+
+  let { score } = built
+  let onsetTicks = built.onsetTicks
+  if (onsetTicks.length > MAX_DICTATION_NOTES) {
+    onsetTicks = onsetTicks.slice(0, MAX_DICTATION_NOTES)
+    score = truncateNotes(score, MAX_DICTATION_NOTES)
+  }
+  // Trimmed whenever `bars` was auto-selected, not just when the ceiling
+  // above was hit: the bar-growth loop can settle on a `bars` count whose
+  // last bar or two carry no onset at all (a run of rests), leaving
+  // declared-but-empty measures at the end even when the onset count never
+  // exceeded the ceiling. An explicit `opts.bars` is left exactly as big as
+  // the caller asked for — see `trimTrailingEmptyMeasures`'s own comment.
+  if (opts.bars === undefined) score = trimTrailingEmptyMeasures(score)
+
   const answerKey = onsetTicks.join(',')
   const id =
     `dictation:rhythmic:${bars}b:${timeSignature.beats}-${timeSignature.beatType}:` +
@@ -379,11 +525,12 @@ function alignDictation(
  * position.
  *
  * @public — the grading half of this module's live generate/grade pair.
- * `generateMelodicDictation`/`generateRhythmicDictation` are already wired
- * into `app/eartraining/useEarTraining.ts`; `gradeDictation` is not yet, only
- * because `EarAnswer` has no answer variant for dictation items yet — see
- * that module's own comment and ROADMAP.md 3.10/3.11. Not abandoned, just
- * pending the answer-input UI.
+ * `generateMelodicDictation`/`generateRhythmicDictation` and `gradeDictation`
+ * are all wired into `app/eartraining/useEarTraining.ts` (roadmap 3.11):
+ * `pressDictationNote`/`submitDictation` build the `answer` this takes,
+ * `EarAnswer`'s `'dictation'` variant carries it through, and the graded
+ * result flows through the same `recordEarAttempt` call every other drill
+ * answer does.
  */
 export function gradeDictation(
   item: EarItem,

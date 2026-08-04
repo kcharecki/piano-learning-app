@@ -8,10 +8,14 @@
  * the wiring between them and the audio output.
  */
 import { useEarTrainingStore } from '@app/state/earTrainingStore.ts'
+import type { DictationGrade } from '@core/eartraining/dictation.ts'
 import { emptyEarSession } from '@core/eartraining/session.ts'
+import { makeTempoMap, tickToMs } from '@core/timing/tempo.ts'
+import { midi as asMidi, type Ticks } from '@core/shared/units.ts'
 import { makeInterval, type Interval } from '@core/theory/intervals.ts'
+import { seededRng } from '@core/ports/rng.ts'
 import { act, cleanup, renderHook } from '@testing-library/react'
-import { FakeClock, RecordingAudioOutput, scriptedRng } from '@test/fakes.ts'
+import { FakeClock, FakeMidiInput, RecordingAudioOutput, scriptedRng } from '@test/fakes.ts'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { useEarTraining, type UseEarTrainingOptions } from './useEarTraining.ts'
 
@@ -37,19 +41,26 @@ const M3 = interval(3, 'major')
 const m3 = interval(3, 'minor')
 
 function setup(overrides: Partial<UseEarTrainingOptions> = {}) {
-  const clock = new FakeClock(0)
+  // Started at a non-zero epoch on purpose (review finding): a clock that
+  // starts at 0 cannot distinguish "elapsed since the first press" from
+  // "absolute score time" — every ms-since-first-press assertion below would
+  // still pass against a hook that (bug) anchored to an absolute reading
+  // instead of a relative one, purely because 0 + anything looks the same
+  // either way. Starting away from 0 forces the distinction to matter.
+  const clock = new FakeClock(9000)
   const audioOutput = new RecordingAudioOutput(clock)
   const date = new FakeClock(1_700_000_000_000)
   const options: UseEarTrainingOptions = {
     date,
     audioOutput,
     rng: scriptedRng([0]),
+    midiInput: new FakeMidiInput(),
     ...overrides,
   }
   const { result, rerender } = renderHook((p: UseEarTrainingOptions) => useEarTraining(p), {
     initialProps: options,
   })
-  return { result, rerender, audioOutput, date, options }
+  return { result, rerender, audioOutput, clock, date, options }
 }
 
 describe('useEarTraining — generating and playing', () => {
@@ -237,5 +248,264 @@ describe('useEarTraining — switching kind', () => {
 
     act(() => result.current.start())
     expect(result.current.item?.kind).toBe('chord-quality')
+  })
+})
+
+describe('useEarTraining — dictation answers (roadmap 3.11, REQ-3.6.1/3.6.2)', () => {
+  /**
+   * Advance `clock` to the exact moment `note.startTick` sounds, then press
+   * it. `base` is the clock reading `scheduleItem` used as its `audioOutput.now()`
+   * anchor when `start()` played the prompt — callers capture it right after
+   * `start()`, before the clock moves. Without adding `base` back in, this
+   * would only reconstruct the right wall-clock moment when the clock happens
+   * to start at 0, which is exactly what the review finding this fixes
+   * flagged: `setup()`'s clock now starts away from 0 on purpose, so this
+   * helper must do the addition for real rather than coincide with it.
+   */
+  function pressAtNoteTime(
+    result: ReturnType<typeof setup>['result'],
+    clock: FakeClock,
+    base: number,
+    tempoMap: ReturnType<typeof makeTempoMap>,
+    note: { readonly midi: number; readonly startTick: Ticks },
+  ): void {
+    clock.setTime(base + Number(tickToMs(tempoMap, note.startTick)))
+    act(() => result.current.pressDictationNote(asMidi(note.midi)))
+  }
+
+  // Both dictation kinds can already be generated and played before this task;
+  // gradeDictation itself is fully tested (core/eartraining/dictation.test.ts).
+  // What only the hook can prove is that pressing keys back through
+  // pressDictationNote/submitDictation actually reaches that grader and
+  // records the result — a stub submitDictation that never calls answer()
+  // (or that always grades correct regardless of what was pressed) is what
+  // both tests below kill.
+  it('pressing back the exact prompt notes, in order, grades the dictation correct', () => {
+    const { result, clock } = setup()
+    act(() => result.current.setKind('melodic-dictation'))
+    act(() => result.current.start())
+    const item = result.current.item
+    if (item === undefined) throw new Error('expected an item after start()')
+    const base = clock.now()
+    const tempoMap = makeTempoMap(item.prompt.tempos)
+
+    for (const note of item.prompt.notes) pressAtNoteTime(result, clock, base, tempoMap, note)
+    act(() => result.current.submitDictation())
+
+    expect(result.current.grade?.correct).toBe(true)
+    expect(result.current.phase).toBe('graded')
+  })
+
+  it('pressing one wrong pitch grades that note wrong-pitch and the whole answer incorrect', () => {
+    const { result, clock } = setup()
+    act(() => result.current.setKind('melodic-dictation'))
+    act(() => result.current.start())
+    const item = result.current.item
+    if (item === undefined) throw new Error('expected an item after start()')
+    expect(item.prompt.notes.length).toBeGreaterThan(0)
+    const base = clock.now()
+    const tempoMap = makeTempoMap(item.prompt.tempos)
+
+    item.prompt.notes.forEach((note, i) => {
+      const midi = i === 0 ? note.midi + 1 : note.midi
+      pressAtNoteTime(result, clock, base, tempoMap, { midi, startTick: note.startTick })
+    })
+    act(() => result.current.submitDictation())
+
+    const grade = result.current.grade as DictationGrade | undefined
+    expect(grade?.correct).toBe(false)
+    expect(grade?.notes[0]?.status).toBe('wrong-pitch')
+  })
+
+  // Reads the SRS session directly, not a spy on recordEarAttempt — a
+  // submitDictation that grades correctly but forgets to call answer()
+  // (so nothing ever reaches recordEarAttempt) would still pass a
+  // grade-only assertion, but leaves the session exactly as empty as before.
+  it('submitting a dictation answer moves the ear-training session state — a card and an attempt appear', () => {
+    const { result, clock } = setup()
+    act(() => result.current.setKind('melodic-dictation'))
+    act(() => result.current.start())
+    const item = result.current.item
+    if (item === undefined) throw new Error('expected an item after start()')
+    const base = clock.now()
+    const tempoMap = makeTempoMap(item.prompt.tempos)
+    expect(useEarTrainingStore.getState().session.attempts).toHaveLength(0)
+
+    for (const note of item.prompt.notes) pressAtNoteTime(result, clock, base, tempoMap, note)
+    act(() => result.current.submitDictation())
+
+    const session = useEarTrainingStore.getState().session
+    expect(session.attempts).toHaveLength(1)
+    expect(session.attempts[0]?.kind).toBe('melodic-dictation')
+    expect(session.cards.some((c) => c.id === item.id)).toBe(true)
+  })
+
+  // Rhythmic dictation's round trip was previously untested at this level —
+  // only melodic was (the two tests above). That gap is exactly why the
+  // tick-0 anchor bug shipped: every melodic prompt starts at tick 0, so no
+  // test here could ever see a prompt starting elsewhere. This does not by
+  // itself pin the bug (level 1 never allows rests, so this prompt still
+  // starts at tick 0) — see the next test for that.
+  it('pressing back a rhythmic prompt exactly, in order, grades the dictation correct', () => {
+    const { result, clock } = setup()
+    act(() => result.current.setKind('rhythmic-dictation'))
+    act(() => result.current.start())
+    const item = result.current.item
+    if (item === undefined) throw new Error('expected an item after start()')
+    const base = clock.now()
+    const tempoMap = makeTempoMap(item.prompt.tempos)
+
+    for (const note of item.prompt.notes) pressAtNoteTime(result, clock, base, tempoMap, note)
+    act(() => result.current.submitDictation())
+
+    expect(result.current.grade?.correct).toBe(true)
+    expect(result.current.phase).toBe('graded')
+  })
+
+  // Regression test for the review finding: `pressDictationNote` used to
+  // hard-anchor the first press to `ticks(0)`, but a rhythmic prompt's first
+  // leaf can be a rest once rests are allowed (level >= 2) — measured over
+  // 1500 generated items, 18.6% of rhythmic prompts started later than tick
+  // 0. A note-perfect, rhythm-perfect playback of one of those graded
+  // `correct: false` every time against the old anchor. Level 2 / seed 3 is
+  // known (found by exhaustive search over seeds 0-500) to produce exactly
+  // such a prompt — its first onset is at tick 480, not 0.
+  it('a rhythmic prompt whose first onset is not tick 0, played back perfectly, still grades correct', () => {
+    const { result, clock } = setup({ rng: seededRng(3) })
+    act(() =>
+      useEarTrainingStore.setState((s) => ({
+        session: { ...s.session, levels: { ...s.session.levels, 'rhythmic-dictation': 2 } },
+      })),
+    )
+    act(() => result.current.setKind('rhythmic-dictation'))
+    act(() => result.current.start())
+    const item = result.current.item
+    if (item === undefined) throw new Error('expected an item after start()')
+    const firstOnset = item.prompt.notes[0]?.startTick
+    expect(firstOnset).not.toBe(0) // confirms this seed still exercises the bug
+    const base = clock.now()
+    const tempoMap = makeTempoMap(item.prompt.tempos)
+
+    for (const note of item.prompt.notes) pressAtNoteTime(result, clock, base, tempoMap, note)
+    act(() => result.current.submitDictation())
+
+    expect(result.current.grade?.correct).toBe(true)
+  })
+
+  // A stub that ignores elapsed time (always placing a press at tick 0, say)
+  // would report both notes at the same startTick — this kills it.
+  it('two presses separated by a known elapsed time land the expected number of ticks apart', () => {
+    const { result, clock } = setup()
+    act(() => result.current.setKind('melodic-dictation'))
+    act(() => result.current.start())
+
+    act(() => result.current.pressDictationNote(asMidi(60)))
+    // 500ms at the default 120 bpm is exactly one quarter note — 480 ticks.
+    clock.advance(500)
+    act(() => result.current.pressDictationNote(asMidi(62)))
+
+    expect(result.current.dictationNotes).toEqual([
+      { midi: 60, startTick: 0 },
+      { midi: 62, startTick: 480 },
+    ])
+  })
+
+  it('clearDictation drops everything recorded so far', () => {
+    const { result } = setup()
+    act(() => result.current.setKind('melodic-dictation'))
+    act(() => result.current.start())
+    act(() => result.current.pressDictationNote(asMidi(60)))
+    expect(result.current.dictationNotes).toHaveLength(1)
+
+    act(() => result.current.clearDictation())
+
+    expect(result.current.dictationNotes).toHaveLength(0)
+  })
+
+  it('pressDictationNote and submitDictation are no-ops for a non-dictation item', () => {
+    const { result } = setup()
+    act(() => result.current.start())
+
+    act(() => result.current.pressDictationNote(asMidi(60)))
+    expect(result.current.dictationNotes).toHaveLength(0)
+
+    act(() => result.current.submitDictation())
+    expect(result.current.grade).toBeUndefined()
+    expect(result.current.phase).toBe('answering')
+  })
+
+  // A stub submitDictation that never checked for an empty answer would grade
+  // every prompt note 'missing' and record a real (demoting) EarAttempt.
+  it('submitDictation with nothing recorded is a no-op — no grade, no attempt recorded', () => {
+    const { result } = setup()
+    act(() => result.current.setKind('melodic-dictation'))
+    act(() => result.current.start())
+
+    act(() => result.current.submitDictation())
+
+    expect(result.current.grade).toBeUndefined()
+    expect(result.current.phase).toBe('answering')
+    expect(useEarTrainingStore.getState().session.attempts).toHaveLength(0)
+  })
+
+  // Review finding: replay() used to leave a dictation in progress untouched,
+  // so a press after a replay landed at its true elapsed offset from the
+  // *original* first press — silently folding the whole replay's listening
+  // time into that note's recorded startTick.
+  it('replay mid-dictation drops the notes recorded so far', () => {
+    const { result } = setup()
+    act(() => result.current.setKind('melodic-dictation'))
+    act(() => result.current.start())
+    act(() => result.current.pressDictationNote(asMidi(60)))
+    expect(result.current.dictationNotes).toHaveLength(1)
+
+    act(() => result.current.replay())
+
+    expect(result.current.dictationNotes).toHaveLength(0)
+  })
+
+  // Review finding: `AudioOutput.now()` can re-snap backwards (the webaudio
+  // adapter re-snaps its epoch offset after a jump of more than 250ms, e.g. a
+  // backgrounded tab), which without a clamp would write a negative startTick
+  // into a domain object through `ticks()`'s unchecked cast.
+  it('a backwards clock reading clamps the computed startTick to 0, never negative', () => {
+    const { result, clock } = setup()
+    act(() => result.current.setKind('melodic-dictation'))
+    act(() => result.current.start())
+    act(() => result.current.pressDictationNote(asMidi(60)))
+
+    clock.advance(-5000) // simulates an AudioOutput epoch re-snap backwards
+
+    act(() => result.current.pressDictationNote(asMidi(62)))
+
+    expect(result.current.dictationNotes[1]).toEqual({ midi: 62, startTick: 0 })
+  })
+
+  // REQ-3.6.2: "using any key on the MIDI keyboard". Before this wiring
+  // existed, a learner with a real MIDI keyboard had no way to answer a
+  // dictation at all — the on-screen keyboard was the only input path.
+  it('a real MIDI noteOn press records a dictation note exactly like an on-screen key press', () => {
+    const midiInput = new FakeMidiInput()
+    const { result, clock } = setup({ midiInput })
+    act(() => result.current.setKind('melodic-dictation'))
+    act(() => result.current.start())
+
+    act(() =>
+      midiInput.emit({ type: 'noteOn', note: asMidi(60), velocity: 80, time: clock.now() }),
+    )
+
+    expect(result.current.dictationNotes).toEqual([{ midi: 60, startTick: 0 }])
+  })
+
+  it('a MIDI press for a non-dictation item is a no-op, same as pressDictationNote itself', () => {
+    const midiInput = new FakeMidiInput()
+    const { result, clock } = setup({ midiInput })
+    act(() => result.current.start()) // defaults to interval-melodic
+
+    act(() =>
+      midiInput.emit({ type: 'noteOn', note: asMidi(60), velocity: 80, time: clock.now() }),
+    )
+
+    expect(result.current.dictationNotes).toHaveLength(0)
   })
 })

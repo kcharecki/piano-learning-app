@@ -80,6 +80,51 @@ describe('generateMelodicDictation', () => {
   })
 })
 
+describe('generateMelodicDictation / generateRhythmicDictation — REQ-3.6.1 phrase length', () => {
+  // The bug this task exists to fix: `defaultParamsForLevel`'s `bars` is tuned
+  // for a full sight-reading piece (4 bars of quarters at level 2, 8 bars of
+  // eighths at levels 3-5), so an un-bounded dictation item could carry dozens
+  // of notes. This fails today (before the bounding in `generateMelodicDictation`/
+  // `generateRhythmicDictation`) — a mutant that deletes the truncation or the
+  // bars-growth loop reintroduces exactly this defect, in one direction or the
+  // other.
+  it('generates between 2 and 8 notes inclusive, for every level, both kinds', () => {
+    fc.assert(
+      fc.property(seedArb, levelArb, (seed, level) => {
+        const melodic = generateMelodicDictation(level, {}, seededRng(seed))
+        expect(melodic.prompt.notes.length).toBeGreaterThanOrEqual(2)
+        expect(melodic.prompt.notes.length).toBeLessThanOrEqual(8)
+
+        const rhythmic = generateRhythmicDictation(level, {}, seededRng(seed))
+        expect(rhythmic.prompt.notes.length).toBeGreaterThanOrEqual(2)
+        expect(rhythmic.prompt.notes.length).toBeLessThanOrEqual(8)
+      }),
+    )
+  })
+
+  // Review finding: measured over 2000 rhythmic draws, 436 left the item with
+  // declared trailing measures containing no onset at all — `score.measures`
+  // was never trimmed to match the (possibly truncated, possibly
+  // bar-grown-past-its-onsets) note list. A dangling empty measure at the end
+  // of a "2-8 note phrase" is not itself an invalid Score, but it is not what
+  // this bounding exists to produce either. This fails against the
+  // pre-fix code (which never trimmed `measures`) for a large share of draws.
+  it('never leaves a trailing measure with no notes in it, for an auto-selected bar count', () => {
+    fc.assert(
+      fc.property(seedArb, levelArb, (seed, level) => {
+        for (const item of [
+          generateMelodicDictation(level, {}, seededRng(seed)),
+          generateRhythmicDictation(level, {}, seededRng(seed)),
+        ]) {
+          const lastNote = item.prompt.notes[item.prompt.notes.length - 1]
+          if (lastNote === undefined) continue // the MIN floor guarantees >= 2, but guard anyway
+          expect(lastNote.measureIndex).toBe(item.prompt.measures.length - 1)
+        }
+      }),
+    )
+  })
+})
+
 describe('generateRhythmicDictation', () => {
   it('is deterministic in its rng seed', () => {
     fc.assert(
