@@ -782,14 +782,22 @@ therefore not optional polish: until they land, all of 3.1–3.6 is production-u
       failed / 18 passed, green again on restore). `onOpen` was also optional while the analogous
       `SessionPlanScreen` requires it, so a Shell wiring omission would have left every Open
       control dead under a green suite; it is required now.*
-- [ ] 4.9c `app/drills`: every `theory-quiz` exercise in the authored curriculum opens the same
+- [x] 4.9c `app/drills`: every `theory-quiz` exercise in the authored curriculum opens the same
       note-naming deck regardless of its title ("Quiz: the circle of fifths and key signatures"
       opens `staff-to-key`), because `FlashcardScreen` keeps its deck kind in private `useState`
       and exposes no prop the shell can pass. `candidates.ts` has documented this since 4.7a and
       drops the second deck rather than shipping a dead destination. Give it an `initialKind` prop
       and route `params.drillKind`.
-      *Proof: e2e — open a curriculum theory quiz whose named deck is NOT the default, and assert
-      the prompt shown belongs to that deck rather than the note-naming one.*
+      *Proved by `e2e/deck-routing.spec.ts`. The distinction that made this worth a separate spec:
+      `e2e/flashcards-interval.spec.ts` already picked the interval deck BY HAND from the picker,
+      which proves the deck works, not that the routing does. This one never touches the picker —
+      it drives the real Today plan at the 60-minute preset (the interval candidate is unreachable
+      below that: `fillSegment` allocates `min(remaining, FLASHCARD_DECK_MINUTES)` per item, so at
+      30 minutes only the first deck is planned), reads the item's title off its Open control, and
+      asserts BOTH the select's value AND the interval prompt actually rendering — noteheads and
+      the interval answer pad, with the on-screen keyboard absent. Reverting Shell to a bare
+      `<FlashcardScreen />` was run and fails it: expected `interval-on-staff`, received
+      `staff-to-key`.*
 - [ ] 4.10 M4 acceptance pass — full §9 acceptance criteria review
 
 ## Backlog / optional
