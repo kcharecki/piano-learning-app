@@ -33,6 +33,11 @@ export type FlashcardScreenProps = {
   /** Injection seams for the standalone metronome (roadmap 2.28a, REQ-3.9.1); each defaults to the real browser adapter. */
   readonly audioOutput?: AudioOutput
   readonly frameDriver?: FrameDriver
+  /** Which deck to open first. Defaults to `'staff-to-key'`. The learner's own
+   *  picker owns the kind after the first render — this only seeds it. Read
+   *  once at mount — the shell must `key` this element by the kind to
+   *  re-seed it on a second navigation (see Shell.tsx's TechniqueScreen). */
+  readonly initialKind?: DrillKind
 }
 
 const MIN_DRILL_LEVEL = 1
@@ -49,11 +54,11 @@ function AnswerFeedback({ grade }: { readonly grade: GradeResult | undefined }) 
 
 export function FlashcardScreen(props: FlashcardScreenProps) {
   const [level, setLevel] = useState(MIN_DRILL_LEVEL)
-  const [kind, setKind] = useState<DrillKind>('staff-to-key')
+  const [kind, setKind] = useState<DrillKind>(props.initialKind ?? 'staff-to-key')
   // Metronome-only seams pulled out first: `useFlashcardDrill` declares
   // neither `audioOutput` nor `frameDriver`, so leaving them in the spread
   // would rely on TypeScript's excess-property-check exemption for spreads.
-  const { audioOutput, frameDriver, ...drillProps } = props
+  const { audioOutput, frameDriver, initialKind: _initialKind, ...drillProps } = props
   const drill = useFlashcardDrill({ level, kind, ...drillProps })
   const metronome = useMetronome({
     ...(props.clock === undefined ? {} : { clock: props.clock }),

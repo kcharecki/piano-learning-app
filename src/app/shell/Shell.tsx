@@ -14,6 +14,8 @@
 import { ScoreScreen } from '@app/score/ScoreScreen.tsx'
 import { DashboardScreen } from '@app/dashboard/DashboardScreen.tsx'
 import { FlashcardScreen } from '@app/drills/FlashcardScreen.tsx'
+import type { DrillKind } from '@app/drills/useFlashcardDrill.ts'
+import { LessonsScreen } from '@app/lessons/LessonsScreen.tsx'
 import { EarTrainingScreen } from '@app/eartraining/EarTrainingScreen.tsx'
 import { MetronomeScreen } from '@app/metronome/MetronomeScreen.tsx'
 import { RepertoireScreen } from '@app/repertoire/RepertoireScreen.tsx'
@@ -28,6 +30,7 @@ import { useState } from 'react'
 
 const NAV_ITEMS = [
   { id: 'today', label: 'Today' },
+  { id: 'lessons', label: 'Lessons' },
   { id: 'practice', label: 'Practice' },
   { id: 'sight-reading', label: 'Sight reading' },
   { id: 'flashcards', label: 'Flashcards' },
@@ -79,20 +82,41 @@ function openedTechniqueOf(exercise: Exercise): OpenedTechnique | undefined {
   return drill === undefined ? undefined : { drillId: drill.id, level: drill.level }
 }
 
+/**
+ * The flashcard deck a planned item asked for (roadmap 4.9c). `candidates.ts`
+ * emits both decks with `params.drillKind`, and a curriculum theory quiz names
+ * one too; without this every one of them opened the note-naming deck whatever
+ * its title promised.
+ */
+function openedDeckOf(exercise: Exercise): DrillKind | undefined {
+  const kind = exercise.params?.['drillKind']
+  return kind === 'staff-to-key' || kind === 'interval-on-staff' ? kind : undefined
+}
+
 function renderScreen(
   screen: ScreenId,
   open: (exercise: Exercise) => void,
   technique: OpenedTechnique | undefined,
+  deck: DrillKind | undefined,
 ) {
   switch (screen) {
     case 'today':
       return <SessionPlanScreen onOpen={open} />
+    case 'lessons':
+      return <LessonsScreen onOpen={open} />
     case 'practice':
       return <ScoreScreen />
     case 'sight-reading':
       return <SightReadingScreen />
     case 'flashcards':
-      return <FlashcardScreen />
+      // `key` for the same reason the technique case has one: `initialKind`
+      // only seeds `useState`, so a second Today → Flashcards hop naming a
+      // different deck would otherwise be ignored.
+      return deck === undefined ? (
+        <FlashcardScreen />
+      ) : (
+        <FlashcardScreen key={deck} initialKind={deck} />
+      )
     case 'ear-training':
       return <EarTrainingScreen />
     case 'rhythm':
@@ -124,9 +148,11 @@ function renderScreen(
 export function Shell() {
   const [screen, setScreen] = useState<ScreenId>('practice')
   const [technique, setTechnique] = useState<OpenedTechnique | undefined>(undefined)
+  const [deck, setDeck] = useState<DrillKind | undefined>(undefined)
 
   function open(exercise: Exercise): void {
     if (exercise.kind === 'technique') setTechnique(openedTechniqueOf(exercise))
+    if (exercise.kind === 'theory-quiz') setDeck(openedDeckOf(exercise))
     setScreen(destinationFor(exercise))
   }
 
@@ -148,7 +174,7 @@ export function Shell() {
           ))}
         </ul>
       </nav>
-      <main className="shell-main">{renderScreen(screen, open, technique)}</main>
+      <main className="shell-main">{renderScreen(screen, open, technique, deck)}</main>
     </div>
   )
 }

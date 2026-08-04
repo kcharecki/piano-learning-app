@@ -14,16 +14,10 @@
   // Domain modules that are finished and tested but that no screen renders YET. Every entry names
   // the roadmap task that will wire it: when that task lands, DELETE the line — a permanent entry
   // here is how "green tests, never executed" hides. Nothing may be added without a task id.
-  "ignore": [
-    // roadmap 4.9b — the lesson screen. `CURRICULUM` is now authored (4.9) and
-    // `curriculum.test.ts` runs `validateCurriculum` over it, but a test is not
-    // production reachability: under --production nothing imports either the
-    // content or the validator. Both lines go when the lesson screen renders
-    // `CURRICULUM`; neither may outlive 4.9b.
-    "src/core/curriculum/model.ts",
-    "src/content/curriculum/*.ts",
-    // roadmap 4.9b — the demonstrations each lesson names via `demoScoreId`.
-    // Reachable only once the lesson screen engraves them.
-    "src/content/scores/demoScores.ts"
-  ]
+  //
+  // EMPTY, and that is the point: roadmap 4.9b (the lesson screen) was the last consumer owed, and
+  // it landed. `core/curriculum/model.ts`, `content/curriculum/*` and `content/scores/demoScores.ts`
+  // are now reachable from `src/main.tsx`, so knip's production mode guards them like everything
+  // else. Do not add an entry here without a roadmap task id and a deletion condition.
+  "ignore": []
 }

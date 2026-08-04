@@ -143,6 +143,48 @@ describe('FlashcardScreen — drill kind selector (roadmap 2.25)', () => {
   })
 })
 
+describe('FlashcardScreen — initialKind prop (roadmap 4.9c, REQ-3.5.2, REQ-3.1.4)', () => {
+  it('opens the interval deck first when initialKind is interval-on-staff', () => {
+    render(
+      <FlashcardScreen
+        rng={seededRng(1)}
+        midiInput={new FakeMidiInput()}
+        initialKind="interval-on-staff"
+      />,
+    )
+
+    expect(screen.getByLabelText('Drill')).toHaveValue('interval-on-staff')
+    expect(screen.getByRole('group', { name: 'Interval answer' })).toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'On-screen keyboard' })).toBeNull()
+  })
+
+  it('still defaults to Note → key when initialKind is omitted', () => {
+    render(<FlashcardScreen rng={seededRng(1)} midiInput={new FakeMidiInput()} />)
+
+    expect(screen.getByLabelText('Drill')).toHaveValue('staff-to-key')
+    expect(screen.getByRole('group', { name: 'On-screen keyboard' })).toBeInTheDocument()
+  })
+
+  it('the learner can still switch decks after initialKind seeds the initial value', async () => {
+    const user = userEvent.setup()
+    render(
+      <FlashcardScreen
+        rng={seededRng(1)}
+        midiInput={new FakeMidiInput()}
+        initialKind="interval-on-staff"
+      />,
+    )
+
+    expect(screen.getByRole('group', { name: 'Interval answer' })).toBeInTheDocument()
+
+    await user.selectOptions(screen.getByLabelText('Drill'), 'staff-to-key')
+
+    expect(screen.getByLabelText('Drill')).toHaveValue('staff-to-key')
+    expect(screen.getByRole('group', { name: 'On-screen keyboard' })).toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'Interval answer' })).toBeNull()
+  })
+})
+
 describe('FlashcardScreen — standalone metronome (roadmap 2.28a, REQ-3.9.1)', () => {
   it('renders a Metronome group whose Start button schedules clicks and advances the beat readout, and Stop stops it', async () => {
     const user = userEvent.setup()

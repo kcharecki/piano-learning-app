@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { makeScore } from '@core/notation/score.ts'
 import type { LoadedScore } from '@app/state/scoreStore.ts'
 import { techniqueDrillById } from '@core/technique/library.ts'
+import type { DrillKind } from '@app/drills/useFlashcardDrill.ts'
 import { sessionCandidates } from './candidates.ts'
 
 function loadedScore(sourceName: string): LoadedScore {
@@ -58,12 +59,18 @@ describe('sessionCandidates', () => {
     expect(tooHigh['sight-reading'][0]?.params?.level).toBe(5)
   })
 
-  it('offers exactly the one reachable flashcard deck for the theory-ear segment', () => {
+  it('offers both flashcard decks FlashcardScreen can actually open for the theory-ear segment', () => {
     const result = sessionCandidates({ sightReadingLevel: 1, loadedScore: undefined })
 
-    expect(result['theory-ear']).toHaveLength(1)
-    expect(result['theory-ear'][0]?.kind).toBe('theory-quiz')
-    expect(result['theory-ear'][0]?.params?.drillKind).toBe('staff-to-key')
+    expect(result['theory-ear']).toHaveLength(2)
+    // The screen can actually open exactly these two kinds — see `DrillKind`.
+    const openableKinds: DrillKind[] = ['staff-to-key', 'interval-on-staff']
+    for (const exercise of result['theory-ear']) {
+      expect(exercise.kind).toBe('theory-quiz')
+      expect(openableKinds).toContain(exercise.params?.drillKind)
+    }
+    const drillKinds = result['theory-ear'].map((exercise) => exercise.params?.drillKind)
+    expect(drillKinds).toEqual(expect.arrayContaining(openableKinds))
   })
 
   it('lesson segment is empty when no score is loaded', () => {

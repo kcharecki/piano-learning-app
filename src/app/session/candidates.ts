@@ -18,20 +18,20 @@
  *  - `sight-reading`: a single "keep sight-reading" `Exercise` — the trainer
  *    itself generates the actual exercise and reads its level from the
  *    store, so there is nothing further to parametrise.
- *  - `theory-ear`: the one flashcard deck kind `FlashcardScreen` actually
- *    exposes a way to open — see ambiguity (2) below.
+ *  - `theory-ear`: both flashcard decks `FlashcardScreen` can drive, each
+ *    carrying `params.drillKind` — see ambiguity (2) below.
  *  - `lesson`: the currently loaded score, if any — practicing what is
  *    already open, not inventing a lesson.
  *
  * ## Ambiguities flagged, not resolved silently
  *
  * 1. (superseded — technique candidates are emitted and routed; see above.)
- * 2. `FlashcardScreen` keeps its deck kind in private `useState` and its
- *    props expose only port-injection seams — there is no
- *    `initialKind`/`drillKind` prop the shell can pass, so the second deck
- *    (`'interval-on-staff'`) is not actually reachable and is dropped rather
- *    than shipped as another dead destination. Once `FlashcardScreen` gains
- *    that prop, add the `'ear-training'` candidate back pointing at it.
+ * 2. (superseded — roadmap 4.9c. `FlashcardScreen` now takes an `initialKind`
+ *    prop that seeds which deck opens, so both decks it can drive
+ *    (`'staff-to-key'` and `'interval-on-staff'`) are OPENABLE, and both are
+ *    emitted below. They only actually open correctly once `Shell.tsx` routes
+ *    `params.drillKind` into that prop — until then a planned interval item
+ *    lands on the default deck.)
  * 3. The loaded score's `Exercise` uses kind `'repertoire'` — `scoreStore`
  *    carries no tag distinguishing "lesson demo" from "repertoire piece",
  *    and `'repertoire'` was picked as the more general fit for "whatever the
@@ -94,9 +94,13 @@ function sightReadingCandidates(sightReadingLevel: number): readonly Exercise[] 
 }
 
 function theoryEarCandidates(): readonly Exercise[] {
-  // Only 'staff-to-key' is reachable today — FlashcardScreen has no prop the
-  // shell can use to open the 'interval-on-staff' deck (see ambiguity (2)
-  // above), so that candidate is dropped rather than shipped inert.
+  // Both decks FlashcardScreen can actually open (see ambiguity (2) above):
+  // 'staff-to-key' opens the on-screen keyboard, 'interval-on-staff' opens
+  // the interval answer pad. The interval candidate only becomes reachable
+  // in the UI once the theory-ear segment exceeds ~10 minutes (fillSegment
+  // allocates min(remaining, FLASHCARD_DECK_MINUTES) per item), i.e. above
+  // the default 30-minute total budget — pick the 60-min preset when
+  // exercising it end-to-end.
   return [
     {
       id: 'flashcards-staff-to-key',
@@ -104,6 +108,13 @@ function theoryEarCandidates(): readonly Exercise[] {
       title: 'Note-reading flashcards',
       estimatedMinutes: FLASHCARD_DECK_MINUTES,
       params: { drillKind: 'staff-to-key' },
+    },
+    {
+      id: 'flashcards-interval-on-staff',
+      kind: 'theory-quiz',
+      title: 'Interval flashcards',
+      estimatedMinutes: FLASHCARD_DECK_MINUTES,
+      params: { drillKind: 'interval-on-staff' },
     },
   ]
 }
