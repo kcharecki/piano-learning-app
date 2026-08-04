@@ -657,7 +657,106 @@ therefore not optional polish: until they land, all of 3.1–3.6 is production-u
       that replay plays it again. Proved in a browser by `e2e/screens.spec.ts`: reached through the
       shell's own nav, Play, answer, graded. Dictation is selectable and reaches an honest
       "not playable yet" status rather than being silently absent.*
-- [ ] 3.11 M3 acceptance pass
+- [x] 3.11 M3 acceptance pass — audit done (three Opus reviewers, one per requirement group,
+      REQ-3.5.1/2/6 \ REQ-3.5.3/4/5 \ REQ-3.6.x). Verdicts as found: 3.5.1 NOT MET, 3.5.2 NOT MET,
+      3.5.3 PARTIAL, 3.5.4 PARTIAL, 3.5.5 PARTIAL, 3.5.6 MET-with-defects, 3.6.1 PARTIAL,
+      3.6.2 NOT MET, 3.6.3 NOT MET.
+      **M3 accepted with 3.11a–3.11c landed** — those were the verdicts that were defects rather
+      than unbuilt features. 3.12–3.20 are the unbuilt half and are recorded, not blocking.
+      What the audit found that 2903 green tests did not:
+      * **Ear-training adaptation reset on every reload** — `adaptEarLevel` was correct and tested,
+        but the store was absent from `persistence.ts`, so levels, SRS cards and the attempt log
+        died with the tab. `persistence.ts`'s own comment describes this failure mode and fixes it
+        for sight reading; ear training reintroduced it. Sevenths, gated at level 3, were
+        unreachable in practice.
+      * **Both dictation drills were unanswerable** — `gradeDictation` had zero production callers,
+        and the generator produced 15/19/39/27/60 notes at levels 1–5 for a requirement asking
+        for 2–8.
+      * **All 19 lesson quizzes opened one deck** whatever their title promised, and two of core's
+        four decks were built, tested and reachable from nowhere.
+      Each fix was then caught being wrong by its own Opus review, which is the part worth keeping:
+      the persistence fix made *importing a backup delete* ear-training progress; the dictation fix
+      anchored answers to tick 0 when 18.6% of rhythmic prompts (measured, 1500 items) start later,
+      so a perfect playback graded wrong AND demoted the learner; and the quiz fix was entirely
+      inert, because the shell matched two deck ids and silently fell back to the default for the
+      rest. All three shipped green scoped suites. **A fix that is not adversarially reviewed is a
+      defect with better paperwork.**
+- [x] 3.11a `app/state`: persist ear-training state (REQ-3.6.3) — see commit; `earTraining` is now
+      a real field on core's `ProgressSnapshot`, and absence means "leave alone", never "wipe".
+- [x] 3.11b `app/eartraining`: dictation answerable on screen and over MIDI (REQ-3.6.1/3.6.2)
+- [x] 3.11c `app/drills,content`: each lesson quiz opens the deck its title promises (REQ-3.5.2)
+
+The M3 gaps that are unbuilt features rather than defects. Each states its proof action.
+
+- [ ] 3.12 `app`: route the topic quizzes no flashcard deck covers (triads, inversions, cadences,
+      chord spelling — 7 lessons) to the MIDI-answered `TheoryDrillPanel`, which today is reachable
+      only by clicking the Theory nav item and changing a dropdown.
+      *Proof: opening "Quiz: spelling the C major triad" from its lesson lands on the theory drill
+      with `build-chord` preselected, and a chord played on the keyboard grades.*
+- [ ] 3.13 `app/theory`: hear it (REQ-3.5.3, 3.5.4) — the Theory screen contains no audio call at
+      all; the Web Audio adapter exists and is wired only from `practice/`.
+      *Proof: clicking Play on a looked-up scale sends that scale's exact pitches to the audio
+      output (assert the pitches, not that a button exists).*
+- [ ] 3.14 `app/theory`: the staff half of "see it on staff and keyboard" (REQ-3.5.3, 3.5.4) — the
+      reference renders a keyboard SVG and a table of note names; `osmdEngraver` is never imported
+      by the theory layer.
+      *Proof: a looked-up scale is engraved as real notation (an OSMD svg past the 50-element
+      discriminator, as `e2e/round6.spec.ts` does for technique).*
+- [ ] 3.15 `app/theory`: look up ANY chord (REQ-3.5.4) — there is no chord picker; only the 7
+      diatonic triads of the current key are shown, `diatonicChords` is called without `seventh`,
+      so no seventh chord is displayable, and for the 10 modal/exotic scale types the chord section
+      vanishes entirely.
+      *Proof: select a diminished seventh on an arbitrary root and see its tones; select Dorian and
+      still get chords.*
+- [ ] 3.16 `core/theory`: fingering for the other 14 scale types (REQ-3.5.4) — `scaleFingering`
+      returns `null` unless the type is major/ionian, and the circle's whole inner ring lands the
+      user on `naturalMinor`, i.e. half the advertised flow reaches a fingering-less reference.
+      *Proof: property test that every selectable scale type returns a fingering whose finger
+      numbers are 1–5 and whose thumb-unders fall where the standard fingering puts them.*
+- [ ] 3.17 `app/shell`: the chord/scale reference "available at all times" (REQ-3.5.4) — today it is
+      a destination you leave your place for; `Shell` renders exactly one screen.
+      *Proof: open it from the practice screen without losing the loaded score.*
+- [ ] 3.18 `app/score`: applied analysis, honestly scoped (REQ-3.5.5) — the panel is not gated to
+      levels 4–5 (a level-1 beginner sees roman numerals on their first score) and is a side list
+      of measure numbers rather than annotations on the engraving.
+      *Proof: the panel is absent at level 1 and present at level 4; numerals sit above their own
+      measures in the score.*
+- [ ] 3.19 `core/theory/analysis`: `detectKey` counts the relative minor's leading tone appearing
+      ANYWHERE in the score as a minor vote, not at cadences. A C-major piece with one V/vi and an
+      A at either end is reported in A minor, mislabelling every numeral downstream.
+      *Proof: a property test over major-key scores with one chromatic passing tone; and the
+      Twinkle sample plus a secondary dominant still reads C major.*
+- [ ] 3.20 `app/theory`: SRS that re-serves the actual due fact (REQ-3.5.6) — `dueCards` picks only
+      the next KIND; the item itself is a fresh random draw, so "E major has 4 sharps" is never
+      guaranteed to reappear. Also: the level selector offers 1–8 while every `*_BY_LEVEL` table has
+      4 entries, so levels 5–8 are identical to 4.
+      *Proof: answer one item wrong, and see that exact item again when it comes due.*
+- [ ] 3.21 `app/eartraining`: clap/tap-back (REQ-3.6.2) — there is no call-and-response anywhere.
+      The Rhythm screen shows the pattern for the whole run and silences the audio deliberately, so
+      it is rhythm SIGHT-READING; "hear a phrase and clap it back" has never been built.
+      *Proof: the pattern is heard and never shown, and the tapped answer is graded.*
+- [ ] 3.22 `core/eartraining`: `EarAdaptOptions.band` is accepted, invariant-checked and never used
+      — the promotion decision is pure boolean unanimity, unlike its sight-reading counterpart which
+      compares accuracy against `low`/`high`. Either use it or delete it. Related: the dashboard
+      passes `earTrainingLevel: 0` because it has no honest source; once 3.11a persists the level,
+      it does.
+      *Proof: passing a different band changes the promotion point.*
+- [ ] 3.23 `app/eartraining`: give dictation a tempo reference (REQ-3.6.1) — the answer is graded
+      against a fixed ±eighth tolerance with no count-in, no metronome and no displayed tempo.
+      Measured: replaying a level 3–5 melodic phrase 8% slow grades incorrect in 416 of 900 cases.
+      *Proof: a phrase played at a consistent but different tempo from the prompt still grades
+      correct.*
+- [ ] 3.24 `content`: the six REQ-3.5.1 topics with no authored lesson at any level — seventh
+      chords, cadences, the common progressions (I–IV–V–I, ii–V–I, I–vi–IV–V), minor scale forms,
+      secondary dominants, and modulation to closely related keys. They live at levels 4–5, which
+      do not exist. Diatonic harmony and roman numerals are named only in passing. This is the
+      single largest gap between the app and REQ-3.5.1, and it is authoring, not code.
+      *Proof: each topic has a lesson that validates, opens in the app, and carries a diagram and a
+      quiz that tests that topic.*
+- [ ] 3.25 `app/lessons`: staff and rhythm diagrams (REQ-3.5.2) — `LessonBody` can render only
+      `KeyboardDiagram`, so the 7 level-1 lessons about staff notation and rhythm are structurally
+      incapable of having one, and 11 of 19 theory lessons have no diagram.
+      *Proof: a staff-notation lesson renders a real staff diagram inline.*
 
 ## Phase 4 — Milestone M4: progression
 
