@@ -444,7 +444,7 @@ Stop latency        5339ms       59ms
       — `.gitignore`'s `/*.mxl` only covers the repo root, which is the user's drop zone.
       `playLatencyMs` is reported but deliberately gated loosely: it includes up to one whole beat
       of the score's own tempo, so it is a hang detector, not a latency figure.*
-- [ ] 2.32e `adapters/audio`: `createWebAudioOutput` captures `clockOffsetMs = performance.now() -
+- [x] 2.32e `adapters/audio`: `createWebAudioOutput` captures `clockOffsetMs = performance.now() -
       ctx.currentTime * 1000` ONCE at construction and never re-anchors, and `toCtxSeconds` clamps
       an already-past event to `ctx.currentTime` — so a late event is played bunched at "now"
       rather than dropped or caught up. Both were amplified by the stalls 2.32a–c removed (a
@@ -452,9 +452,33 @@ Stop latency        5339ms       59ms
       "notes out of sync with the sound" is believed fixed at that source: the post-fix run
       records zero long tasks. The single-capture offset remains a real long-session drift risk on
       its own, but nothing has MEASURED it, so this is recorded rather than blind-fixed.
-      *Proof: measure it first — play a long piece for several minutes and compare the scheduled
-      `atMs` of a note against the `AudioContext` time it actually sounded at; only re-anchor if
-      the gap grows. A fix with no measurement behind it cannot be told from a no-op here.*
+      *Measured first, and the FIRST measurement was wrong — which is the part worth keeping.
+      `e2e/audio-clock-drift.spec.ts`'s original estimator used the first and last sample and
+      reported +14.6, +9.1 and -6.4 ms/min over three runs: a sign flip, i.e. noise. Two causes,
+      both since fixed: the raw offset carries a 16–18ms peak-to-peak sawtooth (`ctx.currentTime`
+      advances in render-quantum blocks while `performance.now()` is continuous), which swamps a
+      two-point estimate; and the first sample was taken while the audio render thread still had
+      `currentTime` pinned at exactly 0 for tens of ms after `resume()` resolved, folding startup
+      latency in as drift. `state === 'running'` does NOT catch that — the state flips before the
+      clock ticks.
+      With a least-squares fit over ~170 samples and a 2s warm-up discarded, four runs give
+      -16.26, -14.60, -15.72 and -17.87 ms/min: same sign, ~±1.5 ms/min, about a 10-sigma slope.
+      So ≈ -255 ppm — a frozen offset goes stale by ~150ms after ten minutes, ~450ms after half an
+      hour. A real defect, not the no-op this task suspected.
+      The obvious fix is a trap: re-measuring per call trades accumulating drift for INSTANT
+      jitter, since two notes scheduled in different frames would land up to ~17ms apart
+      relatively — over a tenth of a sixteenth at 120bpm. So the offset is a running anchor under
+      a TIME-based exponential filter (a burst of ten noteOns in one frame must not advance it ten
+      times as fast), tau = 2000ms chosen by arithmetic that is in the source: ramp lag =
+      rate * tau = 0.5ms, sawtooth fundamental attenuated to ~0.007ms. A 250ms escape hatch snaps
+      rather than blends for a context resumed after being backgrounded.
+      Three mutants were RUN, not merely named: frozen offset fails the drift test at 180.07ms
+      (bound 1ms); naive per-call re-anchor fails the jitter test at 8.5ms wobble; no escape hatch
+      reads 5.01 instead of 5.11. Each public method reads the anchor once, so `now()` stays the
+      exact inverse of `toCtxSeconds`.
+      NOT claimed: the spec measures the two clocks directly rather than driving
+      `createWebAudioOutput` itself, so it cannot fail from a regression inside that module —
+      the unit tests carry that half.*
 - [x] 2.32f `app/score`: `osmdEngraver.ts`'s `MAX_CURSOR_STEPS = 10_000` silently truncates
       `collectOnsetTicks`. Canon in D's 102 measures produce well under that, so nothing is wrong
       today, but a long dense piece that exceeds it would leave the cursor unable to track past that
