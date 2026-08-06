@@ -48,7 +48,7 @@ function label(answer: IntervalAnswer): string {
 
 export function IntervalAnswerPad({ onAnswer }: IntervalAnswerPadProps) {
   return (
-    <div className="interval-answer-pad" role="group" aria-label="Interval answer">
+    <div className="interval-answer-pad answer-pad" role="group" aria-label="Interval answer">
       {INTERVAL_BUTTONS.map((answer) => (
         <button
           key={`${answer.number}-${answer.quality}`}

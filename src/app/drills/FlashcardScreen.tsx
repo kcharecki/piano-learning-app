@@ -65,7 +65,12 @@ function clampLevel(level: number): number {
 function AnswerFeedback({ grade }: { readonly grade: GradeResult | undefined }) {
   if (grade === undefined) return null
   return (
-    <p role="status" data-testid="flashcard-feedback">
+    <p
+      role="status"
+      data-testid="flashcard-feedback"
+      className="drill-feedback"
+      data-state={grade.correct ? 'correct' : 'wrong'}
+    >
       {grade.correct ? 'Correct' : 'Not quite'} — graded {grade.grade}
     </p>
   )
@@ -180,7 +185,9 @@ export function FlashcardScreen(props: FlashcardScreenProps) {
         <p role="status">No cards at this level yet.</p>
       ) : drill.card.kind === 'staff-to-key' ? (
         <section aria-label="Flashcard">
-          <StaffNote midi={drill.card.prompt.midi} clef={drill.card.prompt.clef} />
+          <div className="flashcard-prompt">
+            <StaffNote midi={drill.card.prompt.midi} clef={drill.card.prompt.clef} />
+          </div>
           <p>Play the note shown, on the keyboard below or your MIDI keyboard.</p>
           <OnScreenKeyboard
             low={drill.range.low}
@@ -191,48 +198,79 @@ export function FlashcardScreen(props: FlashcardScreenProps) {
         </section>
       ) : drill.card.kind === 'interval-on-staff' ? (
         <section aria-label="Flashcard">
-          <StaffNote
-            low={drill.card.prompt.low}
-            high={drill.card.prompt.high}
-            clef={drill.card.prompt.clef}
-          />
+          <div className="flashcard-prompt">
+            <StaffNote
+              low={drill.card.prompt.low}
+              high={drill.card.prompt.high}
+              clef={drill.card.prompt.clef}
+            />
+          </div>
           <p>Name the interval shown.</p>
           <IntervalAnswerPad onAnswer={drill.answerInterval} />
           <AnswerFeedback grade={drill.lastGrade} />
         </section>
       ) : drill.card.kind === 'note-name' ? (
         <section aria-label="Flashcard">
-          <StaffNote midi={drill.card.prompt.midi} clef={drill.card.prompt.clef} />
+          <div className="flashcard-prompt">
+            <StaffNote midi={drill.card.prompt.midi} clef={drill.card.prompt.clef} />
+          </div>
           <p>Name the note shown.</p>
           <NoteNameAnswerPad onAnswer={drill.answerNoteName} />
           <AnswerFeedback grade={drill.lastGrade} />
         </section>
       ) : (
         <section aria-label="Flashcard">
-          <p data-testid="key-signature-prompt">
-            {drill.card.prompt.fifths === 0
-              ? 'No sharps or flats'
-              : `${Math.abs(drill.card.prompt.fifths)} ${
-                  drill.card.prompt.fifths > 0 ? 'sharp' : 'flat'
-                }${Math.abs(drill.card.prompt.fifths) === 1 ? '' : 's'}`}
-          </p>
+          <div className="flashcard-prompt">
+            <p data-testid="key-signature-prompt">
+              {drill.card.prompt.fifths === 0
+                ? 'No sharps or flats'
+                : `${Math.abs(drill.card.prompt.fifths)} ${
+                    drill.card.prompt.fifths > 0 ? 'sharp' : 'flat'
+                  }${Math.abs(drill.card.prompt.fifths) === 1 ? '' : 's'}`}
+            </p>
+          </div>
           <p>Name the major key and its relative minor for this key signature.</p>
           <KeySignatureAnswerPad onAnswer={drill.answerKeySignature} />
           <AnswerFeedback grade={drill.lastGrade} />
         </section>
       )}
 
-      <dl className="flashcard-stats" aria-label="Retention">
+      <dl className="flashcard-stats retention-stats" aria-label="Retention">
         <dt>Cards</dt>
-        <dd data-testid="flashcard-stats-total">{drill.stats.total}</dd>
+        <dd>
+          <div className="stat">
+            <b data-testid="flashcard-stats-total">{drill.stats.total}</b>
+            <small>Cards</small>
+          </div>
+        </dd>
         <dt>Due</dt>
-        <dd data-testid="flashcard-stats-due">{drill.stats.due}</dd>
+        <dd>
+          <div className="stat">
+            <b data-testid="flashcard-stats-due">{drill.stats.due}</b>
+            <small>Due</small>
+          </div>
+        </dd>
         <dt>Young</dt>
-        <dd data-testid="flashcard-stats-young">{drill.stats.young}</dd>
+        <dd>
+          <div className="stat">
+            <b data-testid="flashcard-stats-young">{drill.stats.young}</b>
+            <small>Young</small>
+          </div>
+        </dd>
         <dt>Mature</dt>
-        <dd data-testid="flashcard-stats-mature">{drill.stats.mature}</dd>
+        <dd>
+          <div className="stat">
+            <b data-testid="flashcard-stats-mature">{drill.stats.mature}</b>
+            <small>Mature</small>
+          </div>
+        </dd>
         <dt>Average ease</dt>
-        <dd data-testid="flashcard-stats-ease">{drill.stats.averageEase.toFixed(2)}</dd>
+        <dd>
+          <div className="stat">
+            <b data-testid="flashcard-stats-ease">{drill.stats.averageEase.toFixed(2)}</b>
+            <small>Average ease</small>
+          </div>
+        </dd>
       </dl>
     </div>
   )

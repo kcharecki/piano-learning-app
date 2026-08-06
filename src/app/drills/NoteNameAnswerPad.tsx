@@ -44,7 +44,7 @@ function label(answer: NoteNameAnswer): string {
 
 export function NoteNameAnswerPad({ onAnswer }: NoteNameAnswerPadProps) {
   return (
-    <div className="note-name-answer-pad" role="group" aria-label="Note name answer">
+    <div className="note-name-answer-pad answer-pad" role="group" aria-label="Note name answer">
       {NOTE_NAME_BUTTONS.map((answer) => (
         <button key={label(answer)} type="button" onClick={() => onAnswer(answer)}>
           {label(answer)}

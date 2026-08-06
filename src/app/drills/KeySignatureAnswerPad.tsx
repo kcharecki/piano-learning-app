@@ -46,7 +46,7 @@ function label(answer: KeySignatureAnswer): string {
 
 export function KeySignatureAnswerPad({ onAnswer }: KeySignatureAnswerPadProps) {
   return (
-    <div className="key-signature-answer-pad" role="group" aria-label="Key signature answer">
+    <div className="key-signature-answer-pad answer-pad" role="group" aria-label="Key signature answer">
       {KEY_SIGNATURE_BUTTONS.map((answer) => (
         <button
           key={tonicLabel(answer.majorTonic)}
