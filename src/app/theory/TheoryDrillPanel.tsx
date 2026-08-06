@@ -29,16 +29,22 @@
  * which is why this panel takes no `clock` prop at all; there is no elapsed
  * time here for one to measure.
  *
- * ## Serving items
+ * ## Serving items (roadmap 3.20, REQ-3.5.6)
  *
- * `buildTheoryQuiz`'s content is procedurally generated rather than drawn
- * from an enumerable deck, so unlike `nextCard` there is no way to look back
- * up "the due item for id X" from the id alone — a fresh item is generated
- * after every answer, and its SRS card is created or updated by whatever id
- * it lands on. Review history and retention stats are still genuinely
- * tracked; strict due-first serving would need either a finite per-level
- * deck or persisting full item content per id, neither of which this
- * generator has today.
+ * Every id `buildTheoryQuiz` mints is derived purely from the content it
+ * names (tonic, scale type, chord quality/inversion, ...), so
+ * `theoryQuizFromId` can read one back into the exact item it names, without
+ * touching `rng` at all — see that function's doc in `core/drills/theory.ts`.
+ * The same lookup runs at BOTH ends of a session: the initial `item` state is
+ * seeded from whatever is already due at mount, and after grading,
+ * `commitAnswer` re-checks and, if a card is due, serves
+ * `theoryQuizFromId(dueCard.id)` directly — the specific fact that was
+ * actually due, not a fresh random draw of its kind. Only when nothing is due
+ * does either path fall back to a fresh `buildTheoryQuiz` draw. This is what
+ * makes SRS scheduling actually drive content: before this, a card's interval
+ * and ease were tracked but the card's own item was never guaranteed to
+ * reappear — including a session's very first item, which used to be drawn
+ * at random even with a backlog of overdue facts.
  */
 import { useMidiConnection, type ConnectMidi } from '@app/practice/useMidiConnection.ts'
 import { MidiDeviceStatus } from '@app/practice/MidiDeviceStatus.tsx'
@@ -46,20 +52,25 @@ import { OnScreenKeyboard } from '@app/drills/OnScreenKeyboard.tsx'
 import { useFlashcardStore } from '@app/state/flashcardStore.ts'
 import { createBrowserRng } from '@app/sightreading/rng.ts'
 import {
+  ALL_THEORY_KINDS,
   buildTheoryQuiz,
   gradeTheoryStep,
+  MAX_THEORY_LEVEL,
+  theoryQuizFromId,
   type TheoryAnswerResult,
   type TheoryQuizItem,
   type TheoryQuizKind,
 } from '@core/drills/theory.ts'
-import { dueCards, newCard, retentionStats, review, type Card, type Grade } from '@core/srs/scheduler.ts'
-import type { DateSource, MidiInput, Rng } from '@core/ports/index.ts'
 import {
-  midi,
-  PIANO_HIGHEST_MIDI,
-  PIANO_LOWEST_MIDI,
-  type Midi,
-} from '@core/shared/units.ts'
+  dueCards,
+  newCard,
+  retentionStats,
+  review,
+  type Card,
+  type Grade,
+} from '@core/srs/scheduler.ts'
+import type { DateSource, MidiInput, Rng } from '@core/ports/index.ts'
+import { midi, PIANO_HIGHEST_MIDI, PIANO_LOWEST_MIDI, type Midi } from '@core/shared/units.ts'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 export type TheoryDrillPanelProps = {
@@ -71,7 +82,8 @@ export type TheoryDrillPanelProps = {
 }
 
 const MIN_LEVEL = 1
-const MAX_LEVEL = 8
+/** Derived from the core tables' own tier count, never restated (roadmap 3.20) — see MAX_THEORY_LEVEL. */
+const MAX_LEVEL = MAX_THEORY_LEVEL
 
 const KIND_LABEL: Readonly<Record<TheoryQuizKind, string>> = {
   'build-scale': 'Scale',
@@ -81,13 +93,7 @@ const KIND_LABEL: Readonly<Record<TheoryQuizKind, string>> = {
   'build-cadence': 'Cadence',
 }
 
-const KINDS: readonly TheoryQuizKind[] = [
-  'build-scale',
-  'build-chord',
-  'build-interval',
-  'name-key-signature',
-  'build-cadence',
-]
+const KINDS: readonly TheoryQuizKind[] = ALL_THEORY_KINDS
 
 /** So the panel's own retention stats don't pick up flashcard drill cards
  *  sharing the same store — every theory id starts with one of these. */
@@ -97,26 +103,32 @@ function isTheoryCardId(id: string): boolean {
   return THEORY_ID_PREFIXES.some((prefix) => id.startsWith(prefix))
 }
 
-/** The kind whose id prefix a card id starts with — every theory card id is namespaced this way. */
-function kindOfCardId(id: string): TheoryQuizKind | undefined {
-  return KINDS.find((k) => id.startsWith(`${k}-`))
-}
-
 /**
- * Bias the next item toward the most-overdue theory card's topic, so SRS
- * scheduling actually affects what the learner is shown next — without this
- * `dueCards` is computed for the stats display and then discarded. Falls back
- * to the currently-selected topic when nothing is due yet.
+ * The most-overdue RESOLVABLE theory card's own item, via `theoryQuizFromId`
+ * — not a fresh random item of its kind (roadmap 3.20, REQ-3.5.6). This is
+ * what makes SRS scheduling actually drive content: a specific overdue fact
+ * ("E major has 4 sharps") comes back as itself, not as a new random draw
+ * that merely happens to share its kind.
+ *
+ * `dueCards` is asked for every overdue card, not just the single
+ * most-overdue one: a single unparseable id at the head of the queue (a
+ * foreign or stale id that happens to start with a theory kind prefix —
+ * reachable via `useFlashcardStore.hydrate` replacing `cardsById` wholesale
+ * from an imported snapshot) must not disable recall for every genuinely due
+ * card behind it. The first id `theoryQuizFromId` actually resolves wins;
+ * `undefined` only once nothing due parses at all — the caller falls back to
+ * a fresh draw either way.
  */
-function nextKind(
+function dueTheoryItem(
   cardsById: Readonly<Record<string, Card>>,
   nowMs: number,
-  currentKind: TheoryQuizKind,
-): TheoryQuizKind {
+): TheoryQuizItem | undefined {
   const theoryCards = Object.values(cardsById).filter((c) => isTheoryCardId(c.id))
-  const [mostOverdue] = dueCards(theoryCards, nowMs, 1)
-  if (mostOverdue === undefined) return currentKind
-  return kindOfCardId(mostOverdue.id) ?? currentKind
+  for (const card of dueCards(theoryCards, nowMs)) {
+    const item = theoryQuizFromId(card.id)
+    if (item !== undefined) return item
+  }
+  return undefined
 }
 
 /**
@@ -164,7 +176,14 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
   const cardsById = useFlashcardStore((s) => s.cardsById)
   const upsertCard = useFlashcardStore((s) => s.upsertCard)
 
-  const [item, setItem] = useState<TheoryQuizItem | undefined>(undefined)
+  // Seeded from whatever is already due at mount — not always a fresh random
+  // draw — so a backlog of overdue facts is served from the first render
+  // rather than only after the learner has already answered something
+  // (roadmap 3.20). The [kind, level] effect below skips its own first run
+  // so it does not immediately overwrite this with a random draw.
+  const [item, setItem] = useState<TheoryQuizItem | undefined>(
+    () => dueTheoryItem(cardsById, date.epochMillis()) ?? buildTheoryQuiz(kind, level, rng),
+  )
   const [playedGroups, setPlayedGroups] = useState<readonly (readonly Midi[])[]>([])
   const [, setPendingNotes] = useState<readonly Midi[]>([])
   const [lastResult, setLastResult] = useState<TheoryAnswerResult | undefined>(undefined)
@@ -178,9 +197,32 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
   const pendingRef = useRef<readonly Midi[]>([])
   const playedRef = useRef<readonly (readonly Midi[])[]>([])
 
-  // A level or kind change always starts a fresh item and a fresh attempt —
-  // never mid-answer state from before.
+  // Set just before `commitAnswer` calls `setKind` to serve a due item of a
+  // different kind: tells the kind/level effect below "the item is already
+  // decided, don't overwrite it with a fresh random draw" — otherwise the
+  // effect racing the due item we just resolved would silently replace it,
+  // reintroducing the bug this module exists to fix (roadmap 3.20).
+  const suppressResetRef = useRef(false)
+
+  // The very first run of the effect below would otherwise stomp the item
+  // the `useState` initialiser above just seeded (possibly a due recall,
+  // not a random draw) with a fresh `buildTheoryQuiz` call — this ref makes
+  // that first run a no-op so mount only ever sets `item` once.
+  const isFirstItemEffectRef = useRef(true)
+
+  // A user-driven level or kind change always starts a fresh item and a
+  // fresh attempt — never mid-answer state from before. `commitAnswer` below
+  // is the one caller that changes `kind` WITHOUT wanting that: it sets
+  // `suppressResetRef` first so this effect leaves its own item alone.
   useLayoutEffect(() => {
+    if (isFirstItemEffectRef.current) {
+      isFirstItemEffectRef.current = false
+      return
+    }
+    if (suppressResetRef.current) {
+      suppressResetRef.current = false
+      return
+    }
     setItem(buildTheoryQuiz(kind, level, rng))
     playedRef.current = []
     pendingRef.current = []
@@ -193,19 +235,27 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
   function commitAnswer(answered: TheoryQuizItem, correct: boolean): void {
     const grade: Grade = correct ? 'good' : 'again'
     const dateNow = date.epochMillis()
-    const existing = cardsById[answered.id] ?? newCard(answered.id, dateNow)
+    // Read fresh from the store rather than the closed-over `cardsById`: two
+    // answer-completing `noteOn` events delivered in the same batch both
+    // call `commitAnswer` against the SAME render's closure, so the second
+    // call would otherwise start its `review` from the pre-first-review
+    // card, losing a grade (roadmap 3.20 finding 7).
+    const currentCardsById = useFlashcardStore.getState().cardsById
+    const existing = currentCardsById[answered.id] ?? newCard(answered.id, dateNow)
     const updated = review(existing, grade, dateNow, rng)
     upsertCard(updated)
     setNowMs(dateNow)
-    const updatedCardsById = { ...cardsById, [updated.id]: updated }
-    const dueKind = nextKind(updatedCardsById, dateNow, kind)
-    if (dueKind !== kind) {
-      // The kind/level effect rebuilds the item for the new kind; do not
-      // race it with our own rebuild below.
-      setKind(dueKind)
-    } else {
-      setItem(buildTheoryQuiz(kind, level, rng))
+    const updatedCardsById = { ...currentCardsById, [updated.id]: updated }
+
+    // The due card's OWN item comes back, not a fresh draw of its kind
+    // (roadmap 3.20) — only when nothing is due does a fresh item get drawn.
+    const dueItem = dueTheoryItem(updatedCardsById, dateNow)
+    const nextItem = dueItem ?? buildTheoryQuiz(kind, level, rng)
+    if (nextItem.kind !== kind) {
+      suppressResetRef.current = true
+      setKind(nextItem.kind)
     }
+    setItem(nextItem)
     playedRef.current = []
     pendingRef.current = []
     setPlayedGroups([])

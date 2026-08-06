@@ -45,28 +45,10 @@ import { assertNever, at, invariant } from '@core/shared/invariant.ts'
 import { midi, type Midi } from '@core/shared/units.ts'
 import { pick, type Rng } from '@core/ports/rng.ts'
 import { spell, toMidi, type Alter, type Letter, type SpelledPitch } from '@core/theory/pitch.ts'
-import {
-  buildScale,
-  scaleName,
-  scaleNotes,
-  type ScaleType,
-} from '@core/theory/scales.ts'
-import {
-  buildChord,
-  chordMidi,
-  isTriad,
-  type Chord,
-  type ChordQuality,
-  type Inversion,
-} from '@core/theory/chords.ts'
-import {
-  intervalLongName,
-  SIMPLE_INTERVALS,
-  transposeSpelled,
-  tryTransposeSpelled,
-  type Interval,
-} from '@core/theory/intervals.ts'
-import { CIRCLE_OF_FIFTHS, keyFromFifths, keyName, type Key, type Mode } from '@core/theory/keys.ts'
+import { buildScale, scaleName, scaleNotes, type ScaleType } from '@core/theory/scales.ts'
+import { buildChord, chordMidi, isTriad, type Chord, type ChordQuality, type Inversion } from '@core/theory/chords.ts'
+import { intervalLongName, makeInterval, SIMPLE_INTERVALS, transposeSpelled, tryTransposeSpelled, type Interval, type IntervalQuality } from '@core/theory/intervals.ts'
+import { CIRCLE_OF_FIFTHS, keyFromFifths, keyName, keyOf, type Key, type Mode } from '@core/theory/keys.ts'
 import { chordForRomanNumeral, type CadenceType } from '@core/theory/harmony.ts'
 
 // ---------------------------------------------------------------------------
@@ -81,11 +63,23 @@ export type TheoryQuizKind =
   | 'name-key-signature' // "how many sharps has E major?" — answered by playing the tonic
   | 'build-cadence' // "play a perfect authentic cadence in G"
 
+/**
+ * Every kind, for callers that need to enumerate them (the level/topic UI,
+ * and `theoryQuizFromId`'s id-prefix dispatch below) without restating the
+ * union as a second, driftable list.
+ */
+export const ALL_THEORY_KINDS: readonly TheoryQuizKind[] = [
+  'build-scale',
+  'build-chord',
+  'build-interval',
+  'name-key-signature',
+  'build-cadence',
+]
+
 export type TheoryQuizItem = {
   /** Stable and derived from the content, so SRS scheduling survives a reload. */
   readonly id: string
   readonly kind: TheoryQuizKind
-  readonly level: number
   /** The question, already written for a human. */
   readonly prompt: string
   /**
@@ -201,20 +195,29 @@ function tonicForScaleType(fifths: number, type: ScaleType): SpelledPitch {
   return keyFromFifths(fifths, mode).tonic
 }
 
-function buildScaleItem(level: number, rng: Rng): TheoryQuizItem {
-  const type = pick(rng, scaleTypesForLevel(level))
-  const fifths = pick(rng, fifthsPoolForLevel(level))
-  const tonic = tonicForScaleType(fifths, type)
+/**
+ * The construction proper, taking the resolved tonic/type directly rather
+ * than picking them from `rng` — the single place both `buildScaleItem`
+ * (random draw) and `theoryQuizFromId` (id round-trip, roadmap 3.20) build
+ * the actual item, so the two can never drift apart.
+ */
+function makeScaleItem(tonic: SpelledPitch, type: ScaleType): TheoryQuizItem {
   const scale = buildScale(tonic, type)
   const notes = scaleNotes(tonic, type, 1)
   return {
     id: `build-scale-${tonicKey(tonic)}-${type}`,
     kind: 'build-scale',
-    level,
     prompt: `Play ${scaleName(scale)}, ascending.`,
     answer: notes.map((p) => [toMidi(p)]),
     simultaneous: false,
   }
+}
+
+function buildScaleItem(level: number, rng: Rng): TheoryQuizItem {
+  const type = pick(rng, scaleTypesForLevel(level))
+  const fifths = pick(rng, fifthsPoolForLevel(level))
+  const tonic = tonicForScaleType(fifths, type)
+  return makeScaleItem(tonic, type)
 }
 
 // ---------------------------------------------------------------------------
@@ -226,19 +229,8 @@ const CHORD_QUALITIES_BY_LEVEL: readonly (readonly ChordQuality[])[] = [
   ['major', 'minor'],
   ['major', 'minor', 'diminished', 'augmented'],
   ['major', 'minor', 'diminished', 'augmented', 'dominant7', 'major7', 'minor7'],
-  [
-    'major',
-    'minor',
-    'diminished',
-    'augmented',
-    'dominant7',
-    'major7',
-    'minor7',
-    'halfDiminished7',
-    'diminished7',
-    'minorMajor7',
-    'augmentedMajor7',
-  ],
+  ['major', 'minor', 'diminished', 'augmented', 'dominant7', 'major7', 'minor7',
+    'halfDiminished7', 'diminished7', 'minorMajor7', 'augmentedMajor7'],
 ]
 
 /** Each level admits one more inversion than the last, filtered to what the chord has. */
@@ -282,6 +274,24 @@ function chordInversionsForLevel(level: number): readonly Inversion[] {
   return at(CHORD_INVERSIONS_BY_LEVEL, idx)
 }
 
+/** Same split as `makeScaleItem` — shared by `buildChordItem` and `theoryQuizFromId`. */
+function makeChordItem(
+  root: SpelledPitch,
+  quality: ChordQuality,
+  inversion: Inversion,
+): TheoryQuizItem {
+  const chord = buildChord(root, quality, inversion)
+  return {
+    id: `build-chord-${tonicKey(root)}-${quality}-${inversion}`,
+    kind: 'build-chord',
+    prompt:
+      `Play a ${tonicKey(root)} ${CHORD_QUALITY_PHRASE[quality]} chord, ` +
+      `${CHORD_INVERSION_PHRASE[inversion]}.`,
+    answer: [chordMidi(chord)],
+    simultaneous: true,
+  }
+}
+
 function buildChordItem(level: number, rng: Rng): TheoryQuizItem {
   const quality = pick(rng, chordQualitiesForLevel(level))
   const highestInversion = isTriad(quality) ? 2 : 3
@@ -289,17 +299,7 @@ function buildChordItem(level: number, rng: Rng): TheoryQuizItem {
   const inversion = pick(rng, inversions)
   const rootSpec = pick(rng, rootsForLevel(level))
   const root = spell(rootSpec.letter, rootSpec.alter, HOME_OCTAVE)
-  const chord = buildChord(root, quality, inversion)
-  return {
-    id: `build-chord-${tonicKey(root)}-${quality}-${inversion}`,
-    kind: 'build-chord',
-    level,
-    prompt:
-      `Play a ${tonicKey(root)} ${CHORD_QUALITY_PHRASE[quality]} chord, ` +
-      `${CHORD_INVERSION_PHRASE[inversion]}.`,
-    answer: [chordMidi(chord)],
-    simultaneous: true,
-  }
+  return makeChordItem(root, quality, inversion)
 }
 
 // ---------------------------------------------------------------------------
@@ -334,20 +334,28 @@ function safeInterval(
   return { root: fallbackRoot, target: transposeSpelled(fallbackRoot, interval, 1) }
 }
 
+/** Same split as `makeScaleItem` — shared by `buildIntervalItem` and `theoryQuizFromId`. */
+function makeIntervalItem(
+  root: SpelledPitch,
+  interval: Interval,
+  target: SpelledPitch,
+): TheoryQuizItem {
+  return {
+    id: `build-interval-${tonicKey(root)}-${interval.number}-${interval.quality}`,
+    kind: 'build-interval',
+    prompt: `Play ${tonicKey(root)}, then a ${intervalLongName(interval)} above it.`,
+    answer: [[toMidi(root)], [toMidi(target)]],
+    simultaneous: false,
+  }
+}
+
 function buildIntervalItem(level: number, rng: Rng): TheoryQuizItem {
   const numbers = intervalNumbersForLevel(level)
   const candidates = SIMPLE_INTERVALS.filter((iv) => numbers.includes(iv.number))
   const interval = pick(rng, candidates)
   const rootSpec = pick(rng, rootsForLevel(level))
   const { root, target } = safeInterval(spell(rootSpec.letter, rootSpec.alter, HOME_OCTAVE), interval)
-  return {
-    id: `build-interval-${tonicKey(root)}-${interval.number}-${interval.quality}`,
-    kind: 'build-interval',
-    level,
-    prompt: `Play ${tonicKey(root)}, then a ${intervalLongName(interval)} above it.`,
-    answer: [[toMidi(root)], [toMidi(target)]],
-    simultaneous: false,
-  }
+  return makeIntervalItem(root, interval, target)
 }
 
 // ---------------------------------------------------------------------------
@@ -361,18 +369,22 @@ function accidentalWord(fifths: number): string {
   return fifths > 0 ? 'sharps' : 'flats'
 }
 
-function buildKeySignatureItem(level: number, rng: Rng): TheoryQuizItem {
-  const fifths = pick(rng, fifthsPoolForLevel(level))
-  const mode = pick(rng, KEY_SIGNATURE_MODES)
+/** Same split as `makeScaleItem` — shared by `buildKeySignatureItem` and `theoryQuizFromId`. */
+function makeKeySignatureItem(fifths: number, mode: Mode): TheoryQuizItem {
   const key = keyFromFifths(fifths, mode)
   return {
     id: `name-key-signature-${fifths}-${mode}`,
     kind: 'name-key-signature',
-    level,
     prompt: `How many ${accidentalWord(fifths)} has ${keyName(key)}? Answer by playing its tonic.`,
     answer: [[toMidi(key.tonic)]],
     simultaneous: false,
   }
+}
+
+function buildKeySignatureItem(level: number, rng: Rng): TheoryQuizItem {
+  const fifths = pick(rng, fifthsPoolForLevel(level))
+  const mode = pick(rng, KEY_SIGNATURE_MODES)
+  return makeKeySignatureItem(fifths, mode)
 }
 
 // ---------------------------------------------------------------------------
@@ -415,10 +427,8 @@ function mustChord(text: string, key: Key): Chord {
   return result.value
 }
 
-function buildCadenceItem(level: number, rng: Rng): TheoryQuizItem {
-  const recipe = pick(rng, cadencesForLevel(level))
-  const fifths = pick(rng, fifthsPoolForLevel(level))
-  const key = keyFromFifths(fifths, 'major')
+/** Same split as `makeScaleItem` — shared by `buildCadenceItem` and `theoryQuizFromId`. */
+function makeCadenceItem(recipe: CadenceRecipe, key: Key): TheoryQuizItem {
   const [firstText, secondText] = recipe.numerals
   const first = mustChord(firstText, key)
   const second = mustChord(secondText, key)
@@ -426,11 +436,17 @@ function buildCadenceItem(level: number, rng: Rng): TheoryQuizItem {
   return {
     id: `build-cadence-${recipe.type}-${tonicKey(key.tonic)}`,
     kind: 'build-cadence',
-    level,
     prompt: `Play a ${CADENCE_LABEL[recipe.type]} cadence in ${keyName(key)}.`,
     answer: [chordMidi(first), secondMidi],
     simultaneous: true,
   }
+}
+
+function buildCadenceItem(level: number, rng: Rng): TheoryQuizItem {
+  const recipe = pick(rng, cadencesForLevel(level))
+  const fifths = pick(rng, fifthsPoolForLevel(level))
+  const key = keyFromFifths(fifths, 'major')
+  return makeCadenceItem(recipe, key)
 }
 
 /**
@@ -449,6 +465,29 @@ function finalChordMidi(type: CadenceType, chord: Chord): readonly Midi[] {
   const root = at(notes, 0)
   return [...notes.slice(0, -1), midi(root + 12)]
 }
+
+/**
+ * The highest level at which ANY axis still widens — the level selector's
+ * honest maximum (roadmap 3.20). Every `*_BY_LEVEL` table plateaus once
+ * `level` passes its own length, via `Math.min(level, table.length)` in each
+ * `*ForLevel` helper — but `fifthsRangeForLevel` is not table-backed: it
+ * widens through `Math.min(MAX_ACCIDENTALS, level - 1)`, so key signatures,
+ * scales and cadences (the three kinds that draw a tonic/key from
+ * `fifthsPoolForLevel`) keep gaining genuinely new content up to level
+ * `MAX_ACCIDENTALS + 1`. Taking the `Math.max` over every table's length AND
+ * that bound is what keeps this honest in BOTH directions: a table extended
+ * without the others following still raises the ceiling, and the widest
+ * non-table axis is no longer silently capped by the narrower ones.
+ */
+export const MAX_THEORY_LEVEL = Math.max(
+  ROOTS_BY_LEVEL.length,
+  SCALE_TYPES_BY_LEVEL.length,
+  CHORD_QUALITIES_BY_LEVEL.length,
+  CHORD_INVERSIONS_BY_LEVEL.length,
+  INTERVAL_NUMBERS_BY_LEVEL.length,
+  CADENCES_BY_LEVEL.length,
+  MAX_ACCIDENTALS + 1,
+)
 
 // ---------------------------------------------------------------------------
 // buildTheoryQuiz
@@ -470,6 +509,144 @@ export function buildTheoryQuiz(kind: TheoryQuizKind, level: number, rng: Rng): 
     default:
       return assertNever(kind)
   }
+}
+
+// ---------------------------------------------------------------------------
+// theoryQuizFromId — the reverse of buildTheoryQuiz's id, roadmap 3.20
+// ---------------------------------------------------------------------------
+
+/**
+ * Every id above is built purely from the content it names — tonic, scale
+ * type, chord quality/inversion, interval number/quality, key-signature
+ * fifths/mode, cadence type — never from a counter or from how many `rng`
+ * calls it took to get there (see the module doc's "Determinism" section).
+ * That means an id can be read back into the *exact* item it names — same
+ * prompt, same answer — without touching `rng` at all: each `parse*Id` below
+ * re-runs the same `make*Item` construction `build*Item` uses, just fed the
+ * parsed parameters instead of an `rng` pick.
+ *
+ * This is what lets a due SRS card come back as ITSELF (roadmap 3.20):
+ * `TheoryDrillPanel` resolves the most-overdue card's id through here instead
+ * of drawing a fresh `buildTheoryQuiz` item of the same kind, which is the
+ * defect this function exists to close — a scheduled fact's interval was
+ * tracked, but the fact itself was never guaranteed to reappear.
+ *
+ * Returns `undefined` for any string that is not a well-formed id this
+ * module ever produced, rather than throwing — a caller resolving ids out of
+ * a shared SRS card store should not crash on a stray or corrupted one. As a
+ * last-line check, this re-derives the id from what the parser built and
+ * rejects a mismatch, so a `parse*Id` that silently drifted from the
+ * original encoding (rather than genuinely failing) still cannot hand back
+ * the wrong item under the right id — every `parse*Id` below is trusted for
+ * CONTENT, never for its own claim that the content matches.
+ */
+export function theoryQuizFromId(id: string): TheoryQuizItem | undefined {
+  const kind = ALL_THEORY_KINDS.find((k) => id.startsWith(`${k}-`))
+  if (kind === undefined) return undefined
+  try {
+    const item = ID_PARSERS[kind](id.slice(kind.length + 1))
+    return item !== undefined && item.id === id ? item : undefined
+  } catch {
+    // A parsed-but-unbuildable combination (e.g. a theoretically-spelled
+    // tonic `keyOf`/`buildChord` refuses) is not a well-formed id either.
+    return undefined
+  }
+}
+
+/** The widest tier of each `*_BY_LEVEL` table — every value an id can ever name. */
+const WIDEST_SCALE_TYPES = at(SCALE_TYPES_BY_LEVEL, SCALE_TYPES_BY_LEVEL.length - 1)
+const WIDEST_CHORD_QUALITIES = at(CHORD_QUALITIES_BY_LEVEL, CHORD_QUALITIES_BY_LEVEL.length - 1)
+const WIDEST_CHORD_INVERSIONS = at(CHORD_INVERSIONS_BY_LEVEL, CHORD_INVERSIONS_BY_LEVEL.length - 1)
+const WIDEST_CADENCES = at(CADENCES_BY_LEVEL, CADENCES_BY_LEVEL.length - 1)
+
+/** `'C'`, `'F#'`, `'Bb'` — the inverse of `tonicKey`. No mixed sharps/flats, at most a double. */
+const TONIC_KEY_PATTERN = /^([A-G])(#+|b+)?$/
+
+function parseTonicKey(text: string): SpelledPitch | undefined {
+  const match = TONIC_KEY_PATTERN.exec(text)
+  if (match === null) return undefined
+  const letter = at(match, 1) as Letter
+  const accidentals = match[2] ?? ''
+  const alter = accidentals.startsWith('b') ? -accidentals.length : accidentals.length
+  if (alter < -2 || alter > 2) return undefined
+  return spell(letter, alter as Alter, HOME_OCTAVE)
+}
+
+function parseScaleId(rest: string): TheoryQuizItem | undefined {
+  const parts = rest.split('-')
+  if (parts.length !== 2) return undefined
+  const tonic = parseTonicKey(at(parts, 0))
+  const type = WIDEST_SCALE_TYPES.find((t) => t === at(parts, 1))
+  if (tonic === undefined || type === undefined) return undefined
+  return makeScaleItem(tonic, type)
+}
+
+function parseChordId(rest: string): TheoryQuizItem | undefined {
+  const parts = rest.split('-')
+  if (parts.length !== 3) return undefined
+  const root = parseTonicKey(at(parts, 0))
+  const quality = WIDEST_CHORD_QUALITIES.find((q) => q === at(parts, 1))
+  const inversion = WIDEST_CHORD_INVERSIONS.find((i) => i === Number(at(parts, 2)))
+  if (root === undefined || quality === undefined || inversion === undefined) return undefined
+  return makeChordItem(root, quality, inversion)
+}
+
+function parseIntervalId(rest: string): TheoryQuizItem | undefined {
+  const parts = rest.split('-')
+  if (parts.length !== 3) return undefined
+  const root = parseTonicKey(at(parts, 0))
+  const number = Number(at(parts, 1))
+  if (root === undefined || !Number.isInteger(number)) return undefined
+  // `intervals.ts` exports no `IntervalQuality` vocabulary to validate the
+  // quality text against first — `makeInterval`'s own Result already rejects
+  // anything that is not one of its seven quality strings, so asserting the
+  // type and letting IT fail is the single source of truth, not a second,
+  // driftable copy of the same seven names.
+  const built = makeInterval(number, at(parts, 2) as IntervalQuality)
+  if (!built.ok) return undefined
+  // The id's tonic is the ACTUAL root `buildIntervalItem` used, already past
+  // `safeInterval`'s fallback — transposing it is guaranteed to succeed the
+  // same way it did when the id was first minted.
+  const target = tryTransposeSpelled(root, built.value, 1)
+  if (!target.ok) return undefined
+  return makeIntervalItem(root, built.value, target.value)
+}
+
+/** `fifths` may be negative, so the remainder can itself contain a leading `-`. */
+const KEY_SIGNATURE_ID_PATTERN = /^(-?\d+)-(major|minor)$/
+
+function parseKeySignatureId(rest: string): TheoryQuizItem | undefined {
+  const match = KEY_SIGNATURE_ID_PATTERN.exec(rest)
+  if (match === null) return undefined
+  const fifths = Number(at(match, 1))
+  const mode: Mode = at(match, 2) === 'major' ? 'major' : 'minor'
+  return makeKeySignatureItem(fifths, mode)
+}
+
+/**
+ * `recipe.type` itself contains a dash ('perfect-authentic'), so the
+ * remainder cannot be split positionally like the other kinds — instead try
+ * each of the (few, known) recipes' own type as the id's prefix. Recipe
+ * types never share a prefix, so at most one ever matches.
+ */
+function parseCadenceId(rest: string): TheoryQuizItem | undefined {
+  const recipe = WIDEST_CADENCES.find((r) => rest.startsWith(`${r.type}-`))
+  if (recipe === undefined) return undefined
+  const tonic = parseTonicKey(rest.slice(recipe.type.length + 1))
+  if (tonic === undefined) return undefined
+  const keyResult = keyOf(tonic, 'major')
+  if (!keyResult.ok) return undefined
+  const key = keyResult.value
+  return makeCadenceItem(recipe, key)
+}
+
+/** One parser per kind, keyed for `theoryQuizFromId`'s dispatch — each takes the id minus its kind prefix. */
+const ID_PARSERS: Readonly<Record<TheoryQuizKind, (rest: string) => TheoryQuizItem | undefined>> = {
+  'build-scale': parseScaleId,
+  'build-chord': parseChordId,
+  'build-interval': parseIntervalId,
+  'name-key-signature': parseKeySignatureId,
+  'build-cadence': parseCadenceId,
 }
 
 // ---------------------------------------------------------------------------
