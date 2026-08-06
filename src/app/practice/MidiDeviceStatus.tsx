@@ -30,7 +30,7 @@ export function MidiDeviceStatus({
   }
 
   return (
-    <p className="midi-status midi-status-connected" role="status">
+    <p className="midi-status midi-status-connected" role="status" data-state="connected">
       MIDI keyboard connected: {selected.name}
     </p>
   )

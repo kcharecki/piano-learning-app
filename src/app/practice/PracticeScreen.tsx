@@ -368,75 +368,83 @@ export function PracticeScreen(props: PracticeScreenProps) {
   return (
     <div className="practice-screen">
       <div className="practice-controls">
-        <MidiDeviceStatus
-          connected={midi.input !== undefined}
-          devices={midi.devices}
-          selectedDeviceId={midi.selectedDeviceId}
-          connectionError={midi.connectionError}
-        />
-        <TransportControls
-          phase={engine.phase}
-          position={engine.position}
-          onPlay={handlePlay}
-          // REQ-3.3.4: an assessment run cannot be paused or stopped once
-          // started — enforced by disabling the buttons (`disabled` below),
-          // not by swallowing the click in a no-op handler, so a click during
-          // a run visibly does nothing instead of silently doing nothing.
-          onPause={engine.pause}
-          onStop={handleStop}
-          disabled={assessmentRunning}
-        />
-        <TempoControl
-          tempoScale={settings.tempoScale}
-          onChange={setTempoScale}
-          writtenBpm={engine.writtenBpm}
-          effectiveBpm={engine.effectiveBpm}
-          disabled={assessmentRunning}
-        />
-        <dl className="note-feedback" role="status" aria-live="polite" aria-label="Note feedback">
-          <dt>Accuracy</dt>
-          <dd data-testid="feedback-accuracy">{Math.round(feedback.summary.accuracy * 100)}%</dd>
-          <dt>Correct</dt>
-          <dd data-testid="feedback-correct">{feedback.summary.correct}</dd>
-          <dt>Wrong pitch</dt>
-          <dd data-testid="feedback-wrong-pitch">{feedback.summary.wrongPitch}</dd>
-          <dt>Missed</dt>
-          <dd data-testid="feedback-missed">{feedback.summary.missed}</dd>
-          <dt>Extra</dt>
-          <dd data-testid="feedback-extra">{feedback.summary.extra}</dd>
-        </dl>
-        {/* REQ-3.3.2's other half: the matcher has always computed early/late
-            and a signed deviation for every attributed press, and until now
-            nothing displayed either (roadmap 2.23). */}
-        <TimingFeedback
-          lastJudgement={feedback.lastJudgement}
-          meanAbsDeviationMs={feedback.summary.meanAbsDeviationMs}
-        />
-        <TempoRampControl
-          enabled={ramp.enabled}
-          onToggle={(on) => {
-            if (on) {
-              ramp.start({
-                startBpm: bpm(rampFromBpm),
-                targetBpm: bpm(rampToBpm),
-                stepBpm: rampStepBpm,
-                repsPerStep: RAMP_REPS_PER_STEP,
-              })
-            } else {
-              ramp.stop()
-            }
-          }}
-          fromBpm={rampFromBpm}
-          onFromBpmChange={setRampFromBpm}
-          toBpm={rampToBpm}
-          onToBpmChange={setRampToBpm}
-          stepBpm={rampStepBpm}
-          onStepBpmChange={setRampStepBpm}
-          repsPerStep={ramp.repsPerStep ?? RAMP_REPS_PER_STEP}
-          state={ramp.state}
-          nextBpm={ramp.nextBpm}
-          disabled={assessmentRunning}
-        />
+        <div className="transport-group">
+          <TransportControls
+            phase={engine.phase}
+            position={engine.position}
+            onPlay={handlePlay}
+            // REQ-3.3.4: an assessment run cannot be paused or stopped once
+            // started — enforced by disabling the buttons (`disabled` below),
+            // not by swallowing the click in a no-op handler, so a click during
+            // a run visibly does nothing instead of silently doing nothing.
+            onPause={engine.pause}
+            onStop={handleStop}
+            disabled={assessmentRunning}
+          />
+        </div>
+        <div className="tempo-group">
+          <TempoControl
+            tempoScale={settings.tempoScale}
+            onChange={setTempoScale}
+            writtenBpm={engine.writtenBpm}
+            effectiveBpm={engine.effectiveBpm}
+            disabled={assessmentRunning}
+          />
+          <TempoRampControl
+            enabled={ramp.enabled}
+            onToggle={(on) => {
+              if (on) {
+                ramp.start({
+                  startBpm: bpm(rampFromBpm),
+                  targetBpm: bpm(rampToBpm),
+                  stepBpm: rampStepBpm,
+                  repsPerStep: RAMP_REPS_PER_STEP,
+                })
+              } else {
+                ramp.stop()
+              }
+            }}
+            fromBpm={rampFromBpm}
+            onFromBpmChange={setRampFromBpm}
+            toBpm={rampToBpm}
+            onToBpmChange={setRampToBpm}
+            stepBpm={rampStepBpm}
+            onStepBpmChange={setRampStepBpm}
+            repsPerStep={ramp.repsPerStep ?? RAMP_REPS_PER_STEP}
+            state={ramp.state}
+            nextBpm={ramp.nextBpm}
+            disabled={assessmentRunning}
+          />
+        </div>
+        <div className="status-group">
+          <MidiDeviceStatus
+            connected={midi.input !== undefined}
+            devices={midi.devices}
+            selectedDeviceId={midi.selectedDeviceId}
+            connectionError={midi.connectionError}
+          />
+          <dl className="note-feedback" role="status" aria-live="polite" aria-label="Note feedback">
+            <dt>Accuracy</dt>
+            <dd className="accuracy-value" data-testid="feedback-accuracy">
+              {Math.round(feedback.summary.accuracy * 100)}%
+            </dd>
+            <dt>Correct</dt>
+            <dd data-testid="feedback-correct">{feedback.summary.correct}</dd>
+            <dt>Wrong pitch</dt>
+            <dd data-testid="feedback-wrong-pitch">{feedback.summary.wrongPitch}</dd>
+            <dt>Missed</dt>
+            <dd data-testid="feedback-missed">{feedback.summary.missed}</dd>
+            <dt>Extra</dt>
+            <dd data-testid="feedback-extra">{feedback.summary.extra}</dd>
+          </dl>
+          {/* REQ-3.3.2's other half: the matcher has always computed early/late
+              and a signed deviation for every attributed press, and until now
+              nothing displayed either (roadmap 2.23). */}
+          <TimingFeedback
+            lastJudgement={feedback.lastJudgement}
+            meanAbsDeviationMs={feedback.summary.meanAbsDeviationMs}
+          />
+        </div>
       </div>
       {loaded.musicXml !== undefined && (
         <ScoreViewer

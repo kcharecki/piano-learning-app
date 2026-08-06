@@ -34,7 +34,7 @@ describe('AnalysisPanel', () => {
     // satisfy a `toContain` check against every expected numeral).
     const expected = ['I', 'V', 'IV', 'I', 'I', 'V', 'IV', 'I', 'I', 'V', 'IV', 'I']
     const actual = expected.map((_, index) =>
-      screen.getByTestId(`analysis-measure-${index}`).querySelector('.analysis-chords')?.textContent,
+      screen.getByTestId(`analysis-measure-${index}`).querySelector('.numerals')?.textContent,
     )
     expect(actual).toEqual(expected)
   })
@@ -108,10 +108,10 @@ describe('AnalysisPanel', () => {
     render(<AnalysisPanel score={score} />)
 
     expect(
-      screen.getByTestId('analysis-measure-0').querySelector('.analysis-chords')?.textContent,
+      screen.getByTestId('analysis-measure-0').querySelector('.numerals')?.textContent,
     ).toBe('V6')
     expect(
-      screen.getByTestId('analysis-measure-1').querySelector('.analysis-cadence')?.textContent,
+      screen.getByTestId('analysis-measure-1').querySelector('.cadence')?.textContent,
     ).toBe('Imperfect authentic cadence')
   })
 

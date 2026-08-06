@@ -95,7 +95,7 @@ export const ScoreViewer = forwardRef<ScoreViewerHandle, ScoreViewerProps>(funct
   }
 
   return (
-    <div className="score-viewer">
+    <div className="score-viewer notation-frame" style={{ position: 'relative' }}>
       {error !== undefined && (
         <p role="alert" className="score-viewer-error">
           Could not display this score: {error}

@@ -81,7 +81,7 @@ export function LoopRangeControl({ score, loop, onChange, tempoScale }: LoopRang
   }
 
   return (
-    <div className="loop-range-control" role="group" aria-label="Loop range">
+    <div className="loop-range-control loop-group" role="group" aria-label="Loop range">
       <label htmlFor={startId}>From measure</label>
       <input
         id={startId}

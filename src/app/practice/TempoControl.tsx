@@ -42,7 +42,7 @@ export function TempoControl({
         disabled={disabled}
         onChange={(event) => onChange(Number(event.target.value) / 100)}
       />
-      <output>
+      <output className="tempo-value">
         {percent}%
         {writtenBpm !== undefined &&
           ` — ${Math.round(effectiveBpm ?? writtenBpm)} bpm (written ${Math.round(writtenBpm)})`}

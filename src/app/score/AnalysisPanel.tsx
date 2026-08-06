@@ -116,10 +116,10 @@ export function AnalysisPanel({ score }: AnalysisPanelProps) {
       <ol className="analysis-measures">
         {rows.map((row) => (
           <li key={row.index} data-testid={`analysis-measure-${row.index}`}>
-            <span className="analysis-measure-number">m.{row.number}</span>
-            <span className="analysis-chords">{row.labels.join(' ')}</span>
+            <span className="measure-no">m.{row.number}</span>
+            <span className="numerals">{row.labels.join(' ')}</span>
             {row.cadences.map((cadence, i) => (
-              <span key={i} className="analysis-cadence">
+              <span key={i} className="cadence">
                 {cadence}
               </span>
             ))}
