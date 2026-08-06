@@ -7,10 +7,28 @@
  * MIDI-out — is not wired up here; `@adapters/audio` already implements it
  * (`selectAudioOutput`), it just is not plumbed into the practice screen yet.
  * See the roadmap-1.18 report for why.
+ *
+ * Seven call sites (metronome, ear training, practice, sight-reading, rhythm
+ * drill, the chord/scale reference, and its diatonic-chords sub-panel) each
+ * call this on their own first press. A per-call `new AudioContext()` used to
+ * mean the count of live contexts equalled the count of screens ever visited
+ * this session, and Chrome caps how many a document may construct — the next
+ * construction past that cap throws *inside the click handler*, silently
+ * killing that Play button. Memoising a module-level singleton here means
+ * every caller shares one context no matter how many screens or components
+ * ask for it. Still built lazily — this module-level variable starts
+ * `undefined` and the `AudioContext` is only constructed the first time any
+ * caller actually presses play, inside that press's user gesture, never at
+ * import time.
  */
 import type { AudioOutput } from '@core/ports/audio.ts'
 import { createWebAudioOutput } from '@adapters/audio/index.ts'
 
+let singleton: AudioOutput | undefined
+
 export function createDefaultAudioOutput(): AudioOutput {
-  return createWebAudioOutput(new AudioContext())
+  if (singleton === undefined) {
+    singleton = createWebAudioOutput(new AudioContext())
+  }
+  return singleton
 }
