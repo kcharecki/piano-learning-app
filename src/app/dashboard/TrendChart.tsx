@@ -121,7 +121,7 @@ export function TrendChart(props: TrendChartProps) {
           )
         })}
 
-      {pathD !== undefined && <path d={pathD} className="trend-chart-line" fill="none" />}
+      {pathD !== undefined && <path d={pathD} className="trend-chart-line trend-line" fill="none" />}
 
       {kind === 'line' &&
         points.map((p, i) => (

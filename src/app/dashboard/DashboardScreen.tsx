@@ -60,18 +60,20 @@ export function DashboardScreen(props: DashboardScreenProps) {
   const assessmentBestByScoreEntries = Object.entries(data.assessmentBestByScore)
 
   return (
-    <div className="dashboard-screen">
+    <div className="dashboard-screen dashboard-grid">
       <h2>Progress</h2>
 
       <section aria-label="Current level per track" role="region">
         <h3>Current level per track</h3>
         <ul>
           {data.levels.map((l) => (
-            <li key={l.track} data-testid={`dashboard-level-${l.track}`}>
-              <span>
-                {TRACK_LABELS[l.track]}: level {l.level}
-                {l.overridden ? ' (overridden)' : ''}
-              </span>
+            <li key={l.track} data-testid={`dashboard-level-${l.track}`} className="track-level">
+              <div className="level-label">
+                <span>
+                  {TRACK_LABELS[l.track]}: level <b>{l.level}</b>
+                </span>
+                <span>{l.overridden ? ' (overridden)' : ''}</span>
+              </div>
               <select
                 aria-label={`${TRACK_LABELS[l.track]} level`}
                 data-testid={`dashboard-level-select-${l.track}`}
@@ -116,11 +118,15 @@ export function DashboardScreen(props: DashboardScreenProps) {
         <h3>Practice streak &amp; weekly time</h3>
         <dl>
           <dt>Current streak</dt>
-          <dd data-testid="dashboard-streak-current">{data.streak.currentDays} day(s)</dd>
+          <dd data-testid="dashboard-streak-current" className="streak-value">
+            {data.streak.currentDays} day(s)
+          </dd>
           <dt>Longest streak</dt>
           <dd data-testid="dashboard-streak-longest">{data.streak.longestDays} day(s)</dd>
           <dt>This week</dt>
-          <dd data-testid="dashboard-weekly-minutes">{round(data.weeklyMinutes)} min</dd>
+          <dd data-testid="dashboard-weekly-minutes" className="weekly-minutes">
+            {round(data.weeklyMinutes)} min
+          </dd>
         </dl>
         {data.weeklyMinutes === 0 ? (
           <p role="status" data-testid="dashboard-weekly-empty">
@@ -306,9 +312,13 @@ function TrackAdvancePanel({ track, level, overridden, criteria, evidence }: Tra
 
   return (
     <>
-      <ul aria-label={`${TRACK_LABELS[track]} exit criteria`}>
+      <ul aria-label={`${TRACK_LABELS[track]} exit criteria`} className="exit-criteria">
         {criteria.map((c, i) => (
-          <li key={c.criterion.id} data-testid={`dashboard-criterion-${track}-${i}`}>
+          <li
+            key={c.criterion.id}
+            data-testid={`dashboard-criterion-${track}-${i}`}
+            data-state={c.met ? 'met' : undefined}
+          >
             <span data-testid={`dashboard-criterion-status-${track}-${i}`}>
               {c.met ? 'Met' : 'Not met'}
             </span>{' '}

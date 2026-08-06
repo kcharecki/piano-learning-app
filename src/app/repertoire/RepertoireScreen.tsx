@@ -70,7 +70,7 @@ export function RepertoireScreen() {
       {repertoire.pieces.length === 0 ? (
         <p>No pieces in your library yet — add the score you have loaded above.</p>
       ) : (
-        <ul className="repertoire-library" aria-label="Repertoire pieces">
+        <ul className="repertoire-library repertoire-list" aria-label="Repertoire pieces">
           {repertoire.pieces.map((piece) => (
             <PieceRow
               key={piece.id}
@@ -146,6 +146,7 @@ function PieceRow({ piece, daysSince, onStatusChange, onNotesChange }: PieceRowP
       <span className="repertoire-piece-title">{piece.title}</span>
       <span className="repertoire-piece-composer">{piece.composer}</span>
       <span className="repertoire-piece-level">Level {piece.level}</span>
+      <span className="badge">{piece.status}</span>
 
       <label htmlFor={statusId}>Status</label>
       <select
