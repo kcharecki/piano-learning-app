@@ -139,6 +139,19 @@ export function MetronomeScreen(props: MetronomeScreenProps) {
             : 'Starting…'
           : 'Stopped'}
       </p>
+
+      <div className="metronome-beats" aria-hidden="true">
+        {Array.from({ length: metronome.timeSignature.beats }, (_, i) => {
+          const isActive = metronome.running && metronome.lastClick?.beat === i
+          return (
+            <span
+              key={i}
+              className={metronome.accents[i] === true ? 'beat is-accent' : 'beat'}
+              data-state={isActive ? 'active' : undefined}
+            />
+          )
+        })}
+      </div>
     </div>
   )
 }

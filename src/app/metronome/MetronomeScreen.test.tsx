@@ -117,6 +117,44 @@ describe('MetronomeScreen', () => {
     expect(audio.clicks.map((c) => c.accented)).toEqual([true, true, false, false])
   })
 
+  it('renders one beat dot per beat, marking the accented beat and the currently-sounding one', () => {
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const manual = manualDriver()
+    const { container } = render(
+      <MetronomeScreen clock={clock} audioOutput={audio} frameDriver={manual.driver} />,
+    )
+
+    // Default 4/4: four dots, only the first (beat 1) accented, none active yet.
+    const dotsBefore = container.querySelectorAll('.metronome-beats .beat')
+    expect(dotsBefore).toHaveLength(4)
+    expect(Array.from(dotsBefore).map((el) => el.classList.contains('is-accent'))).toEqual([
+      true,
+      false,
+      false,
+      false,
+    ])
+    expect(Array.from(dotsBefore).some((el) => el.getAttribute('data-state') === 'active')).toBe(
+      false,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }))
+    act(() => {
+      // Crosses the downbeat (0ms) and beat 2 (600ms) only, same window as
+      // the readout test above, so beat 2 (index 1) is the last one clicked.
+      clock.advance(700)
+      manual.pump()
+    })
+
+    const dotsAfter = container.querySelectorAll('.metronome-beats .beat')
+    expect(Array.from(dotsAfter).map((el) => el.getAttribute('data-state'))).toEqual([
+      null,
+      'active',
+      null,
+      null,
+    ])
+  })
+
   it('rejects an invalid subdivision/tempo combination and leaves the schedule unchanged', () => {
     const clock = new FakeClock()
     const audio = new RecordingAudioOutput(clock)
