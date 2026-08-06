@@ -693,10 +693,16 @@ The M3 gaps that are unbuilt features rather than defects. Each states its proof
       only by clicking the Theory nav item and changing a dropdown.
       *Proof: opening "Quiz: spelling the C major triad" from its lesson lands on the theory drill
       with `build-chord` preselected, and a chord played on the keyboard grades.*
-- [ ] 3.13 `app/theory`: hear it (REQ-3.5.3, 3.5.4) — the Theory screen contains no audio call at
-      all; the Web Audio adapter exists and is wired only from `practice/`.
-      *Proof: clicking Play on a looked-up scale sends that scale's exact pitches to the audio
-      output (assert the pitches, not that a button exists).*
+- [x] 3.13 `app/theory`: hear it (REQ-3.5.3, 3.5.4)
+      *Proved in `ChordScaleReference.test.tsx` against the recorded `AudioOutput` calls, not the
+      `playedNotes` projection: G major's exact pitches at exact ascending timestamps, a note-off
+      per note-on, and a velocity above zero. That last one matters — review found `PLAY_VELOCITY
+      = 0` (a completely SILENT feature), zero note spacing, and deleting both note-offs all kept
+      the original 16 tests green. All three mutants were confirmed to fail now. Also fixed: no
+      panic on lookup change (you heard G major finish while the screen said D) and a new
+      AudioContext per screen visit, against Chrome's ~6-per-document cap.
+      Chord Play covers 6 of 16 scale types, because the chords section itself is suppressed for
+      the modal/exotic ones — that is 3.15.*
 - [ ] 3.14 `app/theory`: the staff half of "see it on staff and keyboard" (REQ-3.5.3, 3.5.4) — the
       reference renders a keyboard SVG and a table of note names; `osmdEngraver` is never imported
       by the theory layer.
@@ -711,36 +717,99 @@ The M3 gaps that are unbuilt features rather than defects. Each states its proof
 - [ ] 3.16 `core/theory`: fingering for the other 14 scale types (REQ-3.5.4) — `scaleFingering`
       returns `null` unless the type is major/ionian, and the circle's whole inner ring lands the
       user on `naturalMinor`, i.e. half the advertised flow reaches a fingering-less reference.
-      *Proof: property test that every selectable scale type returns a fingering whose finger
-      numbers are 1–5 and whose thumb-unders fall where the standard fingering puts them.*
+      **ATTEMPTED 2026-08-04 AND REVERTED — read this before trying again.** An implementation was
+      built (tables for the minor forms and chromatic, a thumb-placement rule deriving the other
+      ten types) and reverted after adversarial review, with a green 526-test suite, found:
+      * **11 of 108 derived fingerings were anatomically impossible** — thumb crossing UNDER the
+        5th finger, or the same finger on two consecutive keys — and all 11 passed the property
+        test. 55 of 108 had at least one hard defect: the rule forced a thumb landing on every
+        white key after a black one, producing 2-note groups (`dorian E` RH `1 2 1 2 3 4 1 2`,
+        thumb tucked under finger 2).
+      * **the chromatic table was the standard pattern with 2 and 3 transposed** — the taught
+        fingering is 3 on every black key, thumb on the whites; it had 2 on the blacks.
+      * **two hand-written minor rows were unplayable** — E♭ harmonic/melodic LH had the thumb
+        twice in a row; B♭ had finger 2 crossing over the thumb twice.
+      * **the justification was false and untested**: the doc claimed the rule reproduced
+        `MAJOR_FINGERINGS` for all 12 tonics; no such test existed, and the left hand differs on
+        5 of 12 — derived C major LH is the B major pattern.
+      The lesson for the retry: the three properties the suite checked (fingers 1–5, one per
+      degree, no thumb on black) are satisfiable by fingerings no pianist would use. Write these
+      FIRST, for all 16 types × 12 tonics, both hands: (a) no finger repeats on consecutive
+      degrees; (b) no 5→1 or 1→5 transition; (c) RH increases by exactly 1 between thumb
+      landings, LH decreases; (d) every group between landings is 3 or 4 notes. Those four kill
+      every blocker above except the chromatic swap. A black key must PERMIT a landing, not
+      require one. For 5- and 6-note scales (pentatonics, blues, whole tone) the answer is one
+      finger per note, not a grouped major-scale walk. And the derivation must reproduce
+      `MAJOR_FINGERINGS` in a real, exported test before it is trusted anywhere else.
+      *Proof: the four properties above, plus named both-hand examples for A/E natural minor,
+      A harmonic minor, C chromatic, C♯ and F♯ minor, and one per derived family.*
 - [ ] 3.17 `app/shell`: the chord/scale reference "available at all times" (REQ-3.5.4) — today it is
       a destination you leave your place for; `Shell` renders exactly one screen.
       *Proof: open it from the practice screen without losing the loaded score.*
-- [ ] 3.18 `app/score`: applied analysis, honestly scoped (REQ-3.5.5) — the panel is not gated to
-      levels 4–5 (a level-1 beginner sees roman numerals on their first score) and is a side list
-      of measure numbers rather than annotations on the engraving.
-      *Proof: the panel is absent at level 1 and present at level 4; numerals sit above their own
-      measures in the score.*
-- [ ] 3.19 `core/theory/analysis`: `detectKey` counts the relative minor's leading tone appearing
-      ANYWHERE in the score as a minor vote, not at cadences. A C-major piece with one V/vi and an
-      A at either end is reported in A minor, mislabelling every numeral downstream.
-      *Proof: a property test over major-key scores with one chromatic passing tone; and the
-      Twinkle sample plus a secondary dominant still reads C major.*
-- [ ] 3.20 `app/theory`: SRS that re-serves the actual due fact (REQ-3.5.6) — `dueCards` picks only
-      the next KIND; the item itself is a fresh random draw, so "E major has 4 sharps" is never
-      guaranteed to reappear. Also: the level selector offers 1–8 while every `*_BY_LEVEL` table has
-      4 entries, so levels 5–8 are identical to 4.
-      *Proof: answer one item wrong, and see that exact item again when it comes due.*
+- [x] 3.18 `app/score`: gate applied analysis to theory level 4+ (REQ-3.5.5)
+      *Proved by `e2e/round6.spec.ts`, which now asserts the Harmonic analysis region is ABSENT on
+      Practice at the default level, then raises theory to 4 through the dashboard's own override
+      and asserts the numerals — confirmed to fail with the gate deleted. The first cut raised the
+      level before ever visiting Practice, so deleting the gate left it green. Also fixed: the
+      level slice restores 10th of 11, behind the score's MusicXML read, so a level-4 learner
+      watched the panel pop in — `levelStore` now carries a `hydrated` flag set when the restore
+      ATTEMPT completes, stored record or not. And `perf-large-score.spec.ts` raises the level, so
+      the 102-measure score is still analysed in a browser (p95 frame gap 18ms, inside budget).*
+- [ ] 3.18a `app/score`: put the numerals ON the engraving (REQ-3.5.5's second half) — the analysis
+      is a side list of `m.N` rows beside the score, so the learner maps measure numbers back to
+      the staff by eye. `osmdEngraver` is where this belongs.
+      *Proof: the numeral for measure 3 is positioned under measure 3 of the rendered score.*
+- [x] 3.19 `core/theory/analysis`: make the minor-key leading-tone vote positional
+      *The vote now requires the bass's own next move after the leading tone to land on the minor
+      tonic at or after the final measure, with the bass taken from left-hand notes only. Proved by
+      four constructed scores that each read the WRONG key before: V/vi mid-piece, a last-bar
+      right-hand flourish over a tonic bass, a monophonic line, and (in the other direction) a
+      genuine A minor whose dominant is held a whole bar. The first attempt at this fixed none of
+      them — review reproduced each by running the code. Two tests were themselves wrong: one
+      asserted a "known limitation" its own fixture did not exhibit, and the property test used an
+      I–IV–V–I skeleton where both bass votes are always false, so it could not fail under the old
+      implementation despite claiming to.*
+- [ ] 3.19a `core/theory/analysis`: the `>= 2` vote threshold itself. A plagal minor piece not
+      bracketed by tonic bass — A minor `iv | i | iv | i`, no leading tone anywhere, first bass D —
+      reads as C major, before and after 3.19. The three votes are unweighted and two of them are
+      the same evidence (first bass, last bass).
+      *Proof: that score reads A minor, and the 3.19 fixtures still read what they read now.*
+- [x] 3.20 `app/theory`: SRS that re-serves the actual due fact (REQ-3.5.6)
+      *Theory quiz ids are derived purely from content, so they are genuinely reversible: each
+      `build*Item` is split into a pure `make*Item` plus an rng-picking wrapper, and
+      `theoryQuizFromId` calls the SAME constructor, with an `item.id === id` re-derivation guard.
+      Proved by answering an item wrong, drawing an intervening item, advancing the clock past the
+      due time, and asserting the ORIGINAL prompt string (captured from the DOM) comes back.
+      The audit's second claim here was WRONG and review caught it: levels 5–8 are not identical
+      to 4, because the widest axis is not a table but `fifthsRangeForLevel`, which keeps widening
+      to 8. Capping the selector at 4 deleted E, B, F♯, C♯, A♭, D♭, G♭ and C♭ — including E major,
+      this task's own example. The ceiling is derived from the right thing now and is 8.
+      Also fixed: the due card was consulted only after an answer, so the first item of every
+      session was random however large the backlog; and one unparseable id at the head of the due
+      queue silently disabled recall for every other card, forever.*
 - [ ] 3.21 `app/eartraining`: clap/tap-back (REQ-3.6.2) — there is no call-and-response anywhere.
       The Rhythm screen shows the pattern for the whole run and silences the audio deliberately, so
       it is rhythm SIGHT-READING; "hear a phrase and clap it back" has never been built.
       *Proof: the pattern is heard and never shown, and the tapped answer is graded.*
-- [ ] 3.22 `core/eartraining`: `EarAdaptOptions.band` is accepted, invariant-checked and never used
-      — the promotion decision is pure boolean unanimity, unlike its sight-reading counterpart which
-      compares accuracy against `low`/`high`. Either use it or delete it. Related: the dashboard
-      passes `earTrainingLevel: 0` because it has no honest source; once 3.11a persists the level,
-      it does.
-      *Proof: passing a different band changes the promotion point.*
+- [x] 3.22 `core/eartraining`: delete the inert band; give the dashboard an honest ear level
+      *The audit called `band` a forgotten parameter and this task set out to honour it. Review
+      refuted the premise: `adaptLevel` is `run.every(r => r.accuracy > high)` — per-ITEM
+      unanimity, never an aggregate — and over a boolean accuracy that IS "all correct promotes".
+      The existing code was already the exact mirror; `band` was inert as a consequence of the
+      boolean domain. The rate rule shipped in between was measurably worse: `high` unreachable at
+      window 5, a hold zone one point wide, equilibrium at p≈0.785 BELOW the band, and the level
+      moving on ~59% of answers at p=0.80. Reverted to unanimity, `band` and `DEFAULT_BAND`
+      deleted. Two real defects fixed alongside: the adaptation window was filtered by kind but not
+      by LEVEL (so a demotion cascaded on answers from a level the learner no longer occupied,
+      though `EarAttempt.level` had been recorded and read by nothing all along), and the dashboard
+      reported level 1 for a session with zero attempts, which would read as MET for a `minLevel:
+      1` ear check on no evidence.*
+- [ ] 3.26 `core/eartraining`: give an attempt a real accuracy, then a band means something.
+      `EarAttempt.correct` is a boolean, which is why 3.22 deleted the band — but dictation already
+      computes `pitchAccuracy` and `rhythmAccuracy`, so the information exists and is thrown away
+      at the attempt boundary.
+      *Proof: a dictation answered at 80% pitch accuracy adapts differently from one at 20%, and
+      the band value changes where that boundary sits.*
 - [ ] 3.23 `app/eartraining`: give dictation a tempo reference (REQ-3.6.1) — the answer is graded
       against a fixed ±eighth tolerance with no count-in, no metronome and no displayed tempo.
       Measured: replaying a level 3–5 melodic phrase 8% slow grades incorrect in 416 of 900 cases.
