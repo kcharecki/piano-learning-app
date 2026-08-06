@@ -507,16 +507,16 @@ describe('PracticeScreen', () => {
     // rule were deleted. Read the stylesheet directly and pin its content —
     // this fails if `position: sticky`, `top: 0`, `background` or `z-index`
     // are removed from `.practice-controls`.
-    const cssPath = join(process.cwd(), 'src', 'styles.css')
+    const cssPath = join(process.cwd(), 'src', 'design-system', 'css', 'domain.css')
     const css = readFileSync(cssPath, 'utf-8')
     const ruleMatch = /\.practice-controls\s*\{([^}]*)\}/.exec(css)
-    invariant(ruleMatch !== null, '.practice-controls rule missing from styles.css')
+    invariant(ruleMatch !== null, '.practice-controls rule missing from domain.css')
     const rule = at(ruleMatch, 1)
 
     expect(rule).toMatch(/position:\s*sticky/)
     expect(rule).toMatch(/top:\s*0/)
-    expect(rule).toMatch(/background:\s*var\(--bg\)/)
-    expect(rule).toMatch(/z-index:\s*10/)
+    expect(rule).toMatch(/background:\s*var\(--bg-1\)/)
+    expect(rule).toMatch(/z-index:\s*var\(--z-sticky\)/)
   })
 
   // Kills a mutant that hardcodes `canRecord` to `true` (or drops the prop,

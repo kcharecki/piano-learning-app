@@ -1,0 +1,12 @@
+/* Piano practice design system — global entry point.
+   Import this one file. Order matters: tokens → base → components. */
+@import "tokens/colors.css";
+@import "tokens/typography.css";
+@import "tokens/spacing.css";
+@import "tokens/elevation.css";
+@import "tokens/motion.css";
+@import "tokens/z-index.css";
+@import "css/base.css";
+@import "css/primitives.css";
+@import "css/domain.css";
+@import "css/responsive.css";

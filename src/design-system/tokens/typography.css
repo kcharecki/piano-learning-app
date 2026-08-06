@@ -1,0 +1,30 @@
+/* ============================================================
+   Type tokens. System stack only (offline-first, zero requests).
+   Scale is tuned for arm's-length reading: fewer steps, each
+   larger than web defaults. "Glance" tier is for values read
+   peripherally while eyes are on the score (tempo, beat, accuracy).
+   ============================================================ */
+:root {
+  --font-ui: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+
+  /* Size scale — 7 steps, nothing below 13px anywhere */
+  --text-xs: 0.8125rem;   /* 13px — badges, table meta. Never body copy */
+  --text-sm: 0.875rem;    /* 14px — secondary labels, captions */
+  --text-md: 1rem;        /* 16px — default body */
+  --text-lg: 1.1875rem;   /* 19px — lesson body, anything read mid-practice */
+  --text-xl: 1.5rem;      /* 24px — section headers, flashcard answers */
+  --text-2xl: 2rem;       /* 32px — screen titles, drill prompts */
+  --text-glance: 2.75rem; /* 44px — tempo, accuracy %, beat counter */
+
+  --leading-tight: 1.2;
+  --leading-normal: 1.5;
+  --leading-loose: 1.65;  /* lesson prose */
+
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  --tracking-caps: 0.06em; /* the only letter-spacing in the system */
+}

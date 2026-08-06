@@ -1,0 +1,528 @@
+/* ============================================================
+   Domain components, written against the existing block-element
+   class names. Where a class name was not visible to me it is
+   marked ASSUMED in the selector-map below — rename in place,
+   nothing else references it.
+
+   SELECTOR MAP (known ✓ / assumed ?):
+   ✓ .practice-controls        transport bar
+   ✓ .keyboard-diagram         on-screen piano + reference diagrams
+   ✓ .circle-of-fifths         interactive SVG wrapper
+   ✓ .chord-scale-reference    scale/chord tables
+   ✓ .flashcard-screen         flashcard drill
+   ✓ .analysis-measures        harmonic analysis rows
+   ✓ .lesson-body              lesson prose
+   ✓ .eartraining-stats        retention stats row
+   ✓ .export-panel             export controls
+   ? .app-nav                  left navigation
+   ? .notation-frame           OSMD wrapper ("paper")
+   ? .dictation-result         per-note dictation feedback
+   ? .metronome-beats          beat indicator
+   ? .dashboard-*              progress screen blocks
+
+   STATE HOOKS: musical feedback uses data-state="correct|wrong|
+   late|early|missed|extra|playing|upcoming|out" on keys, notes,
+   and rows. This is a data-* ADDITION — it never touches
+   aria-label / data-testid. Every state pairs color with a
+   non-color cue (glyph, outline style, or position marker).
+   ============================================================ */
+
+/* ---------- App shell + nav ---------- */
+.app-layout { display: flex; min-height: 100vh; }
+.app-topbar, .nav-scrim { display: none; }
+.app-nav {
+  width: var(--nav-w);
+  flex: none;
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: 100vh;
+  overflow-y: auto;
+  background: var(--bg-1);
+  border-right: var(--border-w) solid var(--border-1);
+  padding: var(--space-3) var(--space-2);
+  z-index: var(--z-nav);
+}
+.app-nav button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: var(--space-2);
+  min-height: var(--control-h);
+  padding: 0 var(--space-3);
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-1);
+  color: var(--text-2);
+  font-weight: var(--weight-medium);
+  font-size: var(--text-md);
+  text-align: left;
+  cursor: pointer;
+}
+.app-nav button:hover { color: var(--text-1); background: var(--bg-2); }
+.app-nav button[aria-current="page"] {
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+.app-main {
+  flex: 1;
+  min-width: 0;
+  max-width: var(--content-max);
+  padding: var(--space-5) var(--content-pad) var(--space-8);
+}
+
+/* ---------- Transport bar (.practice-controls) ----------
+   Three-tier hierarchy: 1 transport buttons (biggest, leftmost),
+   2 tempo + metronome + loop (middle), 3 status readouts (right,
+   quiet until they matter). Sticky, opaque, above the score. */
+.practice-controls {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-2) var(--space-3);
+  margin: 0 calc(-1 * var(--content-pad)) var(--space-4);
+  background: var(--bg-1);
+  border-bottom: var(--border-w) solid var(--border-1);
+  box-shadow: var(--elev-1);
+}
+.practice-controls .transport-group { display: flex; gap: var(--space-1); }
+.practice-controls .tempo-group,
+.practice-controls .loop-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-left: var(--space-3);
+  border-left: var(--border-w) solid var(--border-1);
+}
+.practice-controls .tempo-group input[type="range"] { width: 140px; }
+.practice-controls label { font-size: var(--text-sm); color: var(--text-2); white-space: nowrap; }
+.practice-controls .status-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-left: auto;
+}
+.tempo-value, .accuracy-value {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  min-width: 3.2em;
+  text-align: right;
+}
+.accuracy-value { color: var(--fb-correct); }
+/* MIDI device status: text + dot, never color alone */
+.midi-status { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); color: var(--text-2); }
+.midi-status::before {
+  content: "";
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--fb-missed);
+}
+.midi-status[data-state="connected"]::before { background: var(--fb-correct); }
+.midi-status[data-state="connected"] { color: var(--text-1); }
+
+/* ---------- Notation frame ----------
+   A light "paper" sheet inside the dark shell. OSMD renders its
+   own black-on-light SVG onto it; the frame provides margin,
+   shadow, cursor, and feedback overlay colors. */
+.notation-frame {
+  background: var(--paper);
+  color: var(--paper-fg);
+  border: var(--border-w) solid var(--paper-edge);
+  border-radius: var(--radius-3);
+  box-shadow: var(--elev-paper);
+  padding: var(--space-5) var(--space-6);
+  overflow-x: auto;
+}
+.notation-frame svg { display: block; max-width: 100%; }
+/* Playback cursor: OSMD's cursor image/element gets this color */
+.notation-frame .osmd-cursor, .notation-frame img[id^="cursorImg"] {
+  filter: none;
+  background: rgba(33, 85, 200, .22) !important;
+}
+/* Per-note feedback: apply fill/stroke to the notehead group AND
+   attach a marker glyph above it (color never alone). Classes go
+   on OSMD note groups via its API. */
+.notation-frame .note-correct  { fill: var(--fb-correct-ink) !important;  stroke: var(--fb-correct-ink) !important; }
+.notation-frame .note-wrong    { fill: var(--fb-wrong-ink) !important;    stroke: var(--fb-wrong-ink) !important; }
+.notation-frame .note-late     { fill: var(--fb-late-ink) !important;     stroke: var(--fb-late-ink) !important; }
+.notation-frame .note-early    { fill: var(--fb-early-ink) !important;    stroke: var(--fb-early-ink) !important; }
+.notation-frame .note-missed   { fill: none !important;                   stroke: var(--fb-missed-ink) !important; stroke-dasharray: 2 2; }
+.notation-frame .note-extra    { fill: var(--fb-extra-ink) !important;    stroke: var(--fb-extra-ink) !important; }
+/* HTML overlay markers positioned above noteheads (glyph cue) */
+.note-marker {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-bold);
+  line-height: 1;
+  pointer-events: none;
+}
+.note-marker[data-state="correct"]  { color: var(--fb-correct-ink); }
+.note-marker[data-state="correct"]::before { content: "✓"; }
+.note-marker[data-state="wrong"]    { color: var(--fb-wrong-ink); }
+.note-marker[data-state="wrong"]::before { content: "✕"; }
+.note-marker[data-state="late"]     { color: var(--fb-late-ink); }
+.note-marker[data-state="late"]::before { content: "›"; font-size: 1.2em; }
+.note-marker[data-state="early"]    { color: var(--fb-early-ink); }
+.note-marker[data-state="early"]::before { content: "‹"; font-size: 1.2em; }
+.note-marker[data-state="missed"]   { color: var(--fb-missed-ink); }
+.note-marker[data-state="missed"]::before { content: "○"; }
+.note-marker[data-state="extra"]    { color: var(--fb-extra-ink); }
+.note-marker[data-state="extra"]::before { content: "+"; }
+
+/* ---------- On-screen piano (.keyboard-diagram) ----------
+   Also used small as a reference diagram inside .chord-scale-reference.
+   Keys are <button>s. Feedback via data-state; fingering via a
+   .key-finger child. White-key width is fluid; height fixed per
+   breakpoint. */
+.keyboard-diagram {
+  --white-key-w: clamp(30px, calc((100vw - var(--nav-w) - 2 * var(--content-pad)) / 22), 46px);
+  --key-h: 148px;
+  display: flex;
+  position: relative;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: var(--space-2);
+  background: var(--bg-1);
+  border: var(--border-w) solid var(--border-1);
+  border-radius: var(--radius-2);
+  --focus-ring: var(--focus-ring-paper);
+}
+.keyboard-diagram .key {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0 0 var(--space-2);
+  min-height: 0;
+  border: var(--border-w) solid var(--key-outline);
+  border-radius: 0 0 var(--radius-1) var(--radius-1);
+  transition: background var(--dur-1) var(--ease-out);
+}
+.keyboard-diagram .key-white {
+  width: var(--white-key-w);
+  height: var(--key-h);
+  background: var(--key-white);
+  color: var(--key-label);
+  margin-left: -1px;
+  z-index: 0;
+}
+.keyboard-diagram .key-white:active,
+.keyboard-diagram .key-white[data-state="pressed"] { background: var(--key-white-down); }
+.keyboard-diagram .key-black {
+  width: calc(var(--white-key-w) * 0.62);
+  height: calc(var(--key-h) * 0.62);
+  margin: 0 calc(var(--white-key-w) * -0.31);
+  background: var(--key-black);
+  color: var(--key-label-on-black);
+  z-index: 1;
+  align-self: flex-start;
+}
+.keyboard-diagram .key-black:active,
+.keyboard-diagram .key-black[data-state="pressed"] { background: var(--key-black-down); }
+/* Feedback states: wash fill + strong inset ring + position dot.
+   Rings on WHITE keys use the -ink variants (3:1+ on the light
+   key face); black keys use the bright shell variants. */
+.keyboard-diagram .key-white[data-state="correct"] { box-shadow: inset 0 0 0 3px var(--fb-correct-ink); background: color-mix(in srgb, var(--key-white), var(--fb-correct-ink) 22%); }
+.keyboard-diagram .key-black[data-state="correct"] { box-shadow: inset 0 0 0 3px var(--fb-correct); }
+.keyboard-diagram .key-white[data-state="wrong"] { box-shadow: inset 0 0 0 3px var(--fb-wrong-ink); background: color-mix(in srgb, var(--key-white), var(--fb-wrong-ink) 22%); }
+.keyboard-diagram .key-black[data-state="wrong"] { box-shadow: inset 0 0 0 3px var(--fb-wrong); }
+.keyboard-diagram .key-white[data-state="target"] { box-shadow: inset 0 0 0 3px var(--fb-playing-ink); }
+.keyboard-diagram .key-black[data-state="target"] { box-shadow: inset 0 0 0 3px var(--fb-playing); }
+.keyboard-diagram .key[data-state="target"]::after {
+  content: "";
+  position: absolute;
+  bottom: 4px; left: 50%;
+  transform: translateX(-50%);
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--fb-playing-ink);
+}
+.keyboard-diagram .key-black[data-state="target"]::after { background: var(--fb-playing); }
+.keyboard-diagram .key-white[data-state="in-scale"] { background: color-mix(in srgb, var(--key-white), var(--accent) 14%); }
+.keyboard-diagram .key-black[data-state="in-scale"] { background: color-mix(in srgb, var(--key-black), var(--accent) 35%); }
+.keyboard-diagram .key[data-state="in-scale"]::after {
+  content: "";
+  position: absolute;
+  bottom: 4px; left: 50%;
+  transform: translateX(-50%);
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: .7;
+}
+.keyboard-diagram .key-finger {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-bold);
+  font-family: var(--font-mono);
+  pointer-events: none;
+}
+
+/* ---------- Circle of fifths ---------- */
+.circle-of-fifths { display: grid; place-items: center; padding: var(--space-4); }
+.circle-of-fifths svg { width: min(420px, 100%); height: auto; }
+.circle-of-fifths .wedge {
+  fill: var(--bg-2);
+  stroke: var(--border-2);
+  stroke-width: 1;
+  cursor: pointer;
+  transition: fill var(--dur-1) var(--ease-out);
+}
+.circle-of-fifths .wedge:hover { fill: var(--bg-3); }
+.circle-of-fifths .wedge[aria-selected="true"], .circle-of-fifths .wedge.is-selected {
+  fill: var(--accent);
+  stroke: var(--accent-hover);
+}
+.circle-of-fifths .wedge.is-related { fill: var(--accent-dim); }
+.circle-of-fifths text {
+  fill: var(--text-1);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  font-weight: var(--weight-semibold);
+  text-anchor: middle;
+  pointer-events: none;
+}
+.circle-of-fifths .wedge-minor + text, .circle-of-fifths text.minor { font-size: 12px; fill: var(--text-2); }
+.circle-of-fifths .wedge[aria-selected="true"] + text { fill: var(--on-accent); }
+
+/* ---------- Chord & scale reference ---------- */
+.chord-scale-reference { display: grid; gap: var(--space-5); }
+.chord-scale-reference .keyboard-diagram { --key-h: 96px; --white-key-w: 34px; }
+.chord-scale-reference .degree-table td:first-child {
+  font-family: var(--font-mono);
+  color: var(--text-2);
+}
+.chord-scale-reference .fingering {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.15em;
+}
+.chord-scale-reference .chord-list { list-style: none; margin: 0; padding: 0; }
+.chord-scale-reference .chord-list > li {
+  display: grid;
+  grid-template-columns: 3.5em 1fr auto auto;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--touch-min);
+  padding: var(--space-1) var(--space-2);
+  border-bottom: var(--border-w) solid var(--border-1);
+}
+.chord-scale-reference .roman { font-family: var(--font-mono); font-weight: var(--weight-semibold); }
+.chord-scale-reference .figured-bass { color: var(--text-2); font-size: var(--text-sm); }
+
+/* ---------- Flashcard drill (.flashcard-screen) ---------- */
+.flashcard-screen {
+  display: grid;
+  gap: var(--space-4);
+  justify-items: center;
+  max-width: 40rem;
+  margin-inline: auto;
+}
+.flashcard-screen .flashcard-prompt {
+  width: 100%;
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  background: var(--paper);
+  color: var(--paper-fg);
+  border: var(--border-w) solid var(--paper-edge);
+  border-radius: var(--radius-3);
+  box-shadow: var(--elev-paper);
+  padding: var(--space-4);
+}
+.flashcard-screen .answer-pad {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: center;
+}
+.flashcard-screen .answer-pad button {
+  min-width: var(--touch-min);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+.flashcard-screen .answer-pad button[data-state="correct"] {
+  background: var(--fb-correct-dim);
+  border-color: var(--fb-correct);
+  color: var(--fb-correct);
+}
+.flashcard-screen .answer-pad button[data-state="wrong"] {
+  background: var(--fb-wrong-dim);
+  border-color: var(--fb-wrong);
+  color: var(--fb-wrong);
+}
+.flashcard-screen .drill-feedback {
+  min-height: 2em;
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+}
+.flashcard-screen .drill-feedback[data-state="correct"] { color: var(--fb-correct); }
+.flashcard-screen .drill-feedback[data-state="correct"]::before { content: "✓ "; }
+.flashcard-screen .drill-feedback[data-state="wrong"] { color: var(--fb-wrong); }
+.flashcard-screen .drill-feedback[data-state="wrong"]::before { content: "✕ "; }
+
+/* Retention stats row (also .eartraining-stats) */
+.eartraining-stats, .retention-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-6);
+  justify-content: center;
+  padding: var(--space-3);
+  border-top: var(--border-w) solid var(--border-1);
+  width: 100%;
+}
+.eartraining-stats .stat, .retention-stats .stat { display: grid; justify-items: center; gap: 2px; }
+.eartraining-stats .stat b, .retention-stats .stat b {
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+.eartraining-stats .stat small, .retention-stats .stat small {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  color: var(--text-2);
+}
+
+/* ---------- Harmonic analysis (.analysis-measures) ---------- */
+.analysis-measures { list-style: none; margin: 0; padding: 0; font-size: var(--text-lg); }
+.analysis-measures > li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--border-w) solid var(--border-1);
+}
+.analysis-measures .measure-no {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  min-width: 3em;
+}
+.analysis-measures .numerals { font-family: var(--font-mono); letter-spacing: 0.08em; }
+.analysis-measures .cadence { font-style: italic; color: var(--accent); margin-left: auto; font-size: var(--text-md); }
+
+/* ---------- Dictation result ---------- */
+.dictation-result { display: grid; gap: var(--space-3); }
+.dictation-result .note-row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.dictation-result .note-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--control-h);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-1);
+  border: var(--border-w-strong) solid var(--border-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+.dictation-result .note-chip::before { font-size: var(--text-sm); }
+.dictation-result .note-chip[data-state="correct"] { border-color: var(--fb-correct); color: var(--fb-correct); background: var(--fb-correct-dim); }
+.dictation-result .note-chip[data-state="correct"]::before { content: "✓"; }
+.dictation-result .note-chip[data-state="wrong-pitch"] { border-color: var(--fb-wrong); color: var(--fb-wrong); background: var(--fb-wrong-dim); }
+.dictation-result .note-chip[data-state="wrong-pitch"]::before { content: "✕"; }
+.dictation-result .note-chip[data-state="wrong-rhythm"] { border-color: var(--fb-late); color: var(--fb-late); background: var(--fb-late-dim); }
+.dictation-result .note-chip[data-state="wrong-rhythm"]::before { content: "›"; }
+.dictation-result .note-chip[data-state="missing"] { border-style: dashed; color: var(--fb-missed); background: transparent; }
+.dictation-result .note-chip[data-state="missing"]::before { content: "○"; }
+.dictation-result .note-chip[data-state="extra"] { border-color: var(--fb-extra); color: var(--fb-extra); background: var(--fb-extra-dim); }
+.dictation-result .note-chip[data-state="extra"]::before { content: "+"; }
+.dictation-result .accuracy-pair { display: flex; gap: var(--space-6); }
+
+/* ---------- Metronome & rhythm ---------- */
+.metronome-beats {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+}
+.metronome-beats .beat {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  border: var(--border-w-strong) solid var(--border-2);
+  background: transparent;
+  transition: background 60ms linear, transform 60ms linear;
+}
+.metronome-beats .beat.is-accent { width: 30px; height: 30px; border-color: var(--text-2); }
+.metronome-beats .beat[data-state="active"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  transform: scale(1.25);
+}
+.metronome-beats .beat.is-accent[data-state="active"] { background: var(--text-1); border-color: var(--text-1); }
+.tap-feedback {
+  text-align: center;
+  font-size: var(--text-glance);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--leading-tight);
+}
+.tap-feedback[data-state="early"] { color: var(--fb-early); }
+.tap-feedback[data-state="early"]::before { content: "‹ "; }
+.tap-feedback[data-state="late"] { color: var(--fb-late); }
+.tap-feedback[data-state="late"]::after { content: " ›"; }
+.tap-feedback[data-state="on"] { color: var(--fb-correct); }
+
+/* ---------- Dashboard / progress ---------- */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+.track-level { display: grid; gap: var(--space-2); }
+.track-level .level-label { display: flex; justify-content: space-between; align-items: baseline; }
+.track-level .level-label b { font-size: var(--text-xl); font-variant-numeric: tabular-nums; }
+.streak-value, .weekly-minutes {
+  font-size: var(--text-glance);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--leading-tight);
+}
+.trend-chart svg { width: 100%; height: auto; display: block; }
+.trend-chart .trend-line { fill: none; stroke: var(--accent); stroke-width: 2; }
+.trend-chart .trend-area { fill: var(--accent-dim); stroke: none; }
+.trend-chart .trend-grid { stroke: var(--border-1); stroke-width: 1; }
+.trend-chart text { fill: var(--text-3); font-size: 11px; font-family: var(--font-ui); }
+.exit-criteria { list-style: none; margin: 0; padding: 0; }
+.exit-criteria > li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-h);
+  color: var(--text-2);
+}
+.exit-criteria > li::before { content: "○"; color: var(--text-3); font-size: var(--text-lg); }
+.exit-criteria > li[data-state="met"] { color: var(--text-1); }
+.exit-criteria > li[data-state="met"]::before { content: "✓"; color: var(--fb-correct); font-weight: var(--weight-bold); }
+.repertoire-list .badge { margin-left: auto; }
+
+/* ---------- Lesson body ---------- */
+.lesson-body {
+  max-width: 44rem;
+  font-size: var(--text-lg);
+  line-height: var(--leading-loose);
+}
+.lesson-body h2 { margin-top: var(--space-6); }
+.lesson-body .notation-frame { margin: var(--space-4) 0; }
+
+/* ---------- Export panel ---------- */
+.export-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--bg-1);
+  border: var(--border-w) solid var(--border-1);
+  border-radius: var(--radius-2);
+}

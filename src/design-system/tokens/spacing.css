@@ -1,0 +1,33 @@
+/* ============================================================
+   Spacing, radii, borders, sizing. 4px base grid.
+   ============================================================ */
+:root {
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  --radius-1: 4px;         /* controls, badges */
+  --radius-2: 8px;         /* cards, panels, dialogs */
+  --radius-3: 12px;        /* paper sheet, large surfaces */
+  --radius-round: 999px;   /* pills, beat dots */
+
+  --border-w: 1px;
+  --border-w-strong: 2px;
+
+  /* Control sizing. --control-h is re-declared at tablet
+     breakpoints (see css/responsive.css) — everything built on it
+     grows to touch size automatically. */
+  --control-h: 36px;
+  --touch-min: 44px;
+  --control-pad-x: 14px;
+
+  /* Layout */
+  --nav-w: 12rem;
+  --content-max: 72rem;
+  --content-pad: var(--space-5);
+}

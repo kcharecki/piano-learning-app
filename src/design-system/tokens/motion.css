@@ -1,0 +1,19 @@
+/* ============================================================
+   Motion. Rule: nothing animates inside or over the notation
+   frame except the playback cursor (linear, musically meaningful).
+   UI motion is short and exit-only decorative.
+   ============================================================ */
+:root {
+  --dur-1: 120ms;   /* state flips: hover, press, toggle */
+  --dur-2: 200ms;   /* reveals: dialog, drawer, tab panel */
+  --dur-3: 320ms;   /* large surfaces: theme change, screen swap */
+  --ease-out: cubic-bezier(.2, .7, .3, 1);
+  --ease-in-out: cubic-bezier(.45, 0, .25, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}

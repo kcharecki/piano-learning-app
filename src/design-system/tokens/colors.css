@@ -1,0 +1,161 @@
+/* ============================================================
+   Color tokens — dark is the base theme (evening practice).
+   Light theme via prefers-color-scheme OR data-theme="light".
+   Manual override: <html data-theme="dark|light">.
+   Never use raw hex at point of use — always these properties.
+   ============================================================ */
+:root {
+  color-scheme: dark light;
+
+  /* Shell surfaces (elevation by lightness step, not shadow) */
+  --bg-0: #14161a;            /* app background */
+  --bg-1: #1b1e24;            /* nav, sunken panels */
+  --bg-2: #23272f;            /* cards, panels */
+  --bg-3: #2b303a;            /* raised: dialogs, menus, hover rows */
+
+  /* Paper — the notation surface. Constant across themes:
+     scores are black-on-light by convention; OSMD renders onto this. */
+  --paper: #f8f5ec;
+  --paper-edge: #e6e1d2;
+  --paper-fg: #191712;
+  --paper-muted: #6d675a;
+
+  /* Text roles */
+  --text-1: #e8e6e3;          /* primary reading text */
+  --text-2: #adb4bc;          /* secondary, labels, captions */
+  --text-3: #7b838e;          /* decorative only — fails AA on purpose */
+  --text-inverse: #1d2126;
+
+  /* Borders */
+  --border-1: #2d323c;        /* hairlines, dividers */
+  --border-2: #414855;        /* control outlines, emphasis */
+
+  /* Accent — interactive things, current position */
+  --accent: #6ea8fe;
+  --accent-hover: #8cbaff;
+  --accent-down: #5892ea;
+  --on-accent: #0d1626;       /* text on accent-filled controls */
+  --accent-dim: rgba(110, 168, 254, .15);  /* selected-row / active-nav wash */
+
+  /* Generic status (aliases into the feedback ramp) */
+  --ok: var(--fb-correct);
+  --warn: var(--fb-late);
+  --error: var(--fb-wrong);
+
+  /* ---- Musical feedback, shell variants (on dark surfaces) ----
+     Color is NEVER the only signal: each state has a mandatory
+     glyph/shape cue (see readme.md and components CSS). */
+  --fb-correct:  #5fc878;     /* ✓ filled */
+  --fb-wrong:    #f58884;     /* ✕ filled — wrong pitch */
+  --fb-late:     #f2a83c;     /* › points forward: sounded after the beat */
+  --fb-early:    #4cc9de;     /* ‹ points back: sounded before the beat */
+  --fb-missed:   #9aa2ad;     /* dashed hollow outline */
+  --fb-extra:    #e07ad4;     /* + badge — note played, none expected */
+  --fb-playing:  var(--accent);   /* solid underline cursor */
+  --fb-upcoming: #55749f;     /* hollow outline, thin */
+  --fb-out:      #4a505b;     /* hatched fill, low emphasis */
+
+  /* Translucent washes for key/row fills (borders carry the hue) */
+  --fb-correct-dim: rgba(95, 200, 120, .22);
+  --fb-wrong-dim:   rgba(245, 136, 132, .18);
+  --fb-late-dim:    rgba(242, 168, 60, .22);
+  --fb-early-dim:   rgba(76, 201, 222, .22);
+  --fb-extra-dim:   rgba(224, 122, 212, .12);
+
+  /* ---- Musical feedback, ink variants (on --paper) ----
+     Theme-constant. Use for note coloring inside the notation
+     frame and any text sitting on paper. */
+  --fb-correct-ink:  #1c7c3c;
+  --fb-wrong-ink:    #c22f2c;
+  --fb-late-ink:     #8a5800;
+  --fb-early-ink:    #006577;
+  --fb-missed-ink:   #666e78;
+  --fb-extra-ink:    #a1268e;
+  --fb-playing-ink:  #2155c8;
+  --fb-upcoming-ink: #6f83a3;
+
+  /* Piano keys (theme-constant: keys look like keys) */
+  --key-white: #f3f0e9;
+  --key-white-down: #dcd8cd;
+  --key-black: #1f2228;
+  --key-black-down: #3a404b;
+  --key-outline: #0d0f12;
+  --key-label: #3f454f;       /* fingering numbers on white keys */
+  --key-label-on-black: #cfd4da;
+
+  /* Focus */
+  --focus-ring: #8cbaff;
+  --focus-ring-paper: #2155c8;  /* focus for controls sitting on paper */
+}
+
+/* ---------------- Light theme ---------------- */
+/* Kept as one override block, applied two ways. If you edit a value,
+   edit BOTH copies (plain CSS has no mixins — accepted cost). */
+[data-theme="light"] {
+  color-scheme: light;
+  --bg-0: #efedea;
+  --bg-1: #f7f5f1;
+  --bg-2: #fdfcf9;
+  --bg-3: #ffffff;
+  --text-1: #20242a;
+  --text-2: #4b535c;
+  --text-3: #858c96;
+  --text-inverse: #f5f4f2;
+  --border-1: #dbd7cf;
+  --border-2: #b9b4a9;
+  --accent: #2155c8;
+  --accent-hover: #1a47ab;
+  --accent-down: #163d92;
+  --on-accent: #ffffff;
+  --accent-dim: rgba(33, 85, 200, .10);
+  --fb-correct:  var(--fb-correct-ink);
+  --fb-wrong:    var(--fb-wrong-ink);
+  --fb-late:     var(--fb-late-ink);
+  --fb-early:    var(--fb-early-ink);
+  --fb-missed:   var(--fb-missed-ink);
+  --fb-extra:    var(--fb-extra-ink);
+  --fb-playing:  var(--accent);
+  --fb-upcoming: var(--fb-upcoming-ink);
+  --fb-out:      #b5bac2;
+  --fb-correct-dim: rgba(28, 124, 60, .14);
+  --fb-wrong-dim:   rgba(194, 47, 44, .12);
+  --fb-late-dim:    rgba(138, 88, 0, .14);
+  --fb-early-dim:   rgba(0, 101, 119, .12);
+  --fb-extra-dim:   rgba(161, 38, 142, .12);
+  --focus-ring: #2155c8;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --bg-0: #efedea;
+    --bg-1: #f7f5f1;
+    --bg-2: #fdfcf9;
+    --bg-3: #ffffff;
+    --text-1: #20242a;
+    --text-2: #4b535c;
+    --text-3: #858c96;
+    --text-inverse: #f5f4f2;
+    --border-1: #dbd7cf;
+    --border-2: #b9b4a9;
+    --accent: #2155c8;
+    --accent-hover: #1a47ab;
+    --accent-down: #163d92;
+    --on-accent: #ffffff;
+    --accent-dim: rgba(33, 85, 200, .10);
+    --fb-correct:  var(--fb-correct-ink);
+    --fb-wrong:    var(--fb-wrong-ink);
+    --fb-late:     var(--fb-late-ink);
+    --fb-early:    var(--fb-early-ink);
+    --fb-missed:   var(--fb-missed-ink);
+    --fb-extra:    var(--fb-extra-ink);
+    --fb-playing:  var(--accent);
+    --fb-upcoming: var(--fb-upcoming-ink);
+    --fb-out:      #b5bac2;
+    --fb-correct-dim: rgba(28, 124, 60, .14);
+    --fb-wrong-dim:   rgba(194, 47, 44, .12);
+    --fb-late-dim:    rgba(138, 88, 0, .14);
+    --fb-early-dim:   rgba(0, 101, 119, .12);
+    --fb-extra-dim:   rgba(161, 38, 142, .12);
+    --focus-ring: #2155c8;
+  }
+}

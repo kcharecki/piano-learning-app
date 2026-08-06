@@ -1,0 +1,11 @@
+/* ============================================================
+   Z-index tiers. Never use a bare number; always a tier.
+   ============================================================ */
+:root {
+  --z-base: 0;
+  --z-sticky: 10;    /* transport bar */
+  --z-nav: 20;       /* side nav / tablet drawer */
+  --z-overlay: 30;   /* scrims */
+  --z-dialog: 40;
+  --z-toast: 50;     /* role="status" flyovers, if ever floated */
+}

@@ -185,6 +185,7 @@ export function Shell() {
   const [screen, setScreen] = useState<ScreenId>('practice')
   const [technique, setTechnique] = useState<OpenedTechnique | undefined>(undefined)
   const [deck, setDeck] = useState<OpenedDeck | undefined>(undefined)
+  const [navOpen, setNavOpen] = useState(false)
 
   function open(exercise: Exercise): void {
     if (exercise.kind === 'technique') setTechnique(openedTechniqueOf(exercise))
@@ -192,17 +193,36 @@ export function Shell() {
     setScreen(destinationFor(exercise))
   }
 
+  function goTo(id: ScreenId): void {
+    setScreen(id)
+    setNavOpen(false)
+  }
+
+  const activeLabel = NAV_ITEMS.find((item) => item.id === screen)?.label ?? ''
+
   return (
-    <div className="shell">
-      <nav className="shell-nav" aria-label="Main">
+    <div className="app-layout">
+      <div className="app-topbar">
+        <button
+          type="button"
+          className="nav-toggle btn-icon"
+          aria-label="Open navigation"
+          aria-expanded={navOpen}
+          onClick={() => setNavOpen((v) => !v)}
+        >
+          ☰
+        </button>
+        <p className="screen-title">{activeLabel}</p>
+      </div>
+      {navOpen && <div className="nav-scrim" onClick={() => setNavOpen(false)} />}
+      <nav className="app-nav" aria-label="Main" data-open={navOpen}>
         <ul>
           {NAV_ITEMS.map((item) => (
             <li key={item.id}>
               <button
                 type="button"
                 aria-current={screen === item.id ? 'page' : undefined}
-                className={screen === item.id ? 'active' : undefined}
-                onClick={() => setScreen(item.id)}
+                onClick={() => goTo(item.id)}
               >
                 {item.label}
               </button>
@@ -210,7 +230,7 @@ export function Shell() {
           ))}
         </ul>
       </nav>
-      <main className="shell-main">{renderScreen(screen, open, technique, deck)}</main>
+      <main className="app-main">{renderScreen(screen, open, technique, deck)}</main>
     </div>
   )
 }
