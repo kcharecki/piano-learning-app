@@ -30,6 +30,15 @@ import path from 'node:path'
  * long tasks (worst)   13 (561ms)      0 (0ms)
  * Stop latency          5339ms           59ms
  * ```
+ *
+ * The theory track is raised to level 4 below before Practice is ever
+ * visited, so `AnalysisPanel` (roadmap 3.2a, 3.18) mounts and runs
+ * `analyseScore` against this same 102-measure score. Every other e2e spec
+ * drives Practice at the default level 1, where that gate keeps the panel —
+ * and `analyseScore` — unmounted, so this is the only browser proof left
+ * that analysis doesn't crash or fall off an O(n^2) cliff on a large score.
+ * The frame-gap and long-task budgets above were re-measured with the panel
+ * mounted; they now include its cost, not just the score viewer's.
  */
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -107,6 +116,17 @@ test('a 102-measure, 1603-note score plays without blowing the frame budget, and
   const errors = collectErrors(page)
 
   await page.goto('/')
+
+  // Raise theory to level 4 BEFORE visiting Practice — see the module
+  // comment — the way a real learner would: the dashboard's manual override
+  // (roadmap 4.3), not a store poke from the test.
+  await page
+    .getByRole('navigation', { name: /main/i })
+    .getByRole('button', { name: 'Progress', exact: true })
+    .click()
+  await page.getByTestId('dashboard-level-select-theory').selectOption('4')
+  await expect(page.getByTestId('dashboard-level-theory')).toContainText('level 4')
+
   await page
     .getByRole('navigation', { name: /main/i })
     .getByRole('button', { name: 'Practice', exact: true })
@@ -127,6 +147,11 @@ test('a 102-measure, 1603-note score plays without blowing the frame budget, and
     timeout: 60_000,
   })
   await expect(page.locator('[data-testid="score-container"] svg')).toBeVisible()
+  // Proves `analyseScore` actually ran against the full 102-measure score
+  // rather than merely not throwing — a crash inside it would otherwise only
+  // show up in `errors` below, which would still pass if the panel simply
+  // failed to mount.
+  await expect(page.getByRole('region', { name: 'Harmonic analysis' })).toBeVisible()
   const importMs = Date.now() - importStart
 
   await startSampling(page)

@@ -24,6 +24,18 @@ import { create } from 'zustand'
 
 export type LevelStoreState = {
   readonly levelState: LevelState
+  /**
+   * True once `persistence.ts`'s restore attempt for this slice has finished
+   * — whether it found a stored record, found nothing, or the read failed.
+   * `levelState` starts at `initialLevelState()` (every track at level 1),
+   * and the restore that might raise it is one of eleven sequential awaited
+   * steps behind the score session's own read, so a theory level 4-5 learner
+   * would otherwise see `ScoreScreen`'s analysis-panel gate read "level 1"
+   * for that whole window and have the panel pop in after. Consumers of the
+   * gate should render nothing until this is `true`, not fall back to
+   * `levelState` as if it were already settled.
+   */
+  readonly hydrated: boolean
 }
 
 export type LevelStoreActions = {
@@ -38,12 +50,20 @@ export type LevelStoreActions = {
   advanceTrack(level: CurriculumLevel, track: Track, evidence: ProgressEvidence): void
   /** Replaces the whole slice — for persistence restore, mirroring the sibling stores. */
   hydrate(state: Partial<LevelStoreState>): void
+  /**
+   * Marks the restore attempt for this slice as complete, regardless of its
+   * outcome. `persistence.ts` calls this unconditionally right after
+   * awaiting the (never-throwing) restore of this slice — see the field
+   * comment on `hydrated` above for why "unconditionally" matters.
+   */
+  markHydrated(): void
 }
 
 export type LevelStore = LevelStoreState & LevelStoreActions
 
 export const useLevelStore = create<LevelStore>((set, get) => ({
   levelState: initialLevelState(),
+  hydrated: false,
 
   setTrackLevel: (track, levelNumber) =>
     set({ levelState: setLevelCore(get().levelState, track, levelNumber) }),
@@ -55,4 +75,6 @@ export const useLevelStore = create<LevelStore>((set, get) => ({
   },
 
   hydrate: (state) => set(state),
+
+  markHydrated: () => set({ hydrated: true }),
 }))

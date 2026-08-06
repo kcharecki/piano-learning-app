@@ -11,7 +11,7 @@ import { MAX_LEVEL, MIN_LEVEL, type CurriculumLevel } from '@core/curriculum/typ
 import { useLevelStore } from './levelStore.ts'
 
 function resetStore(): void {
-  useLevelStore.setState({ levelState: initialLevelState() })
+  useLevelStore.setState({ levelState: initialLevelState(), hydrated: false })
 }
 
 afterEach(resetStore)
@@ -95,6 +95,14 @@ describe('levelStore', () => {
       useLevelStore.getState().advanceTrack(mismatchedLevel, 'playing', PASSING_EVIDENCE),
     ).not.toThrow()
     expect(useLevelStore.getState().levelState).toBe(beforeAdvance)
+  })
+
+  it('starts unhydrated, and markHydrated flips it true and only true', () => {
+    expect(useLevelStore.getState().hydrated).toBe(false)
+
+    useLevelStore.getState().markHydrated()
+
+    expect(useLevelStore.getState().hydrated).toBe(true)
   })
 
   it('hydrate replaces the whole state', () => {

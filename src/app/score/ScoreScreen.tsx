@@ -11,6 +11,7 @@
  */
 import { parseMusicXml } from '@core/notation/musicxml.ts'
 import { useScoreStore } from '@app/state/scoreStore.ts'
+import { useLevelStore } from '@app/state/levelStore.ts'
 import { PracticeScreen } from '@app/practice/PracticeScreen.tsx'
 import sampleMusicXml from '@content/scores/twinkle-twinkle-little-star.musicxml?raw'
 import { useEffect } from 'react'
@@ -19,9 +20,17 @@ import { ImportPanel } from './ImportPanel.tsx'
 
 const SAMPLE_SCORE_SOURCE_NAME = 'Twinkle, Twinkle, Little Star (bundled sample)'
 
+/** REQ-3.5.5 scopes applied analysis to theory-track levels 4-5. This reads
+ *  `>=` rather than the literal `4 || 5` — a deliberate reading of "at levels
+ *  4-5" as "from level 4 onward", not a hedge against a level above
+ *  `MAX_LEVEL` (`@core/curriculum/types.ts`), which `setLevel` clamps to. */
+const MIN_ANALYSIS_THEORY_LEVEL = 4
+
 export function ScoreScreen() {
   const loaded = useScoreStore((s) => s.loaded)
   const loadScore = useScoreStore((s) => s.loadScore)
+  const theoryLevel = useLevelStore((s) => s.levelState.levels.theory)
+  const levelsHydrated = useLevelStore((s) => s.hydrated)
 
   useEffect(() => {
     if (loaded !== undefined) return
@@ -56,8 +65,20 @@ export function ScoreScreen() {
             <p>There is no notation to engrave for this score — playback still works.</p>
           )}
           {/* REQ-3.5.5: the roman-numeral analysis of the piece being played,
-              under it (roadmap 3.2a). */}
-          <AnalysisPanel score={loaded.score} />
+              under it (roadmap 3.2a), gated to theory level 4+ (roadmap
+              3.18) — a level-1 beginner has not met a roman numeral in any
+              lesson yet, so showing it here would not "connect theory to
+              real music", it would just be noise under their first score.
+              Nothing renders in its place below the gate: a placeholder
+              would promise a level-up the roadmap has not committed to.
+              Also gated on `levelsHydrated`: the level store starts every
+              track at 1 and the persisted level is restored asynchronously
+              (`persistence.ts`), so reading `theoryLevel` before that
+              settles would show nothing and then pop the panel in for a
+              level 4-5 learner instead of just rendering it from the start. */}
+          {levelsHydrated && theoryLevel >= MIN_ANALYSIS_THEORY_LEVEL && (
+            <AnalysisPanel score={loaded.score} />
+          )}
         </section>
       )}
     </div>

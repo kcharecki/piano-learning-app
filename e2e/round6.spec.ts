@@ -23,11 +23,29 @@ function nav(page: Page, label: string) {
     .getByRole('button', { name: label, exact: true })
 }
 
-test('the roman-numeral analysis of the bundled sample is shown under the score (roadmap 3.2a)', async ({
+test('the roman-numeral analysis of the bundled sample is shown under the score, once the theory track reaches level 4, and stays hidden below it (roadmap 3.2a, 3.18)', async ({
   page,
 }) => {
   const errors = collectErrors(page)
   await page.goto('/')
+
+  // REQ-3.5.5 scopes applied analysis to theory levels 4-5: a fresh app starts
+  // every track at level 1, so visit Practice FIRST, at that default, and
+  // prove the panel is genuinely absent — not merely unasserted. Without this
+  // half, deleting the `theoryLevel >= MIN_ANALYSIS_THEORY_LEVEL` gate in
+  // ScoreScreen.tsx leaves this spec green, because it would never have
+  // looked at the page before the level was raised.
+  await nav(page, 'Practice').click()
+  await expect(page.getByRole('region', { name: 'Harmonic analysis' })).toHaveCount(0)
+
+  // Now raise the level the way a real learner would — the dashboard's
+  // manual override (roadmap 4.3), not a store poke from the test.
+  await nav(page, 'Progress').click()
+  await page
+    .getByTestId('dashboard-level-select-theory')
+    .selectOption('4')
+  await expect(page.getByTestId('dashboard-level-theory')).toContainText('level 4')
+
   await nav(page, 'Practice').click()
 
   const analysis = page.getByRole('region', { name: 'Harmonic analysis' })

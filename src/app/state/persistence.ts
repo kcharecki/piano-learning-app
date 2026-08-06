@@ -372,6 +372,15 @@ export async function restoreSession(store: Store): Promise<boolean> {
     },
     (data) => useLevelStore.getState().hydrate({ levelState: data.levelState }),
   )
+  // Unconditional, and outside `restoreSlice`'s own apply/guard machinery on
+  // purpose: `restoreSlice` never throws, so this always runs, whether a
+  // record was found, nothing was stored (fresh install), the payload was
+  // invalid, or the store's `get` itself rejected. `ScoreScreen`'s
+  // analysis-panel gate renders nothing until this flips — see the
+  // `hydrated` field comment in `levelStore.ts` — so a permanently-false flag
+  // on a failed or empty read would mean the panel never appears at all,
+  // rather than merely starting from level 1.
+  useLevelStore.getState().markHydrated()
 
   await restoreSlice(
     store,

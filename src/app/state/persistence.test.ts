@@ -81,7 +81,7 @@ function resetStore(): void {
   useProgressStore.setState({ assessments: [], recordings: [], practiceEntries: [] })
   useTechniqueStore.setState({ attempts: [] })
   useRepertoireStore.setState({ pieces: [] })
-  useLevelStore.setState({ levelState: initialLevelState() })
+  useLevelStore.setState({ levelState: initialLevelState(), hydrated: false })
   useEarTrainingStore.setState({ session: emptyEarSession(), itemsById: {} })
 }
 
@@ -1101,6 +1101,31 @@ describe('persistence', () => {
         levels: { playing: 3, 'sight-reading': 1, theory: 2 },
         overridden: { playing: true, 'sight-reading': false, theory: true },
       })
+      // The stored-state path: a record was found and applied, and the
+      // restore attempt is still marked complete (see the "nothing stored"
+      // and "store throws" cases below for the other two paths that must
+      // reach the same `true`).
+      expect(useLevelStore.getState().hydrated).toBe(true)
+    })
+
+    it('marks the level slice hydrated even when nothing was ever stored (fresh install)', async () => {
+      const store = new MemoryStore()
+      expect(useLevelStore.getState().hydrated).toBe(false)
+
+      await restoreSession(store)
+
+      expect(useLevelStore.getState().levelState).toEqual(initialLevelState())
+      expect(useLevelStore.getState().hydrated).toBe(true)
+    })
+
+    it('marks the level slice hydrated even when the store read fails', async () => {
+      const store = new ThrowingStore(true)
+      expect(useLevelStore.getState().hydrated).toBe(false)
+
+      await restoreSession(store)
+
+      expect(useLevelStore.getState().levelState).toEqual(initialLevelState())
+      expect(useLevelStore.getState().hydrated).toBe(true)
     })
 
     it.each([
