@@ -172,7 +172,7 @@ export function ExportPanel(props: ExportPanelProps) {
               Restoring &quot;{pending.fileName}&quot; will REPLACE all current progress except
               saved recordings and score annotations. This cannot be undone.
             </p>
-            <button type="button" onClick={confirmRestore}>
+            <button type="button" className="btn-danger" onClick={confirmRestore}>
               Replace my progress
             </button>
             <button type="button" onClick={cancelRestore}>

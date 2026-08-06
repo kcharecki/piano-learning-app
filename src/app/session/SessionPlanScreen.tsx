@@ -149,6 +149,7 @@ export function SessionPlanScreen({ onOpen }: SessionPlanScreenProps) {
                 <span>{item.minutes} min</span>{' '}
                 <button
                   type="button"
+                  className={index === 0 ? 'btn-primary' : undefined}
                   aria-label={`Open ${item.exercise.title}`}
                   onClick={() => onOpen(item.exercise)}
                 >
