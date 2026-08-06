@@ -127,10 +127,15 @@ export type NoteFeedback = {
   readonly clear: () => void
 }
 
-/** Kept in step with `--ok` / `--error` / `--warn` in styles.css. */
-const CORRECT_COLOR = '#4caf50'
-const WRONG_PITCH_COLOR = '#ef5350'
-const MISSED_COLOR = '#ffb300'
+/**
+ * Kept in step with `--fb-correct-ink` / `--fb-wrong-ink` / `--fb-missed-ink`
+ * in src/design-system/tokens/colors.css — the notation frame is a paper
+ * surface, so feedback notes use the paper-ink ramp, not the bright shell
+ * variants meant for the dark background around it.
+ */
+const CORRECT_COLOR = '#1c7c3c'
+const WRONG_PITCH_COLOR = '#c22f2c'
+const MISSED_COLOR = '#666e78'
 
 const EMPTY_SUMMARY: MatchSummary = {
   correct: 0,

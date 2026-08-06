@@ -129,13 +129,14 @@ export type OsmdLike = {
 }
 
 /**
- * OSMD engraves in black by default, which is invisible on this app's dark
- * background — the notation rendered as black-on-near-black and could not be
- * read at all. Everything drawn is forced to the app's foreground colour
- * instead. Keep this in step with `--fg` in styles.css; OSMD wants a concrete
- * hex, so a CSS variable cannot be handed to it directly.
+ * OSMD engraves in black by default. The design system's notation frame is a
+ * light "paper" surface (`--paper`) sitting inside the app's dark shell —
+ * everything drawn is forced to the paper ink colour so it reads at full
+ * contrast on that surface. Keep this in step with `--paper-fg` in
+ * src/design-system/tokens/colors.css; OSMD wants a concrete hex, so a CSS
+ * variable cannot be handed to it directly.
  */
-const SCORE_INK = '#e8e6e3'
+const SCORE_INK = '#191712'
 /**
  * Exported for `osmdEngraver.test.ts` — the colour `clearNoteColors`
  * restores — and for `PracticeScreen.tsx`, which restores a deselected
@@ -147,9 +148,9 @@ export const DEFAULT_NOTE_COLOR = SCORE_INK
  * the same colour as the page background rather than toggling engraving
  * visibility — far cheaper than re-laying-out the measure, and reversible by
  * the same `NoteheadColor` write `setNoteColor` already uses. Keep this in
- * step with `--bg` in styles.css.
+ * step with `--paper` in src/design-system/tokens/colors.css.
  */
-export const HIDDEN_NOTE_COLOR = '#14161a'
+export const HIDDEN_NOTE_COLOR = '#f8f5ec'
 /**
  * Backstop against a runaway walk (e.g. a cursor whose `EndReached` never
  * flips), not a plausible real-score limit — Pachelbel's Canon in D, 102

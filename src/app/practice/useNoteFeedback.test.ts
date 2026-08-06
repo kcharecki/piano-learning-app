@@ -37,9 +37,9 @@ function manualDriver(): { driver: FrameDriver; pump: () => void } {
   return { driver, pump: () => callback?.() }
 }
 
-const CORRECT_COLOR = '#4caf50'
-const WRONG_PITCH_COLOR = '#ef5350'
-const MISSED_COLOR = '#ffb300'
+const CORRECT_COLOR = '#1c7c3c'
+const WRONG_PITCH_COLOR = '#c22f2c'
+const MISSED_COLOR = '#666e78'
 
 /** Three quarter notes, right hand, 120 bpm: C4@0ms, D4@500ms, E4@1000ms. */
 function testScore(): Score {
