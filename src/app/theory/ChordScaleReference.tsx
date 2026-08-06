@@ -213,7 +213,7 @@ function ScaleTable({ root, type }: { readonly root: SpelledPitch; readonly type
   const played = scaleNotes(root, type, 1)
 
   return (
-    <table aria-label="Scale degrees">
+    <table aria-label="Scale degrees" className="degree-table">
       <thead>
         <tr>
           <th>Degree</th>
@@ -232,8 +232,8 @@ function ScaleTable({ root, type }: { readonly root: SpelledPitch; readonly type
             <tr key={i} data-testid={`scale-degree-${i + 1}`}>
               <td>{label}</td>
               <td>{pitchName(note)}</td>
-              <td>{rightFinger ?? '—'}</td>
-              <td>{leftFinger ?? '—'}</td>
+              <td className="fingering">{rightFinger ?? '—'}</td>
+              <td className="fingering">{leftFinger ?? '—'}</td>
             </tr>
           )
         })}
@@ -260,9 +260,9 @@ function ChordRow({
 }) {
   return (
     <li data-testid={`diatonic-chord-${numeralText}`}>
-      <span className="chord-roman">{numeralText}</span>{' '}
+      <span className="chord-roman roman">{numeralText}</span>{' '}
       <span className="chord-symbol">{symbol}</span>{' '}
-      <span className="chord-figure">{figures || 'root position'}</span>{' '}
+      <span className="chord-figure figured-bass">{figures || 'root position'}</span>{' '}
       <button type="button" onClick={onPlay}>{`Play the ${numeralText} chord`}</button>
       <KeyboardDiagram
         low={midi(60)}
@@ -298,7 +298,7 @@ function DiatonicChords({
   const chords = chordsForScale(key, type)
 
   return (
-    <ul aria-label="Diatonic chords" className="diatonic-chords">
+    <ul aria-label="Diatonic chords" className="diatonic-chords chord-list">
       {chords.map((chord, i) => {
         const numeral = romanNumeralFor(chord, key)
         const numeralText = numeral?.text ?? `${i + 1}`

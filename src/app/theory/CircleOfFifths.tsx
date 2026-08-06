@@ -135,11 +135,14 @@ function Wedge({
       role="button"
       tabIndex={0}
       aria-label={name}
+      aria-selected={highlight === 'selected'}
       data-testid={`circle-key-${wedgeKey.mode}-${wedgeKey.signature.fifths}`}
       data-highlight={highlight}
       onClick={() => onSelect(wedgeKey)}
       onKeyDown={handleKeyDown}
-      className={`circle-wedge circle-wedge-${wedgeKey.mode} circle-wedge-${highlight}`}
+      className={`wedge wedge-${wedgeKey.mode}${
+        highlight === 'selected' ? ' is-selected' : ''
+      }${highlight === 'relative' || highlight === 'related' ? ' is-related' : ''}`}
     >
       <path
         d={wedgePath(rOuter, rInner, wedgeKey.signature.fifths)}
