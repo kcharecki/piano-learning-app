@@ -45,9 +45,13 @@
  * finder: it takes `measures[0].keyFifths` as given (the score already
  * carries the signature) and only decides **major vs. its relative minor**
  * from three pitch-content votes — the relative minor's raised leading tone
- * appearing anywhere, and the first/last sounding bass note landing on the
- * minor tonic rather than the major one. Two or more votes flip it to minor.
- * This gets a genuine modulating or modally ambiguous piece wrong (Dorian,
+ * actually resolving to the minor tonic AT THE PIECE'S OWN FINAL CADENCE (see
+ * `leadingToneResolvesToMinorTonic` below — not merely sounding anywhere, and
+ * not merely resolving somewhere in the middle of the piece), and the
+ * first/last sounding BASS note (left-hand only — see `bassAt`; a texture
+ * with no left-hand voice casts neither of these votes) landing on the minor
+ * tonic rather than the major one. Two or more votes flip it to minor. This
+ * gets a genuine modulating or modally ambiguous piece wrong (Dorian,
  * Mixolydian — this model only knows major/minor); it was never meant to do
  * more than the common case a beginner's repertoire actually presents.
  *
@@ -60,7 +64,14 @@
  * non-`'none'` results are recorded, since "no cadence here" at every plain
  * barline would swamp the useful ones.
  */
-import { buildChord, type Chord, chordTones, identifyChord, type Inversion, invertChord } from './chords.ts'
+import {
+  buildChord,
+  type Chord,
+  chordTones,
+  identifyChord,
+  type Inversion,
+  invertChord,
+} from './chords.ts'
 import { classifyCadence, type CadenceType, romanNumeralFor, type RomanNumeral } from './harmony.ts'
 import { keyFromFifths, type Key, relativeKey } from './keys.ts'
 import { fromMidi, toMidi } from './pitch.ts'
@@ -99,12 +110,111 @@ export type Analysis = {
 // detectKey
 // ---------------------------------------------------------------------------
 
+/** The bass is the lowest LEFT-HAND note sounding — never a decorative upper
+ *  voice, and never a right-hand melody standing in for a missing bass. A
+ *  texture with no left-hand voice sounding at `tick` (a monophonic melody, a
+ *  bass rest) has no bass at all: `undefined`, not "whatever else happens to
+ *  be sounding". */
 function bassAt(score: Score, tick: Ticks): Midi | undefined {
   let lowest: Midi | undefined
   for (const note of soundingAtTick(score, tick)) {
+    if (note.hand !== 'left') continue
     if (lowest === undefined || note.midi < lowest) lowest = note.midi
   }
   return lowest
+}
+
+/**
+ * The bass's own next move after a note starting at `noteStartTick` and
+ * lasting `noteDurationTicks`: the first point at or after the note ends
+ * where `bassAt` no longer equals what it was while the note was sounding
+ * (sampled at the note's own start). `bass` is `undefined` when that move is
+ * into silence (no left-hand note sounding there); the whole result is
+ * `undefined` when the bass never moves again before the score ends.
+ *
+ * Deliberately not a fixed tick window: a window sized for one metre is
+ * either too wide for a fast 2/2 phrase or too narrow for a slow 3/8 one, and
+ * a held or arpeggiated dominant can keep the bass parked on the same note
+ * for longer than any fixed width before it finally moves. "The next time
+ * the bass actually moves" needs no size tuned to a rhythm at all — and
+ * because it samples the bass's value, not just note onsets, a bass RELEASE
+ * that exposes a different held pitch (or silence) with no new onset counts
+ * as a move too.
+ */
+function nextBassChange(
+  score: Score,
+  noteStartTick: number,
+  noteDurationTicks: number,
+): { readonly tick: number; readonly bass: Midi | undefined } | undefined {
+  const baseline = bassAt(score, asTicks(noteStartTick))
+  const afterTick = noteStartTick + noteDurationTicks
+  const candidateTicks = new Set<number>([afterTick])
+  for (const note of score.notes) {
+    if (note.hand !== 'left') continue
+    if (note.startTick > afterTick) candidateTicks.add(note.startTick)
+    const endTick = note.startTick + note.durationTicks
+    if (endTick > afterTick) candidateTicks.add(endTick)
+  }
+  for (const tick of [...candidateTicks].sort((a, b) => a - b)) {
+    const bass = bassAt(score, asTicks(tick))
+    if (bass !== baseline) return { tick, bass }
+  }
+  return undefined
+}
+
+/**
+ * The relative minor's raised leading tone is only real evidence of minor where
+ * it does what a leading tone does at a place local pitch content cannot see:
+ * function as the dominant of the PIECE'S OWN FINAL CADENCE, specifically —
+ * not of some chord in the middle of it.
+ *
+ * The hard case this rule exists for: a secondary dominant (V/vi) resolving to
+ * vi in the middle of an otherwise major piece, and V resolving to i in the
+ * relative minor, are THE SAME SONORITY resolving the SAME WAY — a major triad
+ * a semitone below the minor tonic, with the bass moving to that tonic right
+ * after. No local rule can tell them apart, because there is nothing local to
+ * find: the only thing that distinguishes them is WHERE in the piece the
+ * resolution sits. A mid-piece V/vi is a passing tonicisation the piece then
+ * leaves behind; the same motion landing at the piece's own final cadence is
+ * the piece stating its key.
+ *
+ * So the vote only counts when the bass (`bassAt` — left-hand only, never a
+ * decorative upper voice, and no vote at all where there is no left-hand
+ * voice to read) reaches the minor tonic pitch class at its own next move
+ * after the leading tone ends (`nextBassChange` — not "eventually, somewhere
+ * later", which would just re-admit the old bug under a longer leash), AND
+ * that move lands at or after the start of the score's own final measure.
+ * Anywhere earlier, the same resolution is presumed a mid-piece tonicisation:
+ * the V/vi case above, or a chromatic passing tone that merely threads through
+ * the leading-tone pitch class without the bass ever moving to it because of it
+ * (G-G#-A climbing to the diatonic 6th over a held IV, the bass never leaving
+ * the IV chord's root).
+ *
+ * There is no unconditional "sounds in the final measure" escape hatch: even
+ * there, the bass must actually reach the minor tonic. The previous version of
+ * this vote — `pitchClasses.has(raisedLeadingToneClass)` — could not tell any
+ * of this apart from a genuine minor cadence: one bar of V/vi anywhere in the
+ * piece plus an A anywhere in the outer bass was enough to flip a whole C major
+ * piece to A minor and mislabel every roman numeral downstream (roadmap 3.19,
+ * REQ-3.5.5); a later, mid-fix revision let it back in through exactly that
+ * escape hatch (any raised leading tone in the last bar voted, bass ignored).
+ */
+function leadingToneResolvesToMinorTonic(score: Score, minorTonicClass: number): boolean {
+  const raisedLeadingToneClass = (minorTonicClass + 11) % 12
+  const lastMeasure = at(score.measures, score.measures.length - 1)
+  for (const note of score.notes) {
+    if (note.midi % 12 !== raisedLeadingToneClass) continue
+    const change = nextBassChange(score, note.startTick, note.durationTicks)
+    if (
+      change !== undefined &&
+      change.bass !== undefined &&
+      change.bass % 12 === minorTonicClass &&
+      change.tick >= lastMeasure.startTick
+    ) {
+      return true
+    }
+  }
+  return false
 }
 
 /** Guess the key from the score's own key signature and its pitch content. */
@@ -115,10 +225,7 @@ export function detectKey(score: Score): Key {
   const minor = relativeKey(major)
 
   const minorTonicClass = toMidi(minor.tonic) % 12
-  const raisedLeadingToneClass = (minorTonicClass + 11) % 12
-
-  const pitchClasses = new Set(score.notes.map((n) => n.midi % 12))
-  const leadingTonePresent = pitchClasses.has(raisedLeadingToneClass)
+  const leadingToneResolves = leadingToneResolvesToMinorTonic(score, minorTonicClass)
 
   const firstBass = bassAt(score, asTicks(0))
   const lastTick = Math.max(0, scoreDurationTicks(score) - 1)
@@ -127,7 +234,7 @@ export function detectKey(score: Score): Key {
   const firstIsMinorTonic = firstBass !== undefined && firstBass % 12 === minorTonicClass
   const lastIsMinorTonic = lastBass !== undefined && lastBass % 12 === minorTonicClass
 
-  const minorVotes = [leadingTonePresent, firstIsMinorTonic, lastIsMinorTonic].filter(
+  const minorVotes = [leadingToneResolves, firstIsMinorTonic, lastIsMinorTonic].filter(
     Boolean,
   ).length
   return minorVotes >= 2 ? minor : major
@@ -333,10 +440,14 @@ function analyseSlice(score: Score, key: Key, slice: RawSlice): ChordReading | u
 
   const found = bestChordForSlice(midi, corePitches, key)
   const chord = found === null ? null : reseatOnBass(found.chord, bass)
-  const numeral = found === null || !found.recognised || chord === null ? null : romanNumeralFor(chord, key)
+  const numeral =
+    found === null || !found.recognised || chord === null ? null : romanNumeralFor(chord, key)
 
   const measure = measureAtTick(score, asTicks(slice.startTick))
-  invariant(measure !== undefined, `analyseSlice: slice at tick ${slice.startTick} lies outside every measure`)
+  invariant(
+    measure !== undefined,
+    `analyseSlice: slice at tick ${slice.startTick} lies outside every measure`,
+  )
 
   const analysed: AnalysedChord = {
     measureIndex: measure.index,
@@ -386,7 +497,10 @@ function buildHarmonicRuns(readings: readonly ChordReading[]): readonly Harmonic
     // guarantees `j` advances past `i` on every iteration of the outer loop.
     let j = i + 1
     let total: number = first.analysed.durationTicks
-    while (j < readings.length && sameFunction(at(readings, j).analysed.numeral, first.analysed.numeral)) {
+    while (
+      j < readings.length &&
+      sameFunction(at(readings, j).analysed.numeral, first.analysed.numeral)
+    ) {
       total += at(readings, j).analysed.durationTicks
       j++
     }
@@ -414,7 +528,10 @@ function sopranoForCadence(score: Score, reading: ChordReading): Midi {
     (n) => n.hand === 'right',
   )
   if (melodyNotes.length === 0) return at(reading.analysed.midi, reading.analysed.midi.length - 1)
-  return melodyNotes.reduce((highest, n) => (n.midi > highest ? n.midi : highest), at(melodyNotes, 0).midi)
+  return melodyNotes.reduce(
+    (highest, n) => (n.midi > highest ? n.midi : highest),
+    at(melodyNotes, 0).midi,
+  )
 }
 
 function findCadences(
