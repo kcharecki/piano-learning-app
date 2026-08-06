@@ -53,13 +53,26 @@
  * learner reached sight-reading level N at that accuracy") are about the
  * adaptive trainer's own progression, not the curriculum track level, so
  * reusing it here is correct, not a collision with the module comment above.
- * `earTrainingLevel` has NO honest source: `useEarTrainingStore`'s
- * `EarSessionState.levels` is keyed per `EarItemKind` (roadmap 3.10), and no
- * shipped exit criterion evaluates an `ear-training` check yet, so there is
- * no single number to reduce six kind-levels into. `0` is passed — below
- * `EAR_MIN_LEVEL` (1), so any future `ear-training` check reads as simply
- * unmet rather than picking a flattering kind or an average that would
- * advance the learner on evidence that was never collected for that check.
+ * `earTrainingLevel` (roadmap 3.22): `useEarTrainingStore`'s
+ * `EarSessionState.levels` is keyed per `EarItemKind` (roadmap 3.10) and,
+ * since roadmap 3.11a, persisted across reloads — so it is a real, durable
+ * number now, not the "died with the tab" state it used to be when this
+ * field had no honest source. Reducing six kind-levels to one is still a
+ * judgement call: `earTrainingLevel` is their MINIMUM, not their mean or
+ * max, because a learner has reached ear-training level N only once EVERY
+ * kind is at N — a mean or max would advance an `ear-training` exit check on
+ * evidence that was never collected for whichever kind the learner happened
+ * to avoid (e.g. never once practising rhythmic dictation). The minimum is
+ * the conservative reading and cannot be gamed that way. A session with NO
+ * attempts at all reports `0`, not `EAR_MIN_LEVEL` (1): every kind starts at
+ * `EAR_MIN_LEVEL` even before the learner has ever answered a single
+ * question, so taking the minimum of an untouched session would read as "has
+ * demonstrated level 1" on zero evidence, letting an `{ kind: 'ear-training',
+ * minLevel: 1 }` exit criterion pass with nothing practised. `0` is reserved
+ * for exactly that no-evidence case; `1` means level 1 was actually
+ * demonstrated. No shipped curriculum entry uses `kind: 'ear-training'`
+ * today, so this is currently a latent value rather than a visible gate —
+ * fixed anyway, since `evidence` is a public field of this hook's contract.
  *
  * The other three sections (practice streak & weekly time, sight-reading
  * accuracy trend, theory retention) read real, already-persisted state:
@@ -92,6 +105,7 @@ import { useFlashcardStore } from '@app/state/flashcardStore.ts'
 import { useTechniqueStore } from '@app/state/techniqueStore.ts'
 import { useRepertoireStore } from '@app/state/repertoireStore.ts'
 import { useLevelStore } from '@app/state/levelStore.ts'
+import { useEarTrainingStore } from '@app/state/earTrainingStore.ts'
 
 const WEEK_DAYS = 7
 /** Matches `adaptLevel`'s own default window (`@core/sightreading/adaptive.ts`) — see its use below. */
@@ -212,6 +226,9 @@ export function useDashboard(options: UseDashboardOptions = {}): DashboardData {
   const techniqueAttempts = useTechniqueStore((s) => s.attempts)
   const repertoirePieces = useRepertoireStore((s) => s.pieces)
   const levelState = useLevelStore((s) => s.levelState)
+  const earTrainingLevels = useEarTrainingStore((s) => s.session.levels)
+  /** Only used to detect "no attempts recorded anywhere yet" — see the module comment. */
+  const earTrainingAttemptCount = useEarTrainingStore((s) => s.session.attempts.length)
 
   return useMemo(() => {
     // `now` is a snapshot taken when this memo last recomputed (on mount, or
@@ -298,14 +315,21 @@ export function useDashboard(options: UseDashboardOptions = {}): DashboardData {
     // cards yet, which correctly leaves a `theory-quiz` check unmet.
     const theoryRetention = retention.total === 0 ? 0 : retention.mature / retention.total
 
-    // `earTrainingLevel` has no honest source — see the module comment.
+    // `earTrainingLevel` is the MINIMUM of the six per-kind levels, not their
+    // mean — see the module comment for why the conservative reduction is
+    // the correct one. A session with zero recorded attempts reports `0`
+    // instead: every kind starts at `EAR_MIN_LEVEL`, so the minimum of an
+    // untouched session would otherwise be indistinguishable from "level 1
+    // actually demonstrated".
+    const earTrainingLevel =
+      earTrainingAttemptCount === 0 ? 0 : Math.min(...Object.values(earTrainingLevels))
     const evidence: ProgressEvidence = {
       assessments: assessmentBestByScore,
       bestAssessmentAccuracy,
       sightReadingLevel,
       sightReadingAccuracy,
       theoryRetention,
-      earTrainingLevel: 0,
+      earTrainingLevel,
       techniqueBpm: techniqueBestBpmByDrill,
     }
 
@@ -365,5 +389,7 @@ export function useDashboard(options: UseDashboardOptions = {}): DashboardData {
     techniqueAttempts,
     repertoirePieces,
     levelState,
+    earTrainingLevels,
+    earTrainingAttemptCount,
   ])
 }

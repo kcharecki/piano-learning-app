@@ -87,29 +87,55 @@ describe('adaptEarLevel', () => {
     expect(adaptEarLevel(5, runOf(20, false))).toBe(4)
   })
 
-  it('holds on a mixed run (4 correct, 1 wrong = exactly the band edge, exclusive)', () => {
+  it('holds on a mixed run (4 correct, 1 wrong) — one outlier breaks unanimity', () => {
     const mixed = [...runOf(4, true), ...runOf(1, false)]
     expect(adaptEarLevel(3, mixed)).toBe(3)
   })
 
-  it('holds on a mixed run strictly inside the band (window=20, 17/20 = 0.85)', () => {
-    const mixed = [...runOf(17, true), ...runOf(3, false)]
+  it('holds on a mixed run even at 19/20 correct — unanimity, not a rate threshold, decides', () => {
+    // Stub this kills: a success-RATE comparison against any band would
+    // promote a 95%-correct run; plain unanimity never does, because the run
+    // is not all-correct.
+    const mixed = [...runOf(19, true), ...runOf(1, false)]
     expect(adaptEarLevel(3, mixed, { window: 20 })).toBe(3)
   })
 
-  it('holds on a 3-correct-2-wrong run of 5 (60% success), unlike a success-rate rule which would demote', () => {
+  it('a 3-correct-2-wrong run of 5 HOLDS — the exact rate-based demotion roadmap 3.22 wrongly introduced, now reverted', () => {
+    // Roadmap 3.22 replaced this per-attempt unanimity with an aggregate
+    // success-rate-vs-band comparison, on the mistaken premise that `band`
+    // being unused meant the rule was broken rather than that a boolean
+    // accuracy makes a band structurally inert (see the module doc). Under
+    // that rate rule this exact mix (0.6, below the default low of 0.8)
+    // demoted. It must not: mixed evidence, being neither all-correct nor
+    // all-wrong, holds — exactly like `adaptLevel` (sight-reading) would for
+    // the equivalent per-item-unanimity case. Stub this kills: a
+    // rate/band comparison reintroduced in place of `run.every`.
     const mixed = [...runOf(3, true), ...runOf(2, false)]
     expect(adaptEarLevel(3, mixed)).toBe(3)
   })
 
-  it('sequential trajectory: c,c,c,w,w holds (mixed window), then the next correct still holds, not a second demotion', () => {
-    let state = emptyEarSession()
-    const sequence = [true, true, true, false, false, true]
+  it('sequential trajectory: a single bad answer inside a good run holds (never demotes on one outlier), and a fresh full-window run promotes again', () => {
+    // Mirrors adaptive.test.ts's "single outlier inside an otherwise-high run
+    // does not oscillate" test for the sight-reading counterpart. Fed one
+    // attempt at a time, as a real caller would. At i5 the window (4 correct
+    // + 1 wrong) is not unanimous, so it holds rather than demoting — one
+    // outlier is not a run. Stub this kills: `run.some` in place of
+    // `run.every`, which would demote at i5 instead of holding.
+    const sequence = [true, true, true, true, true, false, true, true, true, true, true]
+    const expectedLevels = [2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 4]
+    let level = 2
+    let history: EarAttempt[] = []
+    const levels: number[] = []
     sequence.forEach((correct, i) => {
-      state = recordEarAttempt(state, attempt(correct, { itemId: `q-${i}`, at: T0 + i }), T0 + i)
+      history = [...history, attempt(correct, { itemId: `q-${i}`, at: T0 + i })]
+      level = adaptEarLevel(level, history)
+      levels.push(level)
     })
-    // every 5-window in this sequence is mixed, so the level never moves from its start
-    expect(state.levels['interval-melodic']).toBe(EAR_MIN_LEVEL)
+    expect(levels).toEqual(expectedLevels)
+    // The level never drops during this run — one outlier is not a run.
+    for (let i = 1; i < levels.length; i++) {
+      expect(levels[i]).toBeGreaterThanOrEqual(levels[i - 1] as number)
+    }
   })
 
   it('never rises above EAR_MAX_LEVEL or falls below EAR_MIN_LEVEL', () => {
@@ -127,11 +153,9 @@ describe('adaptEarLevel', () => {
     expect(adaptEarLevel(2, history)).toBe(3)
   })
 
-  it('respects a custom window and band', () => {
+  it('respects a custom window', () => {
     expect(adaptEarLevel(2, runOf(1, true), { window: 1 })).toBe(3)
-    expect(
-      adaptEarLevel(2, [attempt(true), attempt(false)], { window: 2, band: [0.1, 0.6] }),
-    ).toBe(2)
+    expect(adaptEarLevel(2, [attempt(true), attempt(false)], { window: 2 })).toBe(2)
   })
 
   it('property: five correct attempts always raise by exactly one, whatever the starting level (short of the ceiling)', () => {
@@ -150,7 +174,7 @@ describe('adaptEarLevel', () => {
     )
   })
 
-  it('property: the level never leaves [EAR_MIN_LEVEL, EAR_MAX_LEVEL] for any run of attempts', () => {
+  it('property: the level never leaves [EAR_MIN_LEVEL, EAR_MAX_LEVEL] for any run of attempts (default window)', () => {
     fc.assert(
       fc.property(
         fc.integer({ min: EAR_MIN_LEVEL - 3, max: EAR_MAX_LEVEL + 3 }),
@@ -158,6 +182,26 @@ describe('adaptEarLevel', () => {
         (start, corrects) => {
           const recent = corrects.map((c) => attempt(c))
           const result = adaptEarLevel(start, recent)
+          expect(result).toBeGreaterThanOrEqual(EAR_MIN_LEVEL)
+          expect(result).toBeLessThanOrEqual(EAR_MAX_LEVEL)
+          expect(Math.abs(result - clampLevelForTest(start))).toBeLessThanOrEqual(1)
+        },
+      ),
+    )
+  })
+
+  it('property: the level never leaves [EAR_MIN_LEVEL, EAR_MAX_LEVEL] for ANY window or attempt sequence', () => {
+    // Stub this kills: a comparison bug that lets the level jump by more than
+    // one step, or escape the clamp, for some window the default-window-only
+    // property test above never exercises (e.g. window of 1).
+    fc.assert(
+      fc.property(
+        fc.integer({ min: EAR_MIN_LEVEL - 3, max: EAR_MAX_LEVEL + 3 }),
+        fc.array(fc.boolean(), { minLength: 0, maxLength: 30 }),
+        fc.integer({ min: 1, max: 10 }),
+        (start, corrects, window) => {
+          const recent = corrects.map((c) => attempt(c))
+          const result = adaptEarLevel(start, recent, { window })
           expect(result).toBeGreaterThanOrEqual(EAR_MIN_LEVEL)
           expect(result).toBeLessThanOrEqual(EAR_MAX_LEVEL)
           expect(Math.abs(result - clampLevelForTest(start))).toBeLessThanOrEqual(1)
@@ -251,6 +295,93 @@ describe('recordEarAttempt', () => {
     }
     expect(state.levels['interval-melodic']).toBe(2)
     expect(state.levels['chord-quality']).toBe(EAR_MIN_LEVEL)
+  })
+
+  it('regression guard: five correct answers in a row promotes, driving recordEarAttempt exactly as e2e/acceptance-m3.spec.ts does', () => {
+    // Mirrors computeIntervalPromotionPlan in e2e/acceptance-m3.spec.ts,
+    // which predicts the browser's outcome by calling these same real
+    // functions in Node: generate at the CURRENT level, answer correctly,
+    // record with `level` set to the level the item was actually generated
+    // at (not a hardcoded constant) — exactly what the real practice screen
+    // does.
+    let state = emptyEarSession()
+    const kind: EarItemKind = 'interval-melodic'
+    for (let i = 0; i < 5; i++) {
+      const at = T0 + i
+      state = recordEarAttempt(
+        state,
+        attempt(true, { itemId: `q-${i}`, kind, at, level: state.levels[kind] }),
+        at,
+      )
+    }
+    expect(state.levels[kind]).toBe(2)
+  })
+
+  it('interleaves two kinds through recordEarAttempt and adapts each on its own evidence, not mixed together', () => {
+    // Stub this kills: a `kindAttempts` filter that drops (or mutates away)
+    // the `a.kind === attempt.kind` check would mix melodic's all-correct
+    // evidence with chord-quality's all-wrong evidence into one shared
+    // window, producing a different (wrong) result for at least one kind.
+    let state: EarSessionState = {
+      ...emptyEarSession(),
+      levels: { ...emptyEarSession().levels, 'chord-quality': 3 },
+    }
+    const mel: EarItemKind = 'interval-melodic'
+    const chord: EarItemKind = 'chord-quality'
+    for (let i = 0; i < 5; i++) {
+      const melAt = T0 + i * 2
+      state = recordEarAttempt(
+        state,
+        attempt(true, { itemId: `mel-${i}`, kind: mel, at: melAt, level: state.levels[mel] }),
+        melAt,
+      )
+      const chordAt = melAt + 1
+      state = recordEarAttempt(
+        state,
+        attempt(false, { itemId: `chord-${i}`, kind: chord, at: chordAt, level: state.levels[chord] }),
+        chordAt,
+      )
+    }
+    // melodic: five unanimous corrects of its own evidence -> promotes 1 -> 2.
+    expect(state.levels[mel]).toBe(2)
+    // chord-quality: five unanimous wrongs of its own evidence -> demotes 3 -> 2.
+    expect(state.levels[chord]).toBe(2)
+  })
+
+  it('restricts adaptation evidence to attempts taken at the current level — a learner just demoted is not immediately re-judged on the answers that demoted them', () => {
+    // Seed a kind already at level 3, then demote it to 2 with five
+    // unanimous wrong attempts (all tagged level: 3, matching where they
+    // were actually taken). A single new wrong attempt tagged level: 2 (the
+    // new current level) must NOT be judged together with the stale level-3
+    // wrongs still sitting in `attempts` — otherwise the window would read
+    // as five more unanimous wrongs (four stale + one fresh) and demote
+    // again immediately, to level 1, off a single fresh data point.
+    const kind: EarItemKind = 'interval-melodic'
+    let state: EarSessionState = {
+      ...emptyEarSession(),
+      levels: { ...emptyEarSession().levels, [kind]: 3 },
+    }
+    for (let i = 0; i < 5; i++) {
+      const at = T0 + i
+      state = recordEarAttempt(
+        state,
+        attempt(false, { itemId: `old-${i}`, kind, at, level: 3 }),
+        at,
+      )
+    }
+    expect(state.levels[kind]).toBe(2) // demoted 3 -> 2, as expected
+
+    const at = T0 + 5
+    state = recordEarAttempt(
+      state,
+      attempt(false, { itemId: 'new-0', kind, at, level: state.levels[kind] }),
+      at,
+    )
+    // Stub this kills: filtering `kindAttempts` by kind alone (no level
+    // check) would fold the four still-in-window stale level-3 wrongs
+    // together with this one fresh level-2 wrong into a unanimous run of
+    // five wrongs, demoting to 1 instead of holding at 2.
+    expect(state.levels[kind]).toBe(2)
   })
 
   it('passing an rng fuzzes the interval away from the exact deterministic value', () => {

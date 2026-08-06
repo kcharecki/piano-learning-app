@@ -21,8 +21,9 @@ import {
 import { DAY_MS, retentionStats, type Card } from '@core/srs/scheduler.ts'
 import { MIN_LEVEL } from '@core/sightreading/adaptive.ts'
 import type { SightReadingRecord } from '@core/sightreading/session.ts'
-import { TRACKS } from '@core/curriculum/types.ts'
+import { TRACKS, type ExitCriterion } from '@core/curriculum/types.ts'
 import {
+  evaluateCriterion,
   initialLevelState,
   trackProgress,
   type LevelState,
@@ -38,10 +39,18 @@ import { useFlashcardStore } from '@app/state/flashcardStore.ts'
 import { useTechniqueStore } from '@app/state/techniqueStore.ts'
 import { useRepertoireStore } from '@app/state/repertoireStore.ts'
 import { useLevelStore } from '@app/state/levelStore.ts'
+import { useEarTrainingStore } from '@app/state/earTrainingStore.ts'
 import type { RepertoirePiece } from '@core/repertoire/repertoire.ts'
 import type { TechniqueAttempt } from '@core/technique/evenness.ts'
 import type { StoredAssessment } from '@app/state/progressStore.ts'
 import type { AssessmentResult } from '@core/practice/assessment.ts'
+import {
+  emptyEarSession,
+  EAR_MIN_LEVEL,
+  type EarAttempt,
+  type EarSessionState,
+} from '@core/eartraining/session.ts'
+import type { EarItemKind } from '@core/eartraining/item.ts'
 import { useDashboard, type UseDashboardOptions } from './useDashboard.ts'
 
 class FakeDateSource implements DateSource {
@@ -67,6 +76,7 @@ function resetStores(): void {
   useTechniqueStore.setState({ attempts: [] })
   useRepertoireStore.setState({ pieces: [] })
   useLevelStore.setState({ levelState: initialLevelState() })
+  useEarTrainingStore.setState({ session: emptyEarSession(), itemsById: {} })
 }
 
 afterEach(() => {
@@ -138,6 +148,10 @@ describe('useDashboard — empty stores', () => {
       sightReadingLevel: MIN_LEVEL,
       sightReadingAccuracy: 0,
       theoryRetention: 0,
+      // A never-touched ear-training session has recorded zero attempts, so
+      // earTrainingLevel is 0 (no-evidence), not EAR_MIN_LEVEL — every kind
+      // starting at EAR_MIN_LEVEL is what an untouched session looks like,
+      // not evidence that level 1 was ever demonstrated.
       earTrainingLevel: 0,
       techniqueBpm: {},
     }
@@ -476,6 +490,106 @@ describe('useDashboard — level store (roadmap 2.36)', () => {
   })
 })
 
+describe('useDashboard — ear-training level (roadmap 3.22)', () => {
+  // A non-empty `attempts` array marks this as a session that has actually
+  // recorded evidence, distinguishing "several kinds already practised at
+  // these levels" from "completely untouched" — see useDashboard's
+  // earTrainingLevel doc comment for why that distinction matters.
+  function sessionWithLevels(levels: Readonly<Record<EarItemKind, number>>): EarSessionState {
+    const seedAttempt: EarAttempt = {
+      itemId: 'seed',
+      kind: 'interval-melodic',
+      correct: true,
+      at: 0,
+      level: 1,
+    }
+    return { ...emptyEarSession(), levels, attempts: [seedAttempt] }
+  }
+
+  it('reports the MINIMUM of the six per-kind levels, not their mean or max', () => {
+    const levels: Record<EarItemKind, number> = {
+      'interval-melodic': 3,
+      'interval-harmonic': 4,
+      'chord-quality': 2,
+      'scale-mode': 5,
+      'melodic-dictation': 4,
+      'rhythmic-dictation': 3,
+    }
+    useEarTrainingStore.setState({ session: sessionWithLevels(levels), itemsById: {} })
+
+    const { result } = setup()
+
+    // The minimum (2), not the mean (~3.5, which would round to 3 or 4) or
+    // the max (5) — a mean/max reduction would report a number the learner
+    // never actually demonstrated on the weakest kind (chord-quality).
+    expect(result.current.evidence.earTrainingLevel).toBe(2)
+  })
+
+  it('a kind that was never practised (still at EAR_MIN_LEVEL) pins the minimum down — the flattering-advance case', () => {
+    const levels: Record<EarItemKind, number> = {
+      'interval-melodic': 5,
+      'interval-harmonic': 5,
+      'chord-quality': 5,
+      'scale-mode': 5,
+      'melodic-dictation': 5,
+      'rhythmic-dictation': EAR_MIN_LEVEL, // never practised — still at its starting level
+    }
+    useEarTrainingStore.setState({ session: sessionWithLevels(levels), itemsById: {} })
+
+    const { result } = setup()
+
+    // Stub this kills: a mean-based reduction would report ~4.2 (rounds to 4
+    // or 5), and a max-based one would report 5 — either would let an
+    // `ear-training` exit check advance on evidence that was never collected
+    // for rhythmic dictation. The minimum correctly refuses to be flattered
+    // by the five strong kinds.
+    expect(result.current.evidence.earTrainingLevel).toBe(EAR_MIN_LEVEL)
+  })
+
+  it('a fresh session with zero attempts reports 0, not EAR_MIN_LEVEL — the no-evidence case', () => {
+    const { result } = setup()
+    // Stub this kills: reducing an untouched session's per-kind levels
+    // (all EAR_MIN_LEVEL) with Math.min alone, without checking for zero
+    // recorded attempts first, reports 1 here instead of 0.
+    expect(result.current.evidence.earTrainingLevel).toBe(0)
+  })
+
+  it('an { kind: "ear-training", minLevel: 1 } exit criterion reads UNMET on a fresh session', () => {
+    const { result } = setup()
+    const criterion: ExitCriterion = {
+      id: 'test-ear-training-floor',
+      track: 'theory',
+      description: 'test criterion',
+      check: { kind: 'ear-training', minLevel: 1 },
+    }
+    // Stub this kills: earTrainingLevel reporting EAR_MIN_LEVEL (1) for zero
+    // attempts would make `1 >= 1` read MET, advancing an ear-training exit
+    // check on evidence that was never collected.
+    expect(evaluateCriterion(criterion, result.current.evidence).met).toBe(false)
+  })
+
+  it('recomputes when the ear-training store changes AFTER the initial render, not just on mount', () => {
+    const { result } = setup()
+    expect(result.current.evidence.earTrainingLevel).toBe(0)
+
+    act(() => {
+      useEarTrainingStore.setState({
+        session: sessionWithLevels({
+          'interval-melodic': 2,
+          'interval-harmonic': 2,
+          'chord-quality': 2,
+          'scale-mode': 2,
+          'melodic-dictation': 2,
+          'rhythmic-dictation': 2,
+        }),
+        itemsById: {},
+      })
+    })
+
+    expect(result.current.evidence.earTrainingLevel).toBe(2)
+  })
+})
+
 describe('useDashboard — exit criteria evidence assembly (roadmap 2.36 second half, REQ-2.2)', () => {
   it('builds evidence from real store state and matches trackProgress for a track with SOME criteria met and others not', () => {
     // 'playing' at level 1 has exactly two exit checks: assessment and
@@ -545,6 +659,8 @@ describe('useDashboard — exit criteria evidence assembly (roadmap 2.36 second 
       sightReadingLevel: 1,
       sightReadingAccuracy: (0.9 + 0.85 + 0.8) / 3,
       theoryRetention: 0,
+      // No ear-training store state was seeded in this test, so it is still
+      // the untouched default — zero attempts recorded, hence 0 (no-evidence).
       earTrainingLevel: 0,
       techniqueBpm: { 'five-finger-c-major-hands-right': 40 },
     }
