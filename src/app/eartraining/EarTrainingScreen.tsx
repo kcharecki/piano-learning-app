@@ -218,7 +218,7 @@ export function EarTrainingScreen(props: EarTrainingScreenProps) {
           {/* pitchAccuracy/rhythmAccuracy had no production reader (review
               finding) even though ROADMAP.md names "pitch and rhythm scored
               separately" as this feature's own proof — this renders both. */}
-          <dl className="dictation-accuracy" aria-label="Dictation accuracy">
+          <dl className="dictation-accuracy accuracy-pair" aria-label="Dictation accuracy">
             <dt>Pitch accuracy</dt>
             <dd data-testid="dictation-pitch-accuracy">
               {Math.round(dictationGrade.pitchAccuracy * 100)}%
@@ -228,28 +228,57 @@ export function EarTrainingScreen(props: EarTrainingScreenProps) {
               {Math.round(dictationGrade.rhythmAccuracy * 100)}%
             </dd>
           </dl>
-          <ul aria-label="Dictation result" data-testid="dictation-result">
-            {dictationGrade.notes.map((n, i) => (
-              <li key={i}>
-                {dictationNoteLabel(n)}
-                {DICTATION_NOTE_STATUS_LABEL[n.status]}
-              </li>
-            ))}
-          </ul>
+          <div className="dictation-result">
+            <ul aria-label="Dictation result" data-testid="dictation-result" className="note-row">
+              {dictationGrade.notes.map((n, i) => (
+                <li key={i}>
+                  <span className="note-chip" data-state={n.status}>
+                    {dictationNoteLabel(n)}
+                    {DICTATION_NOTE_STATUS_LABEL[n.status]}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
         </>
       )}
 
       <dl className="eartraining-stats" aria-label="Retention">
         <dt>Cards</dt>
-        <dd data-testid="eartraining-stats-total">{drill.stats.total}</dd>
+        <dd>
+          <div className="stat">
+            <b data-testid="eartraining-stats-total">{drill.stats.total}</b>
+            <small>Cards</small>
+          </div>
+        </dd>
         <dt>Due</dt>
-        <dd data-testid="eartraining-stats-due">{drill.stats.due}</dd>
+        <dd>
+          <div className="stat">
+            <b data-testid="eartraining-stats-due">{drill.stats.due}</b>
+            <small>Due</small>
+          </div>
+        </dd>
         <dt>Young</dt>
-        <dd data-testid="eartraining-stats-young">{drill.stats.young}</dd>
+        <dd>
+          <div className="stat">
+            <b data-testid="eartraining-stats-young">{drill.stats.young}</b>
+            <small>Young</small>
+          </div>
+        </dd>
         <dt>Mature</dt>
-        <dd data-testid="eartraining-stats-mature">{drill.stats.mature}</dd>
+        <dd>
+          <div className="stat">
+            <b data-testid="eartraining-stats-mature">{drill.stats.mature}</b>
+            <small>Mature</small>
+          </div>
+        </dd>
         <dt>Average ease</dt>
-        <dd data-testid="eartraining-stats-ease">{drill.stats.averageEase.toFixed(2)}</dd>
+        <dd>
+          <div className="stat">
+            <b data-testid="eartraining-stats-ease">{drill.stats.averageEase.toFixed(2)}</b>
+            <small>Average ease</small>
+          </div>
+        </dd>
       </dl>
     </div>
   )
