@@ -58,7 +58,7 @@ test('the roman-numeral analysis of the bundled sample is shown under the score,
   // text: "m.1" and "I" are adjacent spans, so a text-level word-boundary
   // match sees "m.1I" and fails for reasons that have nothing to do with the
   // analysis being right.
-  const numerals = await analysis.locator('.analysis-chords').allInnerTexts()
+  const numerals = await analysis.locator('.numerals').allInnerTexts()
   expect(numerals.slice(0, 4)).toEqual(['I', 'V', 'IV', 'I'])
   await expect(analysis).toContainText(/cadence/i)
 
