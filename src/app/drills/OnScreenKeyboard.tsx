@@ -32,7 +32,7 @@ export function OnScreenKeyboard({ low, high, onPress, disabled = false }: OnScr
   for (let n = clampedLow; n <= clampedHigh; n++) notes.push(n)
 
   return (
-    <div className="on-screen-keyboard" role="group" aria-label="On-screen keyboard">
+    <div className="keyboard-diagram" role="group" aria-label="On-screen keyboard">
       {notes.map((note) => (
         <button
           key={note}
