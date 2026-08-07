@@ -44,16 +44,47 @@
  * `detectKey` is a signature-plus-heuristic, exactly as asked for, not a key
  * finder: it takes `measures[0].keyFifths` as given (the score already
  * carries the signature) and only decides **major vs. its relative minor**
- * from three pitch-content votes — the relative minor's raised leading tone
- * actually resolving to the minor tonic AT THE PIECE'S OWN FINAL CADENCE (see
- * `leadingToneResolvesToMinorTonic` below — not merely sounding anywhere, and
- * not merely resolving somewhere in the middle of the piece), and the
- * first/last sounding BASS note (left-hand only — see `bassAt`; a texture
- * with no left-hand voice casts neither of these votes) landing on the minor
- * tonic rather than the major one. Two or more votes flip it to minor. This
- * gets a genuine modulating or modally ambiguous piece wrong (Dorian,
- * Mixolydian — this model only knows major/minor); it was never meant to do
- * more than the common case a beginner's repertoire actually presents.
+ * from a WEIGHTED sum of five pieces of evidence (roadmap 3.19a) — flat
+ * `minorVotes >= 2` unweighted-boolean counting was tried first and shipped a
+ * known defect: a plagal minor piece ("iv | i | iv | i", bass D-A-D-A in A
+ * minor — no leading tone anywhere, first bass not the tonic) casts only ONE
+ * of the three old votes (`lastIsMinorTonic`) and so always read as C major,
+ * even though closing on the minor tonic, driven there by its own
+ * subdominant, is exactly what a plagal cadence in the minor key IS. The two
+ * bass votes were also close to redundant with each other (first and last
+ * bass are largely the same evidence — see `WEIGHT_FIRST_BASS` /
+ * `WEIGHT_LAST_BASS` below for why they are no longer equal), and neither the
+ * old scheme nor the new one can see a bass-driven cadence that never
+ * reaches the tonic pitch class at all, only that it moved FROM the
+ * subdominant TO the tonic — new evidence the old boolean set had no room
+ * for.
+ *
+ * The five inputs, combined as `minorScore = Σ(weight × evidence)` and
+ * compared against `MINOR_KEY_THRESHOLD`:
+ *  1. `leadingToneResolves` (`WEIGHT_LEADING_TONE`) — the relative minor's
+ *     raised leading tone actually resolving to the minor tonic AT THE
+ *     PIECE'S OWN FINAL CADENCE (see `leadingToneResolvesToMinorTonic` below
+ *     — not merely sounding anywhere, and not merely resolving somewhere in
+ *     the middle of the piece).
+ *  2. `lastIsMinorTonic` (`WEIGHT_LAST_BASS`) — the bass note (left-hand
+ *     only — see `bassAt`) the piece ENDS on.
+ *  3. `firstIsMinorTonic` (`WEIGHT_FIRST_BASS`) — the bass note the piece
+ *     OPENS on.
+ *  4. `plagalMotionIntoFinalMeasure` (`WEIGHT_PLAGAL_MOTION`) — the final
+ *     bass reached the minor tonic AND was driven there from its own
+ *     subdominant (see the doc comment on that function) — the roadmap-3.19a
+ *     fix.
+ *  5. `tonicTriadPrevalenceScore` (`WEIGHT_TONIC_TRIAD_PREVALENCE`) — a
+ *     continuous, always-available tie-breaker: how much more of the piece's
+ *     total note duration spells the minor tonic triad than the major one.
+ *
+ * A texture with no left-hand voice at all (see `bassAt`) casts none of
+ * votes 1–4; only the prevalence tie-breaker remains, and it alone (bounded
+ * well under `MINOR_KEY_THRESHOLD`) can never flip the key on its own — see
+ * the monophonic-melody fixture. This gets a genuine modulating or modally
+ * ambiguous piece wrong (Dorian, Mixolydian — this model only knows
+ * major/minor); it was never meant to do more than the common case a
+ * beginner's repertoire actually presents.
  *
  * Cadences: chords are first grouped into "harmonic runs" — consecutive chord
  * readings that resolve to the same roman numeral, regardless of how many
@@ -217,6 +248,140 @@ function leadingToneResolvesToMinorTonic(score: Score, minorTonicClass: number):
   return false
 }
 
+/**
+ * Evidence weights for `detectKey`'s `minorScore` (see the module comment above for
+ * the full rationale). Larger = stronger evidence for the relative minor. Named
+ * constants, never buried in the scoring expression itself, per roadmap 3.19a.
+ */
+
+/** A leading tone that genuinely resolves to the minor tonic AT THE PIECE'S OWN FINAL
+ *  CADENCE (`leadingToneResolvesToMinorTonic`) is the strongest single piece of
+ *  evidence this heuristic can gather: by construction it can only fire at the one
+ *  place in the piece that actually states the key. Weighted equal to the final bass —
+ *  the other single vote strong enough to matter on its own once corroborated. */
+const WEIGHT_LEADING_TONE = 2
+
+/** The bass note the piece actually ENDS on. Weighted TWICE the opening bass below,
+ *  because a piece's LAST bass note is much stronger evidence of its key than its
+ *  first: the ending is where a piece commits to its key, while the opening can still
+ *  be an anacrusis, a plagal introduction, or simply "wrong" for the eventual key
+ *  (see the "single vote" fixture: a piece that opens on the major tonic and closes on
+ *  the minor one is NOT thereby minor). */
+const WEIGHT_LAST_BASS = 2
+
+/** The bass note the piece OPENS on. Real but weaker evidence than the closing bass
+ *  (`WEIGHT_LAST_BASS`) — corroborating, never decisive alone. */
+const WEIGHT_FIRST_BASS = 1
+
+/** A plagal (iv -> i) bass motion arriving at the piece's own final measure — the
+ *  roadmap-3.19a fix (see `plagalMotionIntoFinalMeasure`). A piece closing "iv | i" has
+ *  no leading tone to vote and, on its own, only the single "last bass" vote — exactly
+ *  the same evidence a merely-ambiguous piece (major tonic bass at one end, minor
+ *  tonic bass at the other) also produces. What tells them apart is that the bass
+ *  didn't just LAND on the minor tonic, it was DRIVEN there by its own subdominant —
+ *  real harmonic motion, not coincidence. Weighted the same as the opening bass: real
+ *  corroborating evidence, not decisive alone, but enough together with the last-bass
+ *  vote to cross `MINOR_KEY_THRESHOLD` where the merely-ambiguous case does not. */
+const WEIGHT_PLAGAL_MOTION = 1
+
+/** Coefficient on the continuous duration-weighted tonic-triad-prevalence signal
+ *  (`tonicTriadPrevalenceScore`, magnitude well under 1 in every fixture this module
+ *  has seen). Always present, small relative to the boolean votes above: a genuinely
+ *  close call gets nudged, but this alone can never reach `MINOR_KEY_THRESHOLD` — a
+ *  tie-breaker, not a vote (see the monophonic fixture, whose melody alone produces a
+ *  real-looking tilt with zero harmonic evidence behind it). */
+const WEIGHT_TONIC_TRIAD_PREVALENCE = 1
+
+/** The `minorScore` a piece needs to read as the relative minor. Chosen so the two
+ *  strong, independent votes together (`WEIGHT_LEADING_TONE + WEIGHT_LAST_BASS`, or
+ *  `WEIGHT_LAST_BASS + WEIGHT_PLAGAL_MOTION`) already clear it, while any single vote
+ *  alone (2, or 1 for the weaker ones) never does — the same "needs corroboration"
+ *  shape as the old `minorVotes >= 2` rule, extended to weighted, continuous evidence. */
+const MINOR_KEY_THRESHOLD = 2.5
+
+/** The maximum magnitude the continuous prevalence signal may contribute to
+ *  `minorScore`, strictly less than the gap between any two attainable boolean-vote
+ *  sums (which are always whole numbers at least 1 apart at `MINOR_KEY_THRESHOLD`'s
+ *  neighbourhood). This is what makes the tie-breaker claim in
+ *  `WEIGHT_TONIC_TRIAD_PREVALENCE`'s comment actually true: with `MINOR_KEY_THRESHOLD`
+ *  set below the common boolean sum of 3 (first bass + last bass on the minor tonic),
+ *  prevalence could otherwise still flip that case to major on its own if it swung
+ *  negative — clamping keeps it sub-decisive in both directions. */
+const PREVALENCE_CLAMP = 0.49
+
+/** The three pitch classes of a tonic triad built on `tonicClass`, root position:
+ *  tonic, third (major = +4 semitones, minor = +3) and perfect fifth (+7). */
+function tonicTriadClasses(tonicClass: number, thirdInterval: 3 | 4): readonly number[] {
+  return [tonicClass, (tonicClass + thirdInterval) % 12, (tonicClass + 7) % 12]
+}
+
+/**
+ * How much more of the score's own note duration spells the minor tonic triad than
+ * the major one, as a fraction of the score's total note duration: positive leans
+ * minor, negative leans major. Magnitude stays well under 1 in every fixture this
+ * module has seen, because the relative major and minor tonic triads always share two
+ * of their three pitch classes (they are built a third apart, so one triad's root and
+ * third are the other's third and fifth) — the two prevalence sums necessarily overlap
+ * heavily and can never diverge as sharply as a clean boolean vote.
+ *
+ * Cheap and always available — unlike the bass votes, it needs no left-hand voice at
+ * all — which is exactly why it is weighted as a tie-breaker
+ * (`WEIGHT_TONIC_TRIAD_PREVALENCE`) rather than a vote: a melody-only texture can rack
+ * up a real-looking prevalence tilt from its own tune with no harmonic evidence behind
+ * it at all (see the monophonic fixture), and must never be enough on its own to
+ * decide the key.
+ */
+function tonicTriadPrevalenceScore(
+  score: Score,
+  minorTonicClass: number,
+  majorTonicClass: number,
+): number {
+  const minorClasses = new Set(tonicTriadClasses(minorTonicClass, 3))
+  const majorClasses = new Set(tonicTriadClasses(majorTonicClass, 4))
+  let minorTicks = 0
+  let majorTicks = 0
+  let totalTicks = 0
+  for (const note of score.notes) {
+    const pitchClass = note.midi % 12
+    totalTicks += note.durationTicks
+    if (minorClasses.has(pitchClass)) minorTicks += note.durationTicks
+    if (majorClasses.has(pitchClass)) majorTicks += note.durationTicks
+  }
+  return totalTicks === 0 ? 0 : (minorTicks - majorTicks) / totalTicks
+}
+
+/**
+ * A plagal (iv -> i) bass motion arriving at the piece's own final measure: the bass
+ * at the final measure's own start tick is the minor tonic, AND the bass sounding
+ * immediately before that (whatever it moved FROM) is the minor subdominant (a
+ * perfect fourth below the tonic, i.e. `tonicClass + 5`). This is the evidence the
+ * plagal defect (roadmap 3.19a) needs and the plain "last bass is the minor tonic"
+ * vote cannot supply on its own: a piece can land on the minor-tonic bass at its very
+ * end by simple coincidence (see the "single vote" fixture, where the piece's other
+ * half is the unrelated major tonic) — but the bass actually being DRIVEN there by its
+ * own subdominant right before is real harmonic motion, not coincidence.
+ *
+ * The bass landing on the tonic class is not enough on its own: it says nothing about
+ * whether the chord actually arriving there is the minor tonic TRIAD (as opposed to,
+ * say, a ii or vi built on an unrelated scale degree that merely happens to share the
+ * bass pitch class). So this also requires the minor third above the tonic
+ * (`minorTonicClass + 3`) to be sounding somewhere at that same tick, in either hand.
+ */
+function plagalMotionIntoFinalMeasure(score: Score, minorTonicClass: number): boolean {
+  const lastMeasure = at(score.measures, score.measures.length - 1)
+  if (lastMeasure.startTick <= 0) return false
+  const finalBass = bassAt(score, lastMeasure.startTick)
+  if (finalBass === undefined || finalBass % 12 !== minorTonicClass) return false
+  const minorThirdClass = (minorTonicClass + 3) % 12
+  const hasMinorThird = soundingAtTick(score, lastMeasure.startTick).some(
+    (note) => note.midi % 12 === minorThirdClass,
+  )
+  if (!hasMinorThird) return false
+  const subdominantClass = (minorTonicClass + 5) % 12
+  const priorBass = bassAt(score, asTicks(lastMeasure.startTick - 1))
+  return priorBass !== undefined && priorBass % 12 === subdominantClass
+}
+
 /** Guess the key from the score's own key signature and its pitch content. */
 export function detectKey(score: Score): Key {
   const fifths = score.measures[0]?.keyFifths ?? 0
@@ -225,6 +390,7 @@ export function detectKey(score: Score): Key {
   const minor = relativeKey(major)
 
   const minorTonicClass = toMidi(minor.tonic) % 12
+  const majorTonicClass = toMidi(major.tonic) % 12
   const leadingToneResolves = leadingToneResolvesToMinorTonic(score, minorTonicClass)
 
   const firstBass = bassAt(score, asTicks(0))
@@ -233,11 +399,22 @@ export function detectKey(score: Score): Key {
 
   const firstIsMinorTonic = firstBass !== undefined && firstBass % 12 === minorTonicClass
   const lastIsMinorTonic = lastBass !== undefined && lastBass % 12 === minorTonicClass
+  const plagalIntoFinal = plagalMotionIntoFinalMeasure(score, minorTonicClass)
+  const prevalence = tonicTriadPrevalenceScore(score, minorTonicClass, majorTonicClass)
 
-  const minorVotes = [leadingToneResolves, firstIsMinorTonic, lastIsMinorTonic].filter(
-    Boolean,
-  ).length
-  return minorVotes >= 2 ? minor : major
+  const prevalenceTerm = Math.max(
+    -PREVALENCE_CLAMP,
+    Math.min(PREVALENCE_CLAMP, prevalence * WEIGHT_TONIC_TRIAD_PREVALENCE),
+  )
+
+  const minorScore =
+    (leadingToneResolves ? WEIGHT_LEADING_TONE : 0) +
+    (firstIsMinorTonic ? WEIGHT_FIRST_BASS : 0) +
+    (lastIsMinorTonic ? WEIGHT_LAST_BASS : 0) +
+    (plagalIntoFinal ? WEIGHT_PLAGAL_MOTION : 0) +
+    prevalenceTerm
+
+  return minorScore >= MINOR_KEY_THRESHOLD ? minor : major
 }
 
 // ---------------------------------------------------------------------------

@@ -366,6 +366,227 @@ describe('detectKey — a score that sounds only the A minor triad, throughout',
 })
 
 // ---------------------------------------------------------------------------
+// PLAGAL DEFECT (roadmap 3.19a, REQ-3.5.5): a plagal minor piece not
+// bracketed by a tonic bass at BOTH ends must still read as minor
+// ---------------------------------------------------------------------------
+
+describe('detectKey — a plagal (iv -> i) minor piece not bracketed by a tonic bass', () => {
+  it('REGRESSION (roadmap 3.19a): A minor "iv | i | iv | i" (D-A-D-A bass, no leading tone, opening bass NOT the tonic) still detects as A MINOR', () => {
+    // The recorded defect: under the old flat `minorVotes >= 2` rule this fixture cast
+    // exactly one vote (`lastIsMinorTonic` — the piece ends on the minor tonic bass)
+    // and so always read as C major, even though "iv | i | iv | i" IS a plagal minor
+    // piece — the bass is driven to the tonic by its own subdominant, twice over. A
+    // stub that reverts to the flat vote count, or that drops `WEIGHT_PLAGAL_MOTION`
+    // back to 0, fails this test by reporting C major.
+    //
+    // mm1: iv, D3-F3-A3 (bass D, NOT the minor tonic — no vote from firstIsMinorTonic).
+    // mm2: i,  A2-C3-E3 (bass A, the minor tonic).
+    // mm3: iv, D3-F3-A3 again.
+    // mm4: i,  A2-C3-E3 again — the piece closes on the minor tonic, driven there from
+    //      its own subdominant (mm3's D bass) both times.
+    const score = makeScore({
+      id: 'plagal-minor-probe',
+      measures: [{ keyFifths: 0 }, { keyFifths: 0 }, { keyFifths: 0 }, { keyFifths: 0 }],
+      notes: [
+        // mm1: iv
+        { midi: 62, startTick: 0, durationTicks: 1920, hand: 'left' }, // D
+        { midi: 65, startTick: 0, durationTicks: 1920, hand: 'left' }, // F
+        { midi: 69, startTick: 0, durationTicks: 1920, hand: 'left' }, // A
+        // mm2: i
+        { midi: 57, startTick: 1920, durationTicks: 1920, hand: 'left' }, // A
+        { midi: 60, startTick: 1920, durationTicks: 1920, hand: 'left' }, // C
+        { midi: 64, startTick: 1920, durationTicks: 1920, hand: 'left' }, // E
+        // mm3: iv
+        { midi: 62, startTick: 3840, durationTicks: 1920, hand: 'left' }, // D
+        { midi: 65, startTick: 3840, durationTicks: 1920, hand: 'left' }, // F
+        { midi: 69, startTick: 3840, durationTicks: 1920, hand: 'left' }, // A
+        // mm4: i
+        { midi: 57, startTick: 5760, durationTicks: 1920, hand: 'left' }, // A
+        { midi: 60, startTick: 5760, durationTicks: 1920, hand: 'left' }, // C
+        { midi: 64, startTick: 5760, durationTicks: 1920, hand: 'left' }, // E
+      ],
+    })
+    const key = detectKey(score)
+    expect(key.tonic.letter).toBe('A')
+    expect(key.tonic.alter).toBe(0)
+    expect(key.mode).toBe('minor')
+  })
+
+  // roadmap 3.19a review finding 2: pins the duration-weighted tonic-triad-prevalence
+  // signal, which was previously untested (mutating it to always-zero left the suite
+  // green). Bass sum here is exactly firstIsMinorTonic + lastIsMinorTonic = 3
+  // (WEIGHT_FIRST_BASS + WEIGHT_LAST_BASS), the SAME boolean sum that sits at
+  // MINOR_KEY_THRESHOLD — so a signed, unclamped prevalence term could flip this. The
+  // piece leans on VII (the subtonic) rather than the dominant, which the relative
+  // major and minor tonic triads do NOT share a pitch class with on the "wrong" side:
+  // it makes the prevalence signal negative (more G than A across the piece), while
+  // the bass votes alone must still carry it to A minor.
+  it('i | VII | VII | VII | i (A minor, subtonic-heavy) still reads minor though prevalence leans major', () => {
+    const score = makeScore({
+      id: 'subtonic-heavy-minor-probe',
+      measures: [
+        { keyFifths: 0 },
+        { keyFifths: 0 },
+        { keyFifths: 0 },
+        { keyFifths: 0 },
+        { keyFifths: 0 },
+      ],
+      notes: [
+        // mm1: i, A2-C3-E3
+        { midi: 57, startTick: 0, durationTicks: 1920, hand: 'left' },
+        { midi: 60, startTick: 0, durationTicks: 1920, hand: 'left' },
+        { midi: 64, startTick: 0, durationTicks: 1920, hand: 'left' },
+        // mm2: VII, G2-B2-D3
+        { midi: 55, startTick: 1920, durationTicks: 1920, hand: 'left' },
+        { midi: 59, startTick: 1920, durationTicks: 1920, hand: 'left' },
+        { midi: 62, startTick: 1920, durationTicks: 1920, hand: 'left' },
+        // mm3: VII, G2-B2-D3
+        { midi: 55, startTick: 3840, durationTicks: 1920, hand: 'left' },
+        { midi: 59, startTick: 3840, durationTicks: 1920, hand: 'left' },
+        { midi: 62, startTick: 3840, durationTicks: 1920, hand: 'left' },
+        // mm4: VII, G2-B2-D3
+        { midi: 55, startTick: 5760, durationTicks: 1920, hand: 'left' },
+        { midi: 59, startTick: 5760, durationTicks: 1920, hand: 'left' },
+        { midi: 62, startTick: 5760, durationTicks: 1920, hand: 'left' },
+        // mm5: i, A2-C3-E3
+        { midi: 57, startTick: 7680, durationTicks: 1920, hand: 'left' },
+        { midi: 60, startTick: 7680, durationTicks: 1920, hand: 'left' },
+        { midi: 64, startTick: 7680, durationTicks: 1920, hand: 'left' },
+      ],
+    })
+    const key = detectKey(score)
+    expect(key.tonic.letter).toBe('A')
+    expect(key.tonic.alter).toBe(0)
+    expect(key.mode).toBe('minor')
+  })
+
+  // roadmap 3.19a review finding 3: pins the `>=` in `minorScore >= MINOR_KEY_THRESHOLD`
+  // against `>`. Bass sum is exactly firstIsMinorTonic + lastIsMinorTonic = 3
+  // (WEIGHT_FIRST_BASS + WEIGHT_LAST_BASS) and the piece's tonic-triad-prevalence is
+  // exactly 0 (i and v share no pitch class with the major tonic triad's "wrong" side
+  // in equal measure here), so minorScore lands exactly on MINOR_KEY_THRESHOLD.
+  it('i | v | v | i (A minor) lands exactly on MINOR_KEY_THRESHOLD and still reads minor', () => {
+    const score = makeScore({
+      id: 'exact-threshold-minor-probe',
+      measures: [{ keyFifths: 0 }, { keyFifths: 0 }, { keyFifths: 0 }, { keyFifths: 0 }],
+      notes: [
+        // mm1: i, A2-C3-E3
+        { midi: 57, startTick: 0, durationTicks: 1920, hand: 'left' },
+        { midi: 60, startTick: 0, durationTicks: 1920, hand: 'left' },
+        { midi: 64, startTick: 0, durationTicks: 1920, hand: 'left' },
+        // mm2: v, E3-G3-B3
+        { midi: 64, startTick: 1920, durationTicks: 1920, hand: 'left' },
+        { midi: 67, startTick: 1920, durationTicks: 1920, hand: 'left' },
+        { midi: 71, startTick: 1920, durationTicks: 1920, hand: 'left' },
+        // mm3: v, E3-G3-B3
+        { midi: 64, startTick: 3840, durationTicks: 1920, hand: 'left' },
+        { midi: 67, startTick: 3840, durationTicks: 1920, hand: 'left' },
+        { midi: 71, startTick: 3840, durationTicks: 1920, hand: 'left' },
+        // mm4: i, A2-C3-E3
+        { midi: 57, startTick: 5760, durationTicks: 1920, hand: 'left' },
+        { midi: 60, startTick: 5760, durationTicks: 1920, hand: 'left' },
+        { midi: 64, startTick: 5760, durationTicks: 1920, hand: 'left' },
+      ],
+    })
+    const key = detectKey(score)
+    expect(key.tonic.letter).toBe('A')
+    expect(key.tonic.alter).toBe(0)
+    expect(key.mode).toBe('minor')
+  })
+
+  // roadmap 3.19a review finding 4: `plagalMotionIntoFinalMeasure` must not fire on
+  // bass pitch class alone — the chord actually arriving at the final measure must be
+  // the minor tonic TRIAD, not merely have its bass on the right pitch class. This
+  // piece's final measure sounds an A MAJOR triad (A-C#-E), preceded by a D bass (the
+  // minor subdominant's own pitch class) — bass and prior-bass alone would satisfy the
+  // old (unfixed) plagal check, but A-C#-E is not the A minor tonic triad: its third is
+  // C#, not the C natural `plagalMotionIntoFinalMeasure` now requires.
+  it('a D-bass -> A-major-triad close does not cast the plagal-into-A-minor vote', () => {
+    const score = makeScore({
+      id: 'plagal-false-positive-probe',
+      measures: [{ keyFifths: 0 }, { keyFifths: 0 }, { keyFifths: 0 }, { keyFifths: 0 }],
+      notes: [
+        // mm1: C major, C3-E3-G3 (opens away from the minor tonic entirely, so only
+        // the last-bass vote and the plagal vote are in play for this fixture)
+        { midi: 48, startTick: 0, durationTicks: 1920, hand: 'left' },
+        { midi: 52, startTick: 0, durationTicks: 1920, hand: 'left' },
+        { midi: 55, startTick: 0, durationTicks: 1920, hand: 'left' },
+        // mm2: C major again
+        { midi: 48, startTick: 1920, durationTicks: 1920, hand: 'left' },
+        { midi: 52, startTick: 1920, durationTicks: 1920, hand: 'left' },
+        { midi: 55, startTick: 1920, durationTicks: 1920, hand: 'left' },
+        // mm3: D bass (the minor subdominant's pitch class), D3-F#3-A3
+        { midi: 50, startTick: 3840, durationTicks: 1920, hand: 'left' },
+        { midi: 54, startTick: 3840, durationTicks: 1920, hand: 'left' },
+        { midi: 57, startTick: 3840, durationTicks: 1920, hand: 'left' },
+        // mm4: A major triad, A3-C#4-E4 — bass lands on the minor tonic's pitch class
+        // (so lastIsMinorTonic alone is worth WEIGHT_LAST_BASS = 2, below threshold)
+        // but the sounding chord is the MAJOR tonic triad, not the minor one, so the
+        // plagal vote must not also fire and push the score over MINOR_KEY_THRESHOLD.
+        { midi: 57, startTick: 5760, durationTicks: 1920, hand: 'left' },
+        { midi: 61, startTick: 5760, durationTicks: 1920, hand: 'left' },
+        { midi: 64, startTick: 5760, durationTicks: 1920, hand: 'left' },
+      ],
+    })
+    const key = detectKey(score)
+    expect(key.tonic.letter).toBe('C')
+    expect(key.mode).toBe('major')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// property (roadmap 3.19a): a piece built entirely from one tonic triad
+// reads as that triad's own key
+// ---------------------------------------------------------------------------
+
+describe('property: a score built entirely from one tonic triad reads that triad’s own key', () => {
+  it('every note the major tonic triad -> major; every note the minor tonic triad -> minor, for any safe key and any measure count', () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...SAFE_MAJOR_KEYS),
+        fc.integer({ min: 1, max: 4 }),
+        fc.boolean(),
+        (majorKey, measureCount, useMinorTriad) => {
+          const majorTonicClass = toMidi(majorKey.tonic) % 12
+          const minorTonicClass = toMidi(relativeKey(majorKey).tonic) % 12
+          const tonicClass = useMinorTriad ? minorTonicClass : majorTonicClass
+          const thirdInterval = useMinorTriad ? 3 : 4
+
+          // Root position, ascending, spanning under an octave — the tonic is always
+          // the lowest note, so `bassAt` reads it as the bass, matching how every
+          // other block-chord fixture in this file is built.
+          const tonicMidi = 60 + tonicClass
+          const triadMidi = [tonicMidi, tonicMidi + thirdInterval, tonicMidi + 7]
+
+          const notes: ScoreNoteInput[] = []
+          for (let measureIndex = 0; measureIndex < measureCount; measureIndex++) {
+            for (const midiNote of triadMidi) {
+              notes.push({
+                midi: midiNote,
+                startTick: measureIndex * 1920,
+                durationTicks: 1920,
+                hand: 'left',
+              })
+            }
+          }
+
+          const score = makeScore({
+            id: 'tonic-triad-property-fixture',
+            measures: Array.from({ length: measureCount }, () => ({
+              keyFifths: majorKey.signature.fifths,
+            })),
+            notes,
+          })
+
+          const detected = detectKey(score)
+          expect(detected.mode).toBe(useMinorTriad ? 'minor' : 'major')
+        },
+      ),
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
 // analyseScore — the bundled sample, named literally
 // ---------------------------------------------------------------------------
 
