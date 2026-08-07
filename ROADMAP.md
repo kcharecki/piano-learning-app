@@ -992,6 +992,433 @@ The M3 gaps that are unbuilt features rather than defects. Each states its proof
       `staff-to-key`.*
 - [ ] 4.10 M4 acceptance pass — full §9 acceptance criteria review
 
+## Phase 5 — Milestone M5: teachable product
+
+Source: [docs/ux-pedagogy-review-2026-08-06.md](docs/ux-pedagogy-review-2026-08-06.md) — the app driven
+screen by screen as an adult beginner, cross-checked against source, with the pedagogy claims verified
+against RCM 2022, ABRSM 2025–26, Faber/Alfred and the Taubman literature. It scored **17 aspects** and
+rated the whole **4.5/10 as a teaching product**: "an impressive engine wrapped around almost no
+content, aimed at nobody in particular."
+
+**Exit condition for M5: every aspect in that table scores ≥ 9/10 on a re-run of the same review.**
+Each group below names its aspect, its measured score, and the specific defects that hold it there —
+the group is done when all of its boxes are ticked *and* the named defect is gone in the running app.
+Groups are ordered by the review's own "learner impact per unit of effort" ranking, not by module, so
+the first unchecked box is still the next task.
+
+Two standing rules for this phase, both learned from the review:
+- **A score does not move because a task was ticked.** Every task here states the observable thing a
+  re-review would check. Prose fixes count only if the prose is on screen.
+- **Do not duplicate Phase 3.** Several M3 gaps (3.14, 3.15, 3.16, 3.21, 3.23, 3.24, 3.25, 3.26) are
+  the same defects seen from the requirements side; those tasks are referenced, not restated, and the
+  aspect they gate cannot reach 9 until they land too.
+
+### Playable content — **2/10 → 9**
+
+`src/content/scores/` holds exactly one score, `twinkle-twinkle-little-star.musicxml`. The 20-piece
+graded library is metadata with no music behind it: adding *Für Elise* gives a row with a status
+dropdown and **no way to open, view or play it**. Everything else in the app — matcher, wait mode,
+assessment, read-ahead, loop practice, tempo ramp — exists to be used on a piece.
+
+- [ ] 5.1 `content/scores`: bundle public-domain MusicXML for all 20 entries in `GRADED_PIECES` and
+      give each a real `scoreId` (4.9 explicitly shipped them as metadata-only rather than fabricate
+      a demonstration; this is the task that closes that). All 20 are PD and available from MuseScore
+      and IMSLP. Each file is parsed by `core/notation/musicxml` at content load, not trusted.
+      *Proof: a content test asserts every `GRADED_PIECES` entry resolves to a `Score` that parses,
+      is non-empty, and whose key signature matches the entry's stated key; then in a browser, a
+      NAMED non-default piece (not Twinkle, not the first row) is opened from Repertoire and
+      engraves.*
+- [ ] 5.2 `app/repertoire`: wire the library to Practice — an "Open in Practice" control that loads
+      that piece's score into `scoreStore` and navigates, the same pattern 4.9b established for a
+      lesson's `demoScoreId`. Today the Add button produces a row and a dead end.
+      *Proof: e2e — add a named level-3 piece, open it, and assert the Practice screen's loaded score
+      is that piece (with a different score loaded first, so "nothing changed" cannot pass), then play
+      three of its own notes through the fake MIDI keyboard and see them graded correct.*
+- [ ] 5.3 `content`: widen the catalogue toward the 40 Piece Challenge shape — ~40 pieces with the
+      mass **below** the learner's current level, not at it. Elissa Milne's 40 Piece Challenge is the
+      highest-leverage sight-reading intervention in the literature and the app can currently support
+      1/40th of it. Bundled scores only; a metadata row is not a piece.
+      *Proof: `GRADED_PIECES` has ≥ 40 entries, every one with a parseable bundled score, and ≥ 25 of
+      them at level ≤ 2; the Repertoire screen can filter to "below my level" and the list is
+      non-empty for a level-2 learner.*
+
+### Input accessibility — **3/10 → 9**
+
+`PracticeScreen` takes `midiInput` and nothing else. On Safari, Firefox or an iPad — no Web MIDI —
+note matching, feedback colouring, wait mode, assessment, timing feedback, recording and the tempo
+ramp are all inert. Flashcards, Theory and Dictation *do* render the 37-key `OnScreenKeyboard`; the
+one screen where playing matters is the one that refuses non-MIDI input.
+
+- [ ] 5.4 `app/practice`: render `OnScreenKeyboard` on the Practice screen when no MIDI device is
+      present (and behind a toggle when one is). The component exists and is already wired to the same
+      note pipeline — this is wiring, not a build.
+      *Proof: e2e with Web MIDI stubbed absent — click the score's own first three notes on the
+      on-screen keyboard and assert they grade correct through the real matcher, and that wait mode
+      advances on them.*
+- [ ] 5.5 `app`: computer-keyboard note input as a first-class second input, mapped once and shared by
+      every note-answered screen (Practice, Flashcards, Theory, Dictation, Technique). The only
+      `keydown` listener in the app today is the Rhythm drill's spacebar.
+      *Proof: with no MIDI and without touching the mouse, a phrase is typed on the QWERTY row and
+      graded on Practice and on Dictation; the mapping is shown on screen, not documented only.*
+- [ ] 5.6 `app`: an input-capability banner that states what this browser can and cannot do — one
+      line, dismissible, naming Web MIDI's absence and what it costs (see B.7's platform reality).
+      Silent degradation is what makes the current state read as broken rather than limited.
+      *Proof: in a browser with Web MIDI stubbed absent the banner names the limitation; with MIDI
+      present it does not render.*
+- [ ] 5.7 **Promote B.1** (microphone pitch detection) into this phase. On iPadOS it is not a
+      fallback, it is the only input. Input accessibility cannot reach 9 while the review's "the app
+      cannot hear you at all" finding is true on an entire platform.
+      *Proof: as B.1 — a note sung or played acoustically grades on the Practice screen on WebKit.*
+
+### Lesson content quality — **6/10 → 9**
+
+The G major lesson teaches one sharp and then plays a demonstration with none: all three scale lessons
+set `demoScoreId: demo('demo-c-major-scale-one-octave-rh')`, and `demoScores.ts` contains no G or F
+major scale at all — 14 demos, all in C except the two rhythm ones. The prose is good, which makes the
+mismatch worse: the audio wins and a beginner cannot tell which one is lying.
+
+- [ ] 5.8 `content/demoScores`: author `demo-g-major-scale-one-octave-rh` and
+      `demo-f-major-scale-one-octave-rh` (and any other lesson whose demo is not in its own key), then
+      point the G and F major lessons at them.
+      *Proof: a content test asserts, for EVERY lesson carrying a `demoScoreId`, that the demo score's
+      key signature matches the key the lesson names — the class of bug, not the two instances; then
+      in a browser, open the G major lesson's demonstration and read F♯ off the engraving.*
+- [ ] 5.9 `content`: audit the remaining 14 demos against the lessons that reference them for the same
+      class of mismatch (key, hand, octave, note values), and record the result in the task even if it
+      is "no further mismatches".
+      *Proof: the audit table is in the commit body, and any fix it finds carries its own assertion.*
+- [ ] 5.10 Lesson quality also depends on **3.24** (six REQ-3.5.1 topics with no lesson at any level)
+      and **3.25** (`LessonBody` can render only `KeyboardDiagram`, so 7 staff/rhythm lessons are
+      structurally incapable of having a diagram). Both are referenced here, not restated: this aspect
+      cannot reach 9 with 11 of 19 theory lessons undiagrammed.
+
+### Sight reading — **5/10 → 9**
+
+The rules are exactly right — 30-second silent preview matching ABRSM's "up to half a minute", a
+forced start, no stopping, unrepeatable exercises, an 80–90% adaptive band. The ladder is wrong.
+`melody.ts:626 LEVEL_ROWS` resolves to: level 1 C major with a **7-semitone leap** permitted; level 4
+**E major (4♯)**; level 5 **D♯ minor (6♯)**.
+
+- [ ] 5.11 `core/generator/melody`: rebuild `LEVEL_ROWS` (`src/core/generator/melody.ts:626` — the
+      review's `melody.ts:626` is this file). Level 1 is stepwise in one direction only
+      (RCM Preparatory A: "two four-note melodies… moving by step in one direction only") — `maxLeap`
+      of a step, not a fifth. No key past 2 accidentals inside the first 5 levels; D♯ minor is an
+      off-by-intent in the fifths column and E minor/A minor is the intended shape. Insert levels so
+      1 → 2 is not RH-only-whole-notes-in-C to hands-together-quarters-in-G-with-accidentals in one
+      step (RCM spends two grades on that transition).
+      *Proof: a property test over every level asserts the monotonic ladder — accidentals, max leap,
+      bar count and rhythm density never decrease with level, and no level under 6 exceeds 2 sharps or
+      flats; plus a named assertion that level 1 generates only steps, checked over 500 seeds.*
+- [ ] 5.12 `app/sightreading`: expose the generator parameters the core already supports (REQ-3.4.2:
+      key, range, rhythm, hands, accidentals, independence). The screen offers a level number and a
+      metronome toggle — a learner cannot drill their own weak spot and a teacher cannot say "3/4 in
+      G, left hand only, no leaps".
+      *Proof: set key = G, hands = left only, no accidentals, and assert the generated exercise's
+      engraving actually has one sharp, one staff of notes and no accidental glyphs — read off the
+      rendered SVG, not off the request.*
+- [ ] 5.13 `core/notation/musicxml` (writer): generated exercises engrave with the title **"Untitled
+      Score"** and the part name "Piano" printed above the staff, on both Sight reading and Technique.
+      Give generated scores a real title and suppress the part name.
+      *Proof: the rendered SVG for a generated sight-reading exercise and a technique drill contains
+      neither "Untitled Score" nor a "Piano" part label, and does contain the exercise's own title.*
+
+### Progress & motivation — **4/10 → 9**
+
+`practiceLog.start(...)` has **exactly one call site** in the whole app — `PracticeScreen.tsx:267`,
+hardcoded to `'repertoire'`. Sight reading, Flashcards, Ear training, Rhythm, Technique, Theory and
+Lessons log nothing, so a learner who follows the Today plan and skips the repertoire segment records
+**0 minutes and breaks their streak**. `'warmup'` is a declared category, is rendered on the Progress
+screen, and is written by nothing. The review's verdict: a practice log that silently drops 6/7 of the
+work is worse than none, because it will be trusted.
+
+- [ ] 5.14 `app`: log practice time from all seven activity screens with their own category, through
+      one shared hook rather than seven copies of the call. Delete `'warmup'` or write it (5.24 writes
+      it) — a category rendered as `0 min` forever is a lie in the same class.
+      *Proof: e2e — run a short segment on each of the seven screens in one session, reload, and read
+      seven non-zero category rows off the Progress screen, cross-checked against the `practiceLog`
+      rows in IndexedDB (the 4.7b pattern: a screen re-deriving a plausible number cannot pass).*
+- [ ] 5.15 `core/progress`: the streak counts **any** logged activity, not only repertoire. Today's
+      streak is a function of one screen.
+      *Proof: a day containing only an ear-training session extends the streak; a day with no activity
+      breaks it. Asserted in core against seeded logs, then confirmed on the dashboard.*
+- [ ] 5.16 `app/dashboard`: the Progress screen prints raw category keys — `warmup / technique /
+      sightreading / repertoire / lesson / theory / eartraining`. Give them display names, from one
+      mapping that a new category cannot silently bypass.
+      *Proof: the screen shows "Sight reading", not `sightreading`, and a type-level exhaustiveness
+      check fails the build if a `PracticeCategory` is added without a display name.*
+
+### Practice screen usability — **3/10 → 9**
+
+30 controls in 13 labelled groups across ~5100px of scroll, nothing collapsed, nothing marked "start
+here". *Tempo ramp*, *Read ahead*, *Assessment* and the annotation editors sit at the same visual
+weight as Play. The app already tracks a per-track level and does not use it to decide what to show —
+except for the analysis panel, correctly gated to theory level 4+ (3.18). That pattern should be the
+rule, not the exception.
+
+- [ ] 5.17 `app/practice`: progressive disclosure gated by track level. A level-1 learner sees
+      transport, tempo, hands and metronome. Wait mode appears when the curriculum introduces it.
+      Assessment, tempo ramp, read-ahead and annotations live behind "More tools", with a manual
+      override for the learner who wants everything.
+      *Proof: e2e — at level 1 assert the advanced groups are ABSENT (not merely collapsed), raise the
+      track level through the dashboard's own override, and assert wait mode appears; deleting the
+      gate must fail this, the mutant 3.18 records.*
+- [ ] 5.18 `app/practice`: give the remaining controls a hierarchy — primary transport pinned, related
+      groups collapsed into sections rather than one flat column.
+      *Proof: measured in a browser at 1280px — the number of controls visible without scrolling is
+      ≤ 10, the page's practice column is under 2000px tall with all sections closed, and Play is
+      within the first viewport at every scroll position (1.21's sticky guarantee still holds).*
+
+### Rhythm drill — **2/10 → 9**
+
+A complexity-1 drill renders `Bar 1: half, half / Bar 2: whole / Bar 3: whole rest / Bar 4: half rest,
+half`. No notation. This is the identical defect 2.20 fixed for sight reading and never applied here —
+it trains reading the word "half". Two further problems in that same screenshot: the lowest complexity
+opens on whole and half **rests** (Faber puts the quarter rest last, at unit 10), and "complexity 1 =
+whole and half notes" inverts the order Faber and Alfred agree on, **quarter → half → whole**.
+
+- [ ] 5.19 `app/rhythm`: engrave the pattern. The MusicXML writer from 2.20 already exists; this is
+      the same fix applied to the second screen that needs it.
+      *Proof: e2e — the drill renders a real OSMD svg past the 50-element discriminator, and the words
+      "half" and "whole" appear nowhere in the pattern region.*
+- [ ] 5.20 `core/generator/rhythm`: reorder complexity — level 1 is quarters and halves with **no rests**;
+      rests enter after note values are secure, quarter rest first.
+      *Proof: a property test over 500 generated level-1 patterns finds zero rests and no note longer
+      than a half; and the first rest to appear as complexity rises is a quarter rest.*
+- [ ] 5.21 Rhythm also needs **3.21** (clap/tap-back — the Rhythm screen shows the pattern for the
+      whole run and silences the audio deliberately, so it is rhythm *sight-reading*; "hear a phrase
+      and clap it back" has never been built). Referenced, not restated.
+
+### Technique — **5/10 → 9**
+
+The content is right and was verified note by note: pentascales before scales before two-octave
+hands-together, and the fingerings are exactly standard including B♭ major, descending included. The
+presentation destroys it — that fingering is rendered as **58 numbers on one line with both hands
+interleaved and unlabelled**. Fingering numbers belong above the noteheads, which is where every
+printed edition puts them and which OSMD renders natively.
+
+- [ ] 5.22 `app/technique` + `adapters/osmd`: put fingering numbers on the staff, above their own
+      noteheads, per hand. Delete the interleaved string.
+      *Proof: the rendered SVG carries a fingering glyph positioned within the notehead's bounding box
+      for the first 8 notes of the C major two-octave drill, and the numbers read `1 2 3 1 2 3 4 1` in
+      the right hand — read off the engraving, not off the model.*
+- [ ] 5.23 `app/technique`: say what MIDI cannot see. Wrist height and collapse, forearm alignment,
+      finger curl, *which* finger was actually used, shoulder tension, bench height, posture — the
+      Taubman/Golandsky literature names dropped wrists and isolated finger motion as direct causes of
+      tendonitis. A clean tempo history implies technical validation the app cannot perform. Say so
+      once on the screen, and prompt periodically for a human check.
+      *Proof: the statement is on the Technique screen (asserted by an e2e reading it, so it cannot be
+      deleted silently), and a periodic posture prompt fires on a schedule driven by the injected
+      `Clock`, never real time.*
+
+### Accessibility — **7/10 → 9** · visual design system — **8/10 → 9**
+
+Contrast was measured live from the CSSOM and every pair passes AA; the one that fails is commented as
+deliberately decorative. One real defect: `colors.css` states the rule in its own comment — *"Color is
+NEVER the only signal"* — `domain.css` implements `.note-missed { stroke-dasharray: 2 2 }`, and
+**nothing ever applies those classes**. `osmdEngraver` writes `NoteheadColor`/`StemColor` only, from
+three hardcoded hexes duplicated out of the token file (`useNoteFeedback.ts:136-138`). So correct
+(#1c7c3c) vs wrong (#c22f2c) is distinguished **by hue alone** — the worst pair for red-green CVD.
+
+- [ ] 5.24 `adapters/osmd`: apply `.note-correct` / `.note-wrong` / `.note-missed` to the rendered
+      noteheads so shape carries the signal, and read the three colours from the design tokens instead
+      of the duplicated hexes. The CSS is already written; it just needs to be reached. Must not
+      regress 2.32's fast path (`GraphicalNote.setColor` without re-render) or the resize-safety of
+      the model-property writes.
+      *Proof: e2e — after a wrong note, the SVG element carries `class="note-wrong"` AND the dashed
+      stroke computes non-empty under a simulated greyscale (assert `stroke-dasharray`, not colour);
+      `perf-large-score.spec.ts` still records zero long tasks.*
+- [ ] 5.25 `app`: `OnScreenKeyboard` keys are labelled `"Key 48"`, `"Key 49"` — MIDI numbers read out
+      loud. Label them with note names (`C3`), spelled for the current key.
+      *Proof: the accessible name of the middle-C key is "C4" (or the key-appropriate spelling), read
+      through the accessibility tree, not the DOM text.*
+- [ ] 5.26 `app/flashcards`: clef glyphs are Unicode `U+1D11E`/`U+1D122` rendered in `system-ui` with
+      no bundled music font, so they depend entirely on OS font fallback. Bundle a music font (Bravura
+      is SIL OFL) and use it for musical glyphs.
+      *Proof: the font is bundled and self-hosted (no network fetch), and the clef renders with a
+      non-zero advance width in a browser with system music fonts unavailable.*
+- [ ] 5.27 `app`: confirm the ≤1024px responsive drawer **by hand in a real browser at tablet width**.
+      The review could not verify it — the automation pane does not composite frames, so the nav's
+      `translateX(-100%)` transition sits frozen at t=0. That is an environment artefact, not a defect,
+      and it is the one claim in the review that is unchecked. Folds into **B.6**.
+      *Proof: at 768×1024, the drawer opens and closes on tap, the scrim dismisses it, no control is
+      under 44px, and the page does not scroll horizontally — screenshotted, not asserted from CSS.*
+
+### Ear training — **4/10 → 9**
+
+Level 1 plays an interval **cold** and offers four buttons. Both exam boards do the opposite,
+explicitly: RCM states the key and plays the tonic triad first; ABRSM plays the key-chord and the
+tonic and counts in two bars — **at Grade 1**. Karpinski: tonic inference is the first and most
+fundamental process a listener carries out. ABRSM's aural tests contain **no interval-identification
+test at any grade**. Feedback is "Correct" — a learner who guesses right learns exactly as much as one
+who guesses wrong.
+
+- [ ] 5.28 `app/eartraining` + `core/eartraining`: establish tonal context before every item — a tonic
+      drone or I–V–I in the item's key, then the item. This costs almost nothing and changes which
+      skill is being trained. Keep context-free mode available, since functional hearing degrades on
+      non-tonal material and interval skill is complementary, not obsolete.
+      *Proof: the recorded `AudioOutput` calls carry the key chord's pitches at the right timestamps
+      BEFORE the item's first note (the 3.13 pattern — assert the calls, not the projection), and the
+      drill still grades the same answers.*
+- [ ] 5.29 `app/eartraining`: reveal the answer. Replay with the answer named, the pitches shown on a
+      staff and on the keyboard, and a reference tune for the interval.
+      *Proof: after a wrong answer the screen names the two pitches (not just "perfect fifth"),
+      renders them, and replays on request — asserted through the DOM and the audio calls.*
+- [ ] 5.30 `core/eartraining/intervals`: stage the interval set by level rather than offering m3, M3,
+      P5 and P8 all at level 1. RCM introduces m3/M3 at Level 1, P5 at 2, P4 at 3, and the octave only
+      at 4. (Sources genuinely disagree on ordering — Trinity introduces 2nd–6th together, Musical U
+      argues 2nds first — so pick RCM and say in the code comment that it is a choice among defensible
+      orderings, not the only one.)
+      *Proof: a test asserts the level-1 answer set is exactly {m3, M3} and that each later level adds
+      rather than replaces; the on-screen answer pad matches the level's set.*
+- [ ] 5.31 `app`: the SRS panel exposes Anki's internal vocabulary to a piano beginner — *Cards / Due /
+      Young / Mature / Average ease 2.50* — on Ear training, Flashcards and Theory. Nobody learning
+      piano knows what a mature card is. Replace with learner-facing language; keep the raw numbers
+      behind a details toggle if they are wanted for debugging.
+      *Proof: none of "Young", "Mature" or "ease" appears in the default view of any of the three
+      screens; the underlying scheduler is untouched (its tests unchanged and still green).*
+- [ ] 5.32 `app/eartraining`: say on screen that the app cannot hear you sing. Vocal reproduction is
+      the response modality in ABRSM Grade 1 aural, Kodály, Dalcroze and Berklee; a multiple-choice
+      button is recognition, not internalisation — you can click an answer you cannot imagine. There
+      is no mic path until 5.7/B.1, so this is structural and should be *stated*, not hidden. (RCM is
+      the partial exception: it accepts keyboard playback as an equivalent response, so a
+      MIDI-answered drill is not unprecedented — say that too.)
+      *Proof: the statement is on the screen and asserted by a test, and it names the singing practice
+      the learner should do away from the app.*
+- [ ] 5.33 Copy bug: *"Not quite — it was perfect fifth, ascending"* is missing an article.
+      *Proof: the string reads "it was a perfect fifth"; a test covers the article for a vowel-initial
+      interval name too ("an augmented fourth").*
+- [ ] 5.34 Ear training also depends on **3.23** (dictation has no tempo reference — a phrase replayed
+      8% slow grades incorrect in 416 of 900 measured cases) and **3.26** (`EarAttempt.correct` is a
+      boolean, so dictation's already-computed `pitchAccuracy`/`rhythmAccuracy` are thrown away at the
+      attempt boundary). Dictation's 2–8 note bound is *correct* and worth keeping — RCM runs 3 notes
+      at Preparatory A to 9 at Level 6 — the refinement is scaling that bound with level rather than
+      using one window for everything.
+      *Proof: level 1 dictation prompts are 2–3 notes and level 5 prompts are 7–8, asserted over 200
+      generated items per level.*
+
+### Theory reference — **6/10 → 9**
+
+Verified correct: both rings of the circle of fifths including every enharmonic pairing, C major
+fingering, mode-aware degree names (C Dorian correctly shows *subtonic* B♭), diatonic triads. The gaps
+are half-finished features, and one of them is a real teaching blocker: **minor scales show `—` in
+both fingering columns**, and minor scales are required from RCM Preparatory B onward.
+
+- [ ] 5.35 `core/theory`: ship **minor** scale fingerings as a lookup table — narrower and much safer
+      than 3.16's full 16-type derivation, which was attempted and reverted. The review's research
+      makes this cheap: **harmonic minor uses the natural minor fingering**, structurally, because the
+      raised 7th is never a thumb note (RH 4 / LH 2); only *melodic* minor ascending is a genuine
+      exception, and only where the raised 6th would put the thumb on a black key (C♯ and F♯ minor).
+      Ship a table, not a rule — ABRSM's own position is that fingering is not prescriptive.
+      **Key colour must come from pitch class, never spelling**: E♯, B♯, C♭ and F♭ appear in standard
+      fingerings on white keys, several under the thumb (F♯ major RH thumb on E♯; A♭ harmonic minor RH
+      thumb on C♭ and F♭). Test `pitchClass ∈ {1,3,6,8,10}`.
+      *Proof: 3.16's four properties (no repeated finger on consecutive degrees; no 1↔5 transition; RH
+      thumb landings ascend by exactly one group, LH descend; every group is 3 or 4 notes) hold over
+      all 12 tonics × 3 minor forms × both hands, plus named rows for A natural, A harmonic, and the
+      C♯/F♯ melodic exceptions; and the reference screen shows real numbers where it shows `—` today.*
+- [ ] 5.36 `app/theory`: **Major** and **Ionian** are separate dropdown entries, as are **Natural
+      minor** and **Aeolian**. They are the same scales, and a beginner reads two entries as two
+      things. Merge, with the alternative name shown as a subtitle.
+      *Proof: the selector has one entry per distinct scale, and selecting it shows both names.*
+- [ ] 5.37 `—` for the modes is defensible and should be *labelled*, not filled. RCM's 2022 technical
+      requirements chart returns **zero hits** for dorian/phrygian/lydian/mixolydian/aeolian/locrian/
+      whole-tone/blues/pentatonic at any level; modes appear only in ABRSM's Jazz syllabus. Replace the
+      bare `—` with "no standard fingering — modes are not in the graded syllabi".
+      *Proof: the Dorian row reads that sentence rather than a dash, and 3.16 is re-scoped in the same
+      commit to say the mode half is deliberately not shipped.*
+- [ ] 5.38 The rest of this aspect is **3.14** (no staff rendering in the theory layer — `osmdEngraver`
+      is never imported there), **3.15** (no chord picker, no sevenths, and the chord section vanishes
+      entirely for the 10 modal/exotic types) and **3.17** (reference is a destination you leave your
+      place for). Referenced, not restated; the aspect cannot reach 9 without them, because "you
+      cannot look up D♭ diminished seventh" is what a reference is *for*.
+
+### First-run experience — **2/10 → 9**
+
+The app opens on Practice (`Shell.tsx:185`) showing Twinkle, with 30 controls below it. There is no
+onboarding, no first-run state, and no "start here". The front door is the most intimidating screen in
+the app.
+
+- [ ] 5.39 `app/shell`: the default destination is **Today**, not Practice.
+      *Proof: a cold boot with an empty IndexedDB lands on Today; asserted in e2e against a fresh
+      profile, not a warm one.*
+- [ ] 5.40 `app/onboarding`: a first-run flow — a few questions (experience, goal, practice minutes), a
+      MIDI/input check that tells the truth about this browser (5.6), starting track levels set from
+      the answers, and a first session ready to start. Skippable, and re-runnable from settings.
+      *Proof: e2e from an empty IndexedDB — complete onboarding, assert the chosen levels are what the
+      dashboard shows after a reload, and that Today's plan is non-empty and matches the chosen
+      minutes.*
+- [ ] 5.41 `app`: honest first-run empty states on every screen that can be reached with no data —
+      what this screen is for, and the one action that starts it. Today's dashboard renders zeros
+      correctly (proved in 4.7); the other screens were not checked for this.
+      *Proof: each of the 12 destinations, visited with an empty store, renders a named starting
+      action; asserted by one e2e that walks all 12 rather than 12 specs.*
+
+### Information architecture — **3/10 → 9**
+
+12 flat nav buttons with no grouping. Navigation is `useState`, not routing: the URL never changes,
+there are no deep links, a refresh returns you to Practice, and **the browser Back button exits the
+app**.
+
+- [ ] 5.42 `app/shell`: real routing — a URL per destination, deep links into a lesson/piece/drill,
+      Back and Forward doing what they say, and a refresh returning you where you were. This also
+      makes every future e2e able to start where it means to instead of clicking through.
+      *Proof: e2e — navigate Practice → Lessons → a named lesson, assert the URL changed at each step,
+      press browser Back twice and land back on Practice with the same score loaded, then reload the
+      lesson URL directly and get that lesson.*
+- [ ] 5.43 `app/shell`: group the nav — Practice / Learn / Drills / Progress — so a learner can see
+      that Flashcards, Ear training, Rhythm, Technique and Theory are all drills, and that Today is the
+      entry point. 12 equal buttons hide the structure the app already has.
+      *Proof: the nav renders labelled groups with correct landmark roles, Today is visually primary,
+      and the keyboard tab order follows the visual order.*
+
+### Curriculum & session planning — **6/10 → 9**
+
+The lesson sequence is sound and matches Faber's order, including the deliberate choice to put reading
+after keyboard geography and rhythm. The planner's 15/30/60 presets are a defensible synthesis (no
+source gives an evidence-based split — these are conventions, and worth saying so). What is missing is
+that **the plan doesn't run**: each item is an "Open" button that navigates away, with no timer, no
+next item, no completion state, no sense of being 3 of 5 through today.
+
+- [ ] 5.44 `app/session`: make the plan runnable — a timer per segment driven by the injected `Clock`,
+      an explicit next-item step, completion state per item, and a visible "3 of 5". The plan is
+      currently a list of links to elsewhere.
+      *Proof: e2e — start a 15-minute plan, complete two items, reload, and assert the session resumes
+      at item 3 with the first two marked done and their minutes in the `practiceLog` (5.14).*
+- [ ] 5.45 `core/curriculum/session` + `content`: add the **warm-up** segment. Every source puts
+      warm-up first, and Juilliard's guide starts it *away from the keys* — jaw, shoulders, posture,
+      stretch — before any note. The app declares a `warmup` category, schedules nothing into it and
+      writes it never (5.14).
+      *Proof: `planSession` emits a warm-up segment at every budget, it is first, it opens something
+      real, and completing it writes a `warmup` row the Progress screen shows non-zero.*
+- [ ] 5.46 `core/curriculum`: recalibrate level 1's playing exit criterion. It is currently "play a
+      simple hands-together piece at 75% accuracy"; Faber and Alfred take most of a first year to
+      reach genuine hands-together independence, so as a *level 1* gate it will stall beginners at the
+      first wall.
+      *Proof: the level-1 criteria are stated against a hands-separate piece, level 2 carries the
+      hands-together gate, and the curriculum validator still passes; the change is argued in the
+      commit body against the two methods.*
+- [ ] 5.47 `app/progress`: a teacher/parent output — a printable practice sheet or assignment view.
+      Export is JSON/CSV of raw logs, which is a backup format, not something anyone reads.
+      *Proof: a week's practice renders as a printable summary (categories, minutes, pieces, what was
+      assessed) and prints to one page in a browser.*
+
+### Overall honesty — **the review's #14**
+
+- [ ] 5.48 `app` + `docs`: say once, visibly, what the app does not assess. `matcher.ts` judges
+      **onsets only** — its own comment says `durationTicks` is never read, so a note released early
+      or held over still counts as written. That is exactly the hole reviewers name in Skoove and
+      Yousician, and the app currently implies otherwise by reporting a bare accuracy percentage.
+      Combined with 5.23's technique blind spot: supplement, not replacement, stated on screen.
+      *Proof: the statement is reachable in the running app from the Practice screen in one click, an
+      e2e asserts its text, and `requirements.md` records the same limitation so the next acceptance
+      pass does not rediscover it.*
+- [ ] 5.49 M5 acceptance pass — re-run the 2026-08-06 review's method (drive all 12 destinations as a
+      beginner, measure contrast from the live CSSOM, verify pedagogy claims against the same primary
+      sources) and re-score all 17 aspects. Any aspect still under 9 gets its own task here rather
+      than a softened score.
+      *Proof: a dated review doc alongside the first one, with the score table and a per-aspect diff
+      against 2026-08-06.*
+
 ## Backlog / optional
 
 - [ ] B.1 Microphone pitch-detection fallback (REQ-3.3.7, optional). **Promoted in importance by
