@@ -25,6 +25,7 @@ import { SightReadingScreen } from '@app/sightreading/SightReadingScreen.tsx'
 import { TechniqueScreen } from '@app/technique/TechniqueScreen.tsx'
 import { TheoryScreen } from '@app/theory/TheoryScreen.tsx'
 import type { Exercise } from '@core/curriculum/types.ts'
+import { ALL_THEORY_KINDS, type TheoryQuizKind } from '@core/drills/theory.ts'
 import { techniqueDrillById } from '@core/technique/library.ts'
 import { useState } from 'react'
 
@@ -56,7 +57,10 @@ function destinationFor(exercise: Exercise): ScreenId {
     case 'sight-read':
       return 'sight-reading'
     case 'theory-quiz':
-      return 'flashcards'
+      // A quiz whose topic no flashcard deck covers (triads, inversions,
+      // cadences) names a `TheoryQuizKind` and belongs on the MIDI-answered
+      // theory drill instead (roadmap 3.12).
+      return openedTheoryDrillOf(exercise) === undefined ? 'flashcards' : 'theory'
     case 'ear-training':
       return 'ear-training'
     case 'technique':
@@ -123,11 +127,31 @@ function openedDeckLevelOf(exercise: Exercise): number | undefined {
   return typeof level === 'number' && Number.isFinite(level) ? level : undefined
 }
 
+/**
+ * The theory drill a planned item asked for (roadmap 3.12). `drillKind` carries
+ * either a flashcard deck or a `TheoryQuizKind`; the two unions are disjoint, so
+ * which one it names is what decides the destination. `drillLevel` is shared
+ * with the deck case and clamped by the panel.
+ */
+type OpenedTheoryDrill = { readonly kind: TheoryQuizKind; readonly level?: number }
+
+const THEORY_KINDS: ReadonlySet<string> = new Set<TheoryQuizKind>(ALL_THEORY_KINDS)
+
+function openedTheoryDrillOf(exercise: Exercise): OpenedTheoryDrill | undefined {
+  const kind = exercise.params?.['drillKind']
+  if (typeof kind !== 'string' || !THEORY_KINDS.has(kind)) return undefined
+  const level = openedDeckLevelOf(exercise)
+  return level === undefined
+    ? { kind: kind as TheoryQuizKind }
+    : { kind: kind as TheoryQuizKind, level }
+}
+
 function renderScreen(
   screen: ScreenId,
   open: (exercise: Exercise) => void,
   technique: OpenedTechnique | undefined,
   deck: OpenedDeck | undefined,
+  theoryDrill: OpenedTheoryDrill | undefined,
 ) {
   switch (screen) {
     case 'today':
@@ -173,7 +197,20 @@ function renderScreen(
     case 'metronome':
       return <MetronomeScreen />
     case 'theory':
-      return <TheoryScreen />
+      // `key` for the same reason the technique and flashcard cases have one:
+      // the panel's `initialKind`/`initialLevel` only seed `useState`, so a
+      // second Today → Theory hop naming a different topic would be ignored.
+      return theoryDrill === undefined ? (
+        <TheoryScreen />
+      ) : theoryDrill.level === undefined ? (
+        <TheoryScreen key={theoryDrill.kind} initialDrillKind={theoryDrill.kind} />
+      ) : (
+        <TheoryScreen
+          key={`${theoryDrill.kind}:${theoryDrill.level}`}
+          initialDrillKind={theoryDrill.kind}
+          initialDrillLevel={theoryDrill.level}
+        />
+      )
     case 'repertoire':
       return <RepertoireScreen />
     case 'progress':
@@ -185,11 +222,15 @@ export function Shell() {
   const [screen, setScreen] = useState<ScreenId>('practice')
   const [technique, setTechnique] = useState<OpenedTechnique | undefined>(undefined)
   const [deck, setDeck] = useState<OpenedDeck | undefined>(undefined)
+  const [theoryDrill, setTheoryDrill] = useState<OpenedTheoryDrill | undefined>(undefined)
   const [navOpen, setNavOpen] = useState(false)
 
   function open(exercise: Exercise): void {
     if (exercise.kind === 'technique') setTechnique(openedTechniqueOf(exercise))
-    if (exercise.kind === 'theory-quiz') setDeck(openedDeckOf(exercise))
+    if (exercise.kind === 'theory-quiz') {
+      setDeck(openedDeckOf(exercise))
+      setTheoryDrill(openedTheoryDrillOf(exercise))
+    }
     setScreen(destinationFor(exercise))
   }
 
@@ -230,7 +271,7 @@ export function Shell() {
           ))}
         </ul>
       </nav>
-      <main className="app-main">{renderScreen(screen, open, technique, deck)}</main>
+      <main className="app-main">{renderScreen(screen, open, technique, deck, theoryDrill)}</main>
     </div>
   )
 }

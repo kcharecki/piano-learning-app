@@ -16,6 +16,8 @@ import { LESSON_DIAGRAMS, lessonDiagramById } from '@content/curriculum/diagrams
 import { demoScoreById } from '@content/scores/demoScores.ts'
 import { techniqueDrillById } from '@core/technique/library.ts'
 import type { FlashcardKind } from '@core/drills/flashcards.ts'
+import { ALL_THEORY_KINDS, buildTheoryQuiz, type TheoryQuizKind } from '@core/drills/theory.ts'
+import { seededRng } from '@core/ports/rng.ts'
 
 const DIAGRAM_REF = /^\[diagram:([a-z0-9-]+)\]$/
 const BLACK_KEY_PITCH_CLASSES = new Set([1, 3, 6, 8, 10])
@@ -159,19 +161,26 @@ describe('CURRICULUM id references all resolve', () => {
   })
 })
 
+/** The four real flashcard decks `FlashcardScreen` can open. */
+const FLASHCARD_KINDS: readonly FlashcardKind[] = [
+  'staff-to-key',
+  'interval-on-staff',
+  'note-name',
+  'key-signature',
+]
+
 /** The `theory-quiz` exercise's `drillKind` for a lesson, or `undefined` if
  *  the lesson has no theory-quiz exercise or its `drillKind` is not one of
- *  the four real decks. */
-function theoryQuizDrillKind(lessonId: string): FlashcardKind | undefined {
+ *  the four flashcard decks OR the five `TheoryDrillPanel` kinds (roadmap
+ *  3.12, REQ-3.5.2) — the only two things `params.drillKind` is ever allowed
+ *  to name. */
+function theoryQuizDrillKind(lessonId: string): FlashcardKind | TheoryQuizKind | undefined {
   const lesson = CURRICULUM.lessons.find((l) => l.id === lessonId)
   const quiz = lesson?.exercises.find((ex: Exercise) => ex.kind === 'theory-quiz')
   const kind = quiz?.params?.['drillKind']
-  return kind === 'staff-to-key' ||
-    kind === 'interval-on-staff' ||
-    kind === 'note-name' ||
-    kind === 'key-signature'
-    ? kind
-    : undefined
+  const flashcardKind = FLASHCARD_KINDS.find((k) => k === kind)
+  if (flashcardKind !== undefined) return flashcardKind
+  return ALL_THEORY_KINDS.find((k) => k === kind)
 }
 
 describe('theory-quiz exercises open the deck their title promises (roadmap 3.11, REQ-3.5.2)', () => {
@@ -220,46 +229,154 @@ describe('theory-quiz exercises open the deck their title promises (roadmap 3.11
   // 'key-signature' and B is 'note-name', A !== B always follows) and killed
   // no mutant those didn't already kill. Deleted, not kept.
 
-  it('all four decks are named by at least one lesson', () => {
+  it('all four flashcard decks are named by at least one lesson', () => {
+    // Not `toEqual` against exactly the four flashcard kinds any more: since
+    // roadmap 3.12 retargeted four lessons onto TheoryDrillPanel's
+    // 'build-chord'/'build-cadence' kinds, the full set of named kinds is a
+    // proper superset of the four flashcard decks — this only checks that
+    // every flashcard deck is STILL named by at least one lesson.
     const kinds = new Set(
       CURRICULUM.lessons.map((lesson) => theoryQuizDrillKind(lesson.id)).filter((k) => k !== undefined),
     )
-    expect(kinds).toEqual(
-      new Set(['staff-to-key', 'interval-on-staff', 'note-name', 'key-signature']),
-    )
+    for (const flashcardKind of FLASHCARD_KINDS) {
+      expect(kinds.has(flashcardKind), `flashcard deck '${flashcardKind}' named by at least one lesson`).toBe(
+        true,
+      )
+    }
   })
 
-  it('every lesson still on staff-to-key is a documented topic with no matching deck', () => {
-    // roadmap 3.11's gap list: rhythm/duration, time signatures, chord/triad
-    // spelling, and triad inversions have no flashcard deck yet (see
-    // lessonsLevel1.ts's module comment). Every OTHER theory-quiz lesson must
-    // have moved off the pre-3.11 default. (l2-c-major-scale moved off this
-    // list under finding 5: unlike triad spelling, C major's key signature —
-    // 0 fifths — IS in the key-signature deck, so it now gets the same
-    // key-signature-deck treatment as the G/F major scale lessons.)
+  it('every lesson still on staff-to-key is a documented topic with no matching deck OR drill', () => {
+    // roadmap 3.11's gap list was rhythm/duration, time signatures,
+    // chord/triad spelling, and triad inversions — none of which had a
+    // flashcard deck. Roadmap 3.12 closed the chord/triad half of that gap by
+    // retargeting the four chord/cadence lessons onto TheoryDrillPanel's
+    // MIDI-answered 'build-chord'/'build-cadence' kinds (see the pinned-kind
+    // tests below), so only the genuinely undrillable rhythm/time-signature
+    // topics remain on the generic staff-to-key placeholder.
+    //
+    // (l2-c-major-scale moved off this list under finding 5: unlike triad
+    // spelling, C major's key signature — 0 fifths — IS in the key-signature
+    // deck, so it now gets the same key-signature-deck treatment as the G/F
+    // major scale lessons.)
     //
     // Finding 9: this test can only catch DRIFT away from this specific,
     // hand-picked id list — e.g. a future edit that quietly moves one of
-    // these eight lessons off 'staff-to-key' without updating the set here,
-    // or that adds a new gap-topic lesson without adding its id here, fails
-    // loudly. It does NOT verify that staying on 'staff-to-key' is the right
-    // call for any of these eight — that judgement was made by hand when
-    // 3.11/finding-1 shipped and is only re-checked for accidental drift, not
-    // re-validated, every time this test runs.
-    const gapTopics = new Set([
-      'l1-note-values',
-      'l1-time-signature-4-4',
-      'l1-time-signature-3-4',
-      'l2-c-major-triad',
-      'l2-dominant-chord-and-i-v-i',
-      'l2-i-iv-v-i-progression',
-      'l3-triad-inversions',
-    ])
+    // these lessons off 'staff-to-key' without updating the set here, or that
+    // adds a new gap-topic lesson without adding its id here, fails loudly.
+    // It does NOT verify that staying on 'staff-to-key' is the right call for
+    // any of these — that judgement was made by hand and is only re-checked
+    // for accidental drift, not re-validated, every time this test runs.
+    const gapTopics = new Set(['l1-note-values', 'l1-time-signature-4-4', 'l1-time-signature-3-4'])
     const unexpectedlyOnStaffToKey = CURRICULUM.lessons
       .filter((lesson) => theoryQuizDrillKind(lesson.id) === 'staff-to-key')
       .map((lesson) => lesson.id)
       .filter((id) => !gapTopics.has(id))
     expect(unexpectedlyOnStaffToKey).toEqual([])
+  })
+})
+
+describe('quizzes retargeted onto the MIDI theory drill (roadmap 3.12, REQ-3.5.2)', () => {
+  // Before roadmap 3.12, these four lessons promised a chord/cadence topic no
+  // flashcard deck could test and were all retargeted at 'staff-to-key' (the
+  // note-naming deck) instead — "Quiz: find the notes on the keyboard (triad
+  // inversions)" opened a note-naming drill. `TheoryDrillPanel` covers them
+  // via 'build-chord'/'build-cadence'. Each assertion below pins the id to
+  // its new kind BY ID, so a future silent retarget back to a flashcard deck
+  // fails here rather than only showing up as a vague vibe check.
+  it('the C major triad quiz opens build-chord', () => {
+    expect(theoryQuizDrillKind('l2-c-major-triad')).toBe('build-chord')
+  })
+
+  it('the dominant chord / I-V-I quiz opens build-cadence', () => {
+    expect(theoryQuizDrillKind('l2-dominant-chord-and-i-v-i')).toBe('build-cadence')
+  })
+
+  // 'build-cadence', not 'build-chord': at 'build-chord' level 1 this quiz was
+  // byte-identical to the C major triad quiz above — same title, same kind,
+  // same level — on a lesson about IV, and never asked for a subdominant.
+  // Level 2 is where CADENCES_BY_LEVEL adds PLAGAL (IV-I).
+  it('the subdominant (IV) quiz opens build-cadence, and is not a duplicate of the triad quiz', () => {
+    expect(theoryQuizDrillKind('l2-i-iv-v-i-progression')).toBe('build-cadence')
+    expect(theoryQuizDrillKind('l2-i-iv-v-i-progression')).not.toBe(
+      theoryQuizDrillKind('l2-c-major-triad'),
+    )
+  })
+
+  it('the triad inversions quiz opens build-chord', () => {
+    expect(theoryQuizDrillKind('l3-triad-inversions')).toBe('build-chord')
+  })
+
+  // Finding 2: the drillLevel each retargeted lesson picks was previously
+  // unpinned by any test — a mutant that deleted the level entirely still
+  // passed 33/33 because the three prompt-regex tests below drove
+  // `buildTheoryQuiz` from a hardcoded level literal, proving a fact about
+  // core's tables rather than about this content. Pinning the id -> level
+  // here, and driving the regex loops from these ids' own levels, makes the
+  // proof about the content the lessons actually name.
+  it('the C major triad quiz opens at level 1', () => {
+    expect(theoryQuizDrillLevel('l2-c-major-triad')).toBe(1)
+  })
+
+  it('the dominant chord / I-V-I quiz opens at level 1', () => {
+    expect(theoryQuizDrillLevel('l2-dominant-chord-and-i-v-i')).toBe(1)
+  })
+
+  it('the subdominant (IV) quiz opens at level 2, the tier that has the plagal cadence', () => {
+    expect(theoryQuizDrillLevel('l2-i-iv-v-i-progression')).toBe(2)
+  })
+
+  it('the triad inversions quiz opens at level 2', () => {
+    expect(theoryQuizDrillLevel('l3-triad-inversions')).toBe(2)
+  })
+
+  /** Every `theoryQuizDrillLevel`-resolved level this describe block uses,
+   *  probed against several rng seeds rather than just one draw — proves the
+   *  LEVEL, not merely the kind, actually stays inside what each lesson's
+   *  title promises for every draw `buildTheoryQuiz` can make at that level,
+   *  not merely the one draw a single seed happens to produce. */
+  const SEEDS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+  it("level 1 'build-chord' only ever draws a major or minor triad in root position (l2-c-major-triad)", () => {
+    const PROMPT = /^Play a [A-G](#{1,2}|b{1,2})? (major|minor) chord, root position\.$/
+    const level = theoryQuizDrillLevel('l2-c-major-triad')
+    for (const seed of SEEDS) {
+      const item = buildTheoryQuiz('build-chord', level ?? 1, seededRng(seed))
+      expect(item.prompt, `seed ${seed}: '${item.prompt}'`).toMatch(PROMPT)
+    }
+  })
+
+  // The point of level 2 for this lesson: the tier must be able to draw the
+  // PLAGAL (IV-I) cadence its title promises, and level 1 cannot — so a test
+  // that only checked "it is some cadence" would pass against the level-1
+  // regression this quiz was moved off. Both cadences must be reachable.
+  it("level 2 'build-cadence' can draw the plagal (IV-I) cadence its title promises (l2-i-iv-v-i-progression)", () => {
+    const PROMPT = /^Play a (perfect authentic|plagal) cadence in .+\.$/
+    const level = theoryQuizDrillLevel('l2-i-iv-v-i-progression')
+    const drawn = new Set<string>()
+    for (const seed of SEEDS) {
+      const item = buildTheoryQuiz('build-cadence', level ?? 2, seededRng(seed))
+      expect(item.prompt, `seed ${seed}: '${item.prompt}'`).toMatch(PROMPT)
+      drawn.add(item.prompt.includes('plagal') ? 'plagal' : 'perfect authentic')
+    }
+    expect(drawn).toEqual(new Set(['perfect authentic', 'plagal']))
+  })
+
+  it("level 1 'build-cadence' only ever draws a perfect authentic (V-I) cadence (l2-dominant-chord-and-i-v-i)", () => {
+    const PROMPT = /^Play a perfect authentic cadence in .+\.$/
+    const level = theoryQuizDrillLevel('l2-dominant-chord-and-i-v-i')
+    for (const seed of SEEDS) {
+      const item = buildTheoryQuiz('build-cadence', level ?? 1, seededRng(seed))
+      expect(item.prompt, `seed ${seed}: '${item.prompt}'`).toMatch(PROMPT)
+    }
+  })
+
+  it("level 2 'build-chord' only ever draws a triad in root position or first inversion, never a 7th chord or second inversion (l3-triad-inversions)", () => {
+    const PROMPT = /^Play a [A-G](#{1,2}|b{1,2})? (major|minor|diminished|augmented) chord, (root position|first inversion)\.$/
+    const level = theoryQuizDrillLevel('l3-triad-inversions')
+    for (const seed of SEEDS) {
+      const item = buildTheoryQuiz('build-chord', level ?? 1, seededRng(seed))
+      expect(item.prompt, `seed ${seed}: '${item.prompt}'`).toMatch(PROMPT)
+    }
   })
 })
 

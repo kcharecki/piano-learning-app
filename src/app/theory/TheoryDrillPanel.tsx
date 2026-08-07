@@ -79,11 +79,20 @@ export type TheoryDrillPanelProps = {
   readonly midiInput?: MidiInput
   readonly connectMidi?: ConnectMidi
   readonly rng?: Rng
+  /** Seeds which topic the panel opens on. Read once at mount; the shell
+   *  remounts via `key` when the plan names a different topic. */
+  readonly initialKind?: TheoryQuizKind
+  /** Seeds the level, clamped to [1, MAX_THEORY_LEVEL]. Read once at mount. */
+  readonly initialLevel?: number
 }
 
 const MIN_LEVEL = 1
 /** Derived from the core tables' own tier count, never restated (roadmap 3.20) — see MAX_THEORY_LEVEL. */
 const MAX_LEVEL = MAX_THEORY_LEVEL
+
+function clampLevel(level: number): number {
+  return Math.min(MAX_LEVEL, Math.max(MIN_LEVEL, Math.floor(level)))
+}
 
 const KIND_LABEL: Readonly<Record<TheoryQuizKind, string>> = {
   'build-scale': 'Scale',
@@ -122,11 +131,12 @@ function isTheoryCardId(id: string): boolean {
 function dueTheoryItem(
   cardsById: Readonly<Record<string, Card>>,
   nowMs: number,
+  onlyKind?: TheoryQuizKind,
 ): TheoryQuizItem | undefined {
   const theoryCards = Object.values(cardsById).filter((c) => isTheoryCardId(c.id))
   for (const card of dueCards(theoryCards, nowMs)) {
     const item = theoryQuizFromId(card.id)
-    if (item !== undefined) return item
+    if (item !== undefined && (onlyKind === undefined || item.kind === onlyKind)) return item
   }
   return undefined
 }
@@ -160,8 +170,8 @@ function AnswerFeedback({ result }: { readonly result: TheoryAnswerResult | unde
 }
 
 export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
-  const [level, setLevel] = useState(MIN_LEVEL)
-  const [kind, setKind] = useState<TheoryQuizKind>('build-scale')
+  const [level, setLevel] = useState(() => clampLevel(props.initialLevel ?? MIN_LEVEL))
+  const [kind, setKind] = useState<TheoryQuizKind>(() => props.initialKind ?? 'build-scale')
 
   const [date] = useState<DateSource>(() => props.date ?? { epochMillis: () => Date.now() })
   const [rng] = useState<Rng>(() => props.rng ?? createBrowserRng())
@@ -182,7 +192,9 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
   // (roadmap 3.20). The [kind, level] effect below skips its own first run
   // so it does not immediately overwrite this with a random draw.
   const [item, setItem] = useState<TheoryQuizItem | undefined>(
-    () => dueTheoryItem(cardsById, date.epochMillis()) ?? buildTheoryQuiz(kind, level, rng),
+    () =>
+      dueTheoryItem(cardsById, date.epochMillis(), props.initialKind) ??
+      buildTheoryQuiz(kind, level, rng),
   )
   const [playedGroups, setPlayedGroups] = useState<readonly (readonly Midi[])[]>([])
   const [, setPendingNotes] = useState<readonly Midi[]>([])

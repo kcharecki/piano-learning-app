@@ -17,6 +17,7 @@ import type { Exercise, Lesson } from '@core/curriculum/types.ts'
 import { demoScoreById } from '@content/scores/demoScores.ts'
 import { techniqueDrillById } from '@core/technique/library.ts'
 import type { FlashcardKind } from '@core/drills/flashcards.ts'
+import type { TheoryQuizKind } from '@core/drills/theory.ts'
 
 // ---------------------------------------------------------------------------
 // exercise helpers — see lessonsLevel1.ts for rationale.
@@ -44,7 +45,7 @@ function techniqueEx(id: string, drillId: string, minutes = 6): Exercise {
 function theoryQuizEx(
   id: string,
   title: string,
-  drillKind: FlashcardKind,
+  drillKind: FlashcardKind | TheoryQuizKind,
   minutes = 8,
   drillLevel?: number,
 ): Exercise {
@@ -219,13 +220,19 @@ export const LEVEL_2_LESSONS: readonly Lesson[] = [
     // rather than leaning on the inversion-cycling demo as level-2 content.
     demoScoreId: demo('demo-c-major-triad-blocked'),
     exercises: [
-      // No deck tests triad spelling — a gap topic (see
-      // lessonsLevel1.ts's module comment). Parenthetical distinguishes this
-      // from the other gap-topic quizzes (finding 4).
+      // No flashcard deck tests triad spelling, but `TheoryDrillPanel`'s
+      // 'build-chord' kind does, MIDI/on-screen-keyboard-answered (roadmap
+      // 3.12, REQ-3.5.2). At level 1 `buildTheoryQuiz` only draws major or
+      // minor triads in root position (`CHORD_QUALITIES_BY_LEVEL[0]` /
+      // `CHORD_INVERSIONS_BY_LEVEL[0]` in core/drills/theory.ts) — see
+      // curriculum.test.ts for the proof the level actually stays inside
+      // this title's promise.
       theoryQuizEx(
         'l2-c-major-triad-ex1',
-        'Quiz: find the notes on the keyboard (the C major triad)',
-        'staff-to-key',
+        'Quiz: build a major or minor triad, root position',
+        'build-chord',
+        8,
+        1,
       ),
       playEx('l2-c-major-triad-ex2', 'Play the C major triad, root position, blocked and broken', 6),
     ],
@@ -245,13 +252,17 @@ export const LEVEL_2_LESSONS: readonly Lesson[] = [
       '[diagram:g-major-triad]',
     demoScoreId: demo('demo-i-v-i-c-major'),
     exercises: [
-      // No deck tests chords/progressions — a gap topic (see
-      // lessonsLevel1.ts's module comment). Parenthetical distinguishes this
-      // from the other gap-topic quizzes (finding 4).
+      // No flashcard deck tests chords/progressions, but `TheoryDrillPanel`'s
+      // 'build-cadence' kind does (roadmap 3.12, REQ-3.5.2). At level 1
+      // `buildTheoryQuiz` only draws the perfect-authentic (V-I) cadence
+      // (`CADENCES_BY_LEVEL[0]` in core/drills/theory.ts) — exactly the I-V-I
+      // story this lesson teaches. See curriculum.test.ts for the proof.
       theoryQuizEx(
         'l2-dominant-chord-and-i-v-i-ex1',
-        'Quiz: find the notes on the keyboard (the dominant chord)',
-        'staff-to-key',
+        'Quiz: play a perfect authentic cadence (V-I)',
+        'build-cadence',
+        8,
+        1,
       ),
       playEx('l2-dominant-chord-and-i-v-i-ex2', 'Play the I-V-I progression in C major', 6),
     ],
@@ -275,13 +286,20 @@ export const LEVEL_2_LESSONS: readonly Lesson[] = [
       'progression comes later.',
     demoScoreId: demo('demo-i-iv-v-i-c-major'),
     exercises: [
-      // No deck tests chords — a gap topic (see lessonsLevel1.ts's module
-      // comment). Parenthetical distinguishes this from the other gap-topic
-      // quizzes (finding 4).
+      // 'build-cadence' at level 2, not 'build-chord' at level 1. The first
+      // version of this quiz was the latter, which made it byte-identical to
+      // the tonic-triad lesson's quiz above — same title, same kind, same
+      // level — on a lesson about IV, and it never asked for a subdominant at
+      // all. `CADENCES_BY_LEVEL[1]` is [PERFECT_AUTHENTIC, PLAGAL] (see
+      // core/drills/theory.ts), and PLAGAL is exactly IV-I, so level 2 is the
+      // tier where this lesson's own story becomes drillable. The title names
+      // both cadences the tier can draw, because it can draw either.
       theoryQuizEx(
         'l2-i-iv-v-i-progression-ex1',
-        'Quiz: find the notes on the keyboard (the subdominant chord)',
-        'staff-to-key',
+        'Quiz: play a perfect authentic (V-I) or plagal (IV-I) cadence',
+        'build-cadence',
+        8,
+        2,
       ),
       playEx('l2-i-iv-v-i-progression-ex2', 'Play I, then IV, then back to I', 6),
     ],

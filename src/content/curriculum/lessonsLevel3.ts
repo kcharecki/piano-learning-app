@@ -19,6 +19,7 @@ import type { Exercise, Lesson } from '@core/curriculum/types.ts'
 import { demoScoreById } from '@content/scores/demoScores.ts'
 import { techniqueDrillById } from '@core/technique/library.ts'
 import type { FlashcardKind } from '@core/drills/flashcards.ts'
+import type { TheoryQuizKind } from '@core/drills/theory.ts'
 
 // ---------------------------------------------------------------------------
 // exercise helpers — see lessonsLevel1.ts for rationale.
@@ -46,7 +47,7 @@ function techniqueEx(id: string, drillId: string, minutes = 6): Exercise {
 function theoryQuizEx(
   id: string,
   title: string,
-  drillKind: FlashcardKind,
+  drillKind: FlashcardKind | TheoryQuizKind,
   minutes = 8,
   drillLevel?: number,
 ): Exercise {
@@ -206,13 +207,22 @@ export const LEVEL_3_LESSONS: readonly Lesson[] = [
       'changing how settled or unsettled the chord feels even though its spelling is unchanged.',
     demoScoreId: demo('demo-c-major-triad-blocked'),
     exercises: [
-      // No deck tests triad inversions — a gap topic (see
-      // lessonsLevel1.ts's module comment). Parenthetical distinguishes this
-      // from the other gap-topic quizzes (finding 4).
+      // No flashcard deck tests triad inversions, but `TheoryDrillPanel`'s
+      // 'build-chord' kind does (roadmap 3.12, REQ-3.5.2). At level 2
+      // `buildTheoryQuiz` draws only triad qualities — major, minor,
+      // diminished, augmented (`CHORD_QUALITIES_BY_LEVEL[1]`, all four
+      // within `TRIADS`) — in root position or first inversion
+      // (`CHORD_INVERSIONS_BY_LEVEL[1]` = `[0, 1]`, filtered to `<= 2` for a
+      // triad's own `isTriad` check in core/drills/theory.ts); no 7th chord
+      // and no second inversion appear at this level, so the title stays
+      // exactly inside what the level draws. See curriculum.test.ts for the
+      // proof.
       theoryQuizEx(
         'l3-triad-inversions-ex1',
-        'Quiz: find the notes on the keyboard (triad inversions)',
-        'staff-to-key',
+        'Quiz: build a triad, root position or first inversion',
+        'build-chord',
+        8,
+        2,
       ),
       techniqueEx('l3-triad-inversions-ex2', 'chord-inversions-c-major-hands-right', 6),
     ],

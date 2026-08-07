@@ -87,6 +87,32 @@ describe('TheoryDrillPanel', () => {
     expect(screen.getByTestId('theory-prompt')).toHaveTextContent(validItem?.prompt as string)
   })
 
+  it('initialKind wins over a due card of a DIFFERENT kind at mount (finding 1)', () => {
+    // Before finding 1's fix, `dueTheoryItem` scanned every due theory card
+    // regardless of kind, so a due 'build-scale' card (the panel's own
+    // default, and so the COMMON case after any prior session) would
+    // silently override `initialKind="build-cadence"` — exactly the
+    // dishonest-title bug roadmap 3.12 exists to remove, re-entering through
+    // the seeding path instead of the content path.
+    const NOW = 1_000_000
+    const clock = new FakeClock(NOW)
+    const dueScaleId = buildTheoryQuiz('build-scale', 1, seededRng(0)).id
+    useFlashcardStore.setState({ cardsById: { [dueScaleId]: newCard(dueScaleId, NOW - 100_000) } })
+
+    render(
+      <TheoryDrillPanel
+        rng={scriptedRng([0])}
+        date={clock}
+        midiInput={new FakeMidiInput()}
+        initialKind="build-cadence"
+      />,
+    )
+
+    const expected = buildTheoryQuiz('build-cadence', 1, scriptedRng([0]))
+    expect(screen.getByLabelText('Topic')).toHaveValue('build-cadence')
+    expect(screen.getByTestId('theory-prompt')).toHaveTextContent(expected.prompt)
+  })
+
   it('playing the answer on the on-screen keyboard grades it and moves the SRS stat', async () => {
     const user = userEvent.setup()
     render(<TheoryDrillPanel rng={scriptedRng([0])} midiInput={new FakeMidiInput()} />)
@@ -334,6 +360,108 @@ describe('TheoryDrillPanel', () => {
     // At least one of the four rounds drew a genuinely different item — the
     // panel is not stuck re-serving whatever it showed first.
     expect(seenIds.size).toBeGreaterThan(1)
+  })
+
+  it('initialKind/initialLevel seed the panel to open on that topic and level (roadmap 3.12, REQ-3.5.2)', () => {
+    // 'build-chord' at a constant rng draws the identical index-0 prompt for
+    // every level (each *_BY_LEVEL tier is a superset whose first element
+    // never moves), so a level-insensitive fixture like it would pass even if
+    // `initialLevel` never reached `buildTheoryQuiz` at all (finding 3).
+    // 'build-cadence' draws from `fifthsPoolForLevel`, whose index 0 is
+    // `-range` and so DOES move with the level — a real proof.
+    render(
+      <TheoryDrillPanel
+        rng={scriptedRng([0])}
+        midiInput={new FakeMidiInput()}
+        initialKind="build-cadence"
+        initialLevel={3}
+      />,
+    )
+
+    const expected = buildTheoryQuiz('build-cadence', 3, scriptedRng([0]))
+    expect(screen.getByLabelText('Topic')).toHaveValue('build-cadence')
+    expect(screen.getByTestId('theory-level')).toHaveTextContent('Level 3')
+    expect(screen.getByTestId('theory-prompt')).toHaveTextContent(expected.prompt)
+  })
+
+  it('initialLevel is clamped into [1, MAX_THEORY_LEVEL]', () => {
+    render(
+      <TheoryDrillPanel
+        rng={scriptedRng([0])}
+        midiInput={new FakeMidiInput()}
+        initialLevel={MAX_THEORY_LEVEL + 50}
+      />,
+    )
+
+    expect(screen.getByTestId('theory-level')).toHaveTextContent(`Level ${MAX_THEORY_LEVEL}`)
+  })
+
+  it('initialLevel below 1 is clamped up to 1', () => {
+    render(<TheoryDrillPanel rng={scriptedRng([0])} midiInput={new FakeMidiInput()} initialLevel={-3} />)
+
+    expect(screen.getByTestId('theory-level')).toHaveTextContent('Level 1')
+  })
+
+  it('absent initialKind/initialLevel behaves exactly like today: build-scale at level 1', () => {
+    render(<TheoryDrillPanel rng={scriptedRng([0])} midiInput={new FakeMidiInput()} />)
+
+    const expected = buildTheoryQuiz('build-scale', 1, scriptedRng([0]))
+    expect(screen.getByLabelText('Topic')).toHaveValue('build-scale')
+    expect(screen.getByTestId('theory-level')).toHaveTextContent('Level 1')
+    expect(screen.getByTestId('theory-prompt')).toHaveTextContent(expected.prompt)
+  })
+
+  it('a wrongly-graded card comes back as ITSELF once due even when seeded via initialKind — seeding only touches mount, not the kind/level reset effect (roadmap 3.20 regression guard)', async () => {
+    // Mirrors the existing "comes back as ITSELF" test above, but starting
+    // from a seeded initialKind instead of the default 'build-scale', to
+    // prove the seed is read once at mount and does not perturb the
+    // ref-guarded kind/level effect (lines ~208-233) that this recall
+    // behaviour depends on.
+    const SEED = 1
+    const NOW = 1_000_000
+    const clock = new FakeClock(NOW)
+    const user = userEvent.setup()
+    render(
+      <TheoryDrillPanel
+        rng={seededRng(SEED)}
+        date={clock}
+        midiInput={new FakeMidiInput()}
+        initialKind="build-chord"
+      />,
+    )
+
+    const mirror = seededRng(SEED)
+    const item1 = buildTheoryQuiz('build-chord', 1, mirror) // the initial-mount draw, seeded kind
+    expect(screen.getByTestId('theory-prompt')).toHaveTextContent(item1.prompt)
+    const item1PromptFromDom = screen.getByTestId('theory-prompt').textContent
+
+    // Answer item1 WRONG: bump the root by a semitone, keep the other two
+    // voices — pitch-class matching then fails on the chord's only group.
+    const keyboard = screen.getByRole('group', { name: 'On-screen keyboard' })
+    const chord = item1.answer[0] as readonly Midi[]
+    const wrongChord = chord.map((n, i) => (i === 0 ? (n + 1 <= 127 ? n + 1 : n - 1) : n))
+    for (const note of wrongChord) {
+      await user.click(within(keyboard).getByRole('button', { name: `Key ${note}` }))
+    }
+    expect(screen.getByTestId('theory-feedback')).toHaveTextContent(/not quite — graded again/i)
+
+    // Nothing is due yet, so this is the "draw fresh" branch.
+    const item2 = buildTheoryQuiz('build-chord', 1, mirror)
+    expect(item2.id).not.toBe(item1.id)
+    expect(screen.getByTestId('theory-prompt')).toHaveTextContent(item2.prompt)
+
+    // Past item1's ~10-minute relearning step.
+    act(() => clock.advance(15 * 60 * 1000))
+
+    for (const group of item2.answer) {
+      for (const note of group) {
+        await user.click(within(keyboard).getByRole('button', { name: `Key ${note}` }))
+      }
+    }
+
+    // item1 comes back as itself.
+    expect(screen.getByTestId('theory-prompt').textContent).toBe(item1PromptFromDom)
+    expect(screen.getByTestId('theory-progress')).toHaveTextContent(`0 / ${item1.answer.length}`)
   })
 
   it("the level selector's maximum tracks the core tables' own tier count, not a hardcoded UI number", async () => {

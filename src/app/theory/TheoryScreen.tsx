@@ -10,6 +10,7 @@
  * root/scaleType, and the reference's own pickers write the same state.
  */
 import { keyFromFifths, keyOf, type Key } from '@core/theory/keys.ts'
+import type { TheoryQuizKind } from '@core/drills/theory.ts'
 import { spell, type SpelledPitch } from '@core/theory/pitch.ts'
 import type { ScaleType } from '@core/theory/scales.ts'
 import { useState } from 'react'
@@ -30,7 +31,16 @@ function scaleTypeForKey(key: Key): ScaleType {
   return key.mode === 'major' ? 'major' : 'naturalMinor'
 }
 
-export function TheoryScreen() {
+export type TheoryScreenProps = {
+  /** Seeds the drill panel's topic when a planned lesson quiz named one
+   *  (roadmap 3.12). `Shell` remounts this screen via `key` when the plan
+   *  names a different topic, because the panel only seeds its state. */
+  readonly initialDrillKind?: TheoryQuizKind
+  /** Seeds the drill panel's level; the panel clamps it. */
+  readonly initialDrillLevel?: number
+}
+
+export function TheoryScreen(props: TheoryScreenProps = {}) {
   const [root, setRoot] = useState<SpelledPitch>(DEFAULT_KEY.tonic)
   const [scaleType, setScaleType] = useState<ScaleType>(scaleTypeForKey(DEFAULT_KEY))
 
@@ -50,7 +60,14 @@ export function TheoryScreen() {
   return (
     <div className="theory-screen">
       <h1>Theory</h1>
-      <TheoryDrillPanel />
+      {/* Spread rather than `initialKind={...}`: `exactOptionalPropertyTypes`
+          makes an explicit `undefined` a type error on an optional prop. */}
+      <TheoryDrillPanel
+        {...(props.initialDrillKind === undefined ? {} : { initialKind: props.initialDrillKind })}
+        {...(props.initialDrillLevel === undefined
+          ? {}
+          : { initialLevel: props.initialDrillLevel })}
+      />
       <section aria-label="Circle of fifths explorer">
         {selectedKey === undefined ? (
           <CircleOfFifths onSelect={handleSelectKey} />
