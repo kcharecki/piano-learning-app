@@ -33,7 +33,7 @@
  * because the browser's autoplay policy requires the `AudioContext` be
  * created inside a user gesture (see `createDefaultAudioOutput`'s own doc).
  */
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createDefaultAudioOutput } from '@app/practice/createDefaultAudioOutput.ts'
 import type { AudioOutput } from '@core/ports/audio.ts'
 import { at } from '@core/shared/invariant.ts'
@@ -51,12 +51,15 @@ import {
 import {
   buildScale,
   degreeName,
+  noteAtDegree,
   scaleFingering,
   scaleName,
   scaleNotes,
   SCALE_TYPES,
+  type Scale,
   type ScaleType,
 } from '@core/theory/scales.ts'
+import { ChordLookup } from './ChordLookup.tsx'
 import { KeyboardDiagram } from './KeyboardDiagram.tsx'
 
 export type ChordScaleReferenceProps = {
@@ -195,16 +198,42 @@ const RAISED_SEVENTH_SCALE_TYPES: ReadonlySet<ScaleType> = new Set<ScaleType>([
   'melodicMinor',
 ])
 
-function chordsForScale(key: Key, type: ScaleType): readonly Chord[] {
-  const base = diatonicChords(key)
+function chordsForScale(key: Key, type: ScaleType, seventh: boolean): readonly Chord[] {
+  const base = diatonicChords(key, seventh)
   if (!RAISED_SEVENTH_SCALE_TYPES.has(type)) return base
-  const raisedV = chordForRomanNumeral('V', key)
-  const raisedViio = chordForRomanNumeral('vii°', key)
+  const raisedV = chordForRomanNumeral(seventh ? 'V7' : 'V', key)
+  const raisedViio = chordForRomanNumeral(seventh ? 'vii°7' : 'vii°', key)
   return base.map((chord, i) => {
     if (i === 4 && raisedV.ok) return raisedV.value
     if (i === 6 && raisedViio.ok) return raisedViio.value
     return chord
   })
+}
+
+/**
+ * For scale types with no key (`mode === null`: the modes, pentatonics,
+ * blues, chromatic, whole tone — see {@link keyModeFor}), there is no
+ * diatonic function to read chords off. This is the deliberate, honest
+ * substitute (roadmap 3.15's fix for the finding that used to make the whole
+ * chords section vanish for these ten scale types): a triad (or, with
+ * `seventh`, a four-note chord) built on each of the *scale's own* degrees,
+ * by stacking every other scale step — 1-3-5, or 1-3-5-7 — exactly the way a
+ * diatonic triad is built on a heptatonic scale, generalised through
+ * {@link noteAtDegree}'s wrapping so it works for a 5-, 6-, 7- or 12-note
+ * scale alike. It is *not* major/minor-key harmony — there is no key to read
+ * against — so these chords are labelled with their literal spelled tones
+ * rather than a `major`/`minor`/… quality name, which `chordSymbol` would
+ * have to invent for a stack that need not match any of `CHORD_QUALITIES`'s
+ * fixed interval patterns (a whole-tone scale's degree stack always comes out
+ * augmented, but a blues or chromatic scale's does not reliably come out
+ * anything nameable at all).
+ */
+function scaleDegreeStacks(scale: Scale, seventh: boolean): readonly (readonly SpelledPitch[])[] {
+  const span = scale.notes.length
+  const stackSize = seventh ? 4 : 3
+  return Array.from({ length: span }, (_, i) =>
+    Array.from({ length: stackSize }, (_, j) => noteAtDegree(scale, i + 1 + j * 2)),
+  )
 }
 
 function ScaleTable({ root, type }: { readonly root: SpelledPitch; readonly type: ScaleType }) {
@@ -276,26 +305,18 @@ function ChordRow({
 }
 
 function DiatonicChords({
-  root,
+  chordKey,
   type,
-  mode,
+  seventh,
   getAudioOutput,
 }: {
-  readonly root: SpelledPitch
+  readonly chordKey: Key
   readonly type: ScaleType
-  readonly mode: Mode
+  readonly seventh: boolean
   readonly getAudioOutput: () => AudioOutput
 }) {
-  const keyResult = keyOf(root, mode)
-  if (!keyResult.ok) {
-    return (
-      <p className="reference-key-error">
-        {noteLabel(root)} {mode} is not a writable key — try a different root.
-      </p>
-    )
-  }
-  const key = keyResult.value
-  const chords = chordsForScale(key, type)
+  const key = chordKey
+  const chords = chordsForScale(key, type, seventh)
 
   return (
     <ul aria-label="Diatonic chords" className="diatonic-chords chord-list">
@@ -311,6 +332,37 @@ function DiatonicChords({
             figures={figuredBass(chord)}
             pitchClasses={new Set(tones.map(spelledPitchClass))}
             rootPitchClass={spelledPitchClass(chord.root)}
+            onPlay={() => playChordTones(getAudioOutput(), tones)}
+          />
+        )
+      })}
+    </ul>
+  )
+}
+
+/** The chords section for a scale type with no key — see {@link scaleDegreeStacks}. */
+function ScaleDegreeChords({
+  scale,
+  seventh,
+  getAudioOutput,
+}: {
+  readonly scale: Scale
+  readonly seventh: boolean
+  readonly getAudioOutput: () => AudioOutput
+}) {
+  const stacks = scaleDegreeStacks(scale, seventh)
+  return (
+    <ul aria-label="Chords from scale degrees" className="diatonic-chords chord-list">
+      {stacks.map((tones, i) => {
+        const root = at(tones, 0)
+        return (
+          <ChordRow
+            key={i}
+            numeralText={`${i + 1}`}
+            symbol={tones.map(noteLabel).join('–')}
+            figures=""
+            pitchClasses={new Set(tones.map(spelledPitchClass))}
+            rootPitchClass={spelledPitchClass(root)}
             onPlay={() => playChordTones(getAudioOutput(), tones)}
           />
         )
@@ -338,6 +390,9 @@ export function ChordScaleReference({
   // `AudioContext` it built for itself instead of ever switching to the
   // caller's injected one (finding 5).
   const audioRef = useRef<AudioOutput | undefined>(undefined)
+  // Shared by both chord-section renderings (DiatonicChords and
+  // ScaleDegreeChords) so "Show seventh chords" is one control, not two.
+  const [seventh, setSeventh] = useState(false)
   function getAudioOutput(): AudioOutput {
     if (audioOutput !== undefined) return audioOutput
     if (audioRef.current === undefined) {
@@ -359,12 +414,30 @@ export function ChordScaleReference({
       const existing = audioOutput ?? audioRef.current
       existing?.allNotesOff()
     }
-  }, [root, scaleType, audioOutput])
+    // `seventh` included (finding 7): toggling "Show seventh chords" swaps
+    // every chord row's tones under a still-ringing chord (a V triad becomes
+    // V7 with different tones) exactly like a root/scale-type change does,
+    // so it must panic too — without it, ticking the checkbox mid-ring left
+    // the old triad audibly playing under the new seventh-chord row.
+  }, [root, scaleType, seventh, audioOutput])
 
   const scale = buildScale(root, scaleType)
   const highlighted = new Set(scale.notes.map(spelledPitchClass))
   const rootPc = spelledPitchClass(root)
   const mode = keyModeFor(scaleType)
+  // Hoisted here (finding 3) so the chords-section branch is chosen on
+  // whether the key actually exists, not merely on whether a mode was
+  // implied: `mode` can be non-null (naturalMinor/harmonicMinor/
+  // melodicMinor/aeolian) while `keyOf` still fails for a root with no
+  // writable minor spelling (e.g. Db minor — Db is a writable major key but
+  // not a writable minor one). Previously that case fell into
+  // `DiatonicChords`, which returned only an error paragraph and no chords
+  // at all — the same "chords section vanishes" defect this file's
+  // `ScaleDegreeChords` fallback was built to fix, just reached by a
+  // different scale type. Falling back to `ScaleDegreeChords` (built purely
+  // from the scale's own notes, no key required) covers it honestly.
+  const keyResult = mode === null ? undefined : keyOf(root, mode)
+  const chordKey = keyResult?.ok === true ? keyResult.value : null
   const played = scaleNotes(root, scaleType, 1)
   const fingering = scaleFingering(root, scaleType)
   const scaleLabels = new Map(
@@ -436,25 +509,47 @@ export function ChordScaleReference({
       />
       <ScaleTable root={root} type={scaleType} />
 
-      {/* Reachability note (finding 6, no behaviour change): the scale Play
-          button above renders for all 16 `SCALE_TYPES`, but a chord Play
-          button exists only for the 6 scale types this `mode !== null` guard
-          admits (major, ionian, and the four minor forms) — the other 10
-          (the modes, pentatonics, blues, chromatic, whole tone) never show a
-          chords section at all, so REQ-3.5.4's "hear it" is unreachable for
-          them. Roadmap 3.15 is the task that gives modal/exotic scales their
-          own chord reading instead of suppressing the section outright. */}
-      {mode !== null && (
-        <>
-          <h3>Diatonic chords</h3>
-          <DiatonicChords
-            root={root}
-            type={scaleType}
-            mode={mode}
-            getAudioOutput={getAudioOutput}
-          />
-        </>
+      {/* Roadmap 3.15 fix: this section used to vanish outright for the ten
+          modal/exotic `SCALE_TYPES` `mode === null` admits (see the removed
+          finding-6 comment this replaced) — now every scale type renders a
+          chords section, reading real diatonic function where a key exists
+          and `scaleDegreeStacks`' honest scale-degree stacking where it
+          doesn't, so REQ-3.5.4's "hear it" is reachable for all 16. */}
+      <h3>{chordKey !== null ? 'Diatonic chords' : "Chords built on this scale's degrees"}</h3>
+      <label htmlFor="reference-seventh-checkbox">
+        <input
+          id="reference-seventh-checkbox"
+          type="checkbox"
+          checked={seventh}
+          onChange={(e) => setSeventh(e.target.checked)}
+        />
+        {' '}Show seventh chords
+      </label>
+      {chordKey !== null ? (
+        <DiatonicChords
+          chordKey={chordKey}
+          type={scaleType}
+          seventh={seventh}
+          getAudioOutput={getAudioOutput}
+        />
+      ) : (
+        <ScaleDegreeChords scale={scale} seventh={seventh} getAudioOutput={getAudioOutput} />
       )}
+
+      {/* `key` re-seeds ChordLookup's root whenever the reference's own root
+          changes (finding 1): `initialRoot` is otherwise read only at mount
+          (ChordLookup is deliberately uncontrolled after that — see its own
+          module comment), and this element's position never changes, so
+          without a key that reads `root`, selecting e.g. Ab on the circle of
+          fifths left the lookup silently seeded on whatever root it first
+          mounted with. Remounting also resets quality/inversion, which is
+          the right behaviour here: a new reference root is a new lookup
+          session, not a mid-edit of the old one. */}
+      <ChordLookup
+        key={`${root.letter}${root.alter}`}
+        initialRoot={root}
+        {...(audioOutput === undefined ? {} : { audioOutput })}
+      />
     </section>
   )
 }

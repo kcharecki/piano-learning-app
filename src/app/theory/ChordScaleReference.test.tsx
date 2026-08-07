@@ -15,7 +15,7 @@ import { chordForRomanNumeral, diatonicChords, romanNumeralFor } from '@core/the
 import { keyOf } from '@core/theory/keys.ts'
 import { chordSymbol, chordTones } from '@core/theory/chords.ts'
 import { pitchName as scalePitchName, spell, toMidi } from '@core/theory/pitch.ts'
-import { buildScale, scaleNotes } from '@core/theory/scales.ts'
+import { buildScale, noteAtDegree, scaleNotes } from '@core/theory/scales.ts'
 import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
@@ -33,6 +33,12 @@ import type { RecordedAudioCall } from '@test/fakes.ts'
  *  elsewhere in this file only need the fields every variant shares). */
 function isNoteOn(c: RecordedAudioCall): c is Extract<RecordedAudioCall, { kind: 'noteOn' }> {
   return c.kind === 'noteOn'
+}
+
+/** Mirrors the private `noteLabel` in ChordScaleReference.tsx — letter + accidental, no octave. */
+function testNoteLabel(p: SpelledPitch): string {
+  const sign = p.alter < 0 ? 'b'.repeat(-p.alter) : '#'.repeat(p.alter)
+  return `${p.letter}${sign}`
 }
 
 afterEach(cleanup)
@@ -160,7 +166,7 @@ describe('ChordScaleReference', () => {
     }
   })
 
-  it('substitutes the raised-leading-tone V and vii° chords for harmonic minor instead of the natural-minor reading', () => {
+  it('substitutes the raised-leading-tone V and vii° chords for harmonic minor instead of the natural-minor reading', async () => {
     render(<Controlled initialType="harmonicMinor" />)
 
     const key = keyOf(spell('C', 0, 4), 'minor')
@@ -173,11 +179,128 @@ describe('ChordScaleReference', () => {
     expect(screen.getByTestId('diatonic-chord-vii°')).toHaveTextContent(
       chordSymbol(raisedViio.value),
     )
+
+    // Finding 5's tripwire: the same raised-leading-tone substitution must
+    // also apply to sevenths (V7/vii°7), not just triads — a mutant that
+    // collapses `chordForRomanNumeral(seventh ? 'V7' : 'V', key)` to always
+    // request the triad form previously survived the scoped suite because
+    // triads and sevenths were never asserted together here.
+    await userEvent.setup().click(screen.getByLabelText('Show seventh chords'))
+    const raisedV7 = chordForRomanNumeral('V7', key.value)
+    const raisedViio7 = chordForRomanNumeral('vii°7', key.value)
+    if (!raisedV7.ok || !raisedViio7.ok) throw new Error('C harmonic minor must have V7 and vii°7')
+    expect(screen.getByTestId('diatonic-chord-V7')).toHaveTextContent(chordSymbol(raisedV7.value))
+    expect(screen.getByTestId('diatonic-chord-vii°7')).toHaveTextContent(
+      chordSymbol(raisedViio7.value),
+    )
   })
 
-  it('omits the diatonic chords section for a mode whose chords are not the major/minor reading', () => {
-    render(<Controlled initialType="dorian" />)
-    expect(screen.queryByRole('list', { name: 'Diatonic chords' })).not.toBeInTheDocument()
+  describe('chords for scale types with no key (roadmap 3.15)', () => {
+    // The old bug: the whole chords section vanished for these ten scale
+    // types. A stub that brings back a `null`/empty render here (rather than
+    // `scaleDegreeStacks`' real per-degree chords) is killed below.
+    it('shows chords built from the scale\'s own degrees instead of a false key, for a mode with no diatonic reading', () => {
+      render(<Controlled initialType="dorian" />)
+
+      // Not the key-based section — that name is reserved for a real key.
+      expect(screen.queryByRole('list', { name: 'Diatonic chords' })).not.toBeInTheDocument()
+
+      const list = screen.getByRole('list', { name: 'Chords from scale degrees' })
+      const dorian = buildScale(spell('C', 0, 4), 'dorian')
+      expect(within(list).getAllByRole('listitem')).toHaveLength(dorian.notes.length)
+
+      // Degree 1's chord is literally the scale's own 1st/3rd/5th degrees
+      // stacked — not some invented major/minor label.
+      const firstRow = screen.getByTestId('diatonic-chord-1')
+      const expectedSymbol = [1, 3, 5]
+        .map((d) => noteAtDegree(dorian, d))
+        .map(testNoteLabel)
+        .join('–')
+      expect(firstRow).toHaveTextContent(expectedSymbol)
+
+      // Degree 2's chord differs from degree 1's — proves every degree is
+      // actually stacked from its own scale position, not one fixed triad
+      // repeated seven times.
+      const secondRow = screen.getByTestId('diatonic-chord-2')
+      const secondSymbol = [2, 4, 6]
+        .map((d) => noteAtDegree(dorian, d))
+        .map(testNoteLabel)
+        .join('–')
+      expect(secondRow).toHaveTextContent(secondSymbol)
+      expect(secondSymbol).not.toBe(expectedSymbol)
+    })
+
+    it('works for a pentatonic scale (5 degrees, not 7)', () => {
+      render(<Controlled initialType="majorPentatonic" />)
+      const list = screen.getByRole('list', { name: 'Chords from scale degrees' })
+      const scale = buildScale(spell('C', 0, 4), 'majorPentatonic')
+      expect(scale.notes).toHaveLength(5)
+      expect(within(list).getAllByRole('listitem')).toHaveLength(5)
+    })
+
+    it('works for the chromatic scale (12 degrees)', () => {
+      render(<Controlled initialType="chromatic" />)
+      const list = screen.getByRole('list', { name: 'Chords from scale degrees' })
+      expect(within(list).getAllByRole('listitem')).toHaveLength(12)
+    })
+
+    it('the "hear it" Play button for a scale-degree chord sends that chord\'s exact tones as a simultaneity', async () => {
+      const user = userEvent.setup()
+      const clock = new FakeClock(0)
+      const audioOutput = new RecordingAudioOutput(clock)
+      render(<Controlled initialType="dorian" audioOutput={audioOutput} />)
+
+      const dorian = buildScale(spell('C', 0, 4), 'dorian')
+      const expected = [1, 3, 5].map((d) => toMidi(noteAtDegree(dorian, d)))
+      const numeralText = '1'
+      const row = screen.getByTestId(`diatonic-chord-${numeralText}`)
+      await user.click(within(row).getByRole('button'))
+
+      const noteOnCalls = audioOutput.calls.filter(isNoteOn)
+      expect(noteOnCalls.map((c) => c.note).sort((a, b) => a - b)).toEqual(
+        [...expected].sort((a, b) => a - b),
+      )
+      const timestamps = new Set(noteOnCalls.map((c) => c.at))
+      expect(timestamps.size).toBe(1)
+    })
+
+    it('toggling "Show seventh chords" builds a four-note stack per degree instead of a triad', async () => {
+      const user = userEvent.setup()
+      render(<Controlled initialType="dorian" />)
+
+      await user.click(screen.getByLabelText('Show seventh chords'))
+
+      const dorian = buildScale(spell('C', 0, 4), 'dorian')
+      const expectedSymbol = [1, 3, 5, 7]
+        .map((d) => noteAtDegree(dorian, d))
+        .map(testNoteLabel)
+        .join('–')
+      expect(screen.getByTestId('diatonic-chord-1')).toHaveTextContent(expectedSymbol)
+    })
+  })
+
+  it('toggling "Show seventh chords" switches the key-based diatonic chords to sevenths', async () => {
+    const user = userEvent.setup()
+    render(<Controlled />)
+
+    const key = keyOf(spell('C', 0, 4), 'major')
+    if (!key.ok) throw new Error('C major must be a valid key')
+    const triads = diatonicChords(key.value)
+    const vTriad = triads[4]
+    if (vTriad === undefined) throw new Error('C major must have a V chord')
+    // Sanity: the V triad is a plain "G" before the toggle.
+    expect(screen.getByTestId('diatonic-chord-V')).toHaveTextContent(chordSymbol(vTriad))
+
+    await user.click(screen.getByLabelText('Show seventh chords'))
+
+    const sevenths = diatonicChords(key.value, true)
+    const vSeventh = sevenths[4]
+    if (vSeventh === undefined) throw new Error('C major must have a V7 chord')
+    const numeral = romanNumeralFor(vSeventh, key.value)
+    expect(numeral?.text).toBe('V7')
+    expect(screen.getByTestId(`diatonic-chord-${numeral?.text}`)).toHaveTextContent(
+      chordSymbol(vSeventh),
+    )
   })
 
   it('offers flat-spelled roots for the black keys a learner actually reads, and every root yields a chord list', async () => {
@@ -203,12 +326,29 @@ describe('ChordScaleReference', () => {
     expect(screen.getByTestId('reference-scale-name')).toHaveTextContent('Db major')
   })
 
-  it('shows a plain explanatory message, not a live-announced core error, for an unwritable root/mode', () => {
+  it('falls back to the scale-degree chords, not a vanished section, for an unwritable root/mode', () => {
+    // D# major has no standard key signature (would need 9 sharps) — `keyOf`
+    // fails even though `mode` ('major') is non-null. Finding 3: this used
+    // to render only an error paragraph and no chords at all; now it falls
+    // back to the same honest scale-degree stacking the mode === null scale
+    // types already use, so the chords section never silently vanishes.
     render(<Controlled initialRoot={spell('D', 1, 4)} initialType="major" />)
-    // D# major has no standard key signature (would need 9 sharps).
-    expect(screen.queryByRole('status')).not.toBeInTheDocument()
     expect(screen.queryByRole('list', { name: 'Diatonic chords' })).not.toBeInTheDocument()
-    expect(screen.getByText(/is not a writable key/)).toBeInTheDocument()
+    expect(screen.queryByText(/is not a writable key/)).not.toBeInTheDocument()
+    const list = screen.getByRole('list', { name: 'Chords from scale degrees' })
+    expect(within(list).getAllByRole('listitem')).toHaveLength(7)
+  })
+
+  it('falls back to scale-degree chords for Db minor (Db is a writable major key but not a writable minor one)', () => {
+    // Finding 3: `keyOf(Db, 'minor')` fails while `keyModeFor('naturalMinor')`
+    // is still 'minor' (non-null) — the exact "mode exists but the key is
+    // unwritable" case that used to reach `DiatonicChords`'s error branch
+    // even though the scale table and keyboard above it render Db natural
+    // minor's seven notes just fine.
+    render(<Controlled initialRoot={spell('D', -1, 4)} initialType="naturalMinor" />)
+    expect(screen.queryByRole('list', { name: 'Diatonic chords' })).not.toBeInTheDocument()
+    const list = screen.getByRole('list', { name: 'Chords from scale degrees' })
+    expect(within(list).getAllByRole('listitem')).toHaveLength(7)
   })
 
   describe('playback (REQ-3.5.3/3.5.4)', () => {
@@ -412,6 +552,67 @@ describe('ChordScaleReference', () => {
       } finally {
         vi.unstubAllGlobals()
       }
+    })
+  })
+
+  describe('ChordLookup wiring (roadmap 3.15, REQ-3.5.4 "look up ANY chord")', () => {
+    // A component nobody renders is the defect class this task exists to
+    // fix — this proves `ChordLookup` is actually mounted, not merely
+    // written, by driving its own pickers to a chord the diatonic-chords
+    // section of a major-key reference could never reach.
+    it('renders a chord lookup that can look up a chord no diatonic-chords section could show, e.g. Db diminished 7th', async () => {
+      const user = userEvent.setup()
+      render(<Controlled />)
+
+      const lookup = screen.getByRole('region', { name: 'Chord lookup' })
+      await user.selectOptions(within(lookup).getByLabelText('Chord root'), 'Db')
+      await user.selectOptions(within(lookup).getByLabelText('Chord quality'), 'Diminished 7th')
+
+      expect(within(lookup).getByTestId('chord-lookup-symbol')).toHaveTextContent('Dbdim7')
+      expect(
+        screen.queryByRole('list', { name: 'Diatonic chords' }),
+      ).not.toHaveTextContent('Dbdim7')
+    })
+
+    it('seeds the lookup\'s root from the reference\'s current root, and re-seeds it when the reference\'s root changes', async () => {
+      // Finding 1: `initialRoot` used to be read only at mount, and
+      // ChordScaleReference never remounted ChordLookup while its own root
+      // changed (same element position, no `key`) — so a learner who
+      // selected e.g. A on the circle of fifths still saw the lookup seeded
+      // on whatever root the screen first mounted with, making the "seeds
+      // from the reference's current root" contract unobservable outside
+      // tests. Keying ChordLookup on the reference's root makes it re-seed
+      // (and reset quality/inversion — a new reference root is a fresh
+      // lookup session, not a mid-edit of the old one).
+      const user = userEvent.setup()
+      render(<Controlled initialRoot={spell('G', 0, 4)} />)
+
+      const lookupRootLabel = () =>
+        (
+          within(screen.getByRole('region', { name: 'Chord lookup' })).getByLabelText(
+            'Chord root',
+          ) as HTMLSelectElement
+        ).selectedOptions[0]
+
+      expect(lookupRootLabel()).toHaveTextContent('G')
+
+      await user.selectOptions(screen.getByLabelText('Root'), 'A')
+      expect(lookupRootLabel()).toHaveTextContent('A')
+    })
+
+    it('shares the injected audioOutput with the reference, rather than building its own second audio path', async () => {
+      const user = userEvent.setup()
+      const clock = new FakeClock(0)
+      const audioOutput = new RecordingAudioOutput(clock)
+      render(<Controlled audioOutput={audioOutput} />)
+
+      const lookup = screen.getByRole('region', { name: 'Chord lookup' })
+      await user.click(within(lookup).getByRole('button', { name: /^Play the .* chord$/ }))
+
+      // The chord lookup's own Play button reached the very same injected
+      // RecordingAudioOutput the rest of the screen uses, not a second,
+      // unobserved one.
+      expect(audioOutput.calls.some((c) => c.kind === 'noteOn')).toBe(true)
     })
   })
 })
