@@ -340,7 +340,7 @@ describe('round trip', () => {
       const earSession: EarSessionState = {
         ...emptyEarSession(),
         levels: { ...emptyEarSession().levels, 'interval-melodic': 3 },
-        attempts: [{ itemId: earItem.id, kind: earItem.kind, correct: true, at: 7_000, level: 2 }],
+        attempts: [{ itemId: earItem.id, kind: earItem.kind, accuracy: 1, at: 7_000, level: 2 }],
         cards: [
           { id: earItem.id, due: 8_000, intervalDays: 1, ease: 2.5, reps: 1, lapses: 0, introducedAt: 0 },
         ],
@@ -388,6 +388,127 @@ describe('round trip', () => {
       }
     },
   )
+
+  it(
+    'round-trips ear attempts with FRACTIONAL accuracy exactly (roadmap 3.26): a value that ' +
+      'survives only if accuracy is genuinely preserved as a number, not collapsed to 1/0',
+    () => {
+      const earSession: EarSessionState = {
+        ...emptyEarSession(),
+        levels: { ...emptyEarSession().levels, 'melodic-dictation': 2 },
+        attempts: [
+          { itemId: 'a-1', kind: 'melodic-dictation', accuracy: 0.75, at: 1_000, level: 2 },
+          { itemId: 'a-2', kind: 'rhythmic-dictation', accuracy: 0.4, at: 2_000, level: 1 },
+        ],
+        cards: [],
+        kinds: { 'a-1': 'melodic-dictation', 'a-2': 'rhythmic-dictation' },
+      }
+      const earTraining: EarTrainingSnapshot = { session: earSession, itemsById: {} }
+      const snapshot: ProgressSnapshot = {
+        version: 1,
+        exportedAt: 0,
+        practiceEntries: [],
+        srsCards: [],
+        sightReadingHistory: [],
+        levels: {},
+        repertoire: [],
+        assessments: [],
+        techniqueAttempts: [],
+        earTraining,
+      }
+      const result = importProgress(exportJson(snapshot))
+      expect(result).toEqual({ ok: true, value: snapshot })
+    },
+  )
+
+  it('imports a LEGACY (pre-3.26) ear attempt with `correct: boolean` and no `accuracy`, mapping correct: true -> accuracy: 1', () => {
+    const legacyExport = JSON.stringify({
+      version: 1,
+      exportedAt: 0,
+      practiceEntries: [],
+      srsCards: [],
+      sightReadingHistory: [],
+      levels: {},
+      repertoire: [],
+      assessments: [],
+      techniqueAttempts: [],
+      earTraining: {
+        session: {
+          ...emptyEarSession(),
+          attempts: [{ itemId: 'legacy-1', kind: 'interval-melodic', correct: true, at: 1_000, level: 1 }],
+        },
+        itemsById: {},
+      },
+    })
+    const result = importProgress(legacyExport)
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.value.earTraining?.session.attempts).toEqual([
+        { itemId: 'legacy-1', kind: 'interval-melodic', accuracy: 1, at: 1_000, level: 1 },
+      ])
+    }
+  })
+
+  it('imports a LEGACY (pre-3.26) ear attempt with `correct: false`, mapping it to accuracy: 0', () => {
+    const legacyExport = JSON.stringify({
+      version: 1,
+      exportedAt: 0,
+      practiceEntries: [],
+      srsCards: [],
+      sightReadingHistory: [],
+      levels: {},
+      repertoire: [],
+      assessments: [],
+      techniqueAttempts: [],
+      earTraining: {
+        session: {
+          ...emptyEarSession(),
+          attempts: [{ itemId: 'legacy-2', kind: 'interval-melodic', correct: false, at: 1_000, level: 1 }],
+        },
+        itemsById: {},
+      },
+    })
+    const result = importProgress(legacyExport)
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.value.earTraining?.session.attempts).toEqual([
+        { itemId: 'legacy-2', kind: 'interval-melodic', accuracy: 0, at: 1_000, level: 1 },
+      ])
+    }
+  })
+
+  it.each([
+    ['above 1', 2],
+    ['below 0', -0.5],
+    ['a string', 'high'],
+  ])('rejects an ear attempt with accuracy %s, naming the path', (_label, badAccuracy) => {
+    const result = importProgress(
+      JSON.stringify({
+        version: 1,
+        exportedAt: 0,
+        practiceEntries: [],
+        srsCards: [],
+        sightReadingHistory: [],
+        levels: {},
+        repertoire: [],
+        assessments: [],
+        techniqueAttempts: [],
+        earTraining: {
+          session: {
+            ...emptyEarSession(),
+            attempts: [
+              { itemId: 'bad-1', kind: 'interval-melodic', accuracy: badAccuracy, at: 1_000, level: 1 },
+            ],
+          },
+          itemsById: {},
+        },
+      }),
+    )
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error).toMatch(/earTraining\.session\.attempts\[0\]\.accuracy/)
+    }
+  })
 
   it('rejects an earTraining.session with a malformed card, naming the field', () => {
     const result = importProgress(

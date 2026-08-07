@@ -43,7 +43,7 @@ function validSession(): EarSessionState {
   return {
     ...emptyEarSession(),
     levels: { ...emptyEarSession().levels, 'interval-melodic': 3 },
-    attempts: [{ itemId: ITEM_A.id, kind: 'interval-melodic', correct: true, at: 100, level: 2 }],
+    attempts: [{ itemId: ITEM_A.id, kind: 'interval-melodic', accuracy: 1, at: 100, level: 2 }],
     cards: [CARD_A],
     kinds: { [ITEM_A.id]: 'interval-melodic' },
   }
@@ -60,6 +60,68 @@ describe('isValidEarTraining', () => {
 
   it('accepts the empty-session default (every field is either empty or the min level)', () => {
     expect(isValidEarTraining({ session: emptyEarSession(), itemsById: {} })).toBe(true)
+  })
+
+  describe('pre-3.26 attempt migration (correct: boolean -> accuracy: number)', () => {
+    it('accepts a pre-3.26 attempt shape (correct: boolean, no accuracy at all)', () => {
+      const payload = {
+        session: {
+          ...validSession(),
+          attempts: [{ itemId: 'x', kind: 'interval-melodic', correct: true, at: 1, level: 1 }],
+        },
+        itemsById: {},
+      }
+      expect(isValidEarTraining(payload)).toBe(true)
+    })
+
+    // The hard requirement: real users have `correct: boolean` records on
+    // disk right now, and a guard that merely ACCEPTS the shape (previous
+    // test) is not enough — `restoreSlice` hands the exact object this
+    // predicate was called on straight to `hydrate` with no transform step
+    // of its own (see this function's own doc comment), so the record must
+    // come out the other side actually carrying a real `accuracy`, or every
+    // later `adaptEarLevel`/`recordEarAttempt` comparison against it reads
+    // `undefined` and silently misbehaves instead of throwing.
+    it('migrates a pre-3.26 attempt IN PLACE: correct:true -> accuracy:1, correct:false -> accuracy:0, and drops correct', () => {
+      const legacyTrue: Record<string, unknown> = {
+        itemId: 'x',
+        kind: 'interval-melodic',
+        correct: true,
+        at: 1,
+        level: 1,
+      }
+      const legacyFalse: Record<string, unknown> = {
+        itemId: 'y',
+        kind: 'chord-quality',
+        correct: false,
+        at: 2,
+        level: 3,
+      }
+      const payload = {
+        session: { ...validSession(), attempts: [legacyTrue, legacyFalse] },
+        itemsById: {},
+      }
+
+      expect(isValidEarTraining(payload)).toBe(true)
+      expect(legacyTrue).toEqual({ itemId: 'x', kind: 'interval-melodic', accuracy: 1, at: 1, level: 1 })
+      expect(legacyFalse).toEqual({ itemId: 'y', kind: 'chord-quality', accuracy: 0, at: 2, level: 3 })
+      expect(legacyTrue.correct).toBeUndefined()
+      expect(legacyFalse.correct).toBeUndefined()
+    })
+
+    it('leaves an already-current attempt (accuracy present) untouched', () => {
+      const current: Record<string, unknown> = {
+        itemId: 'x',
+        kind: 'interval-melodic',
+        accuracy: 0.73,
+        at: 1,
+        level: 1,
+      }
+      const payload = { session: { ...validSession(), attempts: [current] }, itemsById: {} }
+
+      expect(isValidEarTraining(payload)).toBe(true)
+      expect(current).toEqual({ itemId: 'x', kind: 'interval-melodic', accuracy: 0.73, at: 1, level: 1 })
+    })
   })
 
   it.each([
@@ -126,7 +188,7 @@ describe('isValidEarTraining', () => {
     [
       'an attempt missing itemId',
       {
-        session: { ...validSession(), attempts: [{ kind: 'interval-melodic', correct: true, at: 1, level: 1 }] },
+        session: { ...validSession(), attempts: [{ kind: 'interval-melodic', accuracy: 1, at: 1, level: 1 }] },
         itemsById: {},
       },
     ],
@@ -135,13 +197,13 @@ describe('isValidEarTraining', () => {
       {
         session: {
           ...validSession(),
-          attempts: [{ itemId: 'x', kind: 'not-a-kind', correct: true, at: 1, level: 1 }],
+          attempts: [{ itemId: 'x', kind: 'not-a-kind', accuracy: 1, at: 1, level: 1 }],
         },
         itemsById: {},
       },
     ],
     [
-      'an attempt with a non-boolean correct',
+      'an attempt with neither a valid accuracy NOR a boolean correct (e.g. a string masquerading as either)',
       {
         session: {
           ...validSession(),
@@ -151,11 +213,51 @@ describe('isValidEarTraining', () => {
       },
     ],
     [
+      'an attempt with neither accuracy nor correct present at all',
+      {
+        session: {
+          ...validSession(),
+          attempts: [{ itemId: 'x', kind: 'interval-melodic', at: 1, level: 1 }],
+        },
+        itemsById: {},
+      },
+    ],
+    [
+      'an attempt with accuracy above 1',
+      {
+        session: {
+          ...validSession(),
+          attempts: [{ itemId: 'x', kind: 'interval-melodic', accuracy: 1.1, at: 1, level: 1 }],
+        },
+        itemsById: {},
+      },
+    ],
+    [
+      'an attempt with accuracy below 0',
+      {
+        session: {
+          ...validSession(),
+          attempts: [{ itemId: 'x', kind: 'interval-melodic', accuracy: -0.1, at: 1, level: 1 }],
+        },
+        itemsById: {},
+      },
+    ],
+    [
+      'an attempt with a non-finite accuracy',
+      {
+        session: {
+          ...validSession(),
+          attempts: [{ itemId: 'x', kind: 'interval-melodic', accuracy: Number.NaN, at: 1, level: 1 }],
+        },
+        itemsById: {},
+      },
+    ],
+    [
       'an attempt with a non-finite at',
       {
         session: {
           ...validSession(),
-          attempts: [{ itemId: 'x', kind: 'interval-melodic', correct: true, at: Number.NaN, level: 1 }],
+          attempts: [{ itemId: 'x', kind: 'interval-melodic', accuracy: 1, at: Number.NaN, level: 1 }],
         },
         itemsById: {},
       },

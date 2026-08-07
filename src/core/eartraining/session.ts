@@ -9,39 +9,47 @@
  * be. The caller (the practice screen) is the thing that actually generates a
  * fresh item when `nextDueItemId` says nothing is due.
  *
- * ## Adaptivity mirrors `adaptLevel` (sight-reading)
+ * ## Adaptivity mirrors `adaptLevel` (sight-reading) — now for real (roadmap 3.26)
  *
- * `adaptEarLevel` follows the same unanimity rule as
+ * `adaptEarLevel` follows the same unanimity-against-a-band rule as
  * `@core/sightreading/adaptive.ts`'s `adaptLevel`: hold the level unless the
- * most recent `window` attempts unanimously agree — all correct promotes,
- * all wrong demotes, anything mixed holds. `adaptLevel` (sight-reading) is
- * `run.every(r => r.accuracy > high)` / `run.every(r => r.accuracy < low)` —
- * per-item unanimity against a band, never an aggregate rate. Applied to a
- * boolean `EarAttempt.correct` (which is exactly `1` or `0`), "unanimity
- * against a band" and "all correct / all wrong" are the SAME rule: `1 > high`
- * holds for any `high < 1` and `0 < low` holds for any `low > 0`, so a target
- * band is structurally inert once "accuracy" can only ever be 0 or 1 — it
- * cannot move the promotion/demotion point, because there is no value between
- * 0 and 1 for a band edge to separate. A previous version of this module
- * replaced that per-attempt unanimity with an aggregate success RATE compared
- * against a `band` (roadmap 3.22), on the premise that the rate is what
- * "adapts like the sight-reading trainer" means and that the pre-existing
- * code's unused `band` was an oversight. That premise was wrong: the
- * pre-existing code was already the exact mirror of `adaptLevel`, and `band`
- * was inert as a CONSEQUENCE of the boolean domain, not a bug. The rate rule
- * was also worse on its own terms — with window 5 and the old default band
- * `[0.8, 0.9]`, the only reachable rates are multiples of 0.2, so `high` was
- * unreachable, the ladder's equilibrium sat below the band, and the level
- * moved on the majority of attempts at the target accuracy instead of holding
- * — a jittery random walk, not a ladder. This module has reverted to plain
- * per-attempt unanimity and deleted `band` entirely, rather than keep an
- * option that cannot affect the outcome and invites this same mistake again.
- * A band becomes meaningful again only once an `EarAttempt` carries a real
- * continuous accuracy instead of a boolean — `dictation.ts` already computes
- * `pitchAccuracy`/`rhythmAccuracy` per attempt, so wiring one of those through
- * in place of `correct` is roadmap 3.26, not this module. Levels are tracked
- * **per kind** (`EarSessionState.levels`), so a learner strong on intervals is
- * never held back by a weak dictation streak or vice versa.
+ * most recent `window` attempts unanimously clear one side of an `EarBand` —
+ * `run.every(a => a.accuracy > band.high)` promotes, `run.every(a => a.accuracy
+ * < band.low)` demotes, anything mixed (or merely inside the band) holds.
+ * This is the exact same expression `adaptLevel` uses, over `EarAttempt`
+ * instead of `SightReadingRecord`.
+ *
+ * Until roadmap 3.26, `EarAttempt.correct` was a boolean (exactly `1` or `0`
+ * as an "accuracy"), which made a band structurally inert: `1 > high` holds
+ * for any `high < 1` and `0 < low` holds for any `low > 0`, so no band edge
+ * could ever sit between the only two values that occurred. A previous
+ * version of this module (roadmap 3.22) tried to compensate by comparing an
+ * aggregate success RATE against a band instead of per-attempt unanimity, on
+ * the mistaken premise that the pre-existing code's unused `band` was a bug
+ * rather than a consequence of the boolean domain. That rate rule was reverted
+ * (roadmap 3.24) — with window 5 and band `[0.8, 0.9]`, the only reachable
+ * rates are multiples of 0.2, so `high` was unreachable, the ladder's
+ * equilibrium sat below the band, and the level moved on the MAJORITY of
+ * attempts at the target accuracy instead of holding.
+ *
+ * Roadmap 3.26 fixes the actual cause instead: `EarAttempt.accuracy` is now a
+ * real number in `[0,1]`, not a boolean. A multiple-choice kind (interval,
+ * chord, scale) has no partial credit to give, so its accuracy is still
+ * exactly `1` or `0` — for that domain, the band-unanimity rule above is
+ * PROVABLY identical to the old plain `run.every(a => a.correct)` /
+ * `run.every(a => !a.correct)` rule, for any band with `0 < low <= high < 1`
+ * (the default `DEFAULT_EAR_BAND` and every band this module accepts satisfy
+ * that): `1 > high` and `0 < low` always hold, exactly as before. That
+ * equivalence is pinned by test, not just asserted here — see
+ * `session.test.ts`'s "pins the pre-3.26 boolean-domain behaviour exactly"
+ * tests, including a property test over arbitrary valid bands. Dictation is
+ * where the band finally does real work: `dictation.ts` computes
+ * `pitchAccuracy`/`rhythmAccuracy` per attempt, `useEarTraining.ts` wires the
+ * kind-appropriate one through as `EarAttempt.accuracy`, and a dictation
+ * learner steady at, say, 0.85 (inside the default band) now correctly HOLDS
+ * instead of oscillating the way a boolean domain forced it to. Levels are
+ * still tracked **per kind** (`EarSessionState.levels`), so a learner strong
+ * on intervals is never held back by a weak dictation streak or vice versa.
  *
  * ## Time is the caller's problem
  *
@@ -80,7 +88,12 @@ import { invariant } from '@core/shared/invariant.ts'
 export type EarAttempt = {
   readonly itemId: string
   readonly kind: EarItemKind
-  readonly correct: boolean
+  /** Continuous accuracy in [0,1]. Multiple-choice kinds (interval, chord,
+   *  scale) record exactly 1 or 0 — there is no partial credit in a
+   *  multiple-choice answer to invent. Dictation records its real
+   *  pitch/rhythm accuracy. Replaces the former boolean `correct` (roadmap
+   *  3.26) — see the module doc's "Adaptivity mirrors adaptLevel" section. */
+  readonly accuracy: number
   /** Epoch ms, from a DateSource at the app edge — never performance.now(). */
   readonly at: number
   readonly level: number
@@ -125,17 +138,29 @@ const clampLevel = (level: number): number => Math.min(EAR_MAX_LEVEL, Math.max(E
 
 const DEFAULT_WINDOW = 5
 
+/** The adaptation target band, meaningful again now that `EarAttempt.accuracy` is continuous (roadmap 3.26). */
+export type EarBand = { readonly low: number; readonly high: number }
+
+/** Mirrors sight-reading's own default band (`@core/sightreading/adaptive.ts`'s `DEFAULT_BAND`,
+ *  REQ-3.4.6) so both trainers target the same accuracy window. */
+export const DEFAULT_EAR_BAND: EarBand = { low: 0.8, high: 0.9 }
+
 export type EarAdaptOptions = {
   /** How many of the most recent attempts must agree before the level moves. Defaults to 5. */
   readonly window?: number
+  /** Target accuracy band. Defaults to `DEFAULT_EAR_BAND` ([0.8, 0.9]). */
+  readonly band?: EarBand
 }
 
 /**
- * REQ-3.6.1 adaptivity: hold the level unless the most recent `window`
- * attempts unanimously agree — all correct promotes, all wrong demotes,
- * anything mixed holds. See the module doc's "Adaptivity mirrors
- * `adaptLevel`" section for why this (not a success-rate-vs-band comparison)
- * is the correct mirror of the sight-reading trainer's rule.
+ * REQ-3.6.1/3.6.3 adaptivity: hold the level unless the most recent `window`
+ * attempts unanimously clear one side of `band` — every one above `band.high`
+ * promotes, every one below `band.low` demotes, anything mixed (or merely
+ * inside the band) holds. See the module doc's "Adaptivity mirrors
+ * `adaptLevel`" section for why this is both the correct mirror of the
+ * sight-reading trainer's rule AND, for a multiple-choice kind whose accuracy
+ * is always exactly 1 or 0, provably identical to the pre-3.26 plain-unanimity
+ * rule.
  */
 export function adaptEarLevel(
   current: number,
@@ -143,9 +168,15 @@ export function adaptEarLevel(
   opts: EarAdaptOptions = {},
 ): number {
   const window = opts.window ?? DEFAULT_WINDOW
+  const band = opts.band ?? DEFAULT_EAR_BAND
   invariant(
     Number.isInteger(window) && window >= 1,
     `adaptEarLevel: window must be a positive integer, got ${window}`,
+  )
+  invariant(
+    band.low > 0 && band.low <= band.high && band.high < 1,
+    `adaptEarLevel: band must satisfy 0 < low <= high < 1, got { low: ${band.low}, high: ${band.high} } — ` +
+      'an edge at 0 or 1 makes the multiple-choice domain (accuracy always exactly 1 or 0) inert.',
   )
 
   const clamped = clampLevel(current)
@@ -153,14 +184,23 @@ export function adaptEarLevel(
   if (recent.length < window) return clamped
 
   const run = recent.slice(-window)
-  if (run.every((a) => a.correct)) return clampLevel(clamped + 1)
-  if (run.every((a) => !a.correct)) return clampLevel(clamped - 1)
+  if (run.every((a) => a.accuracy > band.high)) return clampLevel(clamped + 1)
+  if (run.every((a) => a.accuracy < band.low)) return clampLevel(clamped - 1)
   return clamped
 }
 
-/** correct -> 'good' (no change to ease), wrong -> 'again' (fixed short relearning step). */
-function gradeFor(correct: boolean): Grade {
-  return correct ? 'good' : 'again'
+/**
+ * A perfect attempt (`accuracy` exactly 1) reviews 'good' (no change to
+ * ease); anything else reviews 'again' (fixed short relearning step). For
+ * every multiple-choice kind this is bit-for-bit the pre-3.26 mapping, since
+ * their accuracy is always exactly 1 or 0. For dictation this is stricter
+ * than the band used for LEVEL adaptation (which only needs the accuracy on
+ * the right side of a target, not perfect) — a deliberate decoupling: how
+ * hard to make the SRS scheduler work on an item, and whether the level
+ * itself should move, are different questions.
+ */
+function gradeFor(accuracy: number): Grade {
+  return accuracy >= 1 ? 'good' : 'again'
 }
 
 /** `cards` with the card for `itemId` reviewed, creating it first if it does not exist yet. */
@@ -192,8 +232,12 @@ export function recordEarAttempt(
     `recordEarAttempt: now (${now}) must equal attempt.at (${attempt.at}) — the SRS card is ` +
       'scheduled from now, so a mismatch silently schedules from the wrong origin (see roadmap 2.19).',
   )
+  invariant(
+    Number.isFinite(attempt.accuracy) && attempt.accuracy >= 0 && attempt.accuracy <= 1,
+    `recordEarAttempt: attempt.accuracy must be a finite number in [0,1], got ${attempt.accuracy}`,
+  )
   const attempts = [...state.attempts, attempt]
-  const cards = reviewCard(state.cards, attempt.itemId, gradeFor(attempt.correct), now, rng)
+  const cards = reviewCard(state.cards, attempt.itemId, gradeFor(attempt.accuracy), now, rng)
   const kinds = { ...state.kinds, [attempt.itemId]: attempt.kind }
   // Only attempts taken at the kind's CURRENT level count as evidence for the
   // next adaptation — `attempt.level` exists exactly for this filter. Without

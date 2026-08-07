@@ -122,7 +122,7 @@ function computeIntervalPromotionPlan(): { readonly buttonNames: readonly string
     const attempt: EarAttempt = {
       itemId: item.id,
       kind: item.kind,
-      correct: true,
+      accuracy: 1,
       at: FROZEN_NOW,
       level: item.level,
     }

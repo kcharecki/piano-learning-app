@@ -11,7 +11,7 @@ import { useEarTrainingStore } from '@app/state/earTrainingStore.ts'
 import type { DictationGrade } from '@core/eartraining/dictation.ts'
 import { emptyEarSession } from '@core/eartraining/session.ts'
 import { makeTempoMap, tickToMs } from '@core/timing/tempo.ts'
-import { midi as asMidi, type Ticks } from '@core/shared/units.ts'
+import { midi as asMidi, ticks as asTicks, type Ticks } from '@core/shared/units.ts'
 import { makeInterval, type Interval } from '@core/theory/intervals.ts'
 import { seededRng } from '@core/ports/rng.ts'
 import { act, cleanup, renderHook } from '@testing-library/react'
@@ -207,6 +207,21 @@ describe('useEarTraining — grading', () => {
   })
 })
 
+describe('useEarTraining — recorded accuracy (roadmap 3.26)', () => {
+  it('a correct multiple-choice answer records EarAttempt.accuracy exactly 1, a wrong one exactly 0', () => {
+    const { result } = setup()
+    act(() => result.current.start())
+    act(() => result.current.answer({ kind: 'interval-melodic', interval: P5, direction: 1 }))
+
+    expect(useEarTrainingStore.getState().session.attempts[0]?.accuracy).toBe(1)
+
+    act(() => result.current.start())
+    act(() => result.current.answer({ kind: 'interval-melodic', interval: m3, direction: 1 }))
+
+    expect(useEarTrainingStore.getState().session.attempts[1]?.accuracy).toBe(0)
+  })
+})
+
 describe('useEarTraining — level adaptation (REQ-3.6.3)', () => {
   it('a unanimous run of 5 correct answers promotes the level by one', () => {
     const { result } = setup()
@@ -315,6 +330,88 @@ describe('useEarTraining — dictation answers (roadmap 3.11, REQ-3.6.1/3.6.2)',
     const grade = result.current.grade as DictationGrade | undefined
     expect(grade?.correct).toBe(false)
     expect(grade?.notes[0]?.status).toBe('wrong-pitch')
+  })
+
+  // roadmap 3.26: the whole point is that a partially-right dictation answer
+  // records a fractional EarAttempt.accuracy, not the collapsed 0 a boolean
+  // `correct` used to force. A stub that still records `grade.correct ? 1 :
+  // 0` passes every other test in this file (every other dictation answer
+  // here is either note-perfect or has every note wrong) but fails this one,
+  // since only the first of several notes is wrong here.
+  it("records a fractional EarAttempt.accuracy equal to the grade's own pitchAccuracy for a melodic dictation with only its first pitch wrong — not 0", () => {
+    const { result, clock } = setup()
+    act(() => result.current.setKind('melodic-dictation'))
+    act(() => result.current.start())
+    const item = result.current.item
+    if (item === undefined) throw new Error('expected an item after start()')
+    expect(item.prompt.notes.length).toBeGreaterThan(1)
+    const base = clock.now()
+    const tempoMap = makeTempoMap(item.prompt.tempos)
+
+    item.prompt.notes.forEach((note, i) => {
+      const midi = i === 0 ? note.midi + 1 : note.midi
+      pressAtNoteTime(result, clock, base, tempoMap, { midi, startTick: note.startTick })
+    })
+    act(() => result.current.submitDictation())
+
+    const grade = result.current.grade as DictationGrade | undefined
+    expect(grade?.pitchAccuracy).toBeGreaterThan(0)
+    expect(grade?.pitchAccuracy).toBeLessThan(1)
+    // A melodic item is the one kind where pitchAccuracy and rhythmAccuracy
+    // can actually differ (every note here has a correct onset, only the
+    // first pitch is wrong), so this is the one place a wrong-axis bug is
+    // even detectable — see the review finding this pins.
+    expect(grade?.rhythmAccuracy).not.toBe(grade?.pitchAccuracy)
+    const recorded = useEarTrainingStore.getState().session.attempts[0]?.accuracy
+    expect(recorded).toBe(grade?.pitchAccuracy)
+  })
+
+  it("records rhythmAccuracy (not pitchAccuracy) as a rhythmic-dictation attempt's EarAttempt.accuracy", () => {
+    const { result, clock } = setup()
+    act(() => result.current.setKind('rhythmic-dictation'))
+    act(() => result.current.start())
+    const item = result.current.item
+    if (item === undefined) throw new Error('expected an item after start()')
+    const base = clock.now()
+    const tempoMap = makeTempoMap(item.prompt.tempos)
+
+    for (const note of item.prompt.notes) pressAtNoteTime(result, clock, base, tempoMap, note)
+    act(() => result.current.submitDictation())
+
+    const grade = result.current.grade as DictationGrade | undefined
+    const recorded = useEarTrainingStore.getState().session.attempts[0]?.accuracy
+    expect(recorded).toBe(grade?.rhythmAccuracy)
+  })
+
+  // roadmap 3.26 review finding: pitchAccuracy's own denominator is the
+  // prompt's note count, so a spurious extra press was not costing anything —
+  // a note-perfect answer plus noise recorded accuracy 1, which is on the
+  // PROMOTION side of the default band. accuracyForAttempt must scale by
+  // expected/(expected+extra) so an extra press is never free.
+  it('does not record a perfect accuracy when a note-perfect melodic dictation answer has an extra spurious press', () => {
+    const { result, clock } = setup()
+    act(() => result.current.setKind('melodic-dictation'))
+    act(() => result.current.start())
+    const item = result.current.item
+    if (item === undefined) throw new Error('expected an item after start()')
+    const base = clock.now()
+    const tempoMap = makeTempoMap(item.prompt.tempos)
+
+    for (const note of item.prompt.notes) pressAtNoteTime(result, clock, base, tempoMap, note)
+    // One extra, spurious press well after the last expected note.
+    const lastNote = item.prompt.notes[item.prompt.notes.length - 1]
+    if (lastNote === undefined) throw new Error('expected at least one note')
+    pressAtNoteTime(result, clock, base, tempoMap, {
+      midi: lastNote.midi,
+      startTick: asTicks(Number(lastNote.startTick) + 480),
+    })
+    act(() => result.current.submitDictation())
+
+    const grade = result.current.grade as DictationGrade | undefined
+    expect(grade?.pitchAccuracy).toBe(1)
+    expect(grade?.notes.some((n) => n.status === 'extra')).toBe(true)
+    const recorded = useEarTrainingStore.getState().session.attempts[0]?.accuracy
+    expect(recorded).toBeLessThan(1)
   })
 
   // Reads the SRS session directly, not a spy on recordEarAttempt — a

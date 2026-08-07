@@ -103,7 +103,7 @@ describe('useEarTrainingStore', () => {
       // highest `at` values survive and the lowest are dropped.
       const attempts: EarAttempt[] = Array.from(
         { length: MAX_STORED_EAR_ATTEMPTS + 5 },
-        (_, i): EarAttempt => ({ itemId: ITEM_A.id, kind: ITEM_A.kind, correct: true, at: i, level: 1 }),
+        (_, i): EarAttempt => ({ itemId: ITEM_A.id, kind: ITEM_A.kind, accuracy: 1, at: i, level: 1 }),
       )
       const session = { ...emptyEarSession(), attempts }
 

@@ -68,6 +68,16 @@
  * epoch. A real MIDI keyboard answers a dictation prompt too (REQ-3.6.2):
  * `midi.input`'s `noteOn` events reach `pressDictationNote` the same way
  * `useFlashcardDrill`'s own MIDI wiring reaches `answerNote`.
+ *
+ * ## A continuous accuracy, not a collapsed boolean (roadmap 3.26)
+ *
+ * `answer()` used to record every `EarAttempt` with a boolean `correct`,
+ * discarding the real `pitchAccuracy`/`rhythmAccuracy` `gradeDictation`
+ * already computes. `accuracyForAttempt` (below) is the one place that
+ * passes the kind-appropriate real number through instead — see its own doc
+ * comment and `@core/eartraining/session.ts`'s module doc for why that makes
+ * the adaptation band meaningful again for dictation while leaving every
+ * multiple-choice kind's adaptation bit-for-bit unchanged.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createDefaultAudioOutput } from '@app/practice/createDefaultAudioOutput.ts'
@@ -90,6 +100,7 @@ import {
   generateMelodicDictation,
   generateRhythmicDictation,
   type DictationAnswerNote,
+  type DictationGrade,
 } from '@core/eartraining/dictation.ts'
 import { nextDueItemId, recordEarAttempt, type EarAttempt } from '@core/eartraining/session.ts'
 import { retentionStats, type RetentionStats } from '@core/srs/scheduler.ts'
@@ -189,7 +200,7 @@ function generateItemForKind(kind: EarItemKind, level: number, rng: Rng): EarIte
   }
 }
 
-function gradeAnswerForItem(item: EarItem, answer: EarAnswer): EarGrade {
+function gradeAnswerForItem(item: EarItem, answer: EarAnswer): EarGrade | DictationGrade {
   switch (answer.kind) {
     case 'interval-melodic':
     case 'interval-harmonic':
@@ -201,6 +212,46 @@ function gradeAnswerForItem(item: EarItem, answer: EarAnswer): EarGrade {
     case 'dictation':
       return gradeDictation(item, answer.notes)
   }
+}
+
+/**
+ * REQ-3.6.1/3.6.3: the continuous `EarAttempt.accuracy` roadmap 3.26 wires
+ * through instead of collapsing every answer to a boolean. A multiple-choice
+ * kind (interval, chord, scale) has no partial credit to invent, so its
+ * accuracy is exactly 1 or 0. Dictation is where a real continuous value
+ * exists: `melodic-dictation` records `pitchAccuracy` (the axis it names —
+ * how many pitches landed), `rhythmic-dictation` records `rhythmAccuracy`
+ * (how many onsets landed) — see `dictation.ts`'s own doc on why the two are
+ * tracked independently rather than folded into one blended number.
+ * `'pitchAccuracy' in grade` narrows the union safely: only `gradeDictation`
+ * ever produces a `DictationGrade`, and `answer()`'s own `kindMatches` guard
+ * already ensures a dictation-kind item is graded through that path.
+ *
+ * Only `pitchAccuracy` is read, with no per-kind branch: `dictation.ts`
+ * itself already folds `rhythmic-dictation` onto the rhythm axis —
+ * `gradePitch = item.kind !== 'rhythmic-dictation'` makes `pitchAccuracy`
+ * ASSIGNED `rhythmAccuracy` for a rhythmic item — so a `kind ===
+ * 'rhythmic-dictation' ? grade.rhythmAccuracy : grade.pitchAccuracy` ternary
+ * here would be a no-op that reads two bit-identical fields. A prior version
+ * of this function had exactly that dead ternary; see the review finding
+ * this fixes.
+ *
+ * `pitchAccuracy`'s own denominator is `expected.length` (the prompt's note
+ * count) — spurious extra presses are not in it, so a note-perfect answer
+ * plus noise would otherwise still read as `accuracy: 1`. Scale by the
+ * expected/(expected+extra) ratio so extra presses cost accuracy exactly
+ * like a missed or mis-pitched one does; an extra-free answer (every
+ * multiple-choice kind, and any clean dictation) is unaffected because the
+ * ratio is 1.
+ */
+function accuracyForAttempt(_kind: EarItemKind, grade: EarGrade | DictationGrade): number {
+  if ('pitchAccuracy' in grade) {
+    const extras = grade.notes.filter((n) => n.status === 'extra').length
+    const expected = grade.notes.filter((n) => n.status !== 'extra').length
+    if (extras === 0) return grade.pitchAccuracy
+    return grade.pitchAccuracy * (expected / (expected + extras))
+  }
+  return grade.correct ? 1 : 0
 }
 
 /** Schedule every note of `item.prompt` from one `audioOutput.now()` reading. */
@@ -337,7 +388,7 @@ export function useEarTraining(options: UseEarTrainingOptions = {}): UseEarTrain
     const attempt: EarAttempt = {
       itemId: item.id,
       kind: item.kind,
-      correct: g.correct,
+      accuracy: accuracyForAttempt(item.kind, g),
       at: now,
       level: item.level,
     }

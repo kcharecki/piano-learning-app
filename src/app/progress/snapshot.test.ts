@@ -134,7 +134,7 @@ const earItem: EarItem = {
 const earSession: EarSessionState = {
   ...emptyEarSession(),
   levels: { ...emptyEarSession().levels, 'interval-melodic': 3 },
-  attempts: [{ itemId: earItem.id, kind: earItem.kind, correct: true, at: 7_000, level: 2 }],
+  attempts: [{ itemId: earItem.id, kind: earItem.kind, accuracy: 1, at: 7_000, level: 2 }],
   cards: [{ id: earItem.id, due: 8_000, intervalDays: 1, ease: 2.5, reps: 1, lapses: 0, introducedAt: 0 }],
   kinds: { [earItem.id]: earItem.kind },
 }

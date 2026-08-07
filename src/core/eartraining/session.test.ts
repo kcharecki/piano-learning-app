@@ -4,12 +4,14 @@ import { scriptedRng } from '@test/fakes.ts'
 import type { EarItemKind } from '@core/eartraining/item.ts'
 import {
   adaptEarLevel,
+  DEFAULT_EAR_BAND,
   EAR_MAX_LEVEL,
   EAR_MIN_LEVEL,
   emptyEarSession,
   nextDueItemId,
   recordEarAttempt,
   type EarAttempt,
+  type EarBand,
   type EarSessionState,
 } from './session.ts'
 
@@ -30,19 +32,19 @@ const KINDS: readonly EarItemKind[] = [
 ]
 
 const attempt = (
-  correct: boolean,
+  accuracy: number,
   overrides: Partial<EarAttempt> = {},
 ): EarAttempt => ({
   itemId: 'item-1',
   kind: 'interval-melodic',
-  correct,
+  accuracy,
   at: T0,
   level: 1,
   ...overrides,
 })
 
-const runOf = (n: number, correct: boolean, overrides: Partial<EarAttempt> = {}): EarAttempt[] =>
-  Array.from({ length: n }, () => attempt(correct, overrides))
+const runOf = (n: number, accuracy: number, overrides: Partial<EarAttempt> = {}): EarAttempt[] =>
+  Array.from({ length: n }, () => attempt(accuracy, overrides))
 
 /** Mirrors session.ts's private clampLevel, for asserting the property's "at most one step" bound. */
 const clampLevelForTest = (level: number): number =>
@@ -62,33 +64,50 @@ describe('emptyEarSession', () => {
 })
 
 // ---------------------------------------------------------------------------
-// adaptEarLevel
+// DEFAULT_EAR_BAND
 // ---------------------------------------------------------------------------
 
-describe('adaptEarLevel', () => {
+describe('DEFAULT_EAR_BAND', () => {
+  it('mirrors sight-reading adaptive.ts\'s own default band, [0.8, 0.9]', () => {
+    expect(DEFAULT_EAR_BAND).toEqual({ low: 0.8, high: 0.9 })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// adaptEarLevel — pins the pre-3.26 boolean-domain behaviour exactly
+// ---------------------------------------------------------------------------
+//
+// HARD REQUIREMENT: for a kind whose every attempt is 0 or 1 (every
+// multiple-choice kind), the level sequence produced by a series of attempts
+// must be IDENTICAL before and after roadmap 3.26. Every test in this
+// `describe` block is the exact pre-3.26 test suite with `attempt(true)` /
+// `attempt(false)` replaced by `attempt(1)` / `attempt(0)` — same inputs, same
+// expected outputs, run against the post-3.26 band-based implementation.
+
+describe('adaptEarLevel — pins the pre-3.26 boolean-domain behaviour exactly (hard requirement)', () => {
   it('holds the level when there are fewer than a full window of attempts', () => {
-    expect(adaptEarLevel(2, runOf(4, true))).toBe(2)
+    expect(adaptEarLevel(2, runOf(4, 1))).toBe(2)
     expect(adaptEarLevel(2, [])).toBe(2)
   })
 
-  it('raises the level by exactly one after five correct attempts in a row', () => {
-    expect(adaptEarLevel(1, runOf(5, true))).toBe(2)
+  it('raises the level by exactly one after five correct (accuracy 1) attempts in a row', () => {
+    expect(adaptEarLevel(1, runOf(5, 1))).toBe(2)
   })
 
   it('never raises by more than one, however long the correct run', () => {
-    expect(adaptEarLevel(1, runOf(20, true))).toBe(2)
+    expect(adaptEarLevel(1, runOf(20, 1))).toBe(2)
   })
 
-  it('lowers the level by exactly one after five wrong attempts in a row', () => {
-    expect(adaptEarLevel(3, runOf(5, false))).toBe(2)
+  it('lowers the level by exactly one after five wrong (accuracy 0) attempts in a row', () => {
+    expect(adaptEarLevel(3, runOf(5, 0))).toBe(2)
   })
 
   it('never lowers by more than one, however long the wrong run', () => {
-    expect(adaptEarLevel(5, runOf(20, false))).toBe(4)
+    expect(adaptEarLevel(5, runOf(20, 0))).toBe(4)
   })
 
   it('holds on a mixed run (4 correct, 1 wrong) — one outlier breaks unanimity', () => {
-    const mixed = [...runOf(4, true), ...runOf(1, false)]
+    const mixed = [...runOf(4, 1), ...runOf(1, 0)]
     expect(adaptEarLevel(3, mixed)).toBe(3)
   })
 
@@ -96,7 +115,7 @@ describe('adaptEarLevel', () => {
     // Stub this kills: a success-RATE comparison against any band would
     // promote a 95%-correct run; plain unanimity never does, because the run
     // is not all-correct.
-    const mixed = [...runOf(19, true), ...runOf(1, false)]
+    const mixed = [...runOf(19, 1), ...runOf(1, 0)]
     expect(adaptEarLevel(3, mixed, { window: 20 })).toBe(3)
   })
 
@@ -110,7 +129,7 @@ describe('adaptEarLevel', () => {
     // all-wrong, holds — exactly like `adaptLevel` (sight-reading) would for
     // the equivalent per-item-unanimity case. Stub this kills: a
     // rate/band comparison reintroduced in place of `run.every`.
-    const mixed = [...runOf(3, true), ...runOf(2, false)]
+    const mixed = [...runOf(3, 1), ...runOf(2, 0)]
     expect(adaptEarLevel(3, mixed)).toBe(3)
   })
 
@@ -119,15 +138,16 @@ describe('adaptEarLevel', () => {
     // does not oscillate" test for the sight-reading counterpart. Fed one
     // attempt at a time, as a real caller would. At i5 the window (4 correct
     // + 1 wrong) is not unanimous, so it holds rather than demoting — one
-    // outlier is not a run. Stub this kills: `run.some` in place of
-    // `run.every`, which would demote at i5 instead of holding.
-    const sequence = [true, true, true, true, true, false, true, true, true, true, true]
+    // outlier is not a run. Stub this kills: a comparison that treats a
+    // single wrong attempt as demotion-worthy, which would demote at i5
+    // instead of holding.
+    const sequence = [1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1]
     const expectedLevels = [2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 4]
     let level = 2
     let history: EarAttempt[] = []
     const levels: number[] = []
-    sequence.forEach((correct, i) => {
-      history = [...history, attempt(correct, { itemId: `q-${i}`, at: T0 + i })]
+    sequence.forEach((accuracy, i) => {
+      history = [...history, attempt(accuracy, { itemId: `q-${i}`, at: T0 + i })]
       level = adaptEarLevel(level, history)
       levels.push(level)
     })
@@ -139,48 +159,48 @@ describe('adaptEarLevel', () => {
   })
 
   it('never rises above EAR_MAX_LEVEL or falls below EAR_MIN_LEVEL', () => {
-    expect(adaptEarLevel(EAR_MAX_LEVEL, runOf(5, true))).toBe(EAR_MAX_LEVEL)
-    expect(adaptEarLevel(EAR_MIN_LEVEL, runOf(5, false))).toBe(EAR_MIN_LEVEL)
+    expect(adaptEarLevel(EAR_MAX_LEVEL, runOf(5, 1))).toBe(EAR_MAX_LEVEL)
+    expect(adaptEarLevel(EAR_MIN_LEVEL, runOf(5, 0))).toBe(EAR_MIN_LEVEL)
   })
 
   it('clamps an out-of-range current level even when it holds', () => {
-    expect(adaptEarLevel(9, [attempt(true), attempt(false)])).toBe(EAR_MAX_LEVEL)
-    expect(adaptEarLevel(-3, [attempt(true), attempt(false)])).toBe(EAR_MIN_LEVEL)
+    expect(adaptEarLevel(9, [attempt(1), attempt(0)])).toBe(EAR_MAX_LEVEL)
+    expect(adaptEarLevel(-3, [attempt(1), attempt(0)])).toBe(EAR_MIN_LEVEL)
   })
 
   it('only the most recent `window` attempts matter, not the whole history', () => {
-    const history = [...runOf(5, false), ...runOf(5, true)]
+    const history = [...runOf(5, 0), ...runOf(5, 1)]
     expect(adaptEarLevel(2, history)).toBe(3)
   })
 
   it('respects a custom window', () => {
-    expect(adaptEarLevel(2, runOf(1, true), { window: 1 })).toBe(3)
-    expect(adaptEarLevel(2, [attempt(true), attempt(false)], { window: 2 })).toBe(2)
+    expect(adaptEarLevel(2, runOf(1, 1), { window: 1 })).toBe(3)
+    expect(adaptEarLevel(2, [attempt(1), attempt(0)], { window: 2 })).toBe(2)
   })
 
-  it('property: five correct attempts always raise by exactly one, whatever the starting level (short of the ceiling)', () => {
+  it('property: five correct (accuracy 1) attempts always raise by exactly one, whatever the starting level (short of the ceiling)', () => {
     fc.assert(
       fc.property(fc.integer({ min: EAR_MIN_LEVEL, max: EAR_MAX_LEVEL - 1 }), (level) => {
-        expect(adaptEarLevel(level, runOf(5, true))).toBe(level + 1)
+        expect(adaptEarLevel(level, runOf(5, 1))).toBe(level + 1)
       }),
     )
   })
 
-  it('property: five wrong attempts always lower by exactly one, whatever the starting level (short of the floor)', () => {
+  it('property: five wrong (accuracy 0) attempts always lower by exactly one, whatever the starting level (short of the floor)', () => {
     fc.assert(
       fc.property(fc.integer({ min: EAR_MIN_LEVEL + 1, max: EAR_MAX_LEVEL }), (level) => {
-        expect(adaptEarLevel(level, runOf(5, false))).toBe(level - 1)
+        expect(adaptEarLevel(level, runOf(5, 0))).toBe(level - 1)
       }),
     )
   })
 
-  it('property: the level never leaves [EAR_MIN_LEVEL, EAR_MAX_LEVEL] for any run of attempts (default window)', () => {
+  it('property: the level never leaves [EAR_MIN_LEVEL, EAR_MAX_LEVEL] for any run of 0/1 attempts (default window)', () => {
     fc.assert(
       fc.property(
         fc.integer({ min: EAR_MIN_LEVEL - 3, max: EAR_MAX_LEVEL + 3 }),
-        fc.array(fc.boolean(), { minLength: 0, maxLength: 30 }),
-        (start, corrects) => {
-          const recent = corrects.map((c) => attempt(c))
+        fc.array(fc.constantFrom(0, 1), { minLength: 0, maxLength: 30 }),
+        (start, accuracies) => {
+          const recent = accuracies.map((a) => attempt(a))
           const result = adaptEarLevel(start, recent)
           expect(result).toBeGreaterThanOrEqual(EAR_MIN_LEVEL)
           expect(result).toBeLessThanOrEqual(EAR_MAX_LEVEL)
@@ -190,18 +210,98 @@ describe('adaptEarLevel', () => {
     )
   })
 
-  it('property: the level never leaves [EAR_MIN_LEVEL, EAR_MAX_LEVEL] for ANY window or attempt sequence', () => {
+  it('property: the level never leaves [EAR_MIN_LEVEL, EAR_MAX_LEVEL] for ANY window or 0/1 attempt sequence', () => {
     // Stub this kills: a comparison bug that lets the level jump by more than
     // one step, or escape the clamp, for some window the default-window-only
     // property test above never exercises (e.g. window of 1).
     fc.assert(
       fc.property(
         fc.integer({ min: EAR_MIN_LEVEL - 3, max: EAR_MAX_LEVEL + 3 }),
-        fc.array(fc.boolean(), { minLength: 0, maxLength: 30 }),
+        fc.array(fc.constantFrom(0, 1), { minLength: 0, maxLength: 30 }),
         fc.integer({ min: 1, max: 10 }),
-        (start, corrects, window) => {
-          const recent = corrects.map((c) => attempt(c))
+        (start, accuracies, window) => {
+          const recent = accuracies.map((a) => attempt(a))
           const result = adaptEarLevel(start, recent, { window })
+          expect(result).toBeGreaterThanOrEqual(EAR_MIN_LEVEL)
+          expect(result).toBeLessThanOrEqual(EAR_MAX_LEVEL)
+          expect(Math.abs(result - clampLevelForTest(start))).toBeLessThanOrEqual(1)
+        },
+      ),
+    )
+  })
+
+  it('property: for 0/1-only attempts, the outcome does not depend on WHICH valid band is used — the boolean domain makes any 0 < low <= high < 1 band equivalent', () => {
+    // This is the actual mathematical guarantee the module doc claims: `1 >
+    // high` and `0 < low` hold for every band in this generator's range, so
+    // varying the band can never change a boolean-domain outcome. Stub this
+    // kills: a rule that reads a band edge as inclusive (`>=`/`<=`) instead
+    // of exclusive, which would start disagreeing with the default-band
+    // result for some generated band even though every input is still 0 or 1.
+    fc.assert(
+      fc.property(
+        fc.integer({ min: EAR_MIN_LEVEL, max: EAR_MAX_LEVEL }),
+        fc.array(fc.constantFrom(0, 1), { minLength: 0, maxLength: 15 }),
+        fc.double({ min: 0.01, max: 0.49, noNaN: true }),
+        fc.double({ min: 0.51, max: 0.99, noNaN: true }),
+        (start, accuracies, low, high) => {
+          const recent = accuracies.map((a) => attempt(a))
+          const band: EarBand = { low, high }
+          const withCustomBand = adaptEarLevel(start, recent, { band })
+          const withDefaultBand = adaptEarLevel(start, recent)
+          expect(withCustomBand).toBe(withDefaultBand)
+        },
+      ),
+    )
+  })
+
+  it('throws when band.low > band.high', () => {
+    expect(() => adaptEarLevel(2, runOf(5, 1), { band: { low: 0.9, high: 0.1 } })).toThrow()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// adaptEarLevel — continuous accuracy (roadmap 3.26): where the band finally
+// does real work, for a kind (dictation) whose accuracy is not just 0 or 1.
+// ---------------------------------------------------------------------------
+
+describe('adaptEarLevel — continuous accuracy', () => {
+  it('a run steady inside the default band ([0.8, 0.9]) HOLDS, even though every attempt is far above 0 — this is the case a boolean domain could never represent', () => {
+    expect(adaptEarLevel(3, runOf(5, 0.85))).toBe(3)
+  })
+
+  it('a run strictly above band.high promotes', () => {
+    expect(adaptEarLevel(3, runOf(5, 0.95))).toBe(4)
+  })
+
+  it('a run strictly below band.low demotes', () => {
+    expect(adaptEarLevel(3, runOf(5, 0.5))).toBe(2)
+  })
+
+  it('a run sitting exactly ON the band edges holds — both edges are exclusive', () => {
+    expect(adaptEarLevel(3, runOf(5, 0.9))).toBe(3) // == high, not > high
+    expect(adaptEarLevel(3, runOf(5, 0.8))).toBe(3) // == low, not < low
+  })
+
+  it('a mixed continuous run (mostly above high, one merely in-band) holds', () => {
+    const mixed = [...runOf(4, 0.95), ...runOf(1, 0.85)]
+    expect(adaptEarLevel(3, mixed)).toBe(3)
+  })
+
+  it('a custom band moves where promotion/demotion fall', () => {
+    const band: EarBand = { low: 0.3, high: 0.6 }
+    expect(adaptEarLevel(3, runOf(5, 0.5), { band })).toBe(3) // inside the custom band -> hold
+    expect(adaptEarLevel(3, runOf(5, 0.7), { band })).toBe(4) // above custom high -> promote
+    expect(adaptEarLevel(3, runOf(5, 0.2), { band })).toBe(2) // below custom low -> demote
+  })
+
+  it('property: the level never leaves [EAR_MIN_LEVEL, EAR_MAX_LEVEL] for any run of continuous [0,1] accuracies', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: EAR_MIN_LEVEL - 3, max: EAR_MAX_LEVEL + 3 }),
+        fc.array(fc.double({ min: 0, max: 1, noNaN: true }), { minLength: 0, maxLength: 20 }),
+        (start, accuracies) => {
+          const recent = accuracies.map((a) => attempt(a))
+          const result = adaptEarLevel(start, recent)
           expect(result).toBeGreaterThanOrEqual(EAR_MIN_LEVEL)
           expect(result).toBeLessThanOrEqual(EAR_MAX_LEVEL)
           expect(Math.abs(result - clampLevelForTest(start))).toBeLessThanOrEqual(1)
@@ -219,39 +319,46 @@ describe('recordEarAttempt', () => {
   it('never mutates the input state', () => {
     const state = emptyEarSession()
     const snapshot = structuredClone(state)
-    recordEarAttempt(state, attempt(true), T0)
+    recordEarAttempt(state, attempt(1), T0)
     expect(state).toEqual(snapshot)
   })
 
   it('rejects a now that disagrees with attempt.at (roadmap 2.19 substitution class)', () => {
     const state = emptyEarSession()
-    expect(() => recordEarAttempt(state, attempt(true, { at: T0 }), T0 + 1)).toThrow()
+    expect(() => recordEarAttempt(state, attempt(1, { at: T0 }), T0 + 1)).toThrow()
+  })
+
+  it('rejects an attempt.accuracy outside [0,1]', () => {
+    const state = emptyEarSession()
+    expect(() => recordEarAttempt(state, attempt(1.5), T0)).toThrow()
+    expect(() => recordEarAttempt(state, attempt(-0.1), T0)).toThrow()
+    expect(() => recordEarAttempt(state, attempt(Number.NaN), T0)).toThrow()
   })
 
   it('always appends exactly one attempt', () => {
     const state = emptyEarSession()
-    const next = recordEarAttempt(state, attempt(true), T0)
+    const next = recordEarAttempt(state, attempt(1), T0)
     expect(next.attempts).toHaveLength(1)
-    expect(next.attempts[0]).toEqual(attempt(true))
-    const next2 = recordEarAttempt(next, attempt(false, { itemId: 'item-2', at: T0 + 1 }), T0 + 1)
+    expect(next.attempts[0]).toEqual(attempt(1))
+    const next2 = recordEarAttempt(next, attempt(0, { itemId: 'item-2', at: T0 + 1 }), T0 + 1)
     expect(next2.attempts).toHaveLength(2)
   })
 
   it('property: appends exactly one attempt and never mutates the input, from any starting state', () => {
     fc.assert(
       fc.property(
-        fc.array(fc.boolean(), { minLength: 0, maxLength: 10 }),
-        fc.boolean(),
-        (history, correct) => {
+        fc.array(fc.constantFrom(0, 1), { minLength: 0, maxLength: 10 }),
+        fc.constantFrom(0, 1),
+        (history, accuracy) => {
           const seeded = history.reduce<EarSessionState>(
-            (s, c, i) => recordEarAttempt(s, attempt(c, { itemId: `item-${i}`, at: T0 + i }), T0 + i),
+            (s, a, i) => recordEarAttempt(s, attempt(a, { itemId: `item-${i}`, at: T0 + i }), T0 + i),
             emptyEarSession(),
           )
           const before = structuredClone(seeded)
           const attemptCountBefore = seeded.attempts.length
           const next = recordEarAttempt(
             seeded,
-            attempt(correct, { itemId: 'new-item', at: T0 + 100 }),
+            attempt(accuracy, { itemId: 'new-item', at: T0 + 100 }),
             T0 + 100,
           )
           expect(seeded).toEqual(before)
@@ -263,25 +370,34 @@ describe('recordEarAttempt', () => {
 
   it('creates a new SRS card for a never-seen item id, due immediately', () => {
     const state = emptyEarSession()
-    const next = recordEarAttempt(state, attempt(true), T0)
+    const next = recordEarAttempt(state, attempt(1), T0)
     expect(next.cards).toHaveLength(1)
     expect(next.cards[0]?.id).toBe('item-1')
   })
 
   it('reviews the existing card on a repeat attempt instead of creating a second one', () => {
     const state = emptyEarSession()
-    const once = recordEarAttempt(state, attempt(true), T0)
-    const twice = recordEarAttempt(once, attempt(true, { at: T0 + DAY_MS }), T0 + DAY_MS)
+    const once = recordEarAttempt(state, attempt(1), T0)
+    const twice = recordEarAttempt(once, attempt(1, { at: T0 + DAY_MS }), T0 + DAY_MS)
     expect(twice.cards).toHaveLength(1)
     expect(twice.cards[0]?.reps).toBe(2)
   })
 
-  it('a wrong attempt increases lapses and schedules a short relearning step', () => {
+  it('a wrong (accuracy 0) attempt increases lapses and schedules a short relearning step', () => {
     const state = emptyEarSession()
-    const next = recordEarAttempt(state, attempt(false), T0)
+    const next = recordEarAttempt(state, attempt(0), T0)
     const card = next.cards[0]
     expect(card?.lapses).toBe(1)
     expect(card?.due).toBeLessThan(T0 + DAY_MS)
+  })
+
+  it('a merely-partial (not perfect) accuracy also reviews as "again", like a wrong attempt', () => {
+    // SRS ease is stricter than level adaptation: only a perfect attempt
+    // reviews 'good' — see gradeFor's own doc comment for why this is a
+    // deliberate decoupling from the adaptation band.
+    const state = emptyEarSession()
+    const next = recordEarAttempt(state, attempt(0.7), T0)
+    expect(next.cards[0]?.lapses).toBe(1)
   })
 
   it('only adapts the level of the attempted kind, leaving other kinds untouched', () => {
@@ -289,7 +405,7 @@ describe('recordEarAttempt', () => {
     for (let i = 0; i < 5; i++) {
       state = recordEarAttempt(
         state,
-        attempt(true, { itemId: `mel-${i}`, kind: 'interval-melodic', at: T0 + i }),
+        attempt(1, { itemId: `mel-${i}`, kind: 'interval-melodic', at: T0 + i }),
         T0 + i,
       )
     }
@@ -310,7 +426,7 @@ describe('recordEarAttempt', () => {
       const at = T0 + i
       state = recordEarAttempt(
         state,
-        attempt(true, { itemId: `q-${i}`, kind, at, level: state.levels[kind] }),
+        attempt(1, { itemId: `q-${i}`, kind, at, level: state.levels[kind] }),
         at,
       )
     }
@@ -332,13 +448,13 @@ describe('recordEarAttempt', () => {
       const melAt = T0 + i * 2
       state = recordEarAttempt(
         state,
-        attempt(true, { itemId: `mel-${i}`, kind: mel, at: melAt, level: state.levels[mel] }),
+        attempt(1, { itemId: `mel-${i}`, kind: mel, at: melAt, level: state.levels[mel] }),
         melAt,
       )
       const chordAt = melAt + 1
       state = recordEarAttempt(
         state,
-        attempt(false, { itemId: `chord-${i}`, kind: chord, at: chordAt, level: state.levels[chord] }),
+        attempt(0, { itemId: `chord-${i}`, kind: chord, at: chordAt, level: state.levels[chord] }),
         chordAt,
       )
     }
@@ -365,7 +481,7 @@ describe('recordEarAttempt', () => {
       const at = T0 + i
       state = recordEarAttempt(
         state,
-        attempt(false, { itemId: `old-${i}`, kind, at, level: 3 }),
+        attempt(0, { itemId: `old-${i}`, kind, at, level: 3 }),
         at,
       )
     }
@@ -374,7 +490,7 @@ describe('recordEarAttempt', () => {
     const at = T0 + 5
     state = recordEarAttempt(
       state,
-      attempt(false, { itemId: 'new-0', kind, at, level: state.levels[kind] }),
+      attempt(0, { itemId: 'new-0', kind, at, level: state.levels[kind] }),
       at,
     )
     // Stub this kills: filtering `kindAttempts` by kind alone (no level
@@ -384,10 +500,29 @@ describe('recordEarAttempt', () => {
     expect(state.levels[kind]).toBe(2)
   })
 
+  it('a dictation kind steady at an in-band continuous accuracy holds indefinitely, unlike any boolean-domain sequence', () => {
+    // The concrete demonstration of what roadmap 3.26 actually buys: a
+    // learner whose dictation attempts land at 0.85 (inside the default
+    // [0.8, 0.9] band) forever holds at their current level, never promoted
+    // or demoted, because neither `run.every(a.accuracy > 0.9)` nor
+    // `run.every(a.accuracy < 0.8)` is ever satisfied.
+    const kind: EarItemKind = 'melodic-dictation'
+    let state = emptyEarSession()
+    for (let i = 0; i < 12; i++) {
+      const at = T0 + i
+      state = recordEarAttempt(
+        state,
+        attempt(0.85, { itemId: `dict-${i}`, kind, at, level: state.levels[kind] }),
+        at,
+      )
+    }
+    expect(state.levels[kind]).toBe(EAR_MIN_LEVEL)
+  })
+
   it('passing an rng fuzzes the interval away from the exact deterministic value', () => {
     const state = emptyEarSession()
-    const withoutRng = recordEarAttempt(state, attempt(true), T0)
-    const withRng = recordEarAttempt(state, attempt(true), T0, scriptedRng([0.9]))
+    const withoutRng = recordEarAttempt(state, attempt(1), T0)
+    const withRng = recordEarAttempt(state, attempt(1), T0, scriptedRng([0.9]))
     expect(withRng.cards[0]?.due).not.toBe(withoutRng.cards[0]?.due)
   })
 })
@@ -402,13 +537,13 @@ describe('nextDueItemId', () => {
   })
 
   it('returns null when cards exist but none are due yet', () => {
-    const state = recordEarAttempt(emptyEarSession(), attempt(true), T0)
+    const state = recordEarAttempt(emptyEarSession(), attempt(1), T0)
     // the reviewed card is due days in the future; "now" is still T0
     expect(nextDueItemId(state, KINDS, T0)).toBeNull()
   })
 
   it('returns the sole due card id when only one is due', () => {
-    const state = recordEarAttempt(emptyEarSession(), attempt(false), T0)
+    const state = recordEarAttempt(emptyEarSession(), attempt(0), T0)
     // a wrong attempt schedules a short (~10 min) relearning step, so it is due soon
     const soon = T0 + DAY_MS
     expect(nextDueItemId(state, KINDS, soon)).toBe('item-1')
@@ -417,9 +552,9 @@ describe('nextDueItemId', () => {
   it('returns the MOST overdue card, not merely a due one, when several are due', () => {
     let state = emptyEarSession()
     // three items, each wrong once at a different time so their due times differ
-    state = recordEarAttempt(state, attempt(false, { itemId: 'a', at: T0 }), T0)
-    state = recordEarAttempt(state, attempt(false, { itemId: 'b', at: T0 + 1000 }), T0 + 1000)
-    state = recordEarAttempt(state, attempt(false, { itemId: 'c', at: T0 + 2000 }), T0 + 2000)
+    state = recordEarAttempt(state, attempt(0, { itemId: 'a', at: T0 }), T0)
+    state = recordEarAttempt(state, attempt(0, { itemId: 'b', at: T0 + 1000 }), T0 + 1000)
+    state = recordEarAttempt(state, attempt(0, { itemId: 'c', at: T0 + 2000 }), T0 + 2000)
     // all three are due long before "now"; 'a' was scheduled earliest, so it is most overdue
     const now = T0 + DAY_MS
     expect(nextDueItemId(state, KINDS, now)).toBe('a')
@@ -429,7 +564,7 @@ describe('nextDueItemId', () => {
     let state = emptyEarSession()
     state = recordEarAttempt(
       state,
-      attempt(false, { itemId: 'chord-1', kind: 'chord-quality', at: T0 }),
+      attempt(0, { itemId: 'chord-1', kind: 'chord-quality', at: T0 }),
       T0,
     )
     const now = T0 + DAY_MS
@@ -438,7 +573,7 @@ describe('nextDueItemId', () => {
   })
 
   it('throws rather than silently excluding a card whose id has no entry in state.kinds', () => {
-    const state = recordEarAttempt(emptyEarSession(), attempt(false), T0)
+    const state = recordEarAttempt(emptyEarSession(), attempt(0), T0)
     const tampered: EarSessionState = { ...state, kinds: {} }
     expect(() => nextDueItemId(tampered, KINDS, T0 + DAY_MS)).toThrow()
   })
@@ -452,7 +587,7 @@ describe('nextDueItemId', () => {
           offsets.forEach((offset, i) => {
             state = recordEarAttempt(
               state,
-              attempt(false, { itemId: `id-${i}`, at: T0 + offset }),
+              attempt(0, { itemId: `id-${i}`, at: T0 + offset }),
               T0 + offset,
             )
           })

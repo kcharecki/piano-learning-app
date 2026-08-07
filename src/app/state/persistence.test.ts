@@ -1291,7 +1291,7 @@ describe('persistence', () => {
       const store = new MemoryStore()
       const unsubscribe = persist(store)
 
-      const attempt = { itemId: ITEM_A.id, kind: ITEM_A.kind, correct: true, at: 100, level: 2 }
+      const attempt = { itemId: ITEM_A.id, kind: ITEM_A.kind, accuracy: 1, at: 100, level: 2 }
       const raisedSession: EarSessionState = {
         ...emptyEarSession(),
         levels: { ...emptyEarSession().levels, 'interval-melodic': 3 },

@@ -31,6 +31,16 @@ import type { EarItem, EarItemKind } from '@core/eartraining/item.ts'
 import { EAR_MAX_LEVEL, EAR_MIN_LEVEL, type EarAttempt, type EarSessionState } from '@core/eartraining/session.ts'
 import { err, ok, type Result } from '@core/shared/result.ts'
 import { invariant } from '@core/shared/invariant.ts'
+import {
+  isRecord,
+  typeOf,
+  requireString,
+  optionalString,
+  requireFiniteNumber,
+  optionalFiniteNumber,
+  requireBoolean,
+  parseArray,
+} from '@core/progress/parseHelpers.ts'
 
 // ------------------------------------------------------------------- types
 
@@ -173,87 +183,6 @@ export function exportJson(snapshot: ProgressSnapshot): string {
 }
 
 // --------------------------------------------------------- parsing helpers
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function typeOf(value: unknown): string {
-  if (value === null) return 'null'
-  if (Array.isArray(value)) return 'array'
-  return typeof value
-}
-
-function requireString(
-  obj: Record<string, unknown>,
-  key: string,
-  path: string,
-): Result<string, string> {
-  const value = obj[key]
-  if (typeof value !== 'string') return err(`${path}.${key}: expected string, got ${typeOf(value)}`)
-  return ok(value)
-}
-
-function optionalString(
-  obj: Record<string, unknown>,
-  key: string,
-  path: string,
-): Result<string | undefined, string> {
-  const value = obj[key]
-  if (value === undefined) return ok(undefined)
-  if (typeof value !== 'string') return err(`${path}.${key}: expected string, got ${typeOf(value)}`)
-  return ok(value)
-}
-
-function requireFiniteNumber(
-  obj: Record<string, unknown>,
-  key: string,
-  path: string,
-): Result<number, string> {
-  const value = obj[key]
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    return err(`${path}.${key}: expected finite number, got ${typeOf(value)}`)
-  }
-  return ok(value)
-}
-
-function optionalFiniteNumber(
-  obj: Record<string, unknown>,
-  key: string,
-  path: string,
-): Result<number | undefined, string> {
-  const value = obj[key]
-  if (value === undefined) return ok(undefined)
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    return err(`${path}.${key}: expected finite number, got ${typeOf(value)}`)
-  }
-  return ok(value)
-}
-
-function requireBoolean(
-  obj: Record<string, unknown>,
-  key: string,
-  path: string,
-): Result<boolean, string> {
-  const value = obj[key]
-  if (typeof value !== 'boolean') return err(`${path}.${key}: expected boolean, got ${typeOf(value)}`)
-  return ok(value)
-}
-
-function parseArray<T>(
-  value: unknown,
-  path: string,
-  parseItem: (item: unknown, itemPath: string) => Result<T, string>,
-): Result<readonly T[], string> {
-  if (!Array.isArray(value)) return err(`${path}: expected array, got ${typeOf(value)}`)
-  const out: T[] = []
-  for (let i = 0; i < value.length; i++) {
-    const result = parseItem(value[i], `${path}[${i}]`)
-    if (!result.ok) return result
-    out.push(result.value)
-  }
-  return ok(out)
-}
 
 function parsePracticeEntry(item: unknown, path: string): Result<PracticeEntry, string> {
   if (!isRecord(item)) return err(`${path}: expected object, got ${typeOf(item)}`)
@@ -435,19 +364,46 @@ function parseEarItem(item: unknown, path: string): Result<EarItem, string> {
   return ok({ id: id.value, kind, prompt: prompt as unknown as Score, answerKey: answerKey.value, level: level.value })
 }
 
+/**
+ * Accepts BOTH shapes an `EarAttempt` has ever been persisted in (roadmap
+ * 3.26): the current `{ accuracy: number }` in `[0,1]`, and a pre-3.26 record
+ * — `{ correct: boolean }`, no `accuracy` at all — that a backup file
+ * exported before this change still carries. Mirrors the identical
+ * migration `isValidEarAttempt` performs in `@app/state/persistedShapes.ts`
+ * for the IndexedDB restore path, except here it returns a fresh `number`
+ * rather than mutating the input in place (this module builds a new object
+ * per record throughout, never reuses the caller's).
+ *
+ * A present-but-out-of-range or wrong-typed `accuracy` is always rejected —
+ * even when a `correct` boolean also happens to be present — so a corrupt
+ * `accuracy` can never be silently papered over by the legacy fallback.
+ */
+function parseEarAttemptAccuracy(item: Record<string, unknown>, path: string): Result<number, string> {
+  const raw = item['accuracy']
+  if (raw !== undefined) {
+    if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0 || raw > 1) {
+      return err(`${path}.accuracy: expected a finite number in [0,1], got ${typeOf(raw)}`)
+    }
+    return ok(raw)
+  }
+  const correct = item['correct']
+  if (typeof correct === 'boolean') return ok(correct ? 1 : 0)
+  return err(`${path}.accuracy: expected a finite number in [0,1], got ${typeOf(raw)}`)
+}
+
 function parseEarAttempt(item: unknown, path: string): Result<EarAttempt, string> {
   if (!isRecord(item)) return err(`${path}: expected object, got ${typeOf(item)}`)
   const itemId = requireString(item, 'itemId', path)
   if (!itemId.ok) return itemId
   const kind = item['kind']
   if (!isEarItemKind(kind)) return err(`${path}.kind: '${String(kind)}' is not a valid EarItemKind`)
-  const correct = requireBoolean(item, 'correct', path)
-  if (!correct.ok) return correct
+  const accuracy = parseEarAttemptAccuracy(item, path)
+  if (!accuracy.ok) return accuracy
   const at = requireFiniteNumber(item, 'at', path)
   if (!at.ok) return at
   const level = requireFiniteNumber(item, 'level', path)
   if (!level.ok) return level
-  return ok({ itemId: itemId.value, kind, correct: correct.value, at: at.value, level: level.value })
+  return ok({ itemId: itemId.value, kind, accuracy: accuracy.value, at: at.value, level: level.value })
 }
 
 // Unlike `isValidEarLevels` in `@app/state/persistedShapes.ts`, this does not reject an

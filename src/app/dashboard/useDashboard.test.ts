@@ -499,7 +499,7 @@ describe('useDashboard — ear-training level (roadmap 3.22)', () => {
     const seedAttempt: EarAttempt = {
       itemId: 'seed',
       kind: 'interval-melodic',
-      correct: true,
+      accuracy: 1,
       at: 0,
       level: 1,
     }

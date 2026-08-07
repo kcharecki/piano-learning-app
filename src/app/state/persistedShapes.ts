@@ -481,18 +481,50 @@ function isValidEarLevels(value: unknown): value is Readonly<Record<EarItemKind,
   })
 }
 
+/**
+ * Accepts BOTH shapes an `EarAttempt` has ever been persisted in (roadmap
+ * 3.26): the current `{ accuracy: number }` shape, and a pre-3.26 record —
+ * `{ correct: boolean }`, no `accuracy` at all — that real users have
+ * sitting in IndexedDB right now. Rejecting the old shape here would
+ * silently wipe a learner's whole ear-training history on the very next
+ * load, exactly the failure mode `isValidEarSession`'s own doc warns about
+ * for a missing `kinds` entry.
+ *
+ * `restoreSlice` (`persistence.ts`) takes this predicate's own `value`
+ * argument as the restored data VERBATIM once this returns `true` (see its
+ * doc comment: `raw = value`) — a boolean type guard has no way to hand back
+ * a *different*, migrated object, and changing that signature is out of this
+ * file's scope. So the migration happens as a side effect of validating: an
+ * old record is normalised IN PLACE — `accuracy` written on to it, the
+ * now-superseded `correct` dropped — before this returns `true`. That is a
+ * deliberate, one-off exception to this file's "a validator never mutates"
+ * rule (see the module doc); there is no other seam available to migrate
+ * persisted data without touching `persistence.ts`.
+ *
+ * Mutating a value that ends up REJECTED (e.g. `isValidEarSession` fails a
+ * later check on `cards`/`kinds`) is safe only because the sole production
+ * `Store` (`createIdbStore`, see `App.tsx`) returns a fresh
+ * `structuredClone()` from `get` — the mutation never reaches the persisted
+ * record. A non-cloning store (e.g. a bare in-memory fake) would have its
+ * stored payload corrupted by a validator that ultimately returns `false`.
+ */
 function isValidEarAttempt(value: unknown): value is EarAttempt {
   if (typeof value !== 'object' || value === null) return false
   const a = value as Record<string, unknown>
-  return (
-    typeof a.itemId === 'string' &&
-    isEarItemKind(a.kind) &&
-    typeof a.correct === 'boolean' &&
-    typeof a.at === 'number' &&
-    Number.isFinite(a.at) &&
-    typeof a.level === 'number' &&
-    Number.isFinite(a.level)
-  )
+  if (typeof a.itemId !== 'string') return false
+  if (!isEarItemKind(a.kind)) return false
+  if (typeof a.at !== 'number' || !Number.isFinite(a.at)) return false
+  if (typeof a.level !== 'number' || !Number.isFinite(a.level)) return false
+
+  if (typeof a.accuracy === 'number' && Number.isFinite(a.accuracy) && a.accuracy >= 0 && a.accuracy <= 1) {
+    return true
+  }
+  if (typeof a.correct === 'boolean') {
+    a.accuracy = a.correct ? 1 : 0
+    delete a.correct
+    return true
+  }
+  return false
 }
 
 /** `kinds` is the authoritative itemId -> kind map — any key is a valid id, but every value must be a real `EarItemKind`. */
