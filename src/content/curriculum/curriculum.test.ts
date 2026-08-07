@@ -433,6 +433,43 @@ describe('theory-quiz drillLevel opens a deck that can actually contain the titl
       }
     }
   })
+
+  // The meta pass for roadmap 3.12, scoped to the kinds where it is a real
+  // rule. A FLASHCARD deck is general-purpose and shared across lessons by
+  // design — three level-1 lessons all open note-name under the same honest
+  // title, and that is fine. A THEORY kind+level is chosen per lesson to match
+  // that lesson's own topic, so two lessons landing on the identical one means
+  // at least one of them was not actually matched to its lesson.
+  //
+  // That is not hypothetical: the I-IV-V-I lesson's quiz was specified (by me,
+  // in the contract) as 'build-chord' level 1, byte-identical to the C major
+  // triad lesson's quiz — same title, same kind, same level — on a lesson about
+  // a chord it then never asked for. An adversarial reviewer caught it by
+  // reading the contract; no test did, and the fix as written guarded only that
+  // one pair. This guards the class.
+  it('no two theory-kind quizzes open the identical (drillKind, drillLevel) drill', () => {
+    const seen = new Map<string, string>()
+    for (const lesson of CURRICULUM.lessons) {
+      for (const exercise of lesson.exercises) {
+        if (exercise.kind !== 'theory-quiz') continue
+        const kind = exercise.params?.['drillKind']
+        // Flashcard decks are deliberately reused; only the theory kinds are
+        // matched per lesson, so only they are held to this.
+        if (!ALL_THEORY_KINDS.some((k) => k === kind)) continue
+        const level = exercise.params?.['drillLevel']
+        const key = `${String(kind)}@${typeof level === 'number' ? level : 'default'}`
+        const first = seen.get(key)
+        expect(
+          first,
+          `${exercise.id} opens the same theory drill (${key}) as ${String(first)} — two ` +
+            `lessons matched to one identical drill, so at least one is not matched to its own ` +
+            `topic. Give it the kind or level its own title names, as ` +
+            `l2-i-iv-v-i-progression-ex1 does with build-cadence at level 2.`,
+        ).toBeUndefined()
+        seen.set(key, exercise.id)
+      }
+    }
+  })
 })
 
 describe('curriculum model navigation over real content', () => {
