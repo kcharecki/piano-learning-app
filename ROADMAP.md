@@ -688,11 +688,33 @@ therefore not optional polish: until they land, all of 3.1–3.6 is production-u
 
 The M3 gaps that are unbuilt features rather than defects. Each states its proof action.
 
-- [ ] 3.12 `app`: route the topic quizzes no flashcard deck covers (triads, inversions, cadences,
-      chord spelling — 7 lessons) to the MIDI-answered `TheoryDrillPanel`, which today is reachable
-      only by clicking the Theory nav item and changing a dropdown.
-      *Proof: opening "Quiz: spelling the C major triad" from its lesson lands on the theory drill
-      with `build-chord` preselected, and a chord played on the keyboard grades.*
+- [x] 3.12 `app`: route the topic quizzes no flashcard deck covers to the MIDI-answered
+      `TheoryDrillPanel`, which was reachable only by clicking the Theory nav item and changing a
+      dropdown.
+      *Done. The task text said "7 lessons"; the real count is **4** — the other three
+      `staff-to-key` quizzes say "find the notes on the keyboard", which is exactly what that deck
+      does, so their titles were already honest. `TheoryDrillPanel` takes `initialKind`/
+      `initialLevel`, `TheoryScreen` passes them through, and `Shell` routes a `theory-quiz` whose
+      `drillKind` names a `TheoryQuizKind` to Theory instead of Flashcards (the two unions are
+      disjoint, so the content decides the destination), remounting by `key`.
+      Proved by `e2e/theory-quiz-routing.spec.ts`, which drives Lessons → the level-2 theory lesson
+      → its own Open control and NEVER touches the Topic dropdown — picking by hand would prove the
+      drill works, not that the routing does, the same distinction `deck-routing.spec.ts` records.
+      It asserts the destination, the Topic value AND that the rendered prompt is a `build-chord`
+      prompt, then parses that live prompt, rebuilds the answer through the app's own
+      `buildChord`/`chordMidi`, plays it on the on-screen keyboard and asserts it grades. Reverting
+      Shell's `theory-quiz` case to `'flashcards'` was run and fails it.
+      Two review findings, both the same bug re-entering by another door: `initialKind` was
+      silently discarded whenever ANY theory SRS card was due at mount (the seed scanned every
+      kind, and `build-scale` is the default, so any prior Theory session left due scale cards and
+      the cadence quiz served a scale drill); and the level test's fixture was level-INSENSITIVE,
+      because under a constant rng `build-chord` returns the identical prompt at every level 1–7,
+      so it held against a mutant that ignored `initialLevel` entirely.
+      A contract error of mine was also caught: I specified `build-chord` level 1 for the I–IV–V–I
+      lesson's quiz, making it byte-identical to the C major triad lesson's quiz — same title, kind
+      and level — on a lesson about IV, asking for no subdominant at all. It is `build-cadence` at
+      level 2, where `CADENCES_BY_LEVEL` adds PLAGAL (IV–I), and the test asserts both cadences are
+      reachable there rather than merely that some cadence is.*
 - [x] 3.13 `app/theory`: hear it (REQ-3.5.3, 3.5.4)
       *Proved in `ChordScaleReference.test.tsx` against the recorded `AudioOutput` calls, not the
       `playedNotes` projection: G major's exact pitches at exact ascending timestamps, a note-off
@@ -708,12 +730,25 @@ The M3 gaps that are unbuilt features rather than defects. Each states its proof
       by the theory layer.
       *Proof: a looked-up scale is engraved as real notation (an OSMD svg past the 50-element
       discriminator, as `e2e/round6.spec.ts` does for technique).*
-- [ ] 3.15 `app/theory`: look up ANY chord (REQ-3.5.4) — there is no chord picker; only the 7
-      diatonic triads of the current key are shown, `diatonicChords` is called without `seventh`,
-      so no seventh chord is displayable, and for the 10 modal/exotic scale types the chord section
-      vanishes entirely.
-      *Proof: select a diminished seventh on an arbitrary root and see its tones; select Dorian and
-      still get chords.*
+- [x] 3.15 `app/theory`: look up ANY chord (REQ-3.5.4)
+      *Done. New `ChordLookup` takes any root × any `CHORD_QUALITIES` member (triads AND sevenths)
+      × any legal inversion — inversion 3 offered only where `isTriad` is false — and shows the
+      symbol, figured bass, spelled tones and a keyboard highlight, reusing 3.13's audio path
+      rather than opening a second `AudioContext`. And the chords section no longer vanishes: the
+      branch turns on the resolved `Key` rather than the mode, so every scale type renders chords —
+      diatonic where there is a key, triads on the scale's own degrees where there is not. D♭ plus
+      any minor form hit the same dead end and now renders too.
+      Seven confirmed review findings, all fixed. The two that mattered: `ChordLookup` did not
+      re-seed when the reference's root changed, and its panic cleanup called `allNotesOff` on the
+      SHARED output even when it had never played anything — so merely visiting it silenced the
+      reference's still-ringing scale. One finding rejected as out of scope and recorded as 3.15a.*
+- [ ] 3.15a `app/theory`: extract the duplicated chord/scale audio helpers (play, panic, the shared
+      `AudioContext`) out of `ChordScaleReference.tsx` and `ChordLookup.tsx` into a leaf module.
+      Raised by 3.15's review and correctly refused there — a file-scoped fix agent should not be
+      creating new modules. Not urgent; it is duplication, not a defect.
+      *Proof: both components import the helper, neither declares its own, and 3.13's audio
+      assertions (exact pitches, exact timestamps, a note-off per note-on, velocity above zero)
+      still pass unchanged.*
 - [ ] 3.16 `core/theory`: fingering for the other 14 scale types (REQ-3.5.4) — `scaleFingering`
       returns `null` unless the type is major/ionian, and the circle's whole inner ring lands the
       user on `naturalMinor`, i.e. half the advertised flow reaches a fingering-less reference.
@@ -769,11 +804,26 @@ The M3 gaps that are unbuilt features rather than defects. Each states its proof
       asserted a "known limitation" its own fixture did not exhibit, and the property test used an
       I–IV–V–I skeleton where both bass votes are always false, so it could not fail under the old
       implementation despite claiming to.*
-- [ ] 3.19a `core/theory/analysis`: the `>= 2` vote threshold itself. A plagal minor piece not
-      bracketed by tonic bass — A minor `iv | i | iv | i`, no leading tone anywhere, first bass D —
-      reads as C major, before and after 3.19. The three votes are unweighted and two of them are
-      the same evidence (first bass, last bass).
-      *Proof: that score reads A minor, and the 3.19 fixtures still read what they read now.*
+- [x] 3.19a `core/theory/analysis`: the `>= 2` vote threshold itself.
+      *Done. The votes are weighted named constants against a `MINOR_KEY_THRESHOLD`, with the final
+      bass weighted above the first, duration-weighted prevalence of the minor vs major tonic triad
+      as a CLAMPED tie-breaker, and a plagal (iv→i) bass motion into the final measure as its own
+      vote. A minor `iv | i | iv | i` now reads A minor; the four 3.19 fixtures still read what
+      they read before.
+      Four confirmed review findings fixed: the threshold let prevalence overturn a unanimous
+      boolean sum (hence the clamp); a subtonic-heavy `i | VII | VII | VII | i` leaned major on
+      prevalence; the threshold boundary was unpinned against a future `>` vs `>=` slip; and the
+      plagal vote fired on a D-bass into an A MAJOR triad, so it now also requires the minor third
+      to be sounding at the final measure. One finding rejected and recorded as 3.19b.*
+- [ ] 3.19b `core/theory/analysis`: `plagalMotionIntoFinalMeasure` samples the final measure's bass
+      at its `startTick`, so a final measure whose left hand enters late (a rest, or an upper-voice
+      pickup first) may sample no bass at all and drop the vote. Raised by 3.19a's review as
+      SUSPECTED and rejected there for the right reason — no failing fixture was produced, and
+      rewriting tick sampling on speculation is how the previous attempt at this file went wrong.
+      **Write the failing score first.** If none can be constructed, close this as not-a-defect and
+      say so.
+      *Proof: a constructed minor score with a late left-hand entry in its final bar reads minor,
+      and every 3.19/3.19a fixture still reads what it reads now.*
 - [x] 3.20 `app/theory`: SRS that re-serves the actual due fact (REQ-3.5.6)
       *Theory quiz ids are derived purely from content, so they are genuinely reversible: each
       `build*Item` is split into a pure `make*Item` plus an rng-picking wrapper, and
@@ -804,12 +854,27 @@ The M3 gaps that are unbuilt features rather than defects. Each states its proof
       though `EarAttempt.level` had been recorded and read by nothing all along), and the dashboard
       reported level 1 for a session with zero attempts, which would read as MET for a `minLevel:
       1` ear check on no evidence.*
-- [ ] 3.26 `core/eartraining`: give an attempt a real accuracy, then a band means something.
-      `EarAttempt.correct` is a boolean, which is why 3.22 deleted the band — but dictation already
-      computes `pitchAccuracy` and `rhythmAccuracy`, so the information exists and is thrown away
-      at the attempt boundary.
-      *Proof: a dictation answered at 80% pitch accuracy adapts differently from one at 20%, and
-      the band value changes where that boundary sits.*
+- [x] 3.26 `core/eartraining`: give an attempt a real accuracy, then a band means something.
+      *Done. `EarAttempt` carries a continuous `accuracy` in [0,1]; multiple-choice kinds still
+      record exactly 1 or 0 (there is no partial credit in a multiple-choice answer and inventing
+      some would be a fiction), dictation records its real accuracy, and `DEFAULT_EAR_BAND` is back.
+      A kind whose attempts are all 0-or-1 adapts EXACTLY as before — pinned by a test written
+      against the old behaviour BEFORE the rule changed, not argued for afterwards. 3.22's
+      success-RATE rule is not reintroduced.
+      Review found the accuracy ignored extra presses entirely, so a note-perfect answer with
+      spurious extra keys scored 1.0; and that `session.ts` accepted bands whose edges broke the
+      boolean-domain equivalence its own doc claims to preserve.
+      **The persistence half is the part that would have silently destroyed real data**, and it is
+      the same shape as the export/import bug this repo already shipped once. Both readers now
+      accept a pre-3.26 `{ correct: boolean }` record and migrate it to 1/0: `persistedShapes.ts`
+      (in place — safe only because the IndexedDB store clones on `get`, now documented at the
+      guard) and `export.ts`'s `parseEarAttempt` (backup files). The round trip is tested with
+      FRACTIONAL accuracies, which survive only if the number is genuinely preserved, plus explicit
+      legacy-import and out-of-range rejection tests; the two readers were diffed against each
+      other for disagreement and agree.
+      `export.ts` crossed the 500-line limit as a result and was split by concept rather than
+      having the limit raised — the eight primitive field readers moved to
+      `core/progress/parseHelpers.ts` with their own tests, leaving it at 447.*
 - [ ] 3.23 `app/eartraining`: give dictation a tempo reference (REQ-3.6.1) — the answer is graded
       against a fixed ±eighth tolerance with no count-in, no metronome and no displayed tempo.
       Measured: replaying a level 3–5 melodic phrase 8% slow grades incorrect in 416 of 900 cases.
@@ -1582,6 +1647,32 @@ Append one line per session: date, what landed, anything the next session must k
   * Concurrent agents still block commits — `npm run verify` is tree-wide, so a per-module commit
     fails while any other agent is mid-edit. Sequence the follow-up agents, or accept the stall.
 - 2026-08-01 - Phase 1 complete. Adapters, shell, OSMD viewer, practice screen, note feedback, e2e. Opus review found the practice screen was built but never rendered by the shell, and that `checkpoint` did not run e2e (the only suite that caught it) - `checkpoint` now runs `verify:full`. Also fixed: stop/pause left notes ringing forever on MIDI-out, the pump discarded every time the domain computed, the two AudioOutputs disagreed on clock epoch, hand mute mid-playback rewound to bar 1, and the seam tests survived deleting the tempo map (9 of 10 passed). 1567 tests + 6 e2e.
+- 2026-08-07 — Phase 5 written (49 tasks from the UX & pedagogy review, every aspect to ≥9/10),
+  then 3.12, 3.15, 3.19a and 3.26 as one round of four file-disjoint modules — 12 agents, pipelined
+  build→review→fix, no cross-module barrier, one commit per module as it landed. 3197 unit tests
+  (from 3091) + 53 e2e (from 38), knip clean.
+  What the next session must know:
+  * **Three of the four modules had a review finding that was the ORIGINAL BUG re-entering by
+    another door**, not a new one. 3.12's `initialKind` was correct and then discarded by the
+    due-card seed, so the dishonest-title defect the task exists to remove came straight back.
+    3.15's `ChordLookup` worked and then silenced the sibling component's audio through the shared
+    output. Reviewing "does it do the thing" is not enough; review has to ask what else already
+    reaches the same state.
+  * **Two test fixtures were level- or value-insensitive and proved nothing.** `build-chord` under
+    a constant rng returns the identical prompt at every level 1–7, so the `initialLevel` test held
+    against a mutant that ignored the prop. Both reviewers found their equivalent by RUNNING
+    mutants, not by reading — 4 of the 8 mutants applied across the round survived.
+  * **The main thread's contract was wrong once, and review caught it, not the builder.** I
+    specified `build-chord` level 1 for the I–IV–V–I lesson quiz, which made it byte-identical to
+    a sibling quiz on a lesson about a chord it never asks for. The builder followed the contract
+    and flagged it; the fixer correctly refused to change it unilaterally. Contracts written by the
+    main thread need the same adversarial reading as the code.
+  * **A shape change in core rippled into six files no agent owned**, including production
+    (`export.ts`). Budget for that: a `readonly` field on a persisted type is never a one-module
+    change, and the import-side migration is where the silent data loss lives.
+  * **`export.ts` hit the 500-line limit mid-round.** Splitting by concept took one agent and five
+    minutes. Raising the limit would have taken thirty seconds — which is exactly why the rule has
+    to be enforced by eslint rather than by intention.
 - 2026-08-03 (fourth session) — 2.26 (read-ahead drill), one build→review→fix chain. Opus review,
   driving the real app rather than reading code, found two defects a green vitest suite missed: a
   race dropping hide requests made before the OSMD engraver's async `load()` resolved, and an e2e
