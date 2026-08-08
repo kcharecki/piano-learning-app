@@ -351,11 +351,15 @@ one screen where playing matters is the one that refuses non-MIDI input.
 - [ ] 5.5a `app/technique`: `useTechniqueDrill` feeds a `NoteMatcher` straight from `midi.input.onEvent`
       — no on-screen fallback exists, so 5.5's computer-keyboard mapping had nothing to attach to.
       Needs its own `OnScreenKeyboard` (or a `PlayableMidiInput` wrapper) before it can share 5.5's hook.
-- [ ] 5.6 `app`: an input-capability banner that states what this browser can and cannot do — one
-      line, dismissible, naming Web MIDI's absence and what it costs (see B.7's platform reality).
-      Silent degradation is what makes the current state read as broken rather than limited.
-      *Proof: in a browser with Web MIDI stubbed absent the banner names the limitation; with MIDI
-      present it does not render.*
+- [x] 5.6 `app/shell`: `InputCapabilityBanner` — one-line, dismissible, mounted once in `Shell`,
+      naming Web MIDI's absence and what it costs (see B.7's platform reality). Gated on
+      `isWebMidiSupported` (feature detection), deliberately distinct from `MidiDeviceStatus`'s
+      per-screen "nothing plugged in yet" line, which still fires on its own for a permission
+      denial or no hardware on a browser that does have the API.
+      *Proof: `e2e/input-capability-banner.spec.ts` — with `navigator.requestMIDIAccess` stubbed
+      absent the banner names the limitation and dismisses; with it present (this repo's headless
+      Chromium ships the API) the banner stays hidden even though `smoke.spec.ts` still shows the
+      unrelated "no MIDI keyboard connected" line. Visual pass both widths/themes, console clean.*
 - [ ] 5.7 **Promote B.1** (microphone pitch detection) into this phase. On iPadOS it is not a
       fallback, it is the only input. Input accessibility cannot reach 9 while the review's "the app
       cannot hear you at all" finding is true on an entire platform.
