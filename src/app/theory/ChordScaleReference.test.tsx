@@ -28,6 +28,19 @@ import type { SpelledPitch } from '@core/theory/pitch.ts'
 import type { AudioOutput } from '@core/ports/audio.ts'
 import type { RecordedAudioCall } from '@test/fakes.ts'
 
+// OSMD cannot run in this test environment (no canvas to measure text) — the
+// same mock every other screen/component test that engraves a real `Score`
+// uses (see TechniqueScreen.test.tsx, ScaleStaff.test.tsx). `ScaleStaff`
+// (roadmap 3.14) hands a real Score down to `ExerciseScore` -> `ScoreViewer`;
+// this proves it is actually MOUNTED with the reference's current
+// root/scaleType, not merely computed and discarded — that OSMD then draws
+// it correctly is ScaleStaff.test.tsx's and e2e's job, not this file's.
+vi.mock('@app/score/ScoreViewer.tsx', () => ({
+  ScoreViewer: ({ score }: { readonly score: { readonly id: string; readonly meta: { readonly title: string } } }) => (
+    <div data-testid="mock-score-viewer" data-title={score.meta.title} />
+  ),
+}))
+
 /** Narrows a `RecordingAudioOutput.calls` entry to the `noteOn` variant, so its
  *  `velocity` field type-checks (the plain `c.kind === 'noteOn'` filters used
  *  elsewhere in this file only need the fields every variant shares). */
@@ -127,6 +140,41 @@ describe('ChordScaleReference', () => {
       const row = screen.getByTestId(`diatonic-chord-${numeral?.text}`)
       expect(row).toHaveTextContent(chordSymbol(chord))
     }
+  })
+
+  describe('ScaleStaff wiring (roadmap 3.14, REQ-3.5.3 "see it on staff")', () => {
+    // A component nobody renders is the defect class this task exists to
+    // fix (see the module comment on ScaleStaff.tsx) — this proves
+    // `ScaleStaff` is actually mounted with the reference's current
+    // root/scaleType, both at first render and after the pickers change it,
+    // not merely computed and thrown away.
+    it('renders the looked-up scale engraved on a staff, matching the default C major', () => {
+      render(<Controlled />)
+      expect(screen.getByLabelText('C major staff notation')).toBeInTheDocument()
+      expect(screen.getByTestId('mock-score-viewer')).toHaveAttribute('data-title', 'C major')
+    })
+
+    it('re-engraves the staff when the scale-type picker changes', async () => {
+      const user = userEvent.setup()
+      render(<Controlled />)
+
+      await user.selectOptions(screen.getByLabelText('Scale'), 'harmonicMinor')
+
+      expect(screen.getByLabelText('C harmonic minor staff notation')).toBeInTheDocument()
+      expect(screen.getByTestId('mock-score-viewer')).toHaveAttribute(
+        'data-title',
+        'C harmonic minor',
+      )
+    })
+
+    it('re-engraves the staff when the root picker changes', async () => {
+      const user = userEvent.setup()
+      render(<Controlled />)
+
+      await user.selectOptions(screen.getByLabelText('Root'), 'G')
+
+      expect(screen.getByLabelText('G major staff notation')).toBeInTheDocument()
+    })
   })
 
   it('highlights exactly the scale pitch classes and root on the scale keyboard diagram', () => {

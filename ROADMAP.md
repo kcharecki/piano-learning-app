@@ -17,12 +17,13 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
 
 ## Triage — before any feature work
 
-- [ ] T.1 WIP roadmap 3.14 (theory ScaleStaff) is half-landed and uncommitted: 18 modified/new
-      files, `npm run verify` exits 1 with 9 unhandled OSMD `TypeError: Cannot set properties
-      of null (setting 'font')` exceptions surfaced from TheoryScreen.test.tsx / Shell.test.tsx
-      (thrown async inside opensheetmusicdisplay's renderAndScrollBack timer in jsdom). Finish
-      or fix the slice: all 3252 tests pass; the unhandled rejections are the gate. Proof:
-      `npm run verify` exits 0 on a clean tree with 3.14 committed.
+- [ ] T.1 `npm run verify` exits 1 on master: 9 unhandled OSMD `TypeError: Cannot set
+      properties of null (setting 'font')` exceptions from TheoryScreen.test.tsx /
+      Shell.test.tsx (thrown async inside opensheetmusicdisplay's renderAndScrollBack timer
+      after jsdom teardown), introduced by the 3.14 ScaleStaff work — committed as WIP on
+      user request 2026-08-08. All 3252 tests pass; the unhandled rejections are the gate.
+      3.14 / 3.18a / 3.19b / 3.23 boxes stay unticked until each passes the experience gate.
+      Proof: `npm run verify` exits 0.
 
 ## Phase 0 — Foundation
 

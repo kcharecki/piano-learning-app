@@ -61,6 +61,7 @@ import {
 } from '@core/theory/scales.ts'
 import { ChordLookup } from './ChordLookup.tsx'
 import { KeyboardDiagram } from './KeyboardDiagram.tsx'
+import { ScaleStaff } from './ScaleStaff.tsx'
 
 export type ChordScaleReferenceProps = {
   readonly root: SpelledPitch
@@ -507,6 +508,10 @@ export function ChordScaleReference({
         labels={scaleLabels}
         ariaLabel={`${scaleName(scale)} on the keyboard`}
       />
+      {/* REQ-3.5.3's "see it on staff and keyboard": the keyboard diagram
+          above shows which keys to press; this shows what a learner actually
+          has to read at the piano — the same scale, engraved. */}
+      <ScaleStaff root={root} scaleType={scaleType} />
       <ScaleTable root={root} type={scaleType} />
 
       {/* Roadmap 3.15 fix: this section used to vanish outright for the ten
