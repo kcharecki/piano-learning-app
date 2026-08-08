@@ -360,12 +360,24 @@ note matching, feedback colouring, wait mode, assessment, timing feedback, recor
 ramp are all inert. Flashcards, Theory and Dictation *do* render the 37-key `OnScreenKeyboard`; the
 one screen where playing matters is the one that refuses non-MIDI input.
 
-- [ ] 5.4 `app/practice`: render `OnScreenKeyboard` on the Practice screen when no MIDI device is
-      present (and behind a toggle when one is). The component exists and is already wired to the same
-      note pipeline — this is wiring, not a build.
-      *Proof: e2e with Web MIDI stubbed absent — click the score's own first three notes on the
-      on-screen keyboard and assert they grade correct through the real matcher, and that wait mode
-      advances on them.*
+- [x] 5.4 `app/practice`: render `OnScreenKeyboard` on the Practice screen when no MIDI device is
+      present (and behind a toggle when one is). Not the pure wiring job this task assumed — the
+      component was wired to `onPress` only, and `core/practice/waitmode.ts` withdraws a note's
+      credit on note-off, so momentary keys could never clear a barrier; it gained a real
+      press/release mode (the three drill callers pass no `onRelease` and are untouched). A mouse
+      also has ONE pointer, so a "Hold keys down" latch is what makes any chord playable at all —
+      the bundled sample's first beat is four notes held at once.
+      *Proof: `e2e/practice-onscreen-keyboard.spec.ts` deletes `navigator.requestMIDIAccess` before
+      any app code runs and then plays with the mouse only — notes are graded by the real matcher
+      (the counters move), and wait mode holds the transport through 1.8s of real time and releases
+      only once all four owed keys are down; a third test asserts a connected device leaves the
+      keyboard hidden until asked for.*
+      The gate caught two defects the unit tests could not: React's "Cannot update a component while
+      rendering a different component" (`onPress` was firing inside a `setHeld` updater, i.e. during
+      render), and a default keyed off `midi.input !== undefined` — the presence of the Web MIDI
+      API, not of a keyboard. On Chrome with permission granted and nothing plugged in the input
+      EXISTS and the device list is empty, the commonest no-hardware case of all, and it would have
+      shipped with no way to play. Now keyed off an attached device, with a regression test.
 - [ ] 5.5 `app`: computer-keyboard note input as a first-class second input, mapped once and shared by
       every note-answered screen (Practice, Flashcards, Theory, Dictation, Technique). The only
       `keydown` listener in the app today is the Rhythm drill's spacebar.
