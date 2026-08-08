@@ -7,6 +7,7 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { midi as asMidi, ticks as asTicks, type Midi } from '@core/shared/units.ts'
+import { midiToName } from '@core/theory/pitch.ts'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DictationAnswerPad, type DictationAnswerPadProps } from './DictationAnswerPad.tsx'
 
@@ -37,9 +38,9 @@ describe('DictationAnswerPad', () => {
     setup()
 
     for (let n = LOW; n <= HIGH; n++) {
-      expect(screen.getByRole('button', { name: `Key ${n}` })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: midiToName(n) })).toBeInTheDocument()
     }
-    expect(screen.queryByRole('button', { name: `Key ${HIGH + 1}` })).toBeNull()
+    expect(screen.queryByRole('button', { name: midiToName(asMidi(HIGH + 1)) })).toBeNull()
   })
 
   // Pinpoints a mutant that wires the keyboard's onPress to onSubmit/onClear
@@ -49,7 +50,7 @@ describe('DictationAnswerPad', () => {
     const user = userEvent.setup()
     const { onPress, onClear, onSubmit } = setup()
 
-    await user.click(screen.getByRole('button', { name: 'Key 62' }))
+    await user.click(screen.getByRole('button', { name: midiToName(asMidi(62)) }))
 
     expect(onPress).toHaveBeenCalledWith(62 as Midi)
     expect(onClear).not.toHaveBeenCalled()

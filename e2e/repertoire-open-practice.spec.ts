@@ -37,7 +37,14 @@ function navButton(page: Page, label: string) {
 }
 
 const keyboard = (page: Page) => page.getByRole('group', { name: 'Play the score' })
-const key = (page: Page, note: number) => keyboard(page).getByRole('button', { name: `Key ${note}` })
+
+const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+/** Mirrors `core/theory/pitch.ts`'s `midiToName` default (sharp) spelling — e2e specs stay free of `@core` imports by design, so this is a small, deliberate duplicate. */
+function noteLabel(note: number): string {
+  return `${NOTE_NAMES[((note % 12) + 12) % 12]}${Math.floor(note / 12) - 1}`
+}
+
+const key = (page: Page, note: number) => keyboard(page).getByRole('button', { name: noteLabel(note) })
 
 test('adding a graded piece and opening it in Practice loads and plays that piece (roadmap 5.2)', async ({
   page,

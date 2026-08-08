@@ -530,10 +530,19 @@ three hardcoded hexes duplicated out of the token file (`useNoteFeedback.ts:136-
       *Proof: e2e — after a wrong note, the SVG element carries `class="note-wrong"` AND the dashed
       stroke computes non-empty under a simulated greyscale (assert `stroke-dasharray`, not colour);
       `perf-large-score.spec.ts` still records zero long tasks.*
-- [ ] 5.25 `app`: `OnScreenKeyboard` keys are labelled `"Key 48"`, `"Key 49"` — MIDI numbers read out
-      loud. Label them with note names (`C3`), spelled for the current key.
-      *Proof: the accessible name of the middle-C key is "C4" (or the key-appropriate spelling), read
-      through the accessibility tree, not the DOM text.*
+- [x] 5.25 `app`: `OnScreenKeyboard` keys were labelled `"Key 48"`, `"Key 49"` — MIDI numbers read out
+      loud. The default (sharp) spelling from `core/theory/pitch.ts`'s `midiToName` now backs the
+      `aria-label`; the key stays visually unlabelled (a real piano prints nothing either, and the
+      module doc's whole point is that a flashcard printing the answer would test nothing). Nine
+      consumers across four unit-test files and four e2e specs asserted the old `"Key N"` string —
+      `e2e/qwerty-note-input.spec.ts` derived the lowest playable MIDI note by PARSING that string, so
+      it gained the inverse of `midiToName` (sharps-only, matching the default) rather than reading a
+      number off the label.
+      *Proof: `OnScreenKeyboard.test.tsx`'s new case reads the middle-C key's accessible name as "C4"
+      through Testing Library's role query (which resolves the real accname algorithm, not
+      `textContent`); confirmed live — `document.querySelector('[aria-label="C4"]')` finds the key.
+      All four rewritten e2e specs pass unchanged in behaviour. Console clean, no visual change (the
+      change is accessibility-tree only).*
 - [ ] 5.26 `app/flashcards`: clef glyphs are Unicode `U+1D11E`/`U+1D122` rendered in `system-ui` with
       no bundled music font, so they depend entirely on OS font fallback. Bundle a music font (Bravura
       is SIL OFL) and use it for musical glyphs.

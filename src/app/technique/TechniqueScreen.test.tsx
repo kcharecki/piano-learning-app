@@ -9,6 +9,7 @@ import { act, cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FakeClock, FakeMidiInput, RecordingAudioOutput } from '@test/fakes.ts'
 import { millis } from '@core/shared/units.ts'
+import { midiToName } from '@core/theory/pitch.ts'
 import { techniqueLibrary, techniqueScore } from '@core/technique/library.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -77,7 +78,7 @@ describe('TechniqueScreen', () => {
     const msPerBeat = 60000 / drill.targetBpm
     clock.advance(4 * msPerBeat)
     for (const note of score.notes) {
-      const key = screen.getByRole('button', { name: `Key ${note.midi}` })
+      const key = screen.getByRole('button', { name: midiToName(note.midi) })
       await user.pointer({ target: key, keys: '[MouseLeft>]' })
       await user.pointer({ target: key, keys: '[/MouseLeft]' })
       clock.advance(msPerBeat)

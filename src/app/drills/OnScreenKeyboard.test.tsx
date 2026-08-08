@@ -4,6 +4,7 @@
  * its own MIDI number.
  */
 import { midi } from '@core/shared/units.ts'
+import { midiToName } from '@core/theory/pitch.ts'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -24,10 +25,16 @@ describe('OnScreenKeyboard', () => {
     const onPress = vi.fn()
     render(<OnScreenKeyboard low={midi(60)} high={midi(62)} onPress={onPress} />)
 
-    await user.click(screen.getByRole('button', { name: 'Key 61' }))
+    await user.click(screen.getByRole('button', { name: midiToName(midi(61)) }))
 
     expect(onPress).toHaveBeenCalledOnce()
     expect(onPress).toHaveBeenCalledWith(61)
+  })
+
+  it('the accessible name is a real pitch name, not the raw MIDI number (roadmap 5.25)', () => {
+    render(<OnScreenKeyboard low={midi(60)} high={midi(60)} onPress={() => {}} />)
+
+    expect(screen.getByRole('button', { name: 'C4' })).toBeInTheDocument()
   })
 
   it('does not label keys with note names — the drill would be trivial otherwise', () => {

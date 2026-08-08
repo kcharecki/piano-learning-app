@@ -39,6 +39,7 @@ import {
   type Midi,
   midi as asMidi,
 } from '@core/shared/units.ts'
+import { midiToName } from '@core/theory/pitch.ts'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 export type OnScreenKeyboardProps = {
@@ -148,7 +149,10 @@ export function OnScreenKeyboard({
           key={note}
           type="button"
           className={isBlackKey(note) ? 'key key-black' : 'key key-white'}
-          aria-label={`Key ${note}`}
+          // roadmap 5.25: a screen reader read "Key 48" aloud — a MIDI number,
+          // not a note name. The key stays visually unlabelled (see the module
+          // doc), but its ACCESSIBLE name is a real pitch name.
+          aria-label={midiToName(asMidi(note))}
           disabled={disabled}
           {...(held.has(note) ? { 'data-state': 'pressed' } : {})}
           {...(pressReleaseMode

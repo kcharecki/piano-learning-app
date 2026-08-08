@@ -7,6 +7,8 @@
 import { useEarTrainingStore } from '@app/state/earTrainingStore.ts'
 import { emptyEarSession } from '@core/eartraining/session.ts'
 import { seededRng } from '@core/ports/rng.ts'
+import { midi as asMidi } from '@core/shared/units.ts'
+import { midiToName } from '@core/theory/pitch.ts'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FakeClock, FakeMidiInput, RecordingAudioOutput, scriptedRng } from '@test/fakes.ts'
@@ -117,7 +119,7 @@ describe('EarTrainingScreen — melodic dictation', () => {
     const noteOns = audioOutput.calls.filter((c) => c.kind === 'noteOn')
     for (const call of noteOns) {
       clock.setTime(call.at)
-      await user.click(screen.getByRole('button', { name: `Key ${call.note}` }))
+      await user.click(screen.getByRole('button', { name: midiToName(asMidi(call.note)) }))
     }
     expect(screen.getByTestId('dictation-note-count')).toHaveTextContent(`${noteOns.length} note`)
 
@@ -136,7 +138,7 @@ describe('EarTrainingScreen — melodic dictation', () => {
     setup()
     await user.selectOptions(screen.getByLabelText('Drill'), 'Melodic dictation')
     await user.click(screen.getByRole('button', { name: 'Play' }))
-    const [firstKey] = screen.getAllByRole('button', { name: /^Key \d+$/ })
+    const [firstKey] = screen.getAllByRole('button', { name: /^[A-G](#+|b+)?-?\d+$/ })
     if (firstKey === undefined) throw new Error('expected at least one keyboard key')
     await user.click(firstKey)
     expect(screen.getByTestId('dictation-note-count')).toHaveTextContent('1 note recorded')
@@ -174,7 +176,7 @@ describe('EarTrainingScreen — rhythmic dictation', () => {
     const noteOns = audioOutput.calls.filter((c) => c.kind === 'noteOn')
     for (const call of noteOns) {
       clock.setTime(call.at)
-      await user.click(screen.getByRole('button', { name: `Key ${call.note}` }))
+      await user.click(screen.getByRole('button', { name: midiToName(asMidi(call.note)) }))
     }
     await user.click(screen.getByRole('button', { name: 'Submit' }))
 
@@ -216,7 +218,7 @@ describe('EarTrainingScreen — rhythmic dictation', () => {
     expect(noteOns[0]?.at).not.toBe(0) // confirms this seed still exercises the bug
     for (const call of noteOns) {
       clock.setTime(call.at)
-      await user.click(screen.getByRole('button', { name: `Key ${call.note}` }))
+      await user.click(screen.getByRole('button', { name: midiToName(asMidi(call.note)) }))
     }
     await user.click(screen.getByRole('button', { name: 'Submit' }))
 
