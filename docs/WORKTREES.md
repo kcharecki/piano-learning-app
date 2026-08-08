@@ -5,16 +5,28 @@ per session, shared `.git`, and Claude Code itself enforces that a worktree sess
 write to the main checkout or redirect git into it. That enforcement dictates the shape of
 everything below: **worktree sessions build; only the main-checkout session merges.**
 
-## The contract, in five lines
+## The contract
 
-1. A **claim** is a branch named `task/<roadmap-id>`. Branch exists = task claimed. Visible
-   to every session via `node scripts/worktrees.mjs status`; no lock files, nothing to go stale.
-2. A worktree session works ONLY its claimed task, on its own branch, and never touches
-   master. It runs the full experience gate inside its worktree before ticking the box.
-3. Only the **main-checkout** session merges task branches, serially, verifying after each.
-4. Every worktree runs on its **own port** (`status` prints it) — separate server, separate
+1. Claims come in **two kinds**, both atomic, both visible everywhere via the shared `.git`
+   (`node scripts/worktrees.mjs status` shows both):
+   - **Worktree session**: its branch, renamed to `task/<roadmap-id>`. The rename fails if
+     the branch exists, so a race between two sessions self-resolves — the loser re-runs
+     `status` and picks the next task.
+   - **Main-checkout session**: `worktrees.mjs claim <id>` (a `refs/claims/<id>` ref,
+     create-only). Released with `release <id>` at session end.
+2. **One session per checkout.** The main checkout is single-occupancy: `/next` there first
+   runs `worktrees.mjs claim main-checkout`; refused means another session owns it — enter a
+   worktree (EnterWorktree) and continue as a worktree session instead. (Learned the hard
+   way: two /next sessions both landed in the main checkout, both saw "no claims", and both
+   started the same triage task.)
+3. A worktree session works ONLY its claimed task, on its own branch, never touches master,
+   and **skips the ROADMAP Triage section** — triage (red masters, user bugs) is
+   integrator work by nature. It runs the full experience gate in its worktree before ticking.
+4. Only the **main-checkout** session (the integrator) merges task branches, serially,
+   verifying after each.
+5. Every worktree runs on its **own port** (`status` prints it) — separate server, separate
    origin, separate IndexedDB. The main checkout keeps 5173.
-5. At most **one** active claim may touch the shared app spine (`Shell.tsx`, routes,
+6. At most **one** active claim may touch the shared app spine (`Shell.tsx`, routes,
    `app/state/*`, `src/design-system/*`, `package.json`). Everything else must be
    screen/module-local, or it is not parallel-safe — pick a different task.
 
@@ -71,7 +83,10 @@ under the repo root, so Node's ancestor walk resolves the main checkout's `node_
    conflicts, re-run the task's proof action → `git branch -d task/<id>` →
    `git worktree remove .claude/worktrees/<name>` (add `--force` only for a worktree the
    branch of which is fully merged). One branch at a time; verify between merges, never batch.
-3. A `STALE` claim in `status` (no worktree, no commits) → delete the branch, freeing the task.
+3. A `STALE` branch claim in `status` (no worktree, no commits) → delete the branch, freeing
+   the task. A main-checkout ref claim (including `main-checkout` itself) that outlived its
+   session → `worktrees.mjs release <id>`; the desktop sidebar shows whether that session is
+   still live — when unsure, ask the user before releasing.
 4. Then the normal session loop for its own work, skipping claimed tasks, and writing the
    round's retro entry (including what each merged branch shipped).
 

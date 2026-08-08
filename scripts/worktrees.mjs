@@ -2,25 +2,43 @@
 /**
  * Parallel-session coordination for /next (docs/WORKTREES.md).
  *
- *   node scripts/worktrees.mjs status   the one command; prints every claim
+ *   node scripts/worktrees.mjs status         every claim, both kinds, one table
+ *   node scripts/worktrees.mjs claim <id>     atomic main-checkout claim (fails if taken)
+ *   node scripts/worktrees.mjs release <id>   release a main-checkout claim
  *
- * A CLAIM is a branch named `task/<roadmap-id>` (e.g. task/5.1). The branch
- * list is shared by every worktree through the common .git directory, so any
- * session — main checkout or worktree — sees the same table without a lock
- * file or a registry that could go stale. Branch gone = claim gone.
+ * Two claim kinds, both visible to every session through the shared .git:
  *
- * Each claim also gets a deterministic dev/e2e PORT (5200–5899, hashed from
- * the branch name) so parallel sessions never share a server or an origin —
- * a shared origin would mean a shared IndexedDB, and playwright's
- * `reuseExistingServer` would happily test one session's specs against
- * another session's app. The main checkout keeps 5173.
+ *  - WORKTREE claim: a branch named `task/<id>`. Made by renaming the worktree's
+ *    branch (`git branch -m task/<id>`); the rename FAILS if the branch exists,
+ *    so a race between two sessions self-resolves — the loser picks another task.
+ *  - MAIN-CHECKOUT claim: a ref `refs/claims/<id>`, created here with the
+ *    create-only form of update-ref (old value = ""), so it is atomic too.
+ *    `main-checkout` is a reserved id: it is the integrator lock. A /next that
+ *    fails to claim it must NOT work in the main checkout — a session is already
+ *    there — and moves itself into a worktree instead (docs/WORKTREES.md).
+ *
+ * Why two kinds: git worktrees may not share a working tree, so a worktree
+ * session's claim is naturally its branch; but a main-checkout session works on
+ * master and has no branch to claim with — 2026-08-08, two /next sessions both
+ * landed in the main checkout, both saw "no claims", and both started T.2.
+ *
+ * Each branch claim also gets a deterministic dev/e2e PORT (5200–5899, hashed
+ * from the branch name) so parallel sessions never share a server or an origin —
+ * a shared origin means a shared IndexedDB, and playwright's
+ * `reuseExistingServer` would test one session's specs against another
+ * session's app. The main checkout keeps 5173.
  */
 import { execFileSync } from 'node:child_process'
 
-function git(args, cwd) {
+function git(args, opts = {}) {
   try {
-    return execFileSync('git', args, { encoding: 'utf8', cwd, stdio: ['ignore', 'pipe', 'pipe'] }).trim()
-  } catch {
+    return execFileSync('git', args, {
+      encoding: 'utf8',
+      cwd: opts.cwd,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim()
+  } catch (err) {
+    if (opts.orThrow) throw err
     return ''
   }
 }
@@ -48,36 +66,71 @@ function worktreeEntries() {
   return entries
 }
 
-const entries = worktreeEntries()
-const main = entries[0]
-const byBranch = new Map(entries.slice(1).map((e) => [e.branch, e]))
-const taskBranches = git(['branch', '--list', 'task/*', '--format=%(refname:short)'])
-  .split('\n')
-  .filter(Boolean)
+const [command = 'status', id] = process.argv.slice(2)
 
-console.log(`main checkout: ${main?.path ?? '?'} (branch ${main?.branch ?? '?'}, port 5173)`)
-
-const unclaimedWorktrees = entries.slice(1).filter((e) => !e.branch?.startsWith('task/'))
-for (const e of unclaimedWorktrees) {
-  console.log(`worktree with NO claim yet: ${e.path} (branch ${e.branch ?? 'detached'}) — /next there should claim a task by renaming the branch to task/<id>`)
-}
-
-if (taskBranches.length === 0) {
-  console.log('claims: none — every roadmap task is up for grabs.')
+if (command === 'claim') {
+  if (!id) {
+    console.error('usage: worktrees.mjs claim <task-id | main-checkout>')
+    process.exit(2)
+  }
+  try {
+    // Create-only: old value "" means the ref must not exist. Atomic under races.
+    git(['update-ref', `refs/claims/${id}`, 'HEAD', ''], { orThrow: true })
+    console.log(`claimed ${id} (refs/claims/${id})`)
+  } catch {
+    console.error(`ALREADY CLAIMED: ${id} — another session holds it. Pick a different task` +
+      (id === 'main-checkout' ? ', or move this session into a worktree (docs/WORKTREES.md).' : '.'))
+    process.exit(1)
+  }
+} else if (command === 'release') {
+  if (!id) {
+    console.error('usage: worktrees.mjs release <task-id | main-checkout>')
+    process.exit(2)
+  }
+  git(['update-ref', '-d', `refs/claims/${id}`])
+  console.log(`released ${id}`)
 } else {
-  console.log('claims:')
-  for (const branch of taskBranches) {
-    const id = branch.slice('task/'.length)
-    const wt = byBranch.get(branch)
-    const last = git(['log', '-1', '--format=%cr — %s', branch]) || 'no commits'
-    const ahead = git(['rev-list', '--count', `${main?.branch ?? 'master'}..${branch}`]) || '0'
-    const dirty = wt ? (git(['status', '--porcelain'], wt.path) ? 'DIRTY' : 'clean') : null
-    const state = wt
-      ? `active in ${wt.path} (${dirty}, ${ahead} commit(s) ahead)`
-      : ahead === '0'
-        ? 'STALE: no worktree, no commits ahead — delete the branch'
-        : `AWAITING MERGE: worktree gone, ${ahead} commit(s) ahead — integrate from the main checkout`
-    console.log(`  task ${id}  [${branch}]  port ${portFor(branch)}  last: ${last}`)
-    console.log(`           ${state}`)
+  const entries = worktreeEntries()
+  const main = entries[0]
+  const byBranch = new Map(entries.slice(1).map((e) => [e.branch, e]))
+  const taskBranches = git(['branch', '--list', 'task/*', '--format=%(refname:short)'])
+    .split('\n')
+    .filter(Boolean)
+  const refClaims = git(['for-each-ref', 'refs/claims', '--format=%(refname:lstrip=2)'])
+    .split('\n')
+    .filter(Boolean)
+
+  const lock = refClaims.includes('main-checkout')
+  console.log(`main checkout: ${main?.path ?? '?'} (branch ${main?.branch ?? '?'}, port 5173) — ` +
+    (lock ? 'LOCKED by an active session; any other session must work in a worktree' : 'no session lock'))
+
+  for (const e of entries.slice(1).filter((e) => !e.branch?.startsWith('task/'))) {
+    console.log(`worktree with NO claim yet: ${e.path} (branch ${e.branch ?? 'detached'}) — /next there should claim by renaming the branch to task/<id>`)
+  }
+
+  const mainClaims = refClaims.filter((c) => c !== 'main-checkout')
+  if (taskBranches.length === 0 && mainClaims.length === 0) {
+    console.log('claims: none — every roadmap task is up for grabs.')
+  } else {
+    console.log('claims:')
+    for (const branch of taskBranches) {
+      const taskId = branch.slice('task/'.length)
+      const wt = byBranch.get(branch)
+      const last = git(['log', '-1', '--format=%cr — %s', branch]) || 'no commits'
+      const ahead = git(['rev-list', '--count', `${main?.branch ?? 'master'}..${branch}`]) || '0'
+      const dirty = wt ? (git(['status', '--porcelain'], { cwd: wt.path }) ? 'DIRTY' : 'clean') : null
+      const state = wt
+        ? `active in ${wt.path} (${dirty}, ${ahead} commit(s) ahead)`
+        : ahead === '0'
+          ? 'STALE: no worktree, no commits ahead — delete the branch'
+          : `AWAITING MERGE: worktree gone, ${ahead} commit(s) ahead — integrate from the main checkout`
+      console.log(`  task ${taskId}  [worktree branch ${branch}]  port ${portFor(branch)}  last: ${last}`)
+      console.log(`           ${state}`)
+    }
+    for (const claim of mainClaims) {
+      const at = git(['log', '-1', '--format=%cr', `refs/claims/${claim}`]) || '?'
+      console.log(`  task ${claim}  [main-checkout claim]  claimed at or after a commit from ${at}`)
+      console.log(`           active in the main checkout — release with: node scripts/worktrees.mjs release ${claim}`)
+    }
   }
 }

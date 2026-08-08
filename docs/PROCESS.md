@@ -76,13 +76,15 @@ over a dozen "tests green, feature dead in the browser" defects. The browser dri
 ## Parallel sessions (worktrees)
 
 Several sessions can run at once — one per git worktree, full contract in `docs/WORKTREES.md`.
-The five rules that matter: a claim is a branch named `task/<id>` (check with
-`node scripts/worktrees.mjs status` before picking work); a worktree session works only its
-claimed task and never touches master, PROCESS.md, retro-log, or other tasks' ROADMAP lines;
-only the main-checkout session merges — serially, verifying after each branch; every worktree
-uses its own port (`status` prints it; `E2E_PORT` for playwright, `--url` for visual-pass);
-and at most one active claim may touch the app spine (Shell, routes, `app/state`,
-design-system, package.json). `/next` detects its location and behaves accordingly.
+The rules that matter: every session claims before working — a worktree session by renaming
+its branch to `task/<id>`, a main-checkout session via `worktrees.mjs claim <id>`, and the
+main checkout itself is single-occupancy (`claim main-checkout` first; refused → move into a
+worktree). Check `node scripts/worktrees.mjs status` before picking work; claims are atomic,
+so a lost race just means "pick the next task". A worktree session works only its claimed
+task, skips Triage (integrator-owned), and never touches master, PROCESS.md, retro-log, or
+other tasks' ROADMAP lines; only the integrator merges — serially, verifying after each
+branch; every worktree uses its own port; at most one active claim may touch the app spine
+(Shell, routes, `app/state`, design-system, package.json). Claims are released at session end.
 
 ## Improve the process (the self-improvement loop)
 
