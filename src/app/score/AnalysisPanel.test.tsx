@@ -9,9 +9,10 @@ import sampleMusicXml from '@content/scores/twinkle-twinkle-little-star.musicxml
 import { parseMusicXml } from '@core/notation/musicxml.ts'
 import { makeScore } from '@core/notation/score.ts'
 import { unwrap } from '@core/shared/result.ts'
-import { cleanup, render, screen } from '@testing-library/react'
+import { analyseScore } from '@core/theory/analysis.ts'
+import { cleanup, render, renderHook, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
-import { AnalysisPanel } from './AnalysisPanel.tsx'
+import { AnalysisPanel, buildMeasureLabels, useMeasureLabels } from './AnalysisPanel.tsx'
 
 afterEach(cleanup)
 
@@ -119,5 +120,67 @@ describe('AnalysisPanel', () => {
     const score = unwrap(parseMusicXml(sampleMusicXml))
     render(<AnalysisPanel score={score} />)
     expect(screen.getByText('Key: C major')).toBeInTheDocument()
+  })
+})
+
+describe('buildMeasureLabels (roadmap 3.18a)', () => {
+  it('matches the panel\'s own .numerals text for every measure, keyed 1-based', () => {
+    const score = unwrap(parseMusicXml(sampleMusicXml))
+    render(<AnalysisPanel score={score} />)
+    const labels = buildMeasureLabels(score, analyseScore(score))
+
+    const expected = ['I', 'V', 'IV', 'I', 'I', 'V', 'IV', 'I', 'I', 'V', 'IV', 'I']
+    expected.forEach((numeral, index) => {
+      expect(labels.get(index + 1)).toBe(numeral)
+      // Cross-check against the rendered panel itself, not just the fixture's
+      // own expectation — the two must never silently drift apart.
+      expect(screen.getByTestId(`analysis-measure-${index}`).querySelector('.numerals')?.textContent).toBe(
+        numeral,
+      )
+    })
+    expect(labels.size).toBe(score.measures.length)
+  })
+
+  it('renders TACET/UNNAMED text exactly like the panel does, never a blank label', () => {
+    const score = makeScore({
+      id: 'unrecognisable-probe',
+      measures: [{ keyFifths: 0 }],
+      notes: [
+        { midi: 60, startTick: 0, durationTicks: 1920, hand: 'right' },
+        { midi: 61, startTick: 0, durationTicks: 1920, hand: 'right' },
+        { midi: 62, startTick: 0, durationTicks: 1920, hand: 'right' },
+        { midi: 63, startTick: 0, durationTicks: 1920, hand: 'right' },
+      ],
+    })
+    const labels = buildMeasureLabels(score, analyseScore(score))
+    expect(labels.get(1)).toBe('—')
+  })
+
+  it('labels a wholly silent measure "(rest)", distinct from an unrecognised chord', () => {
+    const score = makeScore({
+      id: 'silent-measure',
+      measures: [{ keyFifths: 0 }],
+      notes: [],
+    })
+    const labels = buildMeasureLabels(score, analyseScore(score))
+    expect(labels.get(1)).toBe('(rest)')
+  })
+})
+
+describe('useMeasureLabels (roadmap-review finding 3)', () => {
+  it('returns the same Map identity across a re-render when score does not change, so a per-frame consumer does not re-fire on identity alone', () => {
+    const score = unwrap(parseMusicXml(sampleMusicXml))
+    const { result, rerender } = renderHook(({ s }: { s: typeof score }) => useMeasureLabels(s), {
+      initialProps: { s: score },
+    })
+    const first = result.current
+    rerender({ s: score })
+    expect(result.current).toBe(first)
+  })
+
+  it('matches buildMeasureLabels(score, analyseScore(score))', () => {
+    const score = unwrap(parseMusicXml(sampleMusicXml))
+    const { result } = renderHook(() => useMeasureLabels(score))
+    expect(result.current).toEqual(buildMeasureLabels(score, analyseScore(score)))
   })
 })

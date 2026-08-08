@@ -97,6 +97,40 @@ type EngravedSourceMeasure = {
   readonly VerticalSourceStaffEntryContainers: readonly EngravedContainer[]
 }
 
+/**
+ * The slice of a VexFlow `Stave` (`@types/vexflow`) this file reads to place a
+ * measure label (roadmap 3.18a). `getX()`/`getWidth()` give the horizontal
+ * span already laid out for this measure; `getBottomY()` the y of its lowest
+ * staff line — all in the SAME real SVG pixel space the rendered notation
+ * uses, because VexFlow (OSMD's SVG-backend renderer) bakes zoom/layout into
+ * these numbers when it computes them, unlike OSMD's own internal "unit"
+ * coordinate system (10 units = 1 staff space) which would need a manual
+ * conversion factor this file has no clean access to.
+ */
+type OsmdVexStave = { getX(): number; getWidth(): number; getBottomY(): number }
+/**
+ * The slice of OSMD's `GraphicalMeasure` this file reads. `getVFStave()` is
+ * declared only on the SVG-backend's concrete `VexFlowMeasure` (see
+ * `VexFlowMeasure.d.ts`), not on the abstract `GraphicalMeasure` the public
+ * `MeasureList` type says it holds — but this app's engraver never selects a
+ * `backend` option (`DEFAULT_OSMD_OPTIONS` above), and OSMD defaults to the
+ * SVG/VexFlow backend, so every measure in `MeasureList` is actually one of
+ * these at runtime. `OsmdLike` is already a hand-picked structural slice
+ * (see its own doc comment), not the SDK's literal exported types, so naming
+ * the narrower, accurate shape here is consistent with the rest of the file.
+ */
+type OsmdGraphicalMeasureForLabel = { getVFStave(): OsmdVexStave | undefined }
+/**
+ * `MeasureList[measureIndex][staffIndex]` — the SAME positional
+ * `measureIndex` this file already uses elsewhere (`Sheet.SourceMeasures`,
+ * `score.notes[].measureIndex`): a 0-based array index in engraving order,
+ * not the printed `Measure.number` string, which can repeat or read "0" for
+ * a pickup (see `Measure.number` in `@core/notation/score.ts`).
+ */
+type OsmdGraphicalMusicSheet = {
+  readonly MeasureList: readonly (readonly OsmdGraphicalMeasureForLabel[])[]
+}
+
 /** The slice of OSMD's cursor this file actually touches. */
 type OsmdCursorIterator = {
   readonly EndReached: boolean
@@ -121,6 +155,10 @@ type OsmdCursor = {
  */
 export type OsmdLike = {
   readonly Sheet: { readonly SourceMeasures: readonly EngravedSourceMeasure[] }
+  /** Public accessor on the real `OpenSheetMusicDisplay` (see `OpenSheetMusicDisplay.d.ts`:
+   *  `get GraphicSheet(): GraphicalMusicSheet`) — the laid-out graphical measures,
+   *  read only by `applyMeasureLabels` (roadmap 3.18a) to place text under a measure. */
+  readonly GraphicSheet: OsmdGraphicalMusicSheet
   readonly cursor: OsmdCursor
   readonly rules: OsmdEngravingRules
   load(musicXml: string): Promise<void>
@@ -151,6 +189,14 @@ export const DEFAULT_NOTE_COLOR = SCORE_INK
  * step with `--paper` in src/design-system/tokens/colors.css.
  */
 export const HIDDEN_NOTE_COLOR = '#f8f5ec'
+/**
+ * Marks the `<g>` this file owns inside OSMD's SVG so a later call can find
+ * and clear it rather than accumulate a new group on every `setMeasureLabels`
+ * call or every OSMD-initiated re-render (roadmap 3.18a).
+ */
+const MEASURE_LABEL_GROUP_ATTR = 'data-measure-labels'
+/** Vertical gap (px) between a measure's lowest staff line and its label's baseline. */
+const MEASURE_LABEL_Y_OFFSET = 16
 /**
  * Backstop against a runaway walk (e.g. a cursor whose `EndReached` never
  * flips), not a plausible real-score limit — Pachelbel's Canon in D, 102
@@ -297,6 +343,107 @@ function stampNoteIds(osmd: OsmdLike, noteById: ReadonlyMap<string, EngravedNote
 }
 
 /**
+ * Places `labels` text under their measure directly in the rendered SVG —
+ * roadmap 3.18a, REQ-3.5.5's "numeral under its own measure on the engraving"
+ * half, matching how the side `AnalysisPanel` already reads.
+ *
+ * ## Why direct SVG injection, not an OSMD-native measure-label mechanism
+ *
+ * OSMD does carry a per-measure text concept — `SourceMeasure.rehearsalExpression`
+ * (`RehearsalExpression`, see its `.d.ts`) — but it is a MODEL-level field only
+ * `MusicSheetCalculator` (the LAYOUT pass) turns into a graphical mark; setting
+ * it does nothing to the already-rendered SVG until the next `osmd.render()`
+ * re-engraves the whole score. Using it here would mean paying that cost every
+ * time an analysis changes — exactly the ~550ms/102-measure regression the
+ * module comment at the top of this file exists to prevent. So this function
+ * takes the same path `paint`/`stampNoteIds` already do: mutate the rendered
+ * SVG directly, no `render()` involved.
+ *
+ * It is NOT undocumented-internals archaeology, though: `VexFlowMeasure.getVFStave()`
+ * (public, see `VexFlowMeasure.d.ts`) hands back the real VexFlow `Stave` OSMD
+ * itself already computed and drew from — `getX()`/`getWidth()`/`getBottomY()`
+ * are real SVG pixel coordinates (see `OsmdVexStave`'s doc comment), so this
+ * function does no layout math of its own, only reads what OSMD already laid
+ * out and appends one `<text>` per labelled measure under the BOTTOM staff
+ * (last entry in that measure's row of `MeasureList`) — i.e. under the whole
+ * grand staff, not wedged between a piano piece's two staves.
+ *
+ * ## Resize durability (roadmap 2.32's hazard, restated for this feature)
+ *
+ * `autoResize: true` (`DEFAULT_OSMD_OPTIONS`) makes OSMD re-engrave on its own
+ * initiative on every window resize, which discards and rebuilds the entire
+ * SVG tree — this function's injected `<g>` included. Unlike note colour,
+ * there is no OSMD MODEL property this function could durability-write onto
+ * (measure labels are not an OSMD concept OSMD's own render would redraw from
+ * — see above), so the only fix is re-running this function after every
+ * render, real or OSMD-initiated: `load()` below wraps the OSMD instance's
+ * OWN `render` method to call this again after every call, the same trick
+ * `stampNoteIds` already relies on for the identical reason.
+ *
+ * Idempotent and replace-all: clears its own `<g>` and rebuilds every label
+ * from `labels` fresh on every call, so a measure removed from `labels` since
+ * the last call does not linger, and calling this twice in a row with the
+ * same map leaves the SVG unchanged but never duplicated. Best-effort and
+ * never throws — a label pass that fails (unmounted container, an
+ * unrecognised OSMD shape) leaves the notation itself unaffected, same
+ * contract as `stampNoteIds`/`buildNoteIdMap`.
+ */
+function applyMeasureLabels(
+  osmd: OsmdLike,
+  container: HTMLElement,
+  labels: ReadonlyMap<number, string>,
+): void {
+  try {
+    // Single-page assumption: `container.querySelector('svg')` takes the
+    // FIRST svg in the container. OSMD's `SvgVexFlowBackend` renders one svg
+    // per `GraphicalMusicPage`, and this app never sets a `pageFormat` option
+    // (endless single-page default), so there is exactly one svg today and
+    // every measure's label belongs on it. If pagination is ever turned on,
+    // this must resolve the svg per page (e.g. via each
+    // `MeasureList[i][s].ParentMusicPage`) instead of always using the first.
+    const svg = container.querySelector('svg')
+    if (svg === null) return
+    let group = svg.querySelector<SVGGElement>(`g[${MEASURE_LABEL_GROUP_ATTR}]`)
+    if (group === null) {
+      group = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+      group.setAttribute(MEASURE_LABEL_GROUP_ATTR, '')
+      svg.appendChild(group)
+    } else {
+      while (group.firstChild !== null) group.removeChild(group.firstChild)
+    }
+    if (labels.size === 0) return
+
+    osmd.GraphicSheet.MeasureList.forEach((staves, measureIndex) => {
+      const label = labels.get(measureIndex + 1) // 1-based, per the ScoreViewer contract
+      if (label === undefined || label.length === 0) return
+      // `staves` can have sparse/undefined slots (e.g. a hidden or multi-rest
+      // bottom staff) — OSMD documents exactly that hazard for `MeasureList`
+      // rows (see this function's own doc comment above). Walk from the
+      // bottom up and anchor to the first staff that actually yields a
+      // stave, instead of only ever looking at the last slot, so one empty
+      // staff does not silently drop the whole measure's numeral.
+      let stave: OsmdVexStave | undefined
+      for (let s = staves.length - 1; s >= 0 && stave === undefined; s--) {
+        stave = staves[s]?.getVFStave()
+      }
+      if (stave === undefined) return
+
+      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text')
+      text.setAttribute('x', String(stave.getX() + stave.getWidth() / 2))
+      text.setAttribute('y', String(stave.getBottomY() + MEASURE_LABEL_Y_OFFSET))
+      text.setAttribute('text-anchor', 'middle')
+      text.setAttribute('font-style', 'italic')
+      text.setAttribute('font-size', '13')
+      text.setAttribute('fill', SCORE_INK)
+      text.textContent = label
+      group.appendChild(text)
+    })
+  } catch {
+    // Best-effort — see the doc comment above.
+  }
+}
+
+/**
  * Every onset the cursor will visit, in visiting order, as absolute ticks —
  * walked ONCE at load and cached.
  *
@@ -378,7 +525,21 @@ export type OsmdEngraverOptions = {
   readonly createOsmd?: (container: HTMLElement) => OsmdLike
 }
 
-export function createOsmdEngraver(opts?: OsmdEngraverOptions): ScoreEngraver {
+/**
+ * `ScoreEngraver` plus `setMeasureLabels` (roadmap 3.18a). Kept as a local
+ * extension rather than a change to the shared `ScoreEngraver` interface in
+ * `engraver.ts` — that file is a dependency of this module, not one of it.
+ * `ScoreViewer.tsx` consumes this structurally (an intersection type with the
+ * new member OPTIONAL), so a test fake implementing plain `ScoreEngraver`
+ * still satisfies it and the capability stays additive end to end.
+ */
+export type ScoreEngraverWithMeasureLabels = ScoreEngraver & {
+  /** Place text under each measure, keyed by 1-based measure number. Replaces any
+   *  labels previously set. Must not schedule a full re-render (roadmap 2.32). */
+  setMeasureLabels(labels: ReadonlyMap<number, string>): void
+}
+
+export function createOsmdEngraver(opts?: OsmdEngraverOptions): ScoreEngraverWithMeasureLabels {
   const scheduleRender = opts?.scheduleRender ?? defaultScheduleRender
   const createOsmd = opts?.createOsmd ?? defaultCreateOsmd
 
@@ -391,6 +552,8 @@ export function createOsmdEngraver(opts?: OsmdEngraverOptions): ScoreEngraver {
   const desiredColor = new Map<string, string>()
   /** Ids currently occluded for the read-ahead drill — see `setNoteHidden`. */
   const hiddenIds = new Set<string>()
+  /** Last labels requested via `setMeasureLabels` — see `applyMeasureLabels`. */
+  let measureLabels: ReadonlyMap<number, string> = new Map()
   let renderPending = false
   /** Every onset the cursor visits, walked once at load — see `collectOnsetTicks`. */
   let onsetTicks: readonly number[] = []
@@ -481,6 +644,12 @@ export function createOsmdEngraver(opts?: OsmdEngraverOptions): ScoreEngraver {
       instance.render = () => {
         originalRender()
         stampNoteIds(instance, noteById)
+        // Re-applies measure labels after every render, including one OSMD
+        // schedules on its OWN initiative (autoResize) — see
+        // `applyMeasureLabels`'s doc comment for why there is no model-level
+        // write that would make this survive on its own, the way note colour
+        // does.
+        applyMeasureLabels(instance, container, measureLabels)
       }
       await instance.load(musicXml)
       instance.render()
@@ -564,6 +733,18 @@ export function createOsmdEngraver(opts?: OsmdEngraverOptions): ScoreEngraver {
       if (needsRender) requestRender()
     },
 
+    setMeasureLabels(labels) {
+      measureLabels = labels
+      // Recorded unconditionally even before `osmd`/`containerEl` exist — the
+      // load-tail catch-up above applies it once they do (same race-safety
+      // shape as `setNoteColor`, roadmap finding 4). Direct SVG mutation only,
+      // same as `paint`'s fast path — never `requestRender()` (roadmap 2.32:
+      // this must not cost a full re-engrave).
+      if (osmd !== undefined && containerEl !== undefined) {
+        applyMeasureLabels(osmd, containerEl, measureLabels)
+      }
+    },
+
     destroy() {
       osmd?.clear()
       osmd = undefined
@@ -572,6 +753,7 @@ export function createOsmdEngraver(opts?: OsmdEngraverOptions): ScoreEngraver {
       coloredIds.clear()
       desiredColor.clear()
       hiddenIds.clear()
+      measureLabels = new Map()
       renderPending = false
     },
 

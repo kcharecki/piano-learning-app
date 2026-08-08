@@ -9,12 +9,12 @@
  */
 import { makeScore, type Score } from '@core/notation/score.ts'
 import { describe, expect, it, vi } from 'vitest'
-import type { ScoreEngraver } from './engraver.ts'
 import {
   createOsmdEngraver,
   DEFAULT_NOTE_COLOR,
   HIDDEN_NOTE_COLOR,
   type OsmdLike,
+  type ScoreEngraverWithMeasureLabels,
 } from './osmdEngraver.ts'
 
 // ---------------------------------------------------------------- fake OSMD
@@ -199,6 +199,10 @@ function gNoteThrowing(): FakeGraphicalNote {
 function makeFakeOsmd(measures: readonly FakeMeasure[], GNote: FakeGNote = gNoteMissing): FakeOsmd {
   return {
     Sheet: { SourceMeasures: measures },
+    // Empty by default: the id/colour/cursor tests above never read this —
+    // only `setMeasureLabels` tests do, and they build their own
+    // `GraphicSheet` via `withGraphicSheet` below.
+    GraphicSheet: { MeasureList: [] },
     cursor: {
       iterator: { EndReached: true, CurrentSourceTimestamp: { RealValue: 0 } },
       reset: () => undefined,
@@ -220,6 +224,41 @@ function makeFakeOsmd(measures: readonly FakeMeasure[], GNote: FakeGNote = gNote
     renderCount: 0,
     cleared: false,
   }
+}
+
+// ------------------------------------------------------- setMeasureLabels fakes
+
+/** A fake VexFlow `Stave` — the slice `applyMeasureLabels` reads (see `OsmdVexStave`). */
+function fakeStave(x: number, width: number, bottomY: number): { getX(): number; getWidth(): number; getBottomY(): number } {
+  return { getX: () => x, getWidth: () => width, getBottomY: () => bottomY }
+}
+
+/** One staff's entry in a `GraphicSheet.MeasureList` row. `stave === undefined`
+ *  models a graphical measure whose `getVFStave()` has nothing to offer. */
+function fakeGraphicalMeasure(stave: ReturnType<typeof fakeStave> | undefined): {
+  getVFStave(): ReturnType<typeof fakeStave> | undefined
+} {
+  return { getVFStave: () => stave }
+}
+
+/** `fakeOsmd` with its `GraphicSheet.MeasureList` replaced — the id/colour fakes
+ *  above never populate this, so `setMeasureLabels` tests build their own. */
+function withGraphicSheet(
+  fakeOsmd: FakeOsmd,
+  measureList: readonly (readonly ReturnType<typeof fakeGraphicalMeasure>[])[],
+): FakeOsmd {
+  return { ...fakeOsmd, GraphicSheet: { MeasureList: measureList } }
+}
+
+/** A `<div>` with a real (detached) `<svg>` child already inside it — models
+ *  the container after OSMD's real first render, which `applyMeasureLabels`
+ *  requires (`container.querySelector('svg')`) but these fakes' `render()`
+ *  never actually creates. */
+function containerWithSvg(): { readonly container: HTMLElement; readonly svg: SVGSVGElement } {
+  const container = document.createElement('div')
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg') as SVGSVGElement
+  container.appendChild(svg)
+  return { container, svg }
 }
 
 /**
@@ -382,7 +421,7 @@ async function load(
   score: Score,
   fakeOsmd: FakeOsmd,
   scheduleRender?: (run: () => void) => void,
-): Promise<ScoreEngraver> {
+): Promise<ScoreEngraverWithMeasureLabels> {
   const engraver = createOsmdEngraver({
     createOsmd: () => fakeOsmd,
     ...(scheduleRender === undefined ? {} : { scheduleRender }),
@@ -1086,7 +1125,7 @@ describe('cursor movement', () => {
   const ONSETS = [0, 480, 960, 1440, 1920]
 
   async function loadWithCursor(): Promise<{
-    engraver: ScoreEngraver
+    engraver: ScoreEngraverWithMeasureLabels
     cursor: ReturnType<typeof makeFakeCursor>
   }> {
     const cursor = makeFakeCursor(ONSETS)
@@ -1460,5 +1499,218 @@ describe('createOsmdEngraver: click-to-select (roadmap 4.8a)', () => {
 
     // Nothing was ever stamped: a click anywhere in the (empty) container misses.
     expect(engraver.noteIdAt(container)).toBeUndefined()
+  })
+})
+
+// These tests drive a FAKE OSMD, so they can only prove the LABEL PLACEMENT
+// LOGIC against that fake's `GraphicSheet.MeasureList`/`getVFStave()` shape —
+// which measure gets which string, in what SVG position relative to the
+// fake's own reported coordinates, and how replacement/resize-survival work.
+// They cannot prove the numerals are legible, non-overlapping, or positioned
+// sensibly against a REAL rendered score — that is only provable in a real
+// browser against a real OSMD render (see the module's REPORT for what was
+// and wasn't checked this way, per the "fake whose implementation does
+// nothing" trap this suite's own header comment already warns about).
+describe('createOsmdEngraver: setMeasureLabels (roadmap 3.18a)', () => {
+  it('places a label under its own measure, keyed 1-based, positioned from the bottom staff of that measure', async () => {
+    const score = twoMeasureScore()
+    const fakeOsmd = withGraphicSheet(makeFakeOsmd([measureOf(containerOf(note(60)))]), [
+      [fakeGraphicalMeasure(fakeStave(0, 200, 50))],
+      [fakeGraphicalMeasure(fakeStave(200, 150, 50))],
+    ])
+    const { container, svg } = containerWithSvg()
+    const engraver = createOsmdEngraver({ createOsmd: () => fakeOsmd })
+    await engraver.load(container, '<score/>', score)
+
+    engraver.setMeasureLabels(
+      new Map([
+        [1, 'I'],
+        [2, 'V'],
+      ]),
+    )
+
+    const texts = [...svg.querySelectorAll('text')]
+    expect(texts.map((t) => t.textContent)).toEqual(['I', 'V'])
+    // measure 1: x = centre of [0, 200] = 100; y = bottomY(50) + offset(16) = 66.
+    expect(texts[0]?.getAttribute('x')).toBe('100')
+    expect(texts[0]?.getAttribute('y')).toBe('66')
+    expect(texts[0]?.getAttribute('text-anchor')).toBe('middle')
+    // measure 2: x = centre of [200, 350] = 275.
+    expect(texts[1]?.getAttribute('x')).toBe('275')
+  })
+
+  it('leaves a measure absent from the map unlabelled — no text node for it, not a blank one', async () => {
+    const score = twoMeasureScore()
+    const fakeOsmd = withGraphicSheet(makeFakeOsmd([measureOf(containerOf(note(60)))]), [
+      [fakeGraphicalMeasure(fakeStave(0, 200, 50))],
+      [fakeGraphicalMeasure(fakeStave(200, 150, 50))],
+    ])
+    const { container, svg } = containerWithSvg()
+    const engraver = createOsmdEngraver({ createOsmd: () => fakeOsmd })
+    await engraver.load(container, '<score/>', score)
+
+    engraver.setMeasureLabels(new Map([[1, 'I']])) // measure 2 has no entry
+
+    const texts = [...svg.querySelectorAll('text')]
+    expect(texts.map((t) => t.textContent)).toEqual(['I'])
+  })
+
+  it('picks the BOTTOM staff of a measure with several staves — under the grand staff, not between them', async () => {
+    const score = singleNoteScore()
+    const fakeOsmd = withGraphicSheet(makeFakeOsmd([measureOf(containerOf(note(60)))]), [
+      // Right-hand staff (bottomY 40) above the left-hand staff (bottomY 90)
+      // — the label must anchor off the LAST entry, not the first.
+      [fakeGraphicalMeasure(fakeStave(0, 200, 40)), fakeGraphicalMeasure(fakeStave(0, 200, 90))],
+    ])
+    const { container, svg } = containerWithSvg()
+    const engraver = createOsmdEngraver({ createOsmd: () => fakeOsmd })
+    await engraver.load(container, '<score/>', score)
+
+    engraver.setMeasureLabels(new Map([[1, 'I']]))
+
+    const text = svg.querySelector('text')
+    expect(text?.getAttribute('y')).toBe(String(90 + 16))
+  })
+
+  it('replaces previously-set labels wholesale — a second call clears what the first drew, not just adds to it', async () => {
+    const score = twoMeasureScore()
+    const fakeOsmd = withGraphicSheet(makeFakeOsmd([measureOf(containerOf(note(60)))]), [
+      [fakeGraphicalMeasure(fakeStave(0, 200, 50))],
+      [fakeGraphicalMeasure(fakeStave(200, 150, 50))],
+    ])
+    const { container, svg } = containerWithSvg()
+    const engraver = createOsmdEngraver({ createOsmd: () => fakeOsmd })
+    await engraver.load(container, '<score/>', score)
+
+    engraver.setMeasureLabels(
+      new Map([
+        [1, 'I'],
+        [2, 'V'],
+      ]),
+    )
+    expect([...svg.querySelectorAll('text')].map((t) => t.textContent)).toEqual(['I', 'V'])
+
+    engraver.setMeasureLabels(new Map([[1, 'IV']])) // measure 2 dropped, measure 1 relabelled
+
+    expect([...svg.querySelectorAll('text')].map((t) => t.textContent)).toEqual(['IV'])
+    // Exactly one label group, not one accumulated per call.
+    expect(svg.querySelectorAll('g[data-measure-labels]').length).toBe(1)
+  })
+
+  it('does not schedule a render — direct SVG mutation only (roadmap 2.32)', async () => {
+    const score = singleNoteScore()
+    const fakeOsmd = withGraphicSheet(makeFakeOsmd([measureOf(containerOf(note(60)))]), [
+      [fakeGraphicalMeasure(fakeStave(0, 200, 50))],
+    ])
+    const { container } = containerWithSvg()
+    const scheduler = makeFakeScheduler()
+    const engraver = createOsmdEngraver({
+      createOsmd: () => fakeOsmd,
+      scheduleRender: scheduler.scheduleRender,
+    })
+    await engraver.load(container, '<score/>', score)
+    const renderCountAfterLoad = fakeOsmd.renderCount
+
+    engraver.setMeasureLabels(new Map([[1, 'I']]))
+
+    expect(scheduler.scheduleRender).not.toHaveBeenCalled()
+    expect(fakeOsmd.renderCount).toBe(renderCountAfterLoad)
+  })
+
+  it('labels set before load() resolves are applied by the first render', async () => {
+    const score = singleNoteScore()
+    const baseFakeOsmd = withGraphicSheet(makeFakeOsmd([measureOf(containerOf(note(60)))]), [
+      [fakeGraphicalMeasure(fakeStave(0, 200, 50))],
+    ])
+    let resolveLoad: () => void = () => undefined
+    const fakeOsmd: FakeOsmd = {
+      ...baseFakeOsmd,
+      load: () =>
+        new Promise<void>((resolve) => {
+          resolveLoad = resolve
+        }),
+    }
+    const { container, svg } = containerWithSvg()
+    const engraver = createOsmdEngraver({ createOsmd: () => fakeOsmd })
+
+    const loadPromise = engraver.load(container, '<score/>', score)
+
+    // The race: fires while `load()`'s internal `await instance.load(...)` is
+    // still pending — `osmd`/`containerEl` are still unset at this point.
+    engraver.setMeasureLabels(new Map([[1, 'I']]))
+    expect(svg.querySelector('text')).toBeNull() // nothing to paint onto yet
+
+    resolveLoad()
+    await loadPromise
+
+    expect(svg.querySelector('text')?.textContent).toBe('I')
+  })
+
+  it('is re-applied after a full re-render — survives the SVG tree being wiped, e.g. by autoResize (roadmap 2.32 durability)', async () => {
+    const score = singleNoteScore()
+    const fakeOsmd = withGraphicSheet(makeFakeOsmd([measureOf(containerOf(note(60)))]), [
+      [fakeGraphicalMeasure(fakeStave(0, 200, 50))],
+    ])
+    const { container, svg } = containerWithSvg()
+    const engraver = createOsmdEngraver({ createOsmd: () => fakeOsmd })
+    await engraver.load(container, '<score/>', score)
+    engraver.setMeasureLabels(new Map([[1, 'I']]))
+    expect(svg.querySelector('text')?.textContent).toBe('I')
+
+    // Simulate what a real `osmd.render()` does on OSMD's own initiative
+    // (autoResize): discard and rebuild the entire SVG tree. This fake's
+    // `render()` does not touch the DOM itself, so the wipe is done by hand —
+    // the point under test is only what happens AFTER that, when the
+    // (wrapped) `render()` runs again.
+    while (svg.firstChild !== null) svg.removeChild(svg.firstChild)
+    expect(svg.querySelector('text')).toBeNull()
+
+    // `load()` rebound `fakeOsmd.render` to the wrapper that also re-applies
+    // measure labels — calling it directly models OSMD calling its own
+    // `render()` on a resize, which this file never controls.
+    fakeOsmd.render()
+
+    expect(svg.querySelector('text')?.textContent).toBe('I')
+  })
+
+  it('skips a measure whose graphical row has no bottom-staff VexFlow stave, without throwing', async () => {
+    const score = singleNoteScore()
+    const fakeOsmd = withGraphicSheet(makeFakeOsmd([measureOf(containerOf(note(60)))]), [
+      [fakeGraphicalMeasure(undefined)],
+    ])
+    const { container, svg } = containerWithSvg()
+    const engraver = createOsmdEngraver({ createOsmd: () => fakeOsmd })
+    await engraver.load(container, '<score/>', score)
+
+    expect(() => engraver.setMeasureLabels(new Map([[1, 'I']]))).not.toThrow()
+    expect(svg.querySelector('text')).toBeNull()
+  })
+
+  it('falls back to a higher staff in the row when the bottom staff has no VexFlow stave (roadmap-review finding 4)', async () => {
+    const score = singleNoteScore()
+    const fakeOsmd = withGraphicSheet(makeFakeOsmd([measureOf(containerOf(note(60)))]), [
+      [fakeGraphicalMeasure(fakeStave(0, 200, 40)), fakeGraphicalMeasure(undefined)],
+    ])
+    const { container, svg } = containerWithSvg()
+    const engraver = createOsmdEngraver({ createOsmd: () => fakeOsmd })
+    await engraver.load(container, '<score/>', score)
+
+    engraver.setMeasureLabels(new Map([[1, 'I']]))
+
+    const text = svg.querySelector('text')
+    expect(text?.textContent).toBe('I')
+    expect(text?.getAttribute('y')).toBe(String(40 + 16))
+  })
+
+  it('does not throw when the container has no rendered <svg> yet', async () => {
+    const score = singleNoteScore()
+    const fakeOsmd = withGraphicSheet(makeFakeOsmd([measureOf(containerOf(note(60)))]), [
+      [fakeGraphicalMeasure(fakeStave(0, 200, 50))],
+    ])
+    const container = document.createElement('div') // no <svg> child
+    const engraver = createOsmdEngraver({ createOsmd: () => fakeOsmd })
+    await engraver.load(container, '<score/>', score)
+
+    expect(() => engraver.setMeasureLabels(new Map([[1, 'I']]))).not.toThrow()
   })
 })

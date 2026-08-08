@@ -42,6 +42,19 @@ function createFakeEngraver(loadResult: Promise<void> = Promise.resolve()): Fake
   }
 }
 
+/** A `FakeEngraver` that ALSO implements the optional `setMeasureLabels`
+ *  (roadmap 3.18a) — plain `FakeEngraver` deliberately omits it, so the
+ *  "absent prop means today's behaviour" tests can prove nothing calls a
+ *  method that isn't even there, while these tests prove the wiring for an
+ *  engraver that does have it (the real `createOsmdEngraver` always does). */
+type FakeEngraverWithLabels = FakeEngraver & {
+  readonly setMeasureLabels: ReturnType<typeof vi.fn>
+}
+
+function createFakeEngraverWithLabels(): FakeEngraverWithLabels {
+  return { ...createFakeEngraver(), setMeasureLabels: vi.fn() }
+}
+
 afterEach(() => {
   cleanup()
 })
@@ -231,5 +244,113 @@ describe('ScoreViewer', () => {
     await waitFor(() => expect(engraver.load).toHaveBeenCalledTimes(1))
 
     expect(() => fireEvent.click(getByTestId('score-container'))).not.toThrow()
+  })
+
+  describe('measureLabels (roadmap 3.18a)', () => {
+    it('forwards measureLabels to the engraver once it has loaded', async () => {
+      const engraver = createFakeEngraverWithLabels()
+      const score = makeTestScore()
+      const labels = new Map([[1, 'I']])
+      render(
+        <ScoreViewer
+          musicXml="<xml/>"
+          score={score}
+          createEngraver={() => engraver}
+          measureLabels={labels}
+        />,
+      )
+      await waitFor(() => expect(engraver.load).toHaveBeenCalledTimes(1))
+
+      await waitFor(() => expect(engraver.setMeasureLabels).toHaveBeenCalledWith(labels))
+    })
+
+    it('forwards a new measureLabels map when the prop changes', async () => {
+      const engraver = createFakeEngraverWithLabels()
+      const score = makeTestScore()
+      const { rerender } = render(
+        <ScoreViewer
+          musicXml="<xml/>"
+          score={score}
+          createEngraver={() => engraver}
+          measureLabels={new Map([[1, 'I']])}
+        />,
+      )
+      await waitFor(() => expect(engraver.setMeasureLabels).toHaveBeenCalledWith(new Map([[1, 'I']])))
+
+      const nextLabels = new Map([[1, 'IV']])
+      rerender(
+        <ScoreViewer
+          musicXml="<xml/>"
+          score={score}
+          createEngraver={() => engraver}
+          measureLabels={nextLabels}
+        />,
+      )
+
+      await waitFor(() => expect(engraver.setMeasureLabels).toHaveBeenCalledWith(nextLabels))
+    })
+
+    it('never calls setMeasureLabels when the prop is absent — absent means today\'s behaviour exactly', async () => {
+      // Plain `createFakeEngraver()` deliberately has no `setMeasureLabels` at
+      // all (unlike `createFakeEngraverWithLabels`) — this only compiles, let
+      // alone passes, if ScoreViewer truly never calls it when `measureLabels`
+      // is not given.
+      const engraver = createFakeEngraver()
+      const score = makeTestScore()
+      render(<ScoreViewer musicXml="<xml/>" score={score} createEngraver={() => engraver} />)
+
+      await waitFor(() => expect(engraver.load).toHaveBeenCalledTimes(1))
+
+      expect((engraver as Partial<FakeEngraverWithLabels>).setMeasureLabels).toBeUndefined()
+    })
+
+    it('forwards the same measureLabels Map to the NEW engraver when the score changes (roadmap-review finding 1)', async () => {
+      const engraverA = createFakeEngraverWithLabels()
+      const engraverB = createFakeEngraverWithLabels()
+      const factory = vi.fn().mockReturnValueOnce(engraverA).mockReturnValueOnce(engraverB)
+      const scoreA = makeTestScore()
+      const scoreB = makeTestScore()
+      const labels = new Map([[1, 'I']]) // same Map identity across the rerender
+      const { rerender } = render(
+        <ScoreViewer
+          musicXml="<a/>"
+          score={scoreA}
+          createEngraver={factory}
+          measureLabels={labels}
+        />,
+      )
+      await waitFor(() => expect(engraverA.setMeasureLabels).toHaveBeenCalledWith(labels))
+
+      rerender(
+        <ScoreViewer
+          musicXml="<b/>"
+          score={scoreB}
+          createEngraver={factory}
+          measureLabels={labels}
+        />,
+      )
+
+      await waitFor(() => expect(engraverB.load).toHaveBeenCalledTimes(1))
+      // The old engraver's label map was wiped by destroy(); if the effect
+      // only depended on `[measureLabels]`, this would never fire because
+      // the Map identity did not change — the labels would silently vanish
+      // from the new engraving.
+      await waitFor(() => expect(engraverB.setMeasureLabels).toHaveBeenCalledWith(labels))
+    })
+
+    it('does not throw when measureLabels is given but the engraver has no setMeasureLabels (an older/plain ScoreEngraver fake)', async () => {
+      const engraver = createFakeEngraver()
+      const score = makeTestScore()
+      expect(() =>
+        render(
+          <ScoreViewer
+            musicXml="<xml/>"
+            score={score}
+            createEngraver={() => engraver}
+            measureLabels={new Map([[1, 'I']])}
+          />,
+        ),
+      ).not.toThrow()
+    })
   })
 })

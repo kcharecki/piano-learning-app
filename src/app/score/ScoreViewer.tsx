@@ -16,6 +16,21 @@ import {
 import type { EngraverFactory, ScoreEngraver } from './engraver.ts'
 import { createOsmdEngraver } from './osmdEngraver.ts'
 
+/**
+ * `ScoreEngraver` plus an OPTIONAL `setMeasureLabels` (roadmap 3.18a). The
+ * shared `ScoreEngraver` interface (`engraver.ts`) is not extended for this —
+ * it is a dependency of `src/app/score/`, not owned by this change — so the
+ * capability is added here, locally, as a structurally-optional extra: any
+ * value satisfying plain `ScoreEngraver` (e.g. every existing test fake)
+ * still satisfies this type unchanged, while the real `createOsmdEngraver`
+ * (which DOES implement the method) is called through the optional-chained
+ * call below. This is what keeps the new capability additive without
+ * touching a file outside this module's own remit.
+ */
+type EngraverWithMeasureLabels = ScoreEngraver & {
+  setMeasureLabels?(labels: ReadonlyMap<number, string>): void
+}
+
 export type CursorPosition = { readonly measureIndex: number; readonly tick: number }
 
 export type ScoreViewerHandle = {
@@ -35,14 +50,24 @@ export type ScoreViewerProps = {
   readonly createEngraver?: EngraverFactory
   /** Called with the clicked note's id, or `undefined` when the click hit no notehead. */
   readonly onSelectNote?: (noteId: string | undefined) => void
+  /** Text to place under each measure, keyed by 1-based measure number
+   *  (roadmap 3.18a). Absent means today's behaviour exactly. */
+  readonly measureLabels?: ReadonlyMap<number, string>
 }
 
 export const ScoreViewer = forwardRef<ScoreViewerHandle, ScoreViewerProps>(function ScoreViewer(
-  { musicXml, score, cursorPosition, createEngraver = createOsmdEngraver, onSelectNote },
+  {
+    musicXml,
+    score,
+    cursorPosition,
+    createEngraver = createOsmdEngraver,
+    onSelectNote,
+    measureLabels,
+  },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null)
-  const engraverRef = useRef<ScoreEngraver | undefined>(undefined)
+  const engraverRef = useRef<EngraverWithMeasureLabels | undefined>(undefined)
   const [error, setError] = useState<string | undefined>(undefined)
 
   useEffect(() => {
@@ -67,6 +92,24 @@ export const ScoreViewer = forwardRef<ScoreViewerHandle, ScoreViewerProps>(funct
     if (cursorPosition === undefined) return
     engraverRef.current?.moveCursorTo(cursorPosition.measureIndex, cursorPosition.tick)
   }, [cursorPosition])
+
+  // Absent prop -> never called at all, so a caller that never passes
+  // `measureLabels` gets exactly today's behaviour (roadmap 3.18a contract).
+  // Optional-chained on `setMeasureLabels` itself too: a fake engraver from a
+  // test that only implements plain `ScoreEngraver` is a safe no-op here,
+  // same as it already is for a click before `load()` created a real one.
+  useEffect(() => {
+    if (measureLabels === undefined) return
+    engraverRef.current?.setMeasureLabels?.(measureLabels)
+    // Also depends on the load effect's own identities (musicXml/score/
+    // createEngraver): that effect recreates `engraverRef.current` whenever
+    // any of them change, and `destroy()` on the old engraver wipes its
+    // cached labels — a NEW engraver is never told about them unless this
+    // effect re-runs too. React runs effects in declaration order, so the
+    // load effect above has already installed the new engraver by the time
+    // this one fires, and the load-tail catch-up in osmdEngraver covers the
+    // async race for the very first load (roadmap-review finding 1).
+  }, [measureLabels, musicXml, score, createEngraver])
 
   useImperativeHandle(
     ref,

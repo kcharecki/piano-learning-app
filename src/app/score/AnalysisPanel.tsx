@@ -105,6 +105,53 @@ function buildRows(score: Score, analysis: Analysis): readonly MeasureRow[] {
   })
 }
 
+/**
+ * The same per-measure numeral text this panel prints in its `.numerals`
+ * span, keyed by 1-based measure number — the exact key `ScoreViewer`'s
+ * optional `measureLabels` prop expects (roadmap 3.18a) so a caller can put
+ * the identical reading on the engraving AND in this side list, from one
+ * shared computation, rather than two components independently deciding what
+ * a measure "reads as". `UNNAMED`/`TACET` are included: the engraving should
+ * show the same explicit "nothing recognisable here"/"(rest)" signal this
+ * panel already commits to, never a blank gap that reads as "not analysed
+ * yet" (see the module comment above). Not wired into `ScoreScreen.tsx` by
+ * this change — that file is outside this module's owned files; a caller
+ * wanting the engraving-side labels should use the `useMeasureLabels` hook
+ * below rather than calling this directly with an inline `analyseScore(score)`
+ * — see that hook's doc comment for why.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- shared computation, not a component; deliberately reused by ScoreViewer callers
+export function buildMeasureLabels(score: Score, analysis: Analysis): ReadonlyMap<number, string> {
+  const chords = chordsByMeasure(analysis)
+  const labels = new Map<number, string>()
+  for (const measure of score.measures) {
+    const measureChords = labelsForMeasure(chords.get(measure.index))
+    const text =
+      measureChords.length > 0
+        ? measureChords.join(' ')
+        : notesInMeasure(score, measure.index).length === 0
+          ? TACET
+          : UNNAMED
+    labels.set(measure.index + 1, text)
+  }
+  return labels
+}
+
+/**
+ * `buildMeasureLabels(score, analyseScore(score))`, memoised on `score` alone
+ * (roadmap-review finding 3). Its intended host is `PracticeScreen`'s playing
+ * transport, which re-renders every animation frame — inlining the composed
+ * call there would run the analyser AND rebuild the label map on every frame,
+ * which then fires `ScoreViewer`'s `measureLabels` effect every frame and
+ * tears down/rebuilds every `<text>` node in the engraving each time. This
+ * hook is the unmissable way to get the labels instead: call it once with the
+ * current `score` and pass its result straight through as `measureLabels`.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- shared hook, not a component; deliberately reused by ScoreViewer callers
+export function useMeasureLabels(score: Score): ReadonlyMap<number, string> {
+  return useMemo(() => buildMeasureLabels(score, analyseScore(score)), [score])
+}
+
 export function AnalysisPanel({ score }: AnalysisPanelProps) {
   const analysis = useMemo(() => analyseScore(score), [score])
   const rows = useMemo(() => buildRows(score, analysis), [score, analysis])
