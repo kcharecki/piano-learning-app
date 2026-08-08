@@ -54,6 +54,17 @@ over a dozen "tests green, feature dead in the browser" defects. The browser dri
 
 ## Building a slice
 
+- **Find the class before fixing the instance.** A roadmap task's stated scope is a
+  hypothesis, not a specification — it records what someone noticed, which is rarely all of
+  what is wrong. Before fixing a reported defect, spend bounded effort finding every instance
+  of it, and state the count in the commit body ("2 reported, 11 found" or "1 reported, 1
+  found" — both are results). If the count is greater than one, the assertion must cover the
+  class, not the instances you happened to fix. *Evidence (2026-08-08, fourth session): 5.8
+  reported two lessons demonstrating the wrong key; the audit found 11 mismatches over a root
+  cause where every technique-library score engraved in C major regardless of tonic. T.2
+  reported a failing spec; the real defect was that the spec could not fail for the reason it
+  existed. Fixing either as written would have passed its own proof and left the class alive.*
+  **Review-by 2026-08-29 (or 4 sessions).**
 - **Design before code** for any UI change: three sentences in the slice plan — what the
   screen shows, what is primary, what is behind disclosure. Adding a control to an
   already-dense screen obliges the slice to say what it demotes or hides

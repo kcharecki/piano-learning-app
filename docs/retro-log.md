@@ -16,6 +16,62 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
+## 2026-08-08 (fourth session) — Triage cleared; the reported defect was never the whole defect
+
+- user-reported defects since last session: 0. One mid-session question (was I aware of the
+  parallel worktree session, and was the work distinct) — answered, no change needed.
+- slices proven / started: 3 / 3. T.3 (worktree lint isolation), T.2 (audio drift spec),
+  5.8+5.9 (lesson demos in the key the lesson teaches).
+- gate catches before commit: 6, and this is the story of the session.
+  1. `npm run verify` itself found T.3: `eslint .` in the main checkout was linting the OTHER
+     session's worktree and failing on their in-flight `musicxml.ts`. Master's verify was red
+     because of code master does not own, and the main checkout is the only one allowed to merge.
+  2. The full e2e suite killed my first T.2 design. An 8 ms/min bound on the adapter's anchor
+     error passed alone (1.52) and failed under contention (-218) because the audio device had
+     gone away. Redesigned to a tracking ratio.
+  3. `no-restricted-syntax` killed my second T.2 design — a conditional `test.skip`. The rule
+     ("a skipped e2e reads as green forever") was right: a CI box with no audio device would
+     skip permanently. This is the automation-beats-prose principle paying rent on ME.
+  4. The 5.9 audit found 11 mismatches where the roadmap reported 2.
+  5. The visual pass found the nav's twelve destinations and both Lessons lists rendering with
+     raw disc bullets. Fixed before the tick.
+  6. Driving 5.8 in a browser found that "Open demonstration" does not navigate — the one
+     control promising to show you the music appears to do nothing. Filed as 5.9b.
+- docs budget (ROADMAP+CLAUDE+PROCESS): 1014 (798 + 101 + 115).
+- cost note: the biggest line was the audio drift spec — ~46 s per run, run 8 times across two
+  design iterations and two mutation checks. Second was the roadmap budget: adding 5.9a/5.9b
+  needed six completed entries compressed first. Two Sonnet builders (technique key signature,
+  demo scores) were cheap and both came back clean.
+
+- hypothesis: **a roadmap task's stated scope is a hypothesis, not a specification, and the
+  process has no step that tests it.** Three times today the reported defect was a symptom:
+  T.2 "the spec fails" was really "the spec cannot fail for the reason it exists"; 5.8 "two
+  lessons point at the wrong demo" was really 11 mismatches over a root cause where EVERY
+  technique-library score engraved in C major regardless of tonic; T.3 was not on the roadmap
+  at all. Fixing what the task literally said would, in all three cases, have shipped something
+  that passed its own proof and left the class of bug in place — which is the exact failure
+  mode this whole process was created to stop, one level up from "green tests, dead feature".
+
+- change: added "Find the class before fixing the instance" to `docs/PROCESS.md` "Building a
+  slice" — before fixing a reported defect, bound-effort search for every instance, state the
+  count in the commit body, and if it is >1 the assertion must cover the class rather than the
+  instances. **Review-by 2026-08-29 (or 4 sessions):** keep if it keeps finding counts >1;
+  revert if the searches keep returning exactly what the task said, since then it is pure cost.
+  Metric to watch: reported instances vs found instances, per triage/defect slice.
+
+- experiment verdicts due: none. `scripts/visual-pass.mjs` (review-by 2026-08-22) is not due
+  yet but is tracking to KEEP — used it once here with no bespoke driver, and it produced gate
+  catch #5. Its `--url` flag earned itself immediately: port 5173 was held by the other session.
+
+- note for the next session: Triage is EMPTY. Highest-impact unstarted work is Phase 5's
+  "playable content" group — but be aware 5.1 needs 20 public-domain MusicXML files sourced
+  from outside the repo (IMSLP/MuseScore), which is a fetch-and-licence-check job, not a coding
+  one; consider asking the user rather than assuming. 5.9a (7 audited demo mismatches, table in
+  the task) is fully actionable with no external dependency, and `l3-two-octave-scales-hands-
+  together` is the cheapest of them since `scale-c-major-2oct-hands-together` already exists.
+  `task/5.4` was 2 commits ahead and clean at session end but still held an ACTIVE claim, so it
+  was correctly not merged here — integrate it first next session.
+
 ## 2026-08-08 (third session) — Parallel sessions via worktrees
 
 - user-reported defects since last session: 0. User asked for a capability: several sessions
