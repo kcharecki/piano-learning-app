@@ -20,6 +20,21 @@ vi.mock('@app/score/ScoreScreen.tsx', () => ({
   ScoreScreen: () => <div data-testid="mock-score-screen" />,
 }))
 
+// The Theory destination reaches a SECOND OSMD mount that `ScoreScreen`'s mock
+// does not cover: `TheoryScreen` -> `ChordScaleReference` -> `ScaleStaff`
+// (roadmap 3.14) -> `ExerciseScore` -> `ScoreViewer`. happy-dom has no canvas,
+// so OSMD's text measurer throws — and because `autoResize: true` makes OSMD
+// re-render on a timer it owns, that throw lands OUTSIDE the `load()` promise
+// `ScoreViewer` catches, as an unhandled exception that fails the whole run
+// while every test still passes. Same mock as ChordScaleReference.test.tsx /
+// ScaleStaff.test.tsx / TechniqueScreen.test.tsx; the real engraving is proved
+// in a browser by e2e, not here.
+vi.mock('@app/score/ScoreViewer.tsx', () => ({
+  ScoreViewer: ({ score }: { readonly score: { readonly meta: { readonly title: string } } }) => (
+    <div data-testid="mock-score-viewer" data-title={score.meta.title} />
+  ),
+}))
+
 const { Shell } = await import('./Shell.tsx')
 
 function resetStores(): void {

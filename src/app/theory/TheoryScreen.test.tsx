@@ -11,8 +11,21 @@ import { buildScale } from '@core/theory/scales.ts'
 import { pitchName, spell } from '@core/theory/pitch.ts'
 import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TheoryScreen } from './TheoryScreen.tsx'
+
+// The reference below the circle mounts `ScaleStaff` (roadmap 3.14), i.e. a
+// real OSMD engrave. happy-dom has no canvas, so OSMD's text measurer throws —
+// and `autoResize: true` makes OSMD re-render on a timer it owns, so that
+// throw lands OUTSIDE the `load()` promise `ScoreViewer` catches, as an
+// unhandled exception that fails the whole run while every test still passes.
+// Same mock as ChordScaleReference.test.tsx / ScaleStaff.test.tsx; this file
+// asserts circle -> reference wiring, and the engraving is proved by e2e.
+vi.mock('@app/score/ScoreViewer.tsx', () => ({
+  ScoreViewer: ({ score }: { readonly score: { readonly meta: { readonly title: string } } }) => (
+    <div data-testid="mock-score-viewer" data-title={score.meta.title} />
+  ),
+}))
 
 afterEach(cleanup)
 
