@@ -1,39 +1,65 @@
 import { expect, test, type Page } from '@playwright/test'
 
 /**
- * MEASUREMENT spec for roadmap 2.32e — not a fix. `src/adapters/audio/webaudio.ts`
- * captures `clockOffsetMs = performance.now() - ctx.currentTime * 1000` ONCE at
- * construction and never re-anchors it. `performance.now()` (system monotonic
+ * REGRESSION spec for roadmap 2.32e, and the resolution of roadmap T.2.
+ *
+ * ## What 2.32e was
+ *
+ * `src/adapters/audio/webaudio.ts` used to capture
+ * `clockOffsetMs = performance.now() - ctx.currentTime * 1000` ONCE at
+ * construction and never re-anchor it. `performance.now()` (system monotonic
  * clock) and `AudioContext.currentTime` (audio hardware clock) are driven by
- * different oscillators, so that offset can drift over a long session — and a
- * drifting offset means every note scheduled through `toCtxSeconds` lands
- * progressively further from where the transport thinks it is.
+ * different oscillators, so that offset drifts — measured at about
+ * -15 ms/min on this machine. A frozen anchor therefore goes stale by ~150 ms
+ * after ten minutes of practice. 2.32e replaced it with a time-based
+ * exponential-filtered running anchor.
  *
- * The roadmap is explicit that a fix here needs a measurement behind it first:
- * "A fix with no measurement behind it cannot be told from a no-op." This spec
- * is that measurement. It samples the same two clocks the adapter compares,
- * over a sustained ~45s window in a real browser, and logs the drift rate so
- * the orchestrator (or a human) can decide whether re-anchoring is warranted.
+ * ## What this spec measures, and why it changed (T.2)
  *
- * It intentionally does NOT touch `src/adapters/audio/webaudio.ts` or import
- * from it — the quantity under measurement (`performance.now() - ctx.currentTime
- * * 1000`) is reproduced directly against a real `AudioContext`, which is all
- * that module does with these two clocks.
+ * This spec used to sample the RAW clock pair (`performance.now() -
+ * ctx.currentTime * 1000`) directly, without touching `webaudio.ts` at all,
+ * and assert a bound on its drift rate. That was a measurement of the machine,
+ * not of our code, and it had two fatal problems:
  *
- * This is a PROXY measurement of the raw clock pair, not of the adapter's
- * effective scheduling error (which also includes the `Math.max(ctx.currentTime,
- * seconds)` clamp in `webaudio.ts`). Treat 2.32e as measured-but-not-fixed until
- * something drives the app's own transport and samples the real output instance.
+ *  - **It could not fail for the reason it existed.** Reverting 2.32e would
+ *    not move the number by one microsecond, because the number never went
+ *    near the adapter. The old comment admitted as much ("Treat 2.32e as
+ *    measured-but-not-fixed until something drives the app's own transport").
+ *  - **It failed for reasons that were not defects.** T.2 recorded a run
+ *    measuring ~5994 ms/min against the 150 ms/min bound. 5994 ms/min is
+ *    ~10%, i.e. ~100_000 ppm. No pair of hardware oscillators disagrees by
+ *    10%: a cheap crystal is ±100 ppm and an out-of-spec one is still under
+ *    ~1000 ppm. A 10% figure means `ctx.currentTime` was not being advanced by
+ *    audio hardware at all — on a machine (or a headless container) with no
+ *    output device, Chromium runs a software "null sink" whose render thread
+ *    is a timer, and a starved or throttled timer advances that clock at
+ *    whatever rate it gets scheduled at. See `classifySink` below.
  *
- * `performance.now() - ctx.currentTime * 1000` is NOT smooth: `currentTime`
- * advances in audio-buffer-sized steps while `performance.now()` advances
- * continuously, producing a sawtooth with measured peak-to-peak amplitude on
- * the order of 10ms. A two-point (first-vs-last sample) estimate reports where
- * in that sawtooth two arbitrary samples happened to land, not drift — its own
- * noise floor over a 45s window is comparable to or larger than every drift
- * figure this measurement has produced. The estimate below is therefore a
- * least-squares fit over every sample, with the fit residual spread logged
- * alongside it so a reader can see whether the slope clears its own noise.
+ * So the assertion now sits on the quantity that actually belongs to us: the
+ * adapter's own anchor tracking error, sampled off a REAL
+ * `createWebAudioOutput` instance in the page.
+ *
+ *   now()            = anchor     + ctx.currentTime * 1000
+ *   performance.now() = rawOffset + ctx.currentTime * 1000
+ *   => now() - performance.now() = anchor - rawOffset
+ *
+ * `ctx.currentTime` cancels. What is left is purely how well our filter is
+ * tracking, with the platform's clock rate divided out — which is exactly why
+ * this survives the null-sink artefact that broke the old assertion.
+ *
+ *  - With 2.32e's filter: `anchor` chases `rawOffset`, so the difference is a
+ *    constant (the filter's steady-state ramp lag, ~0.5 ms) plus the
+ *    render-quantum sawtooth. Slope ~ 0.
+ *  - With the pre-2.32e frozen anchor: `anchor` is constant while `rawOffset`
+ *    ramps, so the difference ramps at the full clock-drift rate, ~15 ms/min.
+ *
+ * `ADAPTER_DRIFT_BUDGET_MS_PER_MIN` sits between those two, so reverting the
+ * fix fails this spec — which is the whole point of having it.
+ *
+ * The raw clock pair is still sampled and still logged (`AUDIO_CLOCK_DRIFT`),
+ * because it is a genuinely useful diagnostic and it is what tells a reader
+ * whether they are looking at real hardware or a null sink. It is no longer
+ * asserted on.
  */
 
 /** Wall-clock length of the sampling window. ~45s per the roadmap task. */
@@ -49,16 +75,62 @@ const TEST_TIMEOUT_MS = 90_000
  * `ctx.state === 'running'` flips before the clock ticks. Samples taken
  * during that pin contain zero information about the clock's rate and would
  * fold pure startup latency into the drift estimate as if it were drift.
+ *
+ * It also covers the adapter's own filter settling: the anchor starts at the
+ * construction-time raw sample, and a first-order filter with a 2000 ms time
+ * constant is within 0.7% of its steady state after 5 tau = 10 s. 2 s is
+ * comfortably enough here because the thing being settled toward is only
+ * ~0.5 ms away, but the warm-up is stated in tau terms so a future change to
+ * `OFFSET_TIME_CONSTANT_MS` has an obvious place to look.
  */
 const WARMUP_MS = 2_000
+
+/**
+ * Bound on the adapter's anchor tracking drift. Chosen to sit above this
+ * measurement's own noise and below the defect it exists to catch:
+ *
+ *  - Noise floor. The residual is the ~17 ms peak-to-peak render-quantum
+ *    sawtooth, sd ~ 17/sqrt(12) ~ 4.9 ms. A least-squares slope over n ~ 167
+ *    samples spread over ~43 s has sd ~ 4.9 / (sqrt(167) * 43000/sqrt(12))
+ *    ~ 3.1e-5 ms/ms, i.e. ~1.8 ms/min. This budget is ~4 sigma above that.
+ *  - Defect. A frozen anchor (pre-2.32e) drifts at the raw clock rate,
+ *    measured at ~15 ms/min. This budget is half of it.
+ */
+const ADAPTER_DRIFT_BUDGET_MS_PER_MIN = 8
+/**
+ * Bound on the adapter's absolute anchor error. The filter's steady-state lag
+ * against a ramp of rate r is r * tau; on real hardware that is
+ * 0.00025 ms/ms * 2000 ms = 0.5 ms. On a null sink whose rate error is orders
+ * of magnitude larger the lag scales with it, and above
+ * `OFFSET_RESNAP_THRESHOLD_MS` (250 ms) the adapter snaps rather than
+ * crawling — so 300 ms is the structural ceiling on this quantity regardless
+ * of platform, plus sawtooth. Asserting it catches an anchor that has come
+ * unstuck entirely (e.g. a resnap threshold that never fires).
+ */
+const ADAPTER_ERROR_CEILING_MS = 400
+/**
+ * Above this, the two "clocks" are not two oscillators. Real crystal pairs
+ * disagree by tens to hundreds of ppm; 1000 ppm (0.1%) is already beyond any
+ * hardware explanation, so anything past it is Chromium's software null sink
+ * being scheduled at a rate that is not real time. Used only to classify and
+ * report — never to fail — because it says something about the machine the
+ * test is on, not about this repository.
+ */
+const HARDWARE_PLAUSIBLE_PPM = 1000
 
 type ClockState = 'suspended' | 'running' | 'closed'
 
 type RawSample = {
   /** `performance.now()` at the moment this sample was taken. */
   readonly tMs: number
-  /** `performance.now() - ctx.currentTime * 1000` at the moment this sample was taken. */
+  /** `performance.now() - ctx.currentTime * 1000` — the RAW, unfiltered pair. */
   readonly offsetMs: number
+  /**
+   * `output.now() - performance.now()` off a real `createWebAudioOutput`,
+   * i.e. `anchor - rawOffset`: how far the adapter's filtered anchor is from
+   * the truth at this instant. This is the quantity under test.
+   */
+  readonly adapterErrorMs: number
 }
 
 type DriftMeasurement = {
@@ -76,23 +148,35 @@ type DriftMeasurement = {
  * and — only if it actually reached `running` (a suspended context's
  * `currentTime` never advances, which would fake a perfect zero-drift result)
  * — spins until `ctx.currentTime` actually leaves 0 (the render thread has
- * genuinely started), then samples the clock-offset quantity every
- * `sampleIntervalMs` for `windowMs` of real wall time.
+ * genuinely started), then builds a REAL `createWebAudioOutput` over that
+ * context and samples both the raw clock pair and the adapter's anchor error
+ * every `sampleIntervalMs` for `windowMs` of real wall time.
+ *
+ * The adapter instance is the app's own module, imported from the dev server
+ * by URL (the e2e `webServer` is `npm run dev`, so vite serves and transpiles
+ * it). Nothing is exported from production code purely for this test, and no
+ * copy of the filter is reimplemented here — a reimplementation could not
+ * catch a regression in the original.
+ *
+ * `output` only ever has `now()` called on it. It builds a master `GainNode`
+ * and connects it, but creates no oscillator without a `noteOn`, so this
+ * measurement is silent.
  */
 async function measureClockDrift(
   page: Page,
   windowMs: number,
   sampleIntervalMs: number,
 ): Promise<DriftMeasurement> {
-  return page.evaluate<
-    DriftMeasurement,
-    { windowMs: number; sampleIntervalMs: number }
-  >(
+  return page.evaluate<DriftMeasurement, { windowMs: number; sampleIntervalMs: number }>(
     async ({ windowMs, sampleIntervalMs }) => {
+      const { createWebAudioOutput } = (await import('/src/adapters/audio/webaudio.ts')) as {
+        createWebAudioOutput: (ctx: AudioContext) => { now: () => number }
+      }
+
       const ctx = new AudioContext()
       await ctx.resume()
       const stateAfterResume = ctx.state
-      const samples: { tMs: number; offsetMs: number }[] = []
+      const samples: { tMs: number; offsetMs: number; adapterErrorMs: number }[] = []
       let startupPinMs = 0
 
       if (stateAfterResume === 'running') {
@@ -102,11 +186,20 @@ async function measureClockDrift(
         }
         startupPinMs = performance.now() - pinStart
 
+        const output = createWebAudioOutput(ctx)
+
         const start = performance.now()
         while (performance.now() - start < windowMs) {
           const tMs = performance.now()
           const offsetMs = tMs - ctx.currentTime * 1000
-          samples.push({ tMs, offsetMs })
+          // Bracket the `now()` call and use the midpoint of the two
+          // `performance.now()` reads around it, so the few microseconds the
+          // call itself takes do not land in the error term as a bias.
+          const before = performance.now()
+          const adapterNowMs = output.now()
+          const after = performance.now()
+          const adapterErrorMs = adapterNowMs - (before + after) / 2
+          samples.push({ tMs, offsetMs, adapterErrorMs })
           await new Promise((resolve) => setTimeout(resolve, sampleIntervalMs))
         }
       }
@@ -120,18 +213,21 @@ async function measureClockDrift(
 }
 
 /**
- * Ordinary least-squares fit of `offsetMs` against `tMs`: returns the slope
- * (ms of offset change per ms of elapsed time) and the max-min spread of the
+ * Ordinary least-squares fit of `value(sample)` against `tMs`: returns the
+ * slope (units of value per ms of elapsed time) and the max-min spread of the
  * fit residuals, so a caller can compare the slope's implied drift against
  * the noise it was extracted from.
  */
-function fitDrift(samples: readonly RawSample[]): { slopePerMs: number; residualSpreadMs: number } {
+function fitDrift(
+  samples: readonly RawSample[],
+  value: (sample: RawSample) => number,
+): { slopePerMs: number; residualSpreadMs: number } {
   const n = samples.length
   let sumT = 0
   let sumO = 0
   for (const s of samples) {
     sumT += s.tMs
-    sumO += s.offsetMs
+    sumO += value(s)
   }
   const meanT = sumT / n
   const meanO = sumO / n
@@ -140,7 +236,7 @@ function fitDrift(samples: readonly RawSample[]): { slopePerMs: number; residual
   let variance = 0
   for (const s of samples) {
     const dt = s.tMs - meanT
-    covariance += dt * (s.offsetMs - meanO)
+    covariance += dt * (value(s) - meanO)
     variance += dt * dt
   }
   const slopePerMs = variance === 0 ? 0 : covariance / variance
@@ -150,7 +246,7 @@ function fitDrift(samples: readonly RawSample[]): { slopePerMs: number; residual
   let residualMax = Number.NEGATIVE_INFINITY
   for (const s of samples) {
     const fitted = intercept + slopePerMs * s.tMs
-    const residual = s.offsetMs - fitted
+    const residual = value(s) - fitted
     residualMin = Math.min(residualMin, residual)
     residualMax = Math.max(residualMax, residual)
   }
@@ -158,7 +254,22 @@ function fitDrift(samples: readonly RawSample[]): { slopePerMs: number; residual
   return { slopePerMs, residualSpreadMs: residualMax - residualMin }
 }
 
-test('measures AudioContext clock-offset drift over a sustained session (roadmap 2.32e)', async ({
+/**
+ * What kind of thing produced `ctx.currentTime` on this machine. See
+ * `HARDWARE_PLAUSIBLE_PPM`: this is reported, never asserted, and it is the
+ * answer to T.2's "what does the number mean on a machine with no audio
+ * device" — on such a machine expect `'software-null-sink'` and a raw drift
+ * figure in the thousands of ms/min, while the adapter figure below stays
+ * small because the filter tracks whatever rate it is given.
+ */
+function classifySink(rawDriftPpm: number): 'hardware-plausible' | 'software-null-sink' {
+  return Math.abs(rawDriftPpm) <= HARDWARE_PLAUSIBLE_PPM ? 'hardware-plausible' : 'software-null-sink'
+}
+
+const perMinute = (slopePerMs: number): number => Math.round(slopePerMs * 60_000 * 100) / 100
+const round2 = (value: number): number => Math.round(value * 100) / 100
+
+test('the audio adapter holds its Clock anchor over a sustained session (roadmap 2.32e, T.2)', async ({
   page,
 }) => {
   test.setTimeout(TEST_TIMEOUT_MS)
@@ -196,7 +307,8 @@ test('measures AudioContext clock-offset drift over a sustained session (roadmap
   // Discard the warm-up window from the front of the sampling loop itself
   // (in addition to the startup pin already skipped before sampling began) —
   // belt-and-braces against any residual settling in the first couple of
-  // seconds of real sampling.
+  // seconds of real sampling, and against the adapter's filter still moving
+  // off its construction-time seed.
   const samples = rawSamples.filter((s) => s.tMs - first.tMs >= WARMUP_MS)
   expect(samples.length, 'nothing survived the warm-up discard').toBeGreaterThan(0)
 
@@ -205,34 +317,44 @@ test('measures AudioContext clock-offset drift over a sustained session (roadmap
   if (firstSample === undefined || lastSample === undefined) {
     throw new Error('unreachable: samples.length was just asserted > 0')
   }
+  const windowSeconds = (lastSample.tMs - firstSample.tMs) / 1000
 
-  const startOffsetMs = firstSample.offsetMs
-  const endOffsetMs = lastSample.offsetMs
-  const elapsedMs = lastSample.tMs - firstSample.tMs
-  const windowSeconds = elapsedMs / 1000
-
-  const { slopePerMs, residualSpreadMs } = fitDrift(samples)
-  const driftMsPerMinute = Math.round(slopePerMs * 60_000 * 100) / 100
+  const raw = fitDrift(samples, (s) => s.offsetMs)
+  const adapter = fitDrift(samples, (s) => s.adapterErrorMs)
   // ppm: the drift, as a fraction of elapsed time, in parts per million —
   // e.g. a clock that gains 1ms per 1000ms elapsed is drifting at 1000ppm.
-  const driftPpm = Math.round(slopePerMs * 1_000_000 * 100) / 100
+  const rawDriftPpm = round2(raw.slopePerMs * 1_000_000)
+  const adapterDriftMsPerMinute = perMinute(adapter.slopePerMs)
+  const worstAdapterErrorMs = Math.max(...samples.map((s) => Math.abs(s.adapterErrorMs)))
 
-  // This logged line IS the point of this spec — the orchestrator reads the
-  // drift figures out of it. Do not remove or reword the prefix. Values are
-  // rounded in code so any quoted output is byte-identical to this line.
-  // eslint-disable-next-line no-console -- deliberate machine-readable report line, see module comment
+  // These logged lines ARE a deliverable of this spec — a reader diagnosing a
+  // timing complaint reads the drift figures out of them. Do not remove or
+  // reword the prefixes. Values are rounded in code so any quoted output is
+  // byte-identical to these lines.
+  /* eslint-disable no-console -- deliberate machine-readable report lines, see module comment */
   console.log(
     'AUDIO_CLOCK_DRIFT ' +
       JSON.stringify({
-        startOffsetMs,
-        endOffsetMs,
+        sink: classifySink(rawDriftPpm),
+        startOffsetMs: firstSample.offsetMs,
+        endOffsetMs: lastSample.offsetMs,
         windowSeconds,
-        driftMsPerMinute,
-        driftPpm,
+        driftMsPerMinute: perMinute(raw.slopePerMs),
+        driftPpm: rawDriftPpm,
         samples: samples.length,
-        residualSpreadMs: Math.round(residualSpreadMs * 100) / 100,
+        residualSpreadMs: round2(raw.residualSpreadMs),
       }),
   )
+  console.log(
+    'AUDIO_ADAPTER_ANCHOR ' +
+      JSON.stringify({
+        driftMsPerMinute: adapterDriftMsPerMinute,
+        budgetMsPerMinute: ADAPTER_DRIFT_BUDGET_MS_PER_MIN,
+        worstAbsErrorMs: round2(worstAdapterErrorMs),
+        residualSpreadMs: round2(adapter.residualSpreadMs),
+      }),
+  )
+  /* eslint-enable no-console */
 
   // The sampling loop must have actually run for close to the intended
   // window at the intended density — otherwise Chrome's hidden-page timer
@@ -241,12 +363,14 @@ test('measures AudioContext clock-offset drift over a sustained session (roadmap
   expect(windowSeconds).toBeGreaterThan(40)
   expect(samples.length).toBeGreaterThan(150)
 
-  // Deliberately LOOSE: this is a hang/pathology detector, not a quality bar.
-  // The estimator's own noise floor (sawtooth in the offset quantity itself)
-  // is on the order of tens of ms/min over a 45s window, so this bound sits
-  // above that noise rather than below it. A healthy result is expected to
-  // sit far under this — the real output of this spec is the logged
-  // AUDIO_CLOCK_DRIFT figure above (with its residual spread), which is what
-  // should inform whether `webaudio.ts` needs periodic re-anchoring at all.
-  expect(Math.abs(driftMsPerMinute)).toBeLessThan(150)
+  // THE assertion. Not the raw clock pair (that is the machine's business,
+  // logged above and deliberately unasserted after T.2) but the adapter's
+  // own anchor: it must still be tracking, at a rate a frozen anchor could
+  // not achieve.
+  expect(
+    Math.abs(adapterDriftMsPerMinute),
+    `the filtered offset anchor is not tracking — a frozen anchor drifts at the raw clock rate ` +
+      `(${String(perMinute(raw.slopePerMs))} ms/min here); see roadmap 2.32e`,
+  ).toBeLessThan(ADAPTER_DRIFT_BUDGET_MS_PER_MIN)
+  expect(worstAdapterErrorMs).toBeLessThan(ADAPTER_ERROR_CEILING_MS)
 })

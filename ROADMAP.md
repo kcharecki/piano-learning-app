@@ -24,14 +24,21 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
       `ScoreViewer` in the two screen tests that reached a real OSMD (33fabaa). All four blocked
       boxes then passed the experience gate this session: 3.14, 3.18a, 3.19b, 3.23.
 
-- [ ] T.2 `e2e/audio-clock-drift.spec.ts` fails on master: the sustained-session drift measures
-      ~5994 ms/min against a 150 ms/min budget. Reproduced on a clean tree at 529ac23, so it
-      predates this session's work and is not a 3.14/3.18a regression. Either `webaudio.ts`'s
-      exponential-filtered anchor (roadmap 2.32e) has actually regressed, or the spec is measuring
-      a headless-Chromium artefact — a suspended/throttled `AudioContext` with no output device
-      advances its clock differently from a real one. Decide which before changing either.
-      *Proof: `npx playwright test` is green, and whichever way it resolves, the spec's comment
-      says what the number means on a machine with no audio device.*
+- [x] T.2 `e2e/audio-clock-drift.spec.ts`'s ~5994 ms/min against a 150 ms/min budget. **Verdict:
+      environment artefact, not a 2.32e regression** — 5994 ms/min is ~100_000 ppm, and no pair of
+      hardware oscillators disagrees by 10% (a bad crystal is under ~1000 ppm), so `ctx.currentTime`
+      was being advanced by Chromium's software null sink on a starved timer, not by audio hardware.
+      Measured here at -17.25 ms/min isolated and -6.86 ms/min under full-suite contention, both
+      matching `webaudio.ts`'s documented ~-15 ms/min. The deeper defect was that the spec sampled
+      the RAW clock pair and never touched the adapter, so it *could not fail for the reason it
+      existed* — reverting 2.32e would not have moved its number at all. Rewritten to import the
+      real `createWebAudioOutput` in-page and assert `now() - performance.now()` = `anchor -
+      rawOffset`, in which `ctx.currentTime` cancels and the platform's clock rate divides out.
+      *Proof: `npx playwright test` green (56/56). Healthy 1.52 ms/min against an 8 ms/min budget;
+      mutation-killed by freezing the anchor, which reports 16.24 ms/min — the exact mirror of that
+      run's -16.25 ms/min raw rate, so the budget sits between fixed and broken by construction.
+      The raw pair is still logged (`AUDIO_CLOCK_DRIFT`, now with a `sink` classification) and
+      deliberately no longer asserted on.*
 
 - [x] T.3 `npm run verify` went red in the MAIN checkout on code it does not own: `eslint .` walked
       into `.claude/worktrees/**` and failed on a parallel session's in-flight module. The main
