@@ -16,6 +16,15 @@ states handled, no perf regression. Green tests alone are not done — this proj
 a dozen inert features under green suites. Every session ends with a retro entry in
 `docs/retro-log.md` and at most one process change.
 
+## Parallel sessions
+
+Multiple sessions run in parallel via git worktrees (`claude --worktree <name>`, then `/next`
+inside it). The claim registry is branch names: `task/<roadmap-id>` = claimed; check
+`node scripts/worktrees.mjs status` before picking work. Worktree sessions build on their own
+branch and port; **only the main-checkout session merges**, serially, verify between merges
+(Claude Code's worktree isolation enforces the write boundary). Full contract:
+[docs/WORKTREES.md](docs/WORKTREES.md).
+
 ## Model policy
 
 Match the model to the job; do not use one tier for everything.

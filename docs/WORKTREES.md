@@ -1,0 +1,79 @@
+# WORKTREES.md — running several sessions in parallel
+
+Mechanics follow the official guidance (code.claude.com/docs/en/worktrees): one git worktree
+per session, shared `.git`, and Claude Code itself enforces that a worktree session cannot
+write to the main checkout or redirect git into it. That enforcement dictates the shape of
+everything below: **worktree sessions build; only the main-checkout session merges.**
+
+## The contract, in five lines
+
+1. A **claim** is a branch named `task/<roadmap-id>`. Branch exists = task claimed. Visible
+   to every session via `node scripts/worktrees.mjs status`; no lock files, nothing to go stale.
+2. A worktree session works ONLY its claimed task, on its own branch, and never touches
+   master. It runs the full experience gate inside its worktree before ticking the box.
+3. Only the **main-checkout** session merges task branches, serially, verifying after each.
+4. Every worktree runs on its **own port** (`status` prints it) — separate server, separate
+   origin, separate IndexedDB. The main checkout keeps 5173.
+5. At most **one** active claim may touch the shared app spine (`Shell.tsx`, routes,
+   `app/state/*`, `src/design-system/*`, `package.json`). Everything else must be
+   screen/module-local, or it is not parallel-safe — pick a different task.
+
+## Starting a parallel session
+
+```bash
+claude --worktree t1
+```
+
+Worktree lands in `.claude/worktrees/t1/` (gitignored), branch `worktree-t1`, branched from
+local HEAD (`worktree.baseRef: "head"` in `.claude/settings.json` — deliberate: this repo's
+master is usually ahead of origin, and the default "fresh" base would branch from a stale
+`origin/master`). Then, inside the session, type `/next`. No `npm ci` needed: worktrees sit
+under the repo root, so Node's ancestor walk resolves the main checkout's `node_modules`
+(verified — the pre-commit vitest run passes in a fresh worktree with zero setup). Run
+`npm ci` in the worktree only if a tool misbehaves.
+
+## What `/next` does, by location
+
+**In a worktree** (`git rev-parse --git-common-dir` differs from `--git-dir`):
+1. Branch already `task/<id>` → that is this session's task; continue it.
+2. Otherwise claim: run `node scripts/worktrees.mjs status`, pick the highest-priority
+   OPEN task (ROADMAP order: Triage → impact) that is (a) unclaimed and (b) parallel-safe
+   per rule 5, then `git branch -m task/<id>` and mark the ROADMAP box `[~] (session: t1)`
+   on this branch. State what was skipped because of a claim or an overlap.
+3. Build slices as normal; run the gate with this worktree's port:
+   `npm run dev -- --port <port> --strictPort`, `$env:E2E_PORT=<port>` for playwright,
+   `node scripts/visual-pass.mjs <dest> --url http://localhost:<port>`.
+4. Tick `[x]` on the branch only after the gate passes. Commit per slice, on the branch.
+5. Never edit on a task branch: `docs/PROCESS.md`, `docs/retro-log.md`, ROADMAP lines other
+   than your own task's, `.claude/*`, `package.json` (rule 5's spine list needs the
+   exclusive claim). The integrator owns those; the retro for a parallel round is written
+   once, at merge time.
+6. Session ends: leave the branch and worktree in place. Done = branch ahead of master with
+   the box ticked; `status` will show it as mergeable.
+
+**In the main checkout:**
+1. RECOVER as usual (PROCESS.md step 0).
+2. INTEGRATE before new work: `node scripts/worktrees.mjs status`, then for each branch
+   whose task is ticked (or whose worktree is gone with commits ahead):
+   `git merge --no-ff task/<id>` → resolve conflicts (ROADMAP task-line conflicts are
+   line-local and trivial) → `npm run verify` → if the merge touched the app spine or had
+   conflicts, re-run the task's proof action → `git branch -d task/<id>` →
+   `git worktree remove .claude/worktrees/<name>` (add `--force` only for a worktree the
+   branch of which is fully merged). One branch at a time; verify between merges, never batch.
+3. A `STALE` claim in `status` (no worktree, no commits) → delete the branch, freeing the task.
+4. Then the normal session loop for its own work, skipping claimed tasks, and writing the
+   round's retro entry (including what each merged branch shipped).
+
+## Conflict posture
+
+Merges stay boring because ownership is disjoint by construction: rule 5 keeps the spine
+single-writer, tasks are screen/module-scoped, and ROADMAP edits are each session's own task
+lines. If a merge still conflicts anywhere outside ROADMAP.md, treat it as a process failure
+worth a retro line: two claims overlapped and the claim rules need tightening, not the merge.
+
+## Limits
+
+2–3 parallel sessions is the practical ceiling worth supervising. Every extra session costs
+an `npm ci`, a dev server, and integrator attention; past three, merge review becomes the
+bottleneck and quality drops back to what the old process shipped. Scale only when `status`
+is clean and the last round's merges were conflict-free.

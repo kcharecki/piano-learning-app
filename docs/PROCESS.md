@@ -73,6 +73,17 @@ over a dozen "tests green, feature dead in the browser" defects. The browser dri
   ("deleted nothing" is a valid, stated outcome). Prune tests only on evidence (a named
   superset test or a surviving Stryker mutant) — a wrongly deleted test fails invisibly.
 
+## Parallel sessions (worktrees)
+
+Several sessions can run at once — one per git worktree, full contract in `docs/WORKTREES.md`.
+The five rules that matter: a claim is a branch named `task/<id>` (check with
+`node scripts/worktrees.mjs status` before picking work); a worktree session works only its
+claimed task and never touches master, PROCESS.md, retro-log, or other tasks' ROADMAP lines;
+only the main-checkout session merges — serially, verifying after each branch; every worktree
+uses its own port (`status` prints it; `E2E_PORT` for playwright, `--url` for visual-pass);
+and at most one active claim may touch the app spine (Shell, routes, `app/state`,
+design-system, package.json). `/next` detects its location and behaves accordingly.
+
 ## Improve the process (the self-improvement loop)
 
 The retro is not a diary; it is the mechanism this process uses to fix itself. Each session:

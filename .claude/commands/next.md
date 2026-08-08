@@ -4,16 +4,22 @@ description: Run the session loop — recover, triage by impact, ship proven sli
 
 Run the session loop in `docs/PROCESS.md`, autonomously, without asking for confirmation:
 
-0. RECOVER — `git status` even if the tree looks clean; dirty → verify → slice-commit or fix.
-1. TRIAGE — `ROADMAP.md`: Triage section first, then highest learner impact. State the pick
-   and why in one sentence. The old "first unchecked box" rule is dead.
-2. SLICES — up to 3–4 vertical slices, each through the FULL experience gate before its tick:
+0. LOCATE — `git rev-parse --git-dir --git-common-dir`; if they differ this is a WORKTREE
+   session: follow `docs/WORKTREES.md` (continue the branch's claimed task, or claim the next
+   unclaimed parallel-safe task via `node scripts/worktrees.mjs status` + `git branch -m
+   task/<id>`; own port for every server; never touch master/PROCESS/retro-log). In the MAIN
+   checkout: run `node scripts/worktrees.mjs status` and INTEGRATE mergeable task branches
+   (serially, verify between merges) before anything else.
+1. RECOVER — `git status` even if the tree looks clean; dirty → verify → slice-commit or fix.
+2. TRIAGE — `ROADMAP.md`: Triage section first, then highest learner impact, skipping claimed
+   tasks. State the pick and why in one sentence. The old "first unchecked box" rule is dead.
+3. SLICES — up to 3–4 vertical slices, each through the FULL experience gate before its tick:
    verify green → driven in the running app on real content → visual pass per `docs/DESIGN.md`
    (both widths, both themes, screenshots) → console clean → states handled → no perf
    regression. Commit each slice as it lands. Bare-minimum passes are the failure mode this
    protocol replaced: if the screen you touched still fails the DESIGN checklist, the slice is
    not done, whatever the tests say.
-3. RETRO — before ending, always: entry in `docs/retro-log.md` (metrics included), verdicts on
+4. RETRO — before ending, always: entry in `docs/retro-log.md` (metrics included), verdicts on
    any due experiments, and one process improvement (edit `docs/PROCESS.md` or add
    automation) or an argued "no change".
 

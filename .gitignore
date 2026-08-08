@@ -16,3 +16,6 @@ test-results/
 /*.mxl
 /*.musicxml
 .claude/settings.local.json
+# Parallel-session worktrees (docs/WORKTREES.md) and visual-pass screenshots
+.claude/worktrees/
+visual-pass/

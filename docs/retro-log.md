@@ -16,6 +16,33 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
+## 2026-08-08 (third session) — Parallel sessions via worktrees
+
+- user-reported defects since last session: 0. User asked for a capability: several sessions
+  in parallel, with `/next` aware of what other sessions claimed, plus merge discipline.
+- slices proven / started: 1 / 1 (process tooling, not app code).
+- gate catches before commit: n/a (no UI change). Tooling itself was proven, not asserted:
+  `worktrees.mjs status` driven through all three claim states (active/clean, AWAITING
+  MERGE, freed); smoke e2e 9/9 green on `E2E_PORT=5544` while another live session held 5173.
+- cost note: web research (official worktrees doc + community practice) + design + tooling.
+  A real port collision existed before this: playwright's `reuseExistingServer` on hardcoded
+  5173 would have tested against whichever session's server answered first.
+- what shipped: claim registry = `task/<id>` branch names (shared .git makes it visible to
+  every session, nothing to go stale); `scripts/worktrees.mjs status` with per-branch
+  deterministic ports; `E2E_PORT` in playwright config (+`--strictPort`);
+  `worktree.baseRef: "head"` (master here is usually ahead of origin);
+  `docs/WORKTREES.md` contract (worktrees build, ONLY main checkout merges — Claude Code's
+  own isolation enforces the boundary); location-aware `/next`; spine rule (at most one
+  active claim touches Shell/routes/state/design-system/package.json).
+  Found free: worktrees under the repo root resolve the main checkout's node_modules via
+  Node's ancestor walk — no npm ci per worktree.
+- hypothesis: the untested half is the INTEGRATE step under real conflicts; rules make
+  conflicts unlikely but the first real parallel round will tell.
+- change: this whole entry is the change (docs/PROCESS.md "Parallel sessions" section +
+  WORKTREES.md + tooling). **Review-by: after the first round with 2+ real parallel
+  sessions** — keep if merges stay boring; tighten the spine rule if not.
+- experiment verdicts due: none yet (visual-pass and redesign review ~2026-08-22).
+
 ## 2026-08-08 (second session) — Triage cleared; the gate caught a dead feature on its first run
 
 - user-reported defects since last session: 0 new. The standing one (T.1, `verify` exit 1) is fixed.
