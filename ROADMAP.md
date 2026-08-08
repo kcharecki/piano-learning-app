@@ -440,10 +440,18 @@ work is worse than none, because it will be trusted.
       *Proof: e2e — run a short segment on each of the seven screens in one session, reload, and read
       seven non-zero category rows off the Progress screen, cross-checked against the `practiceLog`
       rows in IndexedDB (the 4.7b pattern: a screen re-deriving a plausible number cannot pass).*
-- [ ] 5.15 `core/progress`: the streak counts **any** logged activity, not only repertoire. Today's
-      streak is a function of one screen.
-      *Proof: a day containing only an ear-training session extends the streak; a day with no activity
-      breaks it. Asserted in core against seeded logs, then confirmed on the dashboard.*
+- [x] 5.15 `core/progress`: found already correct, not a code defect — `currentStreakDays`/
+      `longestStreakDays` never read `PracticeEntry.kind` at all, and `useDashboard.ts` already passed
+      the full, unfiltered `practiceEntries` through (confirmed by `useDashboard.test.ts`'s own fixture,
+      which already mixed technique/sightreading/repertoire/theory/warmup days). The review's finding
+      was real in EFFECT — the streak only ever moved because repertoire was the one screen that logged
+      anything (5.14) — but not in the streak function itself. Closed the actual gap: no browser-driven
+      proof existed (the 4.7b pattern this project holds itself to — "a screen re-deriving a plausible
+      number cannot pass" cuts the other way too: code proven only by inspection cannot pass either).
+      *Proof: `log.test.ts` gained an explicit eartraining-only-day case plus an all-`ACTIVITY_KINDS`
+      property test; `e2e/streak-any-activity.spec.ts` seeds IndexedDB directly with a
+      technique+eartraining two-day streak (no repertoire at all), reads "2 day(s)" off the live
+      dashboard, then removes the earlier day and reads "1 day(s)" — the gap breaking it. Console clean.*
 - [x] 5.16 `app/dashboard`: the Progress screen prints raw category keys — `warmup / technique /
       sightreading / repertoire / lesson / theory / eartraining`. Give them display names, from one
       mapping that a new category cannot silently bypass.

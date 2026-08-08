@@ -294,6 +294,47 @@ describe('currentStreakDays', () => {
   it('is 0 for an empty log', () => {
     expect(currentStreakDays([], utc(2026, 1, 1), 0)).toBe(0)
   })
+
+  it('a day containing only an ear-training session extends the streak (roadmap 5.15) — the streak is a property of the DAY, not the activity kind', () => {
+    const day0 = utc(2026, 1, 1)
+    const entries = [
+      entry({ kind: 'repertoire', startedAt: day0, endedAt: day0 + 10 * MINUTE }),
+      entry({
+        kind: 'eartraining',
+        startedAt: day0 + DAY + 9 * HOUR,
+        endedAt: day0 + DAY + 9 * HOUR + 10 * MINUTE,
+      }),
+    ]
+    const now = day0 + DAY + 10 * HOUR // "today" is day 1, practiced only by eartraining
+    expect(currentStreakDays(entries, now, 0)).toBe(2)
+  })
+
+  it('a day with no logged activity of ANY kind breaks the streak, same as a repertoire-only gap', () => {
+    const day0 = utc(2026, 1, 1)
+    // Practiced day 0 (eartraining) and day 2 (theory), nothing on day 1.
+    const entries = [
+      entry({ kind: 'eartraining', startedAt: day0 + 9 * HOUR, endedAt: day0 + 9 * HOUR + 10 * MINUTE }),
+      entry({
+        kind: 'theory',
+        startedAt: day0 + 2 * DAY + 9 * HOUR,
+        endedAt: day0 + 2 * DAY + 9 * HOUR + 10 * MINUTE,
+      }),
+    ]
+    const now = day0 + 2 * DAY + 10 * HOUR
+    expect(currentStreakDays(entries, now, 0)).toBe(1) // only today (day 2) counts
+  })
+
+  it('every ActivityKind independently extends a streak, one kind per day, none repeated', () => {
+    // Guards the whole enum, not just eartraining — a future kind added to
+    // ACTIVITY_KINDS with some accidental kind-filter reintroduced elsewhere
+    // would still pass a single-kind test but fail this one.
+    const entries = ACTIVITY_KINDS.map((kind, i) => {
+      const startedAt = i * DAY + 9 * HOUR
+      return entry({ kind, startedAt, endedAt: startedAt + 10 * MINUTE })
+    })
+    const now = (ACTIVITY_KINDS.length - 1) * DAY + 10 * HOUR
+    expect(currentStreakDays(entries, now, 0)).toBe(ACTIVITY_KINDS.length)
+  })
 })
 
 describe('longestStreakDays', () => {
