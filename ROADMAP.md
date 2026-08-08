@@ -33,6 +33,17 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
       *Proof: `npx playwright test` is green, and whichever way it resolves, the spec's comment
       says what the number means on a machine with no audio device.*
 
+- [x] T.3 `npm run verify` went red in the MAIN checkout on code it does not own: `eslint .` walked
+      into `.claude/worktrees/**` and failed on a parallel session's in-flight module. The main
+      checkout is the only session allowed to merge, so a red lint there blocked integration for
+      every session at once — a hole opened by ce17780/2104532 and hit the first time two sessions
+      ran. `tsc` (`include: ["src"]`), vitest and knip were already safe by root-anchored globs;
+      lint (and `format:check`) was the one tool that walked the tree.
+      *Proof: `scripts/worktree-isolation.test.mjs` asserts ESLint's and Prettier's OWN resolution
+      (`isPathIgnored` / `getFileInfo`) — ignored inside a worktree, still checked in `src/` — so a
+      glob that is present but does not match cannot pass; plus the other three tools' globs are
+      asserted root-anchored so the hole cannot reopen through a different tool.*
+
 ## Phase 0 — Foundation
 
 Scaffold, test harness, lint boundary, docs, core shared/ports — all done.

@@ -5,7 +5,24 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
-  { ignores: ['dist', 'coverage', 'node_modules', 'playwright-report', 'test-results'] },
+  {
+    // `.claude/worktrees/**` holds OTHER sessions' checkouts (docs/WORKTREES.md).
+    // Without this, `eslint .` in the main checkout lints a parallel session's
+    // in-flight code, so their half-written module fails OUR verify — and the
+    // main checkout is the only one allowed to merge, so a red lint there
+    // blocks integration for everyone. Each worktree lints itself, from its own
+    // copy of this config. `tsc` (`include: ["src"]`), vitest and knip already
+    // use root-anchored globs and never leave the checkout; lint was the one
+    // tool that walked the tree.
+    ignores: [
+      'dist',
+      'coverage',
+      'node_modules',
+      'playwright-report',
+      'test-results',
+      '.claude/worktrees',
+    ],
+  },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ['**/*.{ts,tsx}'],

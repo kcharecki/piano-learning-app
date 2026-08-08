@@ -1,3 +1,6 @@
+# Other sessions' checkouts — see the matching note in eslint.config.js.
+.claude/worktrees
+
 node_modules
 dist
 coverage
