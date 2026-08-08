@@ -150,9 +150,9 @@ describe('DashboardScreen — seeded data', () => {
     expect(screen.getByTestId('dashboard-streak-current').textContent).toBe('2 day(s)')
     expect(screen.getByTestId('dashboard-streak-longest').textContent).toBe('2 day(s)')
     expect(screen.getByTestId('dashboard-weekly-minutes').textContent).toBe('45 min')
-    expect(screen.getByTestId('dashboard-minutes-technique').textContent).toBe('technique: 30 min')
+    expect(screen.getByTestId('dashboard-minutes-technique').textContent).toBe('Technique: 30 min')
     expect(screen.getByTestId('dashboard-minutes-sightreading').textContent).toBe(
-      'sightreading: 15 min',
+      'Sight reading: 15 min',
     )
     expect(screen.queryByTestId('dashboard-weekly-empty')).toBeNull()
   })

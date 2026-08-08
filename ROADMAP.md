@@ -434,7 +434,7 @@ work is worse than none, because it will be trusted.
       streak is a function of one screen.
       *Proof: a day containing only an ear-training session extends the streak; a day with no activity
       breaks it. Asserted in core against seeded logs, then confirmed on the dashboard.*
-- [ ] 5.16 `app/dashboard`: the Progress screen prints raw category keys — `warmup / technique /
+- [x] 5.16 `app/dashboard`: the Progress screen prints raw category keys — `warmup / technique /
       sightreading / repertoire / lesson / theory / eartraining`. Give them display names, from one
       mapping that a new category cannot silently bypass.
       *Proof: the screen shows "Sight reading", not `sightreading`, and a type-level exhaustiveness

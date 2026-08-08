@@ -7,7 +7,7 @@
  * hook reports there is nothing to show yet.
  */
 import { ExportPanel } from '@app/progress/ExportPanel.tsx'
-import { ACTIVITY_KINDS } from '@core/progress/log.ts'
+import { ACTIVITY_KINDS, type ActivityKind } from '@core/progress/log.ts'
 import { MIN_LEVEL, MAX_LEVEL, type Track } from '@core/curriculum/types.ts'
 import { canAdvance, type ProgressEvidence } from '@core/progress/levels.ts'
 import { levelAt } from '@core/curriculum/model.ts'
@@ -27,6 +27,18 @@ const TRACK_LABELS: Readonly<Record<Track, string>> = {
   playing: 'Playing',
   'sight-reading': 'Sight-reading',
   theory: 'Theory',
+}
+
+/** Display name per `ActivityKind`. `Record<ActivityKind, string>` makes this
+ * exhaustive: a new `ActivityKind` with no entry here fails the build. */
+const ACTIVITY_KIND_LABELS: Readonly<Record<ActivityKind, string>> = {
+  warmup: 'Warm-up',
+  technique: 'Technique',
+  sightreading: 'Sight reading',
+  repertoire: 'Repertoire',
+  lesson: 'Lesson',
+  theory: 'Theory',
+  eartraining: 'Ear training',
 }
 
 function round(value: number): number {
@@ -143,7 +155,7 @@ export function DashboardScreen(props: DashboardScreenProps) {
         <ul aria-label="Minutes by activity kind">
           {ACTIVITY_KINDS.map((kind) => (
             <li key={kind} data-testid={`dashboard-minutes-${kind}`}>
-              {kind}: {round(data.minutesByKind[kind])} min
+              {ACTIVITY_KIND_LABELS[kind]}: {round(data.minutesByKind[kind])} min
             </li>
           ))}
         </ul>
