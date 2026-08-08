@@ -284,7 +284,7 @@ export const LEVEL_2_LESSONS: readonly Lesson[] = [
       'For now, just listen for IV: play I, then IV, then back to I, and notice that it sounds like ' +
       'a step away without the same pull to resolve that V has. Combining IV with V into a full ' +
       'progression comes later.',
-    demoScoreId: demo('demo-i-iv-v-i-c-major'),
+    demoScoreId: demo('demo-i-iv-i-c-major'),
     exercises: [
       // 'build-cadence' at level 2, not 'build-chord' at level 1. The first
       // version of this quiz was the latter, which made it byte-identical to
@@ -389,7 +389,7 @@ export const LEVEL_2_LESSONS: readonly Lesson[] = [
       "Counting \"1-and-2-and\" out loud, with \"and\" landing exactly between the beats, is the " +
       'standard way to keep eighth-note rhythms even.\n\n' +
       'Practise counting the rhythm alone before adding pitches, the same approach as the level-1 rhythm lessons, now at a finer subdivision.',
-    demoScoreId: demo('demo-rhythm-reading-4-4'),
+    demoScoreId: demo('demo-rhythm-reading-eighth-notes'),
     exercises: [
       sightReadEx('l2-eighth-notes-ex1', 2, 10),
       playEx('l2-eighth-notes-ex2', 'Play the rhythm demonstration counting "1-and-2-and"', 5),
