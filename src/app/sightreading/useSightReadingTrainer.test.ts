@@ -9,6 +9,7 @@
 import { useSightReadingStore } from '@app/state/sightReadingStore.ts'
 import { MIN_LEVEL } from '@core/sightreading/adaptive.ts'
 import { seededRng } from '@core/ports/rng.ts'
+import { keyFromFifths } from '@core/theory/keys.ts'
 import { midi, millis } from '@core/shared/units.ts'
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { FakeClock, FakeMidiInput, RecordingAudioOutput } from '@test/fakes.ts'
@@ -425,5 +426,49 @@ describe('useSightReadingTrainer — metronome click (roadmap 2.28a, REQ-3.9.1)'
     })
     expect(off.result.current.phase).toBe('finished')
     expect(off.audio.clicks.length).toBe(0)
+  })
+})
+
+describe('useSightReadingTrainer — customization (roadmap 5.12, REQ-3.4.2)', () => {
+  it('start() draws from the level default when no customization is set', () => {
+    const { result } = setup()
+    act(() => result.current.start())
+    expect(result.current.score?.measures[0]?.keyFifths).toBe(0) // level 1's own key: C major
+    expect(result.current.activeHands).toEqual(['right'])
+  })
+
+  it('an overridden key changes the generated score`s own key signature', () => {
+    const { result } = setup({ customization: { key: keyFromFifths(1, 'major') } })
+    act(() => result.current.start())
+    expect(result.current.score?.measures[0]?.keyFifths).toBe(1)
+  })
+
+  it('an overridden hands choice changes which hands the exercise actually uses', () => {
+    const { result } = setup({ customization: { hands: 'left' } })
+    act(() => result.current.start())
+    expect(result.current.activeHands).toEqual(['left'])
+    expect(result.current.score?.notes.every((n) => n.hand === 'left')).toBe(true)
+  })
+
+  it('noAccidentals produces a score with no note outside the diatonic scale', () => {
+    const { result } = setup({
+      customization: { key: keyFromFifths(1, 'major'), hands: 'left', noAccidentals: true },
+    })
+    act(() => result.current.start())
+    const score = result.current.score
+    expect(score).toBeDefined()
+    // G major's scale pitch classes: G A B C D E F#.
+    const scalePcs = new Set([7, 9, 11, 0, 2, 4, 6])
+    expect(score?.notes.every((n) => scalePcs.has(((n.midi % 12) + 12) % 12))).toBe(true)
+  })
+
+  it('resetting customization (an empty object) returns to auto-drawn, retirement-aware exercises', () => {
+    const { result } = setup({ customization: { hands: 'left' } })
+    act(() => result.current.start())
+    expect(result.current.activeHands).toEqual(['left'])
+
+    const { result: reset } = setup({ customization: {} })
+    act(() => reset.current.start())
+    expect(reset.current.activeHands).toEqual(['right'])
   })
 })

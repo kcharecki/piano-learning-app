@@ -330,6 +330,24 @@
 .circle-of-fifths .wedge-minor + text, .circle-of-fifths text.minor { font-size: 12px; fill: var(--text-2); }
 .circle-of-fifths .wedge[aria-selected="true"] + text { fill: var(--on-accent); }
 
+/* ---------- Sight-reading customizer (roadmap 5.12) ---------- */
+/* Each label+control pair wraps as one atomic unit — without this a narrow
+   viewport wraps mid-label text (e.g. "No" / "accidentals" on separate
+   lines) instead of wrapping between fields. */
+.sight-reading-customizer-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  margin-top: var(--space-2);
+}
+.sight-reading-customizer-field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  white-space: nowrap;
+}
+
 /* ---------- Chord & scale reference ---------- */
 .chord-scale-reference { display: grid; gap: var(--space-5); }
 .chord-scale-reference .keyboard-diagram { --key-h: 96px; --white-key-w: 34px; }

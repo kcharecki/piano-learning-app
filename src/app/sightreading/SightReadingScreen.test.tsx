@@ -164,4 +164,31 @@ describe('SightReadingScreen', () => {
 
     expect(audio.clicks.length).toBeGreaterThan(0)
   })
+
+  it('the customizer reaches the generator: picking a key changes the exercise actually drawn (roadmap 5.12)', async () => {
+    const user = userEvent.setup()
+    const clock = new FakeClock()
+    render(<SightReadingScreen rng={seededRng(42)} clock={clock} date={clock} audioOutput={new RecordingAudioOutput(clock)} />)
+
+    await user.click(screen.getByText('Customize exercise'))
+    await user.selectOptions(screen.getByLabelText('Key tonic'), 'G major')
+
+    await user.click(screen.getByRole('button', { name: 'Start exercise' }))
+
+    expect(screen.getByTestId('mock-score-viewer')).toHaveAttribute(
+      'data-score-id',
+      expect.stringMatching(/^generated:G major:/),
+    )
+  })
+
+  it('the customizer is disabled once a run has started', async () => {
+    const user = userEvent.setup()
+    const clock = new FakeClock()
+    render(<SightReadingScreen rng={seededRng(42)} clock={clock} date={clock} audioOutput={new RecordingAudioOutput(clock)} />)
+
+    await user.click(screen.getByText('Customize exercise'))
+    await user.click(screen.getByRole('button', { name: 'Start exercise' }))
+
+    expect(screen.getByLabelText('Hands')).toBeDisabled()
+  })
 })
