@@ -140,11 +140,9 @@ test('the G major lesson demonstrates a scale that actually has one sharp, and t
     await lessonsList.getByRole('button', { name: lesson, exact: true }).click()
     await expect(page.getByRole('heading', { name: lesson, exact: true })).toBeVisible()
 
-    // "Open demonstration" loads the demo into `scoreStore` but does not
-    // navigate (see LessonsScreen.tsx:129 — it only calls `openDemoScore`), so
-    // the walk to Practice is the learner's own next step, not a test artefact.
+    // "Open demonstration" loads the demo into `scoreStore` AND navigates to
+    // Practice on its own (roadmap 5.9b) — no manual nav click here proves it.
     await page.getByRole('button', { name: 'Open demonstration' }).click()
-    await nav(page, 'Practice').click()
     await expect(page.getByRole('group', { name: /transport/i })).toBeVisible()
     await expect(page.getByRole('heading', { name: demoTitle })).toBeVisible()
 
@@ -165,7 +163,6 @@ test('the G major lesson demonstrates a scale that actually has one sharp, and t
   // It is also the state the G and F lessons were in before this fix.
   await lessonsList.getByRole('button', { name: 'The C Major Scale', exact: true }).click()
   await page.getByRole('button', { name: 'Open demonstration' }).click()
-  await nav(page, 'Practice').click()
   await expect(
     page.getByRole('heading', { name: 'C Major Scale, One Octave — Right Hand' }),
   ).toBeVisible()
