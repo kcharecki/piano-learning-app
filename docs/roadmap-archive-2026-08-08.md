@@ -1684,3 +1684,32 @@ Append one line per session: date, what landed, anything the next session must k
   ROADMAP entry documents this as a deliberate deviation from the originally-written proof, not a
   shortfall. 2903 unit tests + 38 e2e, all green. Remaining before Phase 2-4 acceptance passes:
   2.32, 3.7, 4.7c, 4.8a, 4.9.
+
+## Triage — resolved (moved from ROADMAP.md to stay under its line budget)
+
+- [x] T.1 `npm run verify` exited 1 with 9 unhandled OSMD `TypeError: ... setting 'font'` while all
+      3252 tests passed — happy-dom has no canvas and `autoResize` re-renders on OSMD's own timer, so
+      the throw landed outside the promise `ScoreViewer` catches. Fixed by mocking `ScoreViewer` in
+      the two screen tests that reached a real OSMD (33fabaa); unblocked 3.14, 3.18a, 3.19b, 3.23.
+
+- [x] T.2 `e2e/audio-clock-drift.spec.ts`'s ~5994 ms/min against its 150 ms/min budget.
+      **Verdict: environment artefact, not a 2.32e regression** — that is ~100_000 ppm and no
+      oscillator pair disagrees by 10%, so `ctx.currentTime` came from Chromium's software null
+      sink on a starved timer. Reproduced live, minutes apart on one commit: -17 ms/min with an
+      audio device, +4270 without. The deeper defect: the spec sampled the RAW clock pair and never
+      touched the adapter, so it could not fail for the reason it existed. Now imports the real
+      `createWebAudioOutput` and asserts the anchor's TRACKING RATIO (`anchorSlope / rawSlope`) —
+      ~0.93 on hardware, ~0.96 on a null sink, 0 for a frozen anchor, so it holds on any machine.
+      An error-rate bound was tried and rejected (no value covers both environments); a conditional
+      skip was tried and correctly refused by `no-restricted-syntax`.
+      *Proof: full e2e green, 57 passed / 0 skipped; mutation-killed by freezing the anchor (ratio
+      0.0002 vs a 0.5 floor), including in the degraded-sink environment.*
+
+- [x] T.3 `eslint .` in the MAIN checkout walked into `.claude/worktrees/**` and failed on a
+      parallel session's in-flight module, so another session's work turned master's verify red —
+      and the main checkout is the only one allowed to merge. Hole opened by ce17780/2104532, hit
+      the first time two sessions ran. `tsc`, vitest and knip were already safe by root-anchored
+      globs; lint and `format:check` were not (623ac1b).
+      *Proof: `scripts/worktree-isolation.test.mjs` asserts ESLint's and Prettier's own resolution
+      (`isPathIgnored` / `getFileInfo`) in BOTH directions, so a glob that is present but does not
+      match cannot pass, plus that the other three tools' globs stay root-anchored.*

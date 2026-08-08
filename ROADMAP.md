@@ -17,32 +17,12 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
 
 ## Triage — before any feature work
 
-- [x] T.1 `npm run verify` exited 1 with 9 unhandled OSMD `TypeError: ... setting 'font'` while all
-      3252 tests passed — happy-dom has no canvas and `autoResize` re-renders on OSMD's own timer, so
-      the throw landed outside the promise `ScoreViewer` catches. Fixed by mocking `ScoreViewer` in
-      the two screen tests that reached a real OSMD (33fabaa); unblocked 3.14, 3.18a, 3.19b, 3.23.
-
-- [x] T.2 `e2e/audio-clock-drift.spec.ts`'s ~5994 ms/min against its 150 ms/min budget.
-      **Verdict: environment artefact, not a 2.32e regression** — that is ~100_000 ppm and no
-      oscillator pair disagrees by 10%, so `ctx.currentTime` came from Chromium's software null
-      sink on a starved timer. Reproduced live, minutes apart on one commit: -17 ms/min with an
-      audio device, +4270 without. The deeper defect: the spec sampled the RAW clock pair and never
-      touched the adapter, so it could not fail for the reason it existed. Now imports the real
-      `createWebAudioOutput` and asserts the anchor's TRACKING RATIO (`anchorSlope / rawSlope`) —
-      ~0.93 on hardware, ~0.96 on a null sink, 0 for a frozen anchor, so it holds on any machine.
-      An error-rate bound was tried and rejected (no value covers both environments); a conditional
-      skip was tried and correctly refused by `no-restricted-syntax`.
-      *Proof: full e2e green, 57 passed / 0 skipped; mutation-killed by freezing the anchor (ratio
-      0.0002 vs a 0.5 floor), including in the degraded-sink environment.*
-
-- [x] T.3 `eslint .` in the MAIN checkout walked into `.claude/worktrees/**` and failed on a
-      parallel session's in-flight module, so another session's work turned master's verify red —
-      and the main checkout is the only one allowed to merge. Hole opened by ce17780/2104532, hit
-      the first time two sessions ran. `tsc`, vitest and knip were already safe by root-anchored
-      globs; lint and `format:check` were not (623ac1b).
-      *Proof: `scripts/worktree-isolation.test.mjs` asserts ESLint's and Prettier's own resolution
-      (`isPathIgnored` / `getFileInfo`) in BOTH directions, so a glob that is present but does not
-      match cannot pass, plus that the other three tools' globs stay root-anchored.*
+- [x] T.1 OSMD `TypeError` false-red in `npm run verify` (happy-dom canvas gap) — fixed by mocking
+      `ScoreViewer` in the two screen tests that hit real OSMD (33fabaa). Full history: archive.
+- [x] T.2 `audio-clock-drift.spec.ts` false-red on a starved-timer null sink — spec now asserts the
+      adapter's tracking RATIO instead of raw clock slopes, holds on any machine. Full history: archive.
+- [x] T.3 main-checkout `eslint .` walked into other sessions' worktrees and could turn master's
+      verify red — root-anchored globs + `worktree-isolation.test.mjs` (623ac1b). Full history: archive.
 
 ## Phase 0 — Foundation
 
@@ -353,23 +333,16 @@ ramp are all inert. Flashcards, Theory and Dictation *do* render the 37-key `OnS
 one screen where playing matters is the one that refuses non-MIDI input.
 
 - [x] 5.4 `app/practice`: render `OnScreenKeyboard` on the Practice screen when no MIDI device is
-      present (and behind a toggle when one is). Not the pure wiring job this task assumed — the
-      component was wired to `onPress` only, and `core/practice/waitmode.ts` withdraws a note's
-      credit on note-off, so momentary keys could never clear a barrier; it gained a real
-      press/release mode (the three drill callers pass no `onRelease` and are untouched). A mouse
-      also has ONE pointer, so a "Hold keys down" latch is what makes any chord playable at all —
-      the bundled sample's first beat is four notes held at once.
-      *Proof: `e2e/practice-onscreen-keyboard.spec.ts` deletes `navigator.requestMIDIAccess` before
-      any app code runs and then plays with the mouse only — notes are graded by the real matcher
-      (the counters move), and wait mode holds the transport through 1.8s of real time and releases
-      only once all four owed keys are down; a third test asserts a connected device leaves the
-      keyboard hidden until asked for.*
-      The gate caught two defects the unit tests could not: React's "Cannot update a component while
-      rendering a different component" (`onPress` was firing inside a `setHeld` updater, i.e. during
-      render), and a default keyed off `midi.input !== undefined` — the presence of the Web MIDI
-      API, not of a keyboard. On Chrome with permission granted and nothing plugged in the input
-      EXISTS and the device list is empty, the commonest no-hardware case of all, and it would have
-      shipped with no way to play. Now keyed off an attached device, with a regression test.
+      present (and behind a toggle when one is). Not pure wiring — `onPress`-only left
+      `waitmode.ts` unable to clear a barrier (it withdraws credit on note-off), so it gained a
+      real press/release mode plus a "Hold keys down" latch (a mouse has one pointer; the sample's
+      first beat is a 4-note chord). *Proof: `e2e/practice-onscreen-keyboard.spec.ts` strips
+      `navigator.requestMIDIAccess`, plays mouse-only through the real matcher and wait mode
+      (1.8s), and confirms a connected device hides the keyboard until asked for.* Gate caught two
+      defects unit tests missed: a React "Cannot update a component while rendering" (state set
+      during render) and a default keyed off `midi.input !== undefined` — true even with
+      permission granted and nothing plugged in, the commonest no-hardware case — now keyed off an
+      attached device.
 - [ ] 5.5 `app`: computer-keyboard note input as a first-class second input, mapped once and shared by
       every note-answered screen (Practice, Flashcards, Theory, Dictation, Technique). The only
       `keydown` listener in the app today is the Rhythm drill's spacebar.
