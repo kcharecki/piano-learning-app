@@ -288,14 +288,15 @@ export const LEVEL_3_LESSONS: readonly Lesson[] = [
       'As always, name the key signature\'s altered notes silently before playing a single note — the ' +
       'habit that made one-accidental keys manageable scales directly to two.\n\n' +
       '[diagram:d-major-scale]',
-    demoScoreId: demo('demo-waltz-rhythm-3-4'),
+    demoScoreId: demo('demo-keys-d-major-and-b-flat-major'),
     exercises: [
       sightReadEx('l3-keys-to-two-sharps-flats-ex1', 3, 10),
       techniqueEx('l3-keys-to-two-sharps-flats-ex2', 'scale-d-major-2oct-hands-together', 6),
-      // The demo score above is C major (all demo scores are, by design —
-      // see demoScores.ts), so there is nothing altered to name from it; the
-      // level-3 sight-reading item above is what actually presents 2
-      // sharps/flats content. A demo score in D or Bb major is a raised gap.
+      playEx(
+        'l3-keys-to-two-sharps-flats-ex3',
+        'Play the demonstration and name both altered notes in each half — F# and C# under two sharps, Bb and Eb under two flats',
+        5,
+      ),
     ],
   },
   {

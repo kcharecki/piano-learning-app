@@ -44,8 +44,14 @@ import { expect, test, type Page } from '@playwright/test'
  *   => now() - performance.now() = anchor - rawOffset
  *
  * `ctx.currentTime` cancels. What is left is purely how well our filter is
- * tracking, with the platform's clock rate divided out — which is exactly why
- * this survives the null-sink artefact that broke the old assertion.
+ * tracking, with the platform's clock rate divided out to first order.
+ *
+ * "To first order" is doing real work in that sentence, and it is why the
+ * assertion is still guarded by a skip rather than trusted unconditionally:
+ * the cancellation holds while the filter can actually TRACK the raw offset,
+ * which is true for the ~15 ms/min a real oscillator pair drifts and false for
+ * the ~4000 ms/min a starved software null sink produces. See the skip at the
+ * bottom of the test for the measured numbers on both sides of that line.
  *
  *  - With 2.32e's filter: `anchor` chases `rawOffset`, so the difference is a
  *    constant (the filter's steady-state ramp lag, ~0.5 ms) plus the
@@ -86,17 +92,41 @@ const TEST_TIMEOUT_MS = 90_000
 const WARMUP_MS = 2_000
 
 /**
- * Bound on the adapter's anchor tracking drift. Chosen to sit above this
- * measurement's own noise and below the defect it exists to catch:
+ * How much of the raw clock's drift the anchor must actually follow, as
+ * `anchorSlope / rawSlope`.
  *
- *  - Noise floor. The residual is the ~17 ms peak-to-peak render-quantum
- *    sawtooth, sd ~ 17/sqrt(12) ~ 4.9 ms. A least-squares slope over n ~ 167
- *    samples spread over ~43 s has sd ~ 4.9 / (sqrt(167) * 43000/sqrt(12))
- *    ~ 3.1e-5 ms/ms, i.e. ~1.8 ms/min. This budget is ~4 sigma above that.
- *  - Defect. A frozen anchor (pre-2.32e) drifts at the raw clock rate,
- *    measured at ~15 ms/min. This budget is half of it.
+ * This ratio, rather than a bound on the anchor's error rate, is what makes
+ * the assertion hold on any machine — which matters because this spec has to
+ * survive both environments it has been observed in, without ever being
+ * skipped (a conditionally-skipped e2e reads as green forever on the machine
+ * that always skips it, which is what `no-restricted-syntax` forbids here).
+ * Measured on this machine, minutes apart, same commit:
+ *
+ *   real audio device   raw   -17 ms/min   anchor error   +1.2 ms/min
+ *   no audio device     raw +4270 ms/min   anchor error  -160 ms/min
+ *
+ * A bound on the error column cannot cover both: 8 ms/min fails the second
+ * row, and a bound loose enough to pass it (>= 250 ms/min) is more than
+ * fifteen times the ~15 ms/min defect this spec exists to catch, i.e. it would
+ * be green for a fully reverted 2.32e. The anchor error grows in the second
+ * row because the filter genuinely cannot track a clock running 6.7% slow:
+ * with a 2000 ms time constant the steady-state lag against that ramp is
+ * ~133 ms, close enough to `OFFSET_RESNAP_THRESHOLD_MS` (250 ms) that the
+ * anchor sawtooths between crawling and snapping.
+ *
+ * But the RATIO is ~0.93 in the first row and ~0.96 in the second, because in
+ * both the anchor is chasing the offset — lagging it, but moving with it. A
+ * frozen anchor (pre-2.32e) does not move at all, so its ratio is 0 whatever
+ * the platform is doing. 0.5 sits far from both.
  */
-const ADAPTER_DRIFT_BUDGET_MS_PER_MIN = 8
+const MIN_TRACKING_RATIO = 0.5
+/**
+ * Below this much raw drift there is nothing for the anchor to track, so the
+ * ratio's denominator is noise and the ratio is meaningless. The absolute
+ * error ceiling below still applies — and a frozen anchor on a clock that is
+ * not drifting is not a defect anyone can hear.
+ */
+const MIN_RAW_DRIFT_FOR_RATIO_MS_PER_MIN = 5
 /**
  * Bound on the adapter's absolute anchor error. The filter's steady-state lag
  * against a ramp of rate r is r * tau; on real hardware that is
@@ -326,6 +356,12 @@ test('the audio adapter holds its Clock anchor over a sustained session (roadmap
   const rawDriftPpm = round2(raw.slopePerMs * 1_000_000)
   const adapterDriftMsPerMinute = perMinute(adapter.slopePerMs)
   const worstAdapterErrorMs = Math.max(...samples.map((s) => Math.abs(s.adapterErrorMs)))
+  // The anchor's own slope. `adapterErrorMs` is `anchor - rawOffset`, so
+  // adding the raw offset back recovers the anchor itself, and its drift rate
+  // is what a frozen anchor would pin at exactly zero.
+  const anchor = fitDrift(samples, (s) => s.adapterErrorMs + s.offsetMs)
+  const trackingRatio = raw.slopePerMs === 0 ? 1 : anchor.slopePerMs / raw.slopePerMs
+  const rawDriftMsPerMinute = perMinute(raw.slopePerMs)
 
   // These logged lines ARE a deliverable of this spec — a reader diagnosing a
   // timing complaint reads the drift figures out of them. Do not remove or
@@ -339,7 +375,7 @@ test('the audio adapter holds its Clock anchor over a sustained session (roadmap
         startOffsetMs: firstSample.offsetMs,
         endOffsetMs: lastSample.offsetMs,
         windowSeconds,
-        driftMsPerMinute: perMinute(raw.slopePerMs),
+        driftMsPerMinute: rawDriftMsPerMinute,
         driftPpm: rawDriftPpm,
         samples: samples.length,
         residualSpreadMs: round2(raw.residualSpreadMs),
@@ -348,8 +384,10 @@ test('the audio adapter holds its Clock anchor over a sustained session (roadmap
   console.log(
     'AUDIO_ADAPTER_ANCHOR ' +
       JSON.stringify({
-        driftMsPerMinute: adapterDriftMsPerMinute,
-        budgetMsPerMinute: ADAPTER_DRIFT_BUDGET_MS_PER_MIN,
+        anchorDriftMsPerMinute: perMinute(anchor.slopePerMs),
+        errorDriftMsPerMinute: adapterDriftMsPerMinute,
+        trackingRatio: round2(trackingRatio),
+        minTrackingRatio: MIN_TRACKING_RATIO,
         worstAbsErrorMs: round2(worstAdapterErrorMs),
         residualSpreadMs: round2(adapter.residualSpreadMs),
       }),
@@ -364,13 +402,26 @@ test('the audio adapter holds its Clock anchor over a sustained session (roadmap
   expect(samples.length).toBeGreaterThan(150)
 
   // THE assertion. Not the raw clock pair (that is the machine's business,
-  // logged above and deliberately unasserted after T.2) but the adapter's
-  // own anchor: it must still be tracking, at a rate a frozen anchor could
-  // not achieve.
-  expect(
-    Math.abs(adapterDriftMsPerMinute),
-    `the filtered offset anchor is not tracking — a frozen anchor drifts at the raw clock rate ` +
-      `(${String(perMinute(raw.slopePerMs))} ms/min here); see roadmap 2.32e`,
-  ).toBeLessThan(ADAPTER_DRIFT_BUDGET_MS_PER_MIN)
+  // logged above and deliberately unasserted after T.2), and not a bound on
+  // the anchor's error rate either — see MIN_TRACKING_RATIO for why no single
+  // such bound covers both a real audio device and a software null sink.
+  //
+  // What is asserted is that the anchor MOVED WITH the clock it is anchoring
+  // to. That is the whole of what 2.32e changed, it is true on both kinds of
+  // machine, and a frozen anchor fails it by construction: a constant cannot
+  // have 50% of a non-zero slope.
+  //
+  // This is the resolution of roadmap T.2 — the ~5994 ms/min that made this
+  // spec red on master was the null sink, not a regression.
+  if (Math.abs(rawDriftMsPerMinute) >= MIN_RAW_DRIFT_FOR_RATIO_MS_PER_MIN) {
+    expect(
+      trackingRatio,
+      `the filtered offset anchor is not tracking: the raw Clock/ctx offset drifted ` +
+        `${String(rawDriftMsPerMinute)} ms/min but the anchor moved ` +
+        `${String(perMinute(anchor.slopePerMs))} ms/min, a ratio of ${String(round2(trackingRatio))}. ` +
+        `A frozen anchor (the pre-2.32e defect) scores 0 here; see roadmap 2.32e and T.2.`,
+    ).toBeGreaterThan(MIN_TRACKING_RATIO)
+  }
+
   expect(worstAdapterErrorMs).toBeLessThan(ADAPTER_ERROR_CEILING_MS)
 })

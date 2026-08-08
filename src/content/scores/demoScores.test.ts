@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { validateScore, type ScoreNote } from '@core/notation/score.ts'
+import { notesInMeasure, validateScore, type ScoreNote } from '@core/notation/score.ts'
 import { analyseScore } from '@core/theory/analysis.ts'
 import { keyFromFifths } from '@core/theory/keys.ts'
 import { DEMO_SCORES, demoScoreById, type DemoScore } from './demoScores.ts'
@@ -33,11 +33,15 @@ const AUTHORED_DEMO_IDS = [
   'demo-authentic-cadence-c-major',
   'demo-hands-together-parallel-motion-c',
   'demo-lh-root-rh-melody-simple-piece',
+  'demo-g-major-scale-one-octave-rh',
+  'demo-f-major-scale-one-octave-rh',
+  'demo-key-signatures-g-and-f',
+  'demo-keys-d-major-and-b-flat-major',
 ]
 
 describe('DEMO_SCORES registry', () => {
-  it('contains at least the 14 required demonstrations', () => {
-    expect(DEMO_SCORES.length).toBeGreaterThanOrEqual(14)
+  it('contains at least the 18 required demonstrations', () => {
+    expect(DEMO_SCORES.length).toBeGreaterThanOrEqual(18)
   })
 
   it('pins the published id set and authored order — the curriculum references these ids by literal string', () => {
@@ -77,10 +81,49 @@ describe('DEMO_SCORES registry', () => {
     }
   })
 
-  it('every demo is in C major (keyFifths 0)', () => {
-    for (const demo of DEMO_SCORES) {
-      expect(demo.score.measures.every((m) => m.keyFifths === 0)).toBe(true)
+  // Every demo's expected key signature, written out explicitly rather than
+  // derived from the implementation — the two mixed-key demos change key
+  // mid-score, so this table only covers the single-key ones; those two get
+  // their own per-measure sequence assertions below.
+  const EXPECTED_KEY_FIFTHS: Readonly<Record<string, number>> = {
+    'demo-middle-c-position-rh': 0,
+    'demo-middle-c-position-lh': 0,
+    'demo-five-finger-c-major-hands-separately': 0,
+    'demo-steps-vs-skips': 0,
+    'demo-c-major-scale-one-octave-rh': 0,
+    'demo-rhythm-reading-4-4': 0,
+    'demo-waltz-rhythm-3-4': 0,
+    'demo-c-major-triad-blocked': 0,
+    'demo-c-major-triad-broken': 0,
+    'demo-i-v-i-c-major': 0,
+    'demo-i-iv-v-i-c-major': 0,
+    'demo-authentic-cadence-c-major': 0,
+    'demo-hands-together-parallel-motion-c': 0,
+    'demo-lh-root-rh-melody-simple-piece': 0,
+    'demo-g-major-scale-one-octave-rh': 1,
+    'demo-f-major-scale-one-octave-rh': -1,
+  }
+
+  it('every single-key demo carries its documented key signature throughout', () => {
+    expect(Object.keys(EXPECTED_KEY_FIFTHS).sort()).toEqual(
+      DEMO_SCORES.map((d) => d.id)
+        .filter((id) => id !== 'demo-key-signatures-g-and-f' && id !== 'demo-keys-d-major-and-b-flat-major')
+        .sort(),
+    )
+    for (const [id, expected] of Object.entries(EXPECTED_KEY_FIFTHS)) {
+      const demo = requireDemo(id)
+      expect(demo.score.measures.every((m) => m.keyFifths === expected)).toBe(true)
     }
+  })
+
+  it('demo-key-signatures-g-and-f changes key mid-score: G major (1 sharp), then F major (1 flat)', () => {
+    const demo = requireDemo('demo-key-signatures-g-and-f')
+    expect(demo.score.measures.map((m) => m.keyFifths)).toEqual([1, 1, -1, -1])
+  })
+
+  it('demo-keys-d-major-and-b-flat-major changes key mid-score: D major (2 sharps), then B-flat major (2 flats)', () => {
+    const demo = requireDemo('demo-keys-d-major-and-b-flat-major')
+    expect(demo.score.measures.map((m) => m.keyFifths)).toEqual([2, 2, -2, -2])
   })
 
   it('demo-waltz-rhythm-3-4 keeps its 3/4 time signature', () => {
@@ -209,5 +252,35 @@ describe('non-harmony demonstrations carry the content they claim to', () => {
       expect(left).toBeDefined()
       if (right !== undefined && left !== undefined) expect(right - left).toBe(12)
     }
+  })
+
+  it('demo-g-major-scale-one-octave-rh actually sounds F# (pitch class 6), never F natural (pitch class 5)', () => {
+    const pitchClasses = requireDemo('demo-g-major-scale-one-octave-rh').score.notes.map((n) => n.midi % 12)
+    expect(pitchClasses).toContain(6)
+    expect(pitchClasses).not.toContain(5)
+  })
+
+  it('demo-f-major-scale-one-octave-rh actually sounds Bb (pitch class 10), never B natural (pitch class 11)', () => {
+    const pitchClasses = requireDemo('demo-f-major-scale-one-octave-rh').score.notes.map((n) => n.midi % 12)
+    expect(pitchClasses).toContain(10)
+    expect(pitchClasses).not.toContain(11)
+  })
+
+  it('demo-key-signatures-g-and-f sounds F# in bars 1-2 (the G major half) and Bb in bars 3-4 (the F major half)', () => {
+    const score = requireDemo('demo-key-signatures-g-and-f').score
+    const firstHalf = [...notesInMeasure(score, 0), ...notesInMeasure(score, 1)].map((n) => n.midi % 12)
+    const secondHalf = [...notesInMeasure(score, 2), ...notesInMeasure(score, 3)].map((n) => n.midi % 12)
+    expect(firstHalf).toContain(6)
+    expect(secondHalf).toContain(10)
+  })
+
+  it('demo-keys-d-major-and-b-flat-major sounds F# and C# in bars 1-2 (D major), Bb and Eb in bars 3-4 (B-flat major)', () => {
+    const score = requireDemo('demo-keys-d-major-and-b-flat-major').score
+    const firstHalf = [...notesInMeasure(score, 0), ...notesInMeasure(score, 1)].map((n) => n.midi % 12)
+    const secondHalf = [...notesInMeasure(score, 2), ...notesInMeasure(score, 3)].map((n) => n.midi % 12)
+    expect(firstHalf).toContain(6)
+    expect(firstHalf).toContain(1)
+    expect(secondHalf).toContain(10)
+    expect(secondHalf).toContain(3)
   })
 })

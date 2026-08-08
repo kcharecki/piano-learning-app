@@ -170,7 +170,7 @@ export const LEVEL_2_LESSONS: readonly Lesson[] = [
       'Every major scale uses this same pattern shifted to a new starting note — learning to hear ' +
       'and build it from any key is more valuable than memorising each scale as a separate fact.\n\n' +
       '[diagram:g-major-scale]',
-    demoScoreId: demo('demo-c-major-scale-one-octave-rh'),
+    demoScoreId: demo('demo-g-major-scale-one-octave-rh'),
     exercises: [
       // The key-signature deck tests naming G major (1 sharp) and its
       // relative minor, but not the scale's whole/half-step pattern — the
@@ -192,7 +192,7 @@ export const LEVEL_2_LESSONS: readonly Lesson[] = [
       'Between C, G and F, you now have three major scales built from the same recipe applied to ' +
       'three different starting notes — a good moment to compare all three side by side, by ear.\n\n' +
       '[diagram:f-major-scale]',
-    demoScoreId: demo('demo-c-major-scale-one-octave-rh'),
+    demoScoreId: demo('demo-f-major-scale-one-octave-rh'),
     exercises: [
       // Same narrowing as the G major scale quiz above.
       theoryQuizEx('l2-f-major-scale-ex1', 'Quiz: the key signature of F major', 'key-signature'),
@@ -408,10 +408,14 @@ export const LEVEL_2_LESSONS: readonly Lesson[] = [
       'accidental. Recognising a signature of one sharp (F#, the key of G) or one flat (Bb, the key ' +
       'of F) before you start reading tells you which notes to expect raised or lowered throughout.\n\n' +
       'Practise scanning the key signature first, silently naming which notes it affects, before you ever play a note — that habit prevents the most common beginner sight-reading error.',
-    demoScoreId: demo('demo-waltz-rhythm-3-4'),
+    demoScoreId: demo('demo-key-signatures-g-and-f'),
     exercises: [
       sightReadEx('l2-key-signatures-g-f-ex1', 2, 10),
-      playEx('l2-key-signatures-g-f-ex2', "Play the waltz demonstration, then name what C major's empty key signature means", 5),
+      playEx(
+        'l2-key-signatures-g-f-ex2',
+        'Play the demonstration and name the one altered note in each half — F# under the sharp signature, Bb under the flat one',
+        5,
+      ),
     ],
   },
 ]

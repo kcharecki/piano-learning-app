@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { spelledPitchClass } from '@core/theory/pitch.ts'
+import { keySignatureForTonic, type Mode } from '@core/theory/keys.ts'
+import { unwrap } from '@core/shared/result.ts'
 import { validateScore } from '@core/notation/score.ts'
 import {
   techniqueDrillById,
@@ -7,6 +9,21 @@ import {
   techniqueScore,
   type TechniqueDrill,
 } from './library.ts'
+
+/**
+ * Independent re-derivation of "which mode does this drill's scaleType imply"
+ * — a general rule about scale-type naming (major/ionian vs everything else
+ * being minor-flavoured), not a restatement of `techniqueScore`'s key-fifths
+ * logic. Used only to compute the expected fifths for the assertions below.
+ */
+function expectedMode(drill: TechniqueDrill): Mode {
+  const type = drill.scaleType ?? 'major'
+  return type === 'major' || type === 'ionian' ? 'major' : 'minor'
+}
+
+function expectedKeyFifths(drill: TechniqueDrill): number {
+  return unwrap(keySignatureForTonic(drill.tonic, expectedMode(drill))).fifths
+}
 
 const LEVELS = [1, 2, 3, 4, 5] as const
 
@@ -186,5 +203,43 @@ describe('techniqueScore', () => {
     expect(Math.max(...leftNotes.map((n) => n.midi))).toBeLessThanOrEqual(
       Math.min(...rightNotes.map((n) => n.midi)),
     )
+  })
+})
+
+describe('techniqueScore key signatures', () => {
+  it('sets measure 0 keyFifths to the fifths implied by the drill tonic/mode, for every drill', () => {
+    for (const drill of allDrills()) {
+      const score = techniqueScore(drill, drill.targetBpm)
+      expect(score.measures[0]?.keyFifths).toBe(expectedKeyFifths(drill))
+    }
+  })
+
+  // Hand-written expected numbers, so this cannot pass by sharing a bug with
+  // the implementation. All four are 2-octave major scales, hands together,
+  // from level 3 — real ids in the library (see scaleDrill's id format).
+  it.each([
+    ['scale-c-major-2oct-hands-together', 0], // C major
+    ['scale-g-major-2oct-hands-together', 1], // G major
+    ['scale-f-major-2oct-hands-together', -1], // F major
+    ['scale-bb-major-2oct-hands-together', -2], // Bb major
+  ])('%s has key signature %i fifths', (id, fifths) => {
+    const drill = techniqueDrillById(id)
+    expect(drill).toBeDefined()
+    if (drill === undefined) return
+    const score = techniqueScore(drill, drill.targetBpm)
+    expect(score.measures[0]?.keyFifths).toBe(fifths)
+  })
+
+  it('sets the key signature on measure 0 only, and later measures inherit it', () => {
+    const multiMeasureDrills = allDrills().filter((d) => {
+      const score = techniqueScore(d, d.targetBpm)
+      return score.measures.length > 1
+    })
+    expect(multiMeasureDrills.length).toBeGreaterThan(0)
+    for (const drill of multiMeasureDrills) {
+      const score = techniqueScore(drill, drill.targetBpm)
+      const expected = expectedKeyFifths(drill)
+      for (const m of score.measures) expect(m.keyFifths).toBe(expected)
+    }
   })
 })

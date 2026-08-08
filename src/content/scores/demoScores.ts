@@ -6,15 +6,19 @@
  * short teaching examples built directly with the core score constructors —
  * data, diffable, and unit-tested like any other module.
  *
- * Every demo is 1-6 bars, in C major, hands placed around middle C (RH at or
- * above C4, LH at or below C4) — the range a levels 1-3 curriculum actually
- * plays; this is enforced by a registry-wide range test in the co-located
- * spec. Chord-based demos build their pitches from `@core/theory/chords.ts`
- * rather than hand-typed MIDI numbers, so the harmony is derived, not guessed.
+ * Every demo is 1-6 bars, hands placed around middle C (RH at or above C4,
+ * LH at or below C4) — the range a levels 1-3 curriculum actually plays; this
+ * is enforced by a registry-wide range test in the co-located spec. Most
+ * demos are in C major; a handful deliberately carry a different key
+ * signature (or change key mid-score) to honestly demonstrate the key a
+ * specific lesson teaches — see the four key-signature demonstrations
+ * appended at the end of `DEMO_SCORES`. Chord-based demos build their
+ * pitches from `@core/theory/chords.ts` rather than hand-typed MIDI numbers,
+ * so the harmony is derived, not guessed.
  *
- * Not consumed yet: the curriculum content that assigns these ids to lessons,
- * and the lesson screen that plays them, are both scheduled as the NEXT task
- * (roadmap 3.7/4.9 follow-on). Nothing imports this file yet.
+ * Consumed by the level 2/3 curriculum (`src/content/curriculum/lessonsLevel2.ts`,
+ * `lessonsLevel3.ts`), which points `Lesson.demoScoreId` at these ids, and by
+ * the lesson screen that resolves and plays them via `demoScoreById`.
  */
 import {
   makeScore,
@@ -127,10 +131,15 @@ const G3 = 55
 const A3 = 57
 const B3 = 59
 const C4 = 60
+const Cs4 = 61
 const D4 = 62
+const Eb4 = 63
 const E4 = 64
 const F4 = 65
+const Fs4 = 66
 const G4 = 67
+const A4 = 69
+const Bb4 = 70
 const C5 = 72
 
 // ---------------------------------------------------------------------------
@@ -357,6 +366,53 @@ const LH_ROOT_RH_MELODY: Score = makeScore({
 })
 
 // ---------------------------------------------------------------------------
+// 15-16. one-octave scales in the keys levels 2/3 actually teach — reuses the
+//        technique library, same construction as C_MAJOR_SCALE_RH
+// ---------------------------------------------------------------------------
+
+const G_MAJOR_SCALE_RH: Score = {
+  ...techniqueScore(drill('scale-g-major-1oct-hands-right'), 72),
+  id: 'demo-g-major-scale-one-octave-rh',
+  meta: { title: 'G Major Scale, One Octave — Right Hand', composer: '' },
+}
+
+const F_MAJOR_SCALE_RH: Score = {
+  ...techniqueScore(drill('scale-f-major-1oct-hands-right'), 72),
+  id: 'demo-f-major-scale-one-octave-rh',
+  meta: { title: 'F Major Scale, One Octave — Right Hand', composer: '' },
+}
+
+// ---------------------------------------------------------------------------
+// 17-18. key-signature demonstrations — the key CHANGES mid-score so the
+//        learner hears the one note each signature adds, right hand only,
+//        hand-authored (no technique drill covers a mid-piece key change)
+// ---------------------------------------------------------------------------
+
+const KEY_SIGNATURES_G_AND_F: Score = makeScore({
+  id: 'demo-key-signatures-g-and-f',
+  meta: { title: 'Key Signatures — One Sharp, Then One Flat' },
+  measures: [{ keyFifths: 1 }, {}, { keyFifths: -1 }, {}],
+  notes: [
+    ...run('right', 0, Q, [C4, D4, E4, Fs4]),
+    ...run('right', W, Q, [G4, Fs4, E4, D4]),
+    ...run('right', W * 2, Q, [F4, G4, A4, Bb4]),
+    ...run('right', W * 3, Q, [C5, Bb4, A4, G4]),
+  ],
+})
+
+const KEYS_D_MAJOR_AND_B_FLAT_MAJOR: Score = makeScore({
+  id: 'demo-keys-d-major-and-b-flat-major',
+  meta: { title: 'Key Signatures — Two Sharps, Then Two Flats' },
+  measures: [{ keyFifths: 2 }, {}, { keyFifths: -2 }, {}],
+  notes: [
+    ...run('right', 0, Q, [Cs4, D4, E4, Fs4]),
+    ...run('right', W, Q, [G4, Fs4, E4, D4]),
+    ...run('right', W * 2, Q, [Eb4, F4, G4, A4]),
+    ...run('right', W * 3, Q, [Bb4, A4, G4, F4]),
+  ],
+})
+
+// ---------------------------------------------------------------------------
 // registry
 // ---------------------------------------------------------------------------
 
@@ -451,6 +507,32 @@ export const DEMO_SCORES: readonly DemoScore[] = [
     description:
       'A short two-hand piece: the left hand holds a low C (an octave below middle C) as a sustained root while the right hand plays a simple melody above it.',
     score: LH_ROOT_RH_MELODY,
+  },
+  {
+    id: 'demo-g-major-scale-one-octave-rh',
+    title: 'G Major Scale, One Octave — Right Hand',
+    description: 'The G major scale ascending and descending one octave, right hand, with standard fingering — one sharp, F#.',
+    score: G_MAJOR_SCALE_RH,
+  },
+  {
+    id: 'demo-f-major-scale-one-octave-rh',
+    title: 'F Major Scale, One Octave — Right Hand',
+    description: 'The F major scale ascending and descending one octave, right hand, with standard fingering — one flat, Bb.',
+    score: F_MAJOR_SCALE_RH,
+  },
+  {
+    id: 'demo-key-signatures-g-and-f',
+    title: 'Key Signatures — One Sharp, Then One Flat',
+    description:
+      'The same short stepwise phrase in two keys: two bars in G major, where the key signature makes every F sound as F#, then two bars in F major, where it makes every B sound as Bb.',
+    score: KEY_SIGNATURES_G_AND_F,
+  },
+  {
+    id: 'demo-keys-d-major-and-b-flat-major',
+    title: 'Key Signatures — Two Sharps, Then Two Flats',
+    description:
+      'The same short stepwise phrase in two keys: two bars in D major, whose two sharps raise F and C, then two bars in B-flat major, whose two flats lower B and E.',
+    score: KEYS_D_MAJOR_AND_B_FLAT_MAJOR,
   },
 ]
 

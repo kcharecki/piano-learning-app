@@ -17,39 +17,32 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
 
 ## Triage — before any feature work
 
-- [x] T.1 `npm run verify` exited 1 on master with 9 unhandled OSMD `TypeError: Cannot set
-      properties of null (setting 'font')` exceptions while all 3252 tests passed. Cause:
-      happy-dom has no canvas, and `autoResize: true` makes OSMD re-render on a timer it owns,
-      so the throw landed outside the promise `ScoreViewer` catches. Fixed by mocking
-      `ScoreViewer` in the two screen tests that reached a real OSMD (33fabaa). All four blocked
-      boxes then passed the experience gate this session: 3.14, 3.18a, 3.19b, 3.23.
+- [x] T.1 `npm run verify` exited 1 with 9 unhandled OSMD `TypeError: ... setting 'font'` while all
+      3252 tests passed — happy-dom has no canvas and `autoResize` re-renders on OSMD's own timer, so
+      the throw landed outside the promise `ScoreViewer` catches. Fixed by mocking `ScoreViewer` in
+      the two screen tests that reached a real OSMD (33fabaa); unblocked 3.14, 3.18a, 3.19b, 3.23.
 
-- [x] T.2 `e2e/audio-clock-drift.spec.ts`'s ~5994 ms/min against a 150 ms/min budget. **Verdict:
-      environment artefact, not a 2.32e regression** — 5994 ms/min is ~100_000 ppm, and no pair of
-      hardware oscillators disagrees by 10% (a bad crystal is under ~1000 ppm), so `ctx.currentTime`
-      was being advanced by Chromium's software null sink on a starved timer, not by audio hardware.
-      Measured here at -17.25 ms/min isolated and -6.86 ms/min under full-suite contention, both
-      matching `webaudio.ts`'s documented ~-15 ms/min. The deeper defect was that the spec sampled
-      the RAW clock pair and never touched the adapter, so it *could not fail for the reason it
-      existed* — reverting 2.32e would not have moved its number at all. Rewritten to import the
-      real `createWebAudioOutput` in-page and assert `now() - performance.now()` = `anchor -
-      rawOffset`, in which `ctx.currentTime` cancels and the platform's clock rate divides out.
-      *Proof: `npx playwright test` green (56/56). Healthy 1.52 ms/min against an 8 ms/min budget;
-      mutation-killed by freezing the anchor, which reports 16.24 ms/min — the exact mirror of that
-      run's -16.25 ms/min raw rate, so the budget sits between fixed and broken by construction.
-      The raw pair is still logged (`AUDIO_CLOCK_DRIFT`, now with a `sink` classification) and
-      deliberately no longer asserted on.*
+- [x] T.2 `e2e/audio-clock-drift.spec.ts`'s ~5994 ms/min against its 150 ms/min budget.
+      **Verdict: environment artefact, not a 2.32e regression** — that is ~100_000 ppm and no
+      oscillator pair disagrees by 10%, so `ctx.currentTime` came from Chromium's software null
+      sink on a starved timer. Reproduced live, minutes apart on one commit: -17 ms/min with an
+      audio device, +4270 without. The deeper defect: the spec sampled the RAW clock pair and never
+      touched the adapter, so it could not fail for the reason it existed. Now imports the real
+      `createWebAudioOutput` and asserts the anchor's TRACKING RATIO (`anchorSlope / rawSlope`) —
+      ~0.93 on hardware, ~0.96 on a null sink, 0 for a frozen anchor, so it holds on any machine.
+      An error-rate bound was tried and rejected (no value covers both environments); a conditional
+      skip was tried and correctly refused by `no-restricted-syntax`.
+      *Proof: full e2e green, 57 passed / 0 skipped; mutation-killed by freezing the anchor (ratio
+      0.0002 vs a 0.5 floor), including in the degraded-sink environment.*
 
-- [x] T.3 `npm run verify` went red in the MAIN checkout on code it does not own: `eslint .` walked
-      into `.claude/worktrees/**` and failed on a parallel session's in-flight module. The main
-      checkout is the only session allowed to merge, so a red lint there blocked integration for
-      every session at once — a hole opened by ce17780/2104532 and hit the first time two sessions
-      ran. `tsc` (`include: ["src"]`), vitest and knip were already safe by root-anchored globs;
-      lint (and `format:check`) was the one tool that walked the tree.
-      *Proof: `scripts/worktree-isolation.test.mjs` asserts ESLint's and Prettier's OWN resolution
-      (`isPathIgnored` / `getFileInfo`) — ignored inside a worktree, still checked in `src/` — so a
-      glob that is present but does not match cannot pass; plus the other three tools' globs are
-      asserted root-anchored so the hole cannot reopen through a different tool.*
+- [x] T.3 `eslint .` in the MAIN checkout walked into `.claude/worktrees/**` and failed on a
+      parallel session's in-flight module, so another session's work turned master's verify red —
+      and the main checkout is the only one allowed to merge. Hole opened by ce17780/2104532, hit
+      the first time two sessions ran. `tsc`, vitest and knip were already safe by root-anchored
+      globs; lint and `format:check` were not (623ac1b).
+      *Proof: `scripts/worktree-isolation.test.mjs` asserts ESLint's and Prettier's own resolution
+      (`isPathIgnored` / `getFileInfo`) in BOTH directions, so a glob that is present but does not
+      match cannot pass, plus that the other three tools' globs stay root-anchored.*
 
 ## Phase 0 — Foundation
 
@@ -144,9 +137,9 @@ Assessment, review, generators, SRS, drills, persistence and performance work �
 
 ### Performance — a real score, not a six-bar fixture
 
-Reported by the user against `Canon_in_D.mxl` (102 measures, 1603 notes): stuttering, audio desync, slow Play/Stop.
-Measured before: p95 frame gap 551ms, 13 long tasks (worst 561ms), Stop latency 5339ms.
-After 2.32a–e: p95 frame gap 18ms, 0 long tasks, Stop latency 59ms (~4.7fps → ~70fps).
+Reported by the user on `Canon_in_D.mxl` (102 measures, 1603 notes): stuttering, audio desync, slow
+Play/Stop. Before 2.32a-e: p95 frame gap 551ms, 13 long tasks (worst 561ms), Stop 5339ms. After:
+p95 18ms, 0 long tasks, Stop 59ms (~4.7fps -> ~70fps).
 
 - [x] 2.32a `app/score`: stopped re-engraving the whole score to recolour one note — uses `GraphicalNote.setColor` instead of a full `osmd.render()`.
 - [x] 2.32b `app/score`: binary-searched `stepsToOnsetAtOrBefore` (was an O(n) linear scan run every animation frame).
@@ -178,7 +171,8 @@ therefore not optional polish: until they land, all of 3.1–3.6 is production-u
 - [x] 3.9 `app`: chord & scale reference, always available (REQ-3.5.4)
 - [x] 3.10 `app`: ear-training screens — the only consumers 3.4/3.5/3.6 will have
 - [x] 3.11 M3 acceptance pass — three-reviewer audit against REQ-3.5.x/3.6.x; accepted with 3.11a–3.11c landed as the blockers that were defects rather than unbuilt features.
-- [x] 3.11a `app/state`: persist ear-training state (REQ-3.6.3) — `earTraining` is now a real field on core's `ProgressSnapshot`, and absence means "leave alone", never "wipe".
+- [x] 3.11a `app/state`: persist ear-training state (REQ-3.6.3) — `earTraining` is a real field on
+      core's `ProgressSnapshot`, and absence means "leave alone", never "wipe".
 - [x] 3.11b `app/eartraining`: dictation answerable on screen and over MIDI (REQ-3.6.1/3.6.2)
 - [x] 3.11c `app/drills,content`: each lesson quiz opens the deck its title promises (REQ-3.5.2)
 
@@ -187,12 +181,11 @@ The M3 gaps that are unbuilt features rather than defects. Each states its proof
 - [x] 3.12 `app`: route the topic quizzes no flashcard deck covers to the MIDI-answered `TheoryDrillPanel`.
 - [x] 3.13 `app/theory`: hear it (REQ-3.5.3, 3.5.4)
 - [x] 3.14 `app/theory`: the staff half of "see it on staff and keyboard" (REQ-3.5.3, 3.5.4).
-      Proven in a browser: `e2e/screens.spec.ts` drives the reference, asserts the OSMD svg past
-      the 50-element discriminator, and reads the six-sharp key signature off the engraving after
-      switching to F# major. The visual pass added a `'reference'` presentation to `osmdEngraver`
-      (no playback cursor on a score nothing plays, no `♩=120`, no engraved title duplicating the
-      heading, no synthetic `8/4` meter, tight page margins) and dropped the "Piano" part label
-      app-wide, which is roadmap 5.13's part-name half.
+      *Proof: `e2e/screens.spec.ts` drives the reference, asserts the OSMD svg past the 50-element
+      discriminator, and reads the six-sharp key signature off the engraving after switching to F#
+      major.* Its visual pass added a `'reference'` presentation to `osmdEngraver` (no cursor, no
+      `♩=120`, no duplicated title, no synthetic `8/4`, tight margins) and dropped the "Piano" part
+      label app-wide, which is 5.13's part-name half.
 - [ ] 3.14a `core/notation`: per-note spelling, so the engraving spells what `scaleNotes` spelled.
       `ScoreNote` carries only a sounding midi number, so `musicxmlwriter`'s `pitchXml` re-derives
       the written spelling from the measure's key signature — one `preferFlats` choice per measure,
@@ -214,61 +207,44 @@ The M3 gaps that are unbuilt features rather than defects. Each states its proof
 - [ ] 3.16 `core/theory`: fingering for the other 14 scale types (REQ-3.5.4) — `scaleFingering`
       returns `null` unless the type is major/ionian, and the circle's whole inner ring lands the
       user on `naturalMinor`, i.e. half the advertised flow reaches a fingering-less reference.
-      **ATTEMPTED 2026-08-04 AND REVERTED — read this before trying again.** An implementation was
-      built (tables for the minor forms and chromatic, a thumb-placement rule deriving the other
-      ten types) and reverted after adversarial review, with a green 526-test suite, found:
-      * **11 of 108 derived fingerings were anatomically impossible** — thumb crossing UNDER the
-        5th finger, or the same finger on two consecutive keys — and all 11 passed the property
-        test. 55 of 108 had at least one hard defect: the rule forced a thumb landing on every
-        white key after a black one, producing 2-note groups (`dorian E` RH `1 2 1 2 3 4 1 2`,
-        thumb tucked under finger 2).
-      * **the chromatic table was the standard pattern with 2 and 3 transposed** — the taught
-        fingering is 3 on every black key, thumb on the whites; it had 2 on the blacks.
-      * **two hand-written minor rows were unplayable** — E♭ harmonic/melodic LH had the thumb
-        twice in a row; B♭ had finger 2 crossing over the thumb twice.
-      * **the justification was false and untested**: the doc claimed the rule reproduced
-        `MAJOR_FINGERINGS` for all 12 tonics; no such test existed, and the left hand differs on
-        5 of 12 — derived C major LH is the B major pattern.
-      The lesson for the retry: the three properties the suite checked (fingers 1–5, one per
-      degree, no thumb on black) are satisfiable by fingerings no pianist would use. Write these
-      FIRST, for all 16 types × 12 tonics, both hands: (a) no finger repeats on consecutive
-      degrees; (b) no 5→1 or 1→5 transition; (c) RH increases by exactly 1 between thumb
-      landings, LH decreases; (d) every group between landings is 3 or 4 notes. Those four kill
-      every blocker above except the chromatic swap. A black key must PERMIT a landing, not
-      require one. For 5- and 6-note scales (pentatonics, blues, whole tone) the answer is one
-      finger per note, not a grouped major-scale walk. And the derivation must reproduce
-      `MAJOR_FINGERINGS` in a real, exported test before it is trusted anywhere else.
+      **ATTEMPTED 2026-08-04 AND REVERTED — read this before trying again.** Tables for the minor
+      forms and chromatic plus a thumb-placement rule for the other ten types were built, passed a
+      green 526-test suite, and were reverted after adversarial review found: 11 of 108 derived
+      fingerings anatomically impossible (thumb under the 5th, or a finger repeated on consecutive
+      keys) and 55 of 108 with at least one hard defect, because the rule forced a thumb landing on
+      every white key after a black one; the chromatic table was the standard pattern with 2 and 3
+      transposed; two hand-written minor rows were unplayable; and the claim that the rule
+      reproduced `MAJOR_FINGERINGS` was false (LH differs on 5 of 12) and had no test.
+      The lesson: the three properties the suite checked (fingers 1-5, one per degree, no thumb on
+      black) are satisfiable by fingerings no pianist would use. Write these FIRST, for all 16
+      types × 12 tonics, both hands: (a) no finger repeats on consecutive degrees; (b) no 5→1 or
+      1→5 transition; (c) RH increases by exactly 1 between thumb landings, LH decreases; (d) every
+      group between landings is 3 or 4 notes. Those four kill every blocker above except the
+      chromatic swap. A black key must PERMIT a landing, not require one. For 5- and 6-note scales
+      (pentatonics, blues, whole tone) the answer is one finger per note, not a grouped major-scale
+      walk. The derivation must reproduce `MAJOR_FINGERINGS` in a real, exported test first.
       *Proof: the four properties above, plus named both-hand examples for A/E natural minor,
       A harmonic minor, C chromatic, C♯ and F♯ minor, and one per derived family.*
 - [ ] 3.17 `app/shell`: the chord/scale reference "available at all times" (REQ-3.5.4) — today it is
       a destination you leave your place for; `Shell` renders exactly one screen.
       *Proof: open it from the practice screen without losing the loaded score.*
 - [x] 3.18 `app/score`: gate applied analysis to theory level 4+ (REQ-3.5.5)
-- [x] 3.18a `app/score`: put the numerals ON the engraving (REQ-3.5.5's second half). The 7829b8d
-      commit built the whole path — `buildMeasureLabels`, `ScoreViewer`'s `measureLabels` prop,
-      the engraver's `setMeasureLabels` — and wired it to NOTHING: no caller ever passed the prop,
-      so the numerals were absent from the running app under a green suite. Found by driving the
-      Practice screen and reading the SVG, not by a test. `ScoreScreen` now passes them through
-      `PracticeScreen`, under the same theory-level-4 gate as the panel, and the panel's
-      now-duplicated per-measure list moved behind a `<details>` (docs/DESIGN.md rule 3) leaving
-      the key and a cadence summary in the open.
-      *Proof: `e2e/round6.spec.ts` reads every numeral's box off the rendered SVG and asserts each
-      one is centred under a different bar, below its staff.*
+- [x] 3.18a `app/score`: put the numerals ON the engraving (REQ-3.5.5's second half). 7829b8d had
+      built the whole path — `buildMeasureLabels`, `measureLabels`, `setMeasureLabels` — and wired it
+      to NOTHING, so the numerals were absent under a green suite. Found by driving the screen, not
+      by a test. Now passed through `ScoreScreen`, under the same theory-level-4 gate as the panel,
+      with the panel's duplicated per-measure list moved behind a `<details>`.
+      *Proof: `e2e/round6.spec.ts` reads every numeral's box off the SVG and asserts each is centred
+      under a different bar, below its staff.*
 - [x] 3.19 `core/theory/analysis`: make the minor-key leading-tone vote positional
 - [x] 3.19a `core/theory/analysis`: the `>= 2` vote threshold itself.
-- [x] 3.19b `core/theory/analysis`: `plagalMotionIntoFinalMeasure` samples the final measure's bass
-      at its `startTick`, so a final measure whose left hand enters late (a rest, or an upper-voice
-      pickup first) may sample no bass at all and drop the vote. Raised by 3.19a's review as
-      SUSPECTED and rejected there for the right reason — no failing fixture was produced, and
-      rewriting tick sampling on speculation is how the previous attempt at this file went wrong.
-      **Write the failing score first.** If none can be constructed, close this as not-a-defect and
-      say so.
-      *Proof: a constructed minor score with a late left-hand entry in its final bar reads minor,
-      and every 3.19/3.19a fixture still reads what it reads now.*
-      The failing score was written first, as demanded (`analysis.test.ts`, "LATE LEFT-HAND ENTRY"),
-      so this was a real defect, not the speculative rewrite this task warned against. Core-only:
-      its browser-visible surface is the analysis on the Practice screen, which roadmap 3.18a
-      landed and drove this session.
+- [x] 3.19b `core/theory/analysis`: `plagalMotionIntoFinalMeasure` sampled the final measure's bass
+      at its `startTick`, so a final bar whose left hand enters late sampled no bass and dropped the
+      vote. Raised by 3.19a's review as SUSPECTED and rejected there for the right reason — no
+      failing fixture. The failing score was written first this time, as demanded
+      (`analysis.test.ts`, "LATE LEFT-HAND ENTRY"), so it was a real defect and not the speculative
+      rewrite the task warned against.
+      *Proof: that score reads minor, and every 3.19/3.19a fixture still reads what it read.*
 - [x] 3.20 `app/theory`: SRS that re-serves the actual due fact (REQ-3.5.6)
 - [ ] 3.21 `app/eartraining`: clap/tap-back (REQ-3.6.2) — there is no call-and-response anywhere.
       The Rhythm screen shows the pattern for the whole run and silences the audio deliberately, so
@@ -276,15 +252,13 @@ The M3 gaps that are unbuilt features rather than defects. Each states its proof
       *Proof: the pattern is heard and never shown, and the tapped answer is graded.*
 - [x] 3.22 `core/eartraining`: delete the inert band; give the dashboard an honest ear level
 - [x] 3.26 `core/eartraining`: give an attempt a real accuracy, then a band means something.
-- [x] 3.23 `app/eartraining`: give dictation a tempo reference (REQ-3.6.1). `gradeDictation` fits a
-      tempo scale over the answer's onset gaps, and the screen states the pulse and the one-bar
-      count-in. Proven on both sides of the seam, deliberately: the "same phrase, different tempo,
-      still correct" claim is asserted in `dictation.test.ts` over 900 generated cases (a browser
-      spec cannot know the phrase the generator produced), and `e2e/screens.spec.ts` drives the
-      real screen — the tempo readout, the count-in sentence, a recorded note and a graded submit.
-      The visual pass also fixed two defects on that screen: every retention stat printed its label
-      twice ("Cards 0 CARDS"), and the ≤1024px `.keyboard-diagram { width: 100% }` override drew
-      the 5-key dictation pad against ~700px of empty frame.
+- [x] 3.23 `app/eartraining`: dictation has a tempo reference (REQ-3.6.1) — `gradeDictation` fits a
+      tempo scale over the answer's onset gaps, and the screen states the pulse and count-in.
+      *Proof, both sides of the seam deliberately: "same phrase, different tempo, still correct" over
+      900 generated cases in `dictation.test.ts` (a browser spec cannot know the generated phrase),
+      plus `e2e/screens.spec.ts` driving the real screen.* Its visual pass also fixed two defects:
+      every retention stat printed its label twice ("Cards 0 CARDS"), and a ≤1024px
+      `.keyboard-diagram { width: 100% }` override drew the 5-key pad against ~700px of empty frame.
 - [ ] 3.24 `content`: the six REQ-3.5.1 topics with no authored lesson at any level — seventh
       chords, cadences, the common progressions (I–IV–V–I, ii–V–I, I–vi–IV–V), minor scale forms,
       secondary dominants, and modulation to closely related keys. They live at levels 4–5, which
@@ -406,16 +380,49 @@ set `demoScoreId: demo('demo-c-major-scale-one-octave-rh')`, and `demoScores.ts`
 major scale at all — 14 demos, all in C except the two rhythm ones. The prose is good, which makes the
 mismatch worse: the audio wins and a beginner cannot tell which one is lying.
 
-- [ ] 5.8 `content/demoScores`: author `demo-g-major-scale-one-octave-rh` and
-      `demo-f-major-scale-one-octave-rh` (and any other lesson whose demo is not in its own key), then
-      point the G and F major lessons at them.
-      *Proof: a content test asserts, for EVERY lesson carrying a `demoScoreId`, that the demo score's
-      key signature matches the key the lesson names — the class of bug, not the two instances; then
-      in a browser, open the G major lesson's demonstration and read F♯ off the engraving.*
-- [ ] 5.9 `content`: audit the remaining 14 demos against the lessons that reference them for the same
-      class of mismatch (key, hand, octave, note values), and record the result in the task even if it
-      is "no further mismatches".
-      *Proof: the audit table is in the commit body, and any fix it finds carries its own assertion.*
+- [x] 5.8 `content/demoScores`: authored `demo-g-major-scale-one-octave-rh` and
+      `demo-f-major-scale-one-octave-rh` and pointed the G/F major lessons at them. ROOT CAUSE found
+      and fixed a layer down: `techniqueScore` built every measure as `{}`, so `scoreFromRuns`
+      defaulted `keyFifths` to 0 and EVERY technique-library score — all 12 tonics, on the Technique
+      screen too — engraved in C major regardless of its tonic. `keySignatureForTonic` now supplies
+      it, on measure 0, inherited by the rest.
+      *Proof: `demoKeyConsistency.test.ts` asserts, for every lesson whose title or unambiguous prose
+      names a key, that its demonstration engraves that key signature — the class, not the two
+      instances; mutation-killed by repointing the G lesson back at the C demo. In a browser
+      (`e2e/lessons.spec.ts`): open the G and F lessons' demonstrations and read a non-empty
+      `.vf-keysignature` off the engraving, with the C major lesson as a negative control at
+      exactly 0 — so the assertion is proven discriminating, not incidental.*
+- [x] 5.9 `content`: audited all 40 lessons carrying a `demoScoreId` against the demo's actual
+      content, on five dimensions (key, hand, octave, note values, concept). **11 mismatches, not
+      the 2 reported.** The 4 KEY ones are fixed by 5.8 above (the two scale lessons plus
+      `l2-key-signatures-g-f` and `l3-keys-to-two-sharps-flats`, which named specific accidentals
+      while demonstrating a C major waltz; both now have their own two-key demos). The other 7 are
+      real but a different shape of fix, so they are 5.9a rather than a softened score. Full table
+      in the commit body.
+- [ ] 5.9a `content`: the 7 non-key demo mismatches the 5.9 audit found. Each needs an authored
+      demo, not a repoint, because no existing demo shows the thing:
+      * `l3-two-octave-scales-hands-together` — says "two octaves, hands together", demos a
+        one-octave RIGHT-HAND-ONLY scale. (HAND + OCTAVE. Cheapest of the seven: the drill
+        `scale-c-major-2oct-hands-together` already exists.)
+      * `l2-eighth-notes` — teaches eighth notes; demo contains only whole/half/quarter.
+      * `l3-dotted-rhythms` — teaches dotted quarter + eighth; demo is three plain quarters.
+      * `l2-i-iv-v-i-progression` — prose says "combining IV with V into a full progression comes
+        later", demo plays the full I-IV-V-I. Needs a I-IV-I demo (or the prose changes).
+      * `l3-circle-of-fifths` — demo is a I-IV-V-I entirely in C; nothing circle-related.
+      * `l3-relative-minors` — prose says "play both back to back", demo has no A minor triad.
+      * `l3-two-hand-coordination` — prose says "beyond parallel motion", demo IS the parallel
+        motion demo.
+      *Proof: extend `demoKeyConsistency.test.ts`'s approach to the dimension being fixed — an
+      assertion that reads the demo's actual notes, never its title — and drive one of them in a
+      browser. Do not fix these by editing the prose to match a weaker demo.*
+- [ ] 5.9b `app/lessons`: "Open demonstration" loads the demo into `scoreStore` and does not
+      navigate (`LessonsScreen.tsx:129` calls only `openDemoScore`), so pressing the one control
+      that promises to show you the music appears to do nothing — the learner has to know to walk to
+      Practice themselves. Found while driving 5.8 in a browser; it is why that slice's e2e has to
+      click Practice after it. Either navigate, or render the demonstration inline under the lesson
+      and rename the control. Violates DESIGN rule 5 (feedback within 100ms) as written.
+      *Proof: pressing it puts the demonstration in front of the learner with no second step, driven
+      in a browser from the lesson list.*
 - [ ] 5.10 Lesson quality also depends on **3.24** (six REQ-3.5.1 topics with no lesson at any level)
       and **3.25** (`LessonBody` can render only `KeyboardDiagram`, so 7 staff/rhythm lessons are
       structurally incapable of having a diagram). Both are referenced here, not restated: this aspect

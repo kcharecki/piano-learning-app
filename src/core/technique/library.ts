@@ -49,6 +49,7 @@ import {
   type ChordQuality,
   type Inversion,
 } from '@core/theory/chords.ts'
+import { keySignatureForTonic } from '@core/theory/keys.ts'
 import { spell, toMidi, type SpelledPitch } from '@core/theory/pitch.ts'
 import {
   buildScale,
@@ -118,6 +119,22 @@ function handsLabel(hands: 'left' | 'right' | 'both'): string {
  */
 function qualityOf(type: ScaleType): 'major' | 'minor' {
   return type === 'major' || type === 'ionian' ? 'major' : 'minor'
+}
+
+/**
+ * The key signature (in fifths) a drill's own tonic and mode imply — NOT the
+ * per-hand transposed tonic from `handTonic`, since transposing a hand by an
+ * octave does not change the key. A tonic needing more than 7 accidentals
+ * would be a bug in this file's own drill data, not user input, hence the
+ * invariant rather than a silent fallback to 0.
+ */
+function keyFifthsFor(tonic: SpelledPitch, mode: 'major' | 'minor'): number {
+  const result = keySignatureForTonic(tonic, mode)
+  invariant(
+    result.ok,
+    `keyFifthsFor: ${tonicName(tonic)} ${mode}: ${result.ok ? '' : result.error}`,
+  )
+  return result.value.fifths
 }
 
 function handsList(hands: 'left' | 'right' | 'both'): readonly Hand[] {
@@ -330,6 +347,7 @@ function scoreFromRuns(
   id: string,
   runs: readonly { readonly run: Run; readonly hand: Hand }[],
   bpm: number,
+  keyFifths: number,
 ): Score {
   const noteDuration = QUARTER
   let maxLen = 0
@@ -337,7 +355,7 @@ function scoreFromRuns(
   const notes: ScoreNoteInput[] = []
   for (const { run, hand } of runs) notes.push(...noteInputs(run, hand, noteDuration))
   const measureCount = Math.max(1, Math.ceil((maxLen * noteDuration) / WHOLE))
-  const measures = Array.from({ length: measureCount }, () => ({}))
+  const measures = Array.from({ length: measureCount }, (_, i) => (i === 0 ? { keyFifths } : {}))
   return makeScore({ id, measures, notes, tempos: [{ tick: 0, bpm }] })
 }
 
@@ -347,6 +365,7 @@ function chordInversionScore(
   quality: 'major' | 'minor',
   hands: 'left' | 'right' | 'both',
   bpm: number,
+  keyFifths: number,
 ): Score {
   const notes: ScoreNoteInput[] = []
   for (const hand of handsList(hands)) {
@@ -367,7 +386,9 @@ function chordInversionScore(
       })
     }
   }
-  const measures = Array.from({ length: TRIAD_INVERSIONS.length }, () => ({}))
+  const measures = Array.from({ length: TRIAD_INVERSIONS.length }, (_, i) =>
+    i === 0 ? { keyFifths } : {},
+  )
   return makeScore({ id, measures, notes, tempos: [{ tick: 0, bpm }] })
 }
 
@@ -381,7 +402,7 @@ export function techniqueScore(drill: TechniqueDrill, bpm: number): Score {
         run: fiveFingerRun(handTonic(drill.tonic, hand, drill.hands), hand, type),
         hand,
       }))
-      return scoreFromRuns(id, runs, bpm)
+      return scoreFromRuns(id, runs, bpm, keyFifthsFor(drill.tonic, qualityOf(type)))
     }
     case 'scale': {
       invariant(drill.scaleType !== undefined, 'scale drill requires scaleType')
@@ -392,7 +413,7 @@ export function techniqueScore(drill: TechniqueDrill, bpm: number): Score {
         run: scaleUpAndDown(handTonic(drill.tonic, hand, drill.hands), type, octaves, hand),
         hand,
       }))
-      return scoreFromRuns(id, runs, bpm)
+      return scoreFromRuns(id, runs, bpm, keyFifthsFor(drill.tonic, qualityOf(type)))
     }
     case 'arpeggio': {
       invariant(drill.scaleType !== undefined, 'arpeggio drill requires scaleType')
@@ -408,12 +429,19 @@ export function techniqueScore(drill: TechniqueDrill, bpm: number): Score {
         ),
         hand,
       }))
-      return scoreFromRuns(id, runs, bpm)
+      return scoreFromRuns(id, runs, bpm, keyFifthsFor(drill.tonic, qualityOf(drill.scaleType)))
     }
     case 'chord-inversions': {
       invariant(drill.scaleType !== undefined, 'chord-inversions drill requires scaleType')
       const quality = qualityOf(drill.scaleType)
-      return chordInversionScore(id, drill.tonic, quality, drill.hands, bpm)
+      return chordInversionScore(
+        id,
+        drill.tonic,
+        quality,
+        drill.hands,
+        bpm,
+        keyFifthsFor(drill.tonic, quality),
+      )
     }
   }
 }

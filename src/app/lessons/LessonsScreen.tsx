@@ -97,7 +97,7 @@ export function LessonsScreen({ onOpen }: LessonsScreenProps) {
         ))}
       </div>
 
-      <ul aria-label="Lessons">
+      <ul className="list" aria-label="Lessons">
         {lessons.map((lesson) => (
           <li key={lesson.id}>
             <button
@@ -131,7 +131,7 @@ export function LessonsScreen({ onOpen }: LessonsScreenProps) {
           </button>
           {demo !== undefined && <p>Demonstration: {demo.title}</p>}
 
-          <ul aria-label="Exercises">
+          <ul className="list" aria-label="Exercises">
             {selected.exercises.map((exercise) => (
               <li key={exercise.id}>
                 <span>{exercise.title}</span>

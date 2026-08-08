@@ -43,6 +43,10 @@
   padding: var(--space-3) var(--space-2);
   z-index: var(--z-nav);
 }
+/* The nav is a list for screen readers, never a bulleted list on screen —
+   without this the twelve destinations render with disc markers down the
+   sidebar. Scoped to .app-nav so prose lists in lesson bodies keep theirs. */
+.app-nav ul { list-style: none; margin: 0; padding: 0; }
 .app-nav button {
   display: flex;
   align-items: center;
