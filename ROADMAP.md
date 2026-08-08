@@ -303,14 +303,10 @@ graded library is metadata with no music behind it: adding *Für Elise* gives a 
 dropdown and **no way to open, view or play it**. Everything else in the app — matcher, wait mode,
 assessment, read-ahead, loop practice, tempo ramp — exists to be used on a piece.
 
-- [x] 5.1 `content/scores`: bundled a real `.musicxml` for all 20 `GRADED_PIECES` entries and gave
-      each a real `scoreId`, resolved by `gradedScoreFiles.ts` (untrusted parse, not a trusted
-      builder). Deviation: downloading from MuseScore/IMSLP is outside this agent's allowed actions,
-      so every file is hand-authored — 11 research-verified note-for-note, the rest a flagged
-      stylistic excerpt (full breakdown + an Anh. 5 No. 1 catalog fix in `LICENSE.md`).
-      *Proof: `gradedPieces.test.ts` — 20/20 parse, non-empty, key matches. `RepertoireScreen` has no
-      Open control yet (5.2's own action), so `e2e/graded-scores.spec.ts` covers the browser half: a
-      NAMED non-default piece (the Minuet) file-imports and engraves the correct key signature.*
+- [x] 5.1 `content/scores`: bundled a real hand-authored `.musicxml` for all 20 `GRADED_PIECES`
+      entries (`gradedScoreFiles.ts`, untrusted parse) — MuseScore/IMSLP download was out of scope,
+      so 11 are research-verified note-for-note and the rest a flagged stylistic excerpt (7d0721d).
+      Full history: git log.
 - [ ] 5.2 `app/repertoire`: wire the library to Practice — an "Open in Practice" control that loads
       that piece's score into `scoreStore` and navigates, the same pattern 4.9b established for a
       lesson's `demoScoreId`. Today the Add button produces a row and a dead end.
@@ -332,34 +328,16 @@ note matching, feedback colouring, wait mode, assessment, timing feedback, recor
 ramp are all inert. Flashcards, Theory and Dictation *do* render the 37-key `OnScreenKeyboard`; the
 one screen where playing matters is the one that refuses non-MIDI input.
 
-- [x] 5.4 `app/practice`: render `OnScreenKeyboard` on the Practice screen when no MIDI device is
-      present (and behind a toggle when one is). Not pure wiring — `onPress`-only left
-      `waitmode.ts` unable to clear a barrier (it withdraws credit on note-off), so it gained a
-      real press/release mode plus a "Hold keys down" latch (a mouse has one pointer; the sample's
-      first beat is a 4-note chord). *Proof: `e2e/practice-onscreen-keyboard.spec.ts` strips
-      `navigator.requestMIDIAccess`, plays mouse-only through the real matcher and wait mode
-      (1.8s), and confirms a connected device hides the keyboard until asked for.* Gate caught two
-      defects unit tests missed: a React "Cannot update a component while rendering" (state set
-      during render) and a default keyed off `midi.input !== undefined` — true even with
-      permission granted and nothing plugged in, the commonest no-hardware case — now keyed off an
-      attached device.
-- [x] 5.5 `app/keyboardInput`: computer-keyboard note input as a first-class second input, mapped once
-      (`qwertyNoteMap.ts`) and shared by Practice, Flashcards, Theory and Dictation — the screens that
-      already render `OnScreenKeyboard`. `KeyA` plays the BOTTOM of whatever range is in view, climbing
-      through A S D F G H J K L ; (white) and W E T Y U O P (black), laid out over the on-screen
-      keyboard's own geography. First cut anchored at middle C instead — tidy, but made the bundled
-      sample's own first beat (48/52/55/60) only 25% reachable, since the mapping only climbs. Anchoring
-      at the range's own low fixed it, caught by a test asserting the actual first-beat chord, not by
-      inspection. The mapping only ever spans 17 semitones, so a wide multi-octave Practice range is
-      only ever partly reachable by typing — a real, deliberate limit of a finite physical keyboard, not
-      a bug; an octave-shift key is the natural follow-up (not opened as a task, no evidence yet that
-      typing is the primary input on a wide piece rather than a narrow-range fallback).
-      *Proof: `e2e/qwerty-note-input.spec.ts` strips `navigator.requestMIDIAccess` and types on
-      `window` only (no mouse) — graded correct by the real matcher on Practice, recorded on Dictation.
-      Driven live on all four screens in the running app (Playwright for Practice, whose grading needs
-      real transport ticks; the browser directly for the other three): each shows "Or type it…" and
-      grades a typed note. Technique has no `OnScreenKeyboard` to hang this on at all — a gap 5.5 found,
-      not fixed; tracked as 5.5a below rather than dropped silently.*
+- [x] 5.4 `app/practice`: render `OnScreenKeyboard` on Practice when no MIDI device is present (behind
+      a toggle when one is); gave `waitmode.ts` a real press/release mode plus a "Hold keys down" latch
+      so a mouse's one pointer can still clear a chord barrier. Gate caught a render-time state-update
+      bug and a no-hardware default keyed off the wrong signal. Full history: git log.
+- [x] 5.5 `app/keyboardInput`: computer-keyboard note input as a first-class second input
+      (`qwertyNoteMap.ts`), shared by Practice, Flashcards, Theory and Dictation. `KeyA` climbs from the
+      bottom of whatever range is in view (A S D F G H J K L ; white, W E T Y U O P black), anchored at
+      the range's own low note, not middle C. Spans 17 semitones — a wide Practice range is only partly
+      reachable by typing, a real keyboard limit, not a bug. Found, not fixed: Technique has no
+      `OnScreenKeyboard` to hang this on (5.5a). Full history: git log.
 - [ ] 5.5a `app/technique`: `useTechniqueDrill` feeds a `NoteMatcher` straight from `midi.input.onEvent`
       — no on-screen fallback exists, so 5.5's computer-keyboard mapping had nothing to attach to.
       Needs its own `OnScreenKeyboard` (or a `PlayableMidiInput` wrapper) before it can share 5.5's hook.
@@ -380,66 +358,21 @@ set `demoScoreId: demo('demo-c-major-scale-one-octave-rh')`, and `demoScores.ts`
 major scale at all — 14 demos, all in C except the two rhythm ones. The prose is good, which makes the
 mismatch worse: the audio wins and a beginner cannot tell which one is lying.
 
-- [x] 5.8 `content/demoScores`: authored `demo-g-major-scale-one-octave-rh` and
-      `demo-f-major-scale-one-octave-rh` and pointed the G/F major lessons at them. ROOT CAUSE found
-      and fixed a layer down: `techniqueScore` built every measure as `{}`, so `scoreFromRuns`
-      defaulted `keyFifths` to 0 and EVERY technique-library score — all 12 tonics, on the Technique
-      screen too — engraved in C major regardless of its tonic. `keySignatureForTonic` now supplies
-      it, on measure 0, inherited by the rest.
-      *Proof: `demoKeyConsistency.test.ts` asserts, for every lesson whose title or unambiguous prose
-      names a key, that its demonstration engraves that key signature — the class, not the two
-      instances; mutation-killed by repointing the G lesson back at the C demo. In a browser
-      (`e2e/lessons.spec.ts`): open the G and F lessons' demonstrations and read a non-empty
-      `.vf-keysignature` off the engraving, with the C major lesson as a negative control at
-      exactly 0 — so the assertion is proven discriminating, not incidental.*
-- [x] 5.9 `content`: audited all 40 lessons carrying a `demoScoreId` against the demo's actual
-      content, on five dimensions (key, hand, octave, note values, concept). **11 mismatches, not
-      the 2 reported.** The 4 KEY ones are fixed by 5.8 above (the two scale lessons plus
-      `l2-key-signatures-g-f` and `l3-keys-to-two-sharps-flats`, which named specific accidentals
-      while demonstrating a C major waltz; both now have their own two-key demos). The other 7 are
-      real but a different shape of fix, so they are 5.9a rather than a softened score. Full table
-      in the commit body.
-- [x] 5.9a `content`: authored a real demo for each of the 7 non-key mismatches (all via
-      `@core/notation/score.ts` builders, same low-risk pattern as the rest of `demoScores.ts` —
-      no verbatim melody transcription involved):
-      * `l3-two-octave-scales-hands-together` → `demo-c-major-scale-two-octaves-hands-together`,
-        the `scale-c-major-2oct-hands-together` drill rendered. Its left hand legitimately crosses
-        middle C (the registry's hands-together drills are two octaves apart, not one — corrected
-        the task's own "an octave apart" assumption against `HAND_OCTAVE_OFFSET`), so the
-        registry-wide RH/LH range test needed no exception after all — the drill still resolves
-        within range end to end.
-      * `l2-eighth-notes` → `demo-rhythm-reading-eighth-notes` (two quarters, four eighths, a bar
-        of eighths).
-      * `l3-dotted-rhythms` → `demo-dotted-rhythm-3-4` (dotted-quarter + eighth long-short pairs).
-      * `l2-i-iv-v-i-progression` → `demo-i-iv-i-c-major`, stopping at IV as the prose says.
-      * `l3-circle-of-fifths` → `demo-circle-of-fifths-c-g-f` (C, then neighbours G/+1♯ and F/-1♭).
-      * `l3-relative-minors` → `demo-c-major-and-a-minor-triads` (both triads back to back).
-      * `l3-two-hand-coordination` → `demo-contrary-motion-different-rhythms-c` (opposite
-        directions, different note values per hand, both bars).
-      `demoScores.ts` split into `demoScores.ts` + `harmonyDemoScores.ts` + `demoScoreTypes.ts` on
-      file-size grounds (eslint `max-lines`), not a functional boundary.
-      *Proof: `demoScores.test.ts` extended with one content assertion per dimension fixed (octave
-      span + hand-apart interval, eighth-note durations, the dotted long-short pair, keyFifths
-      sequence + pitch classes per key, roman-numeral analysis for I-IV-I and I/vi, opposite
-      melodic direction + distinct duration sets per hand) — all read the demo's actual notes, not
-      its title. All 7 lessons driven in a running browser: each opens its new demo by name and
-      engraves as real OSMD SVG (console clean). `npm run verify` green (3323 tests).*
-- [ ] 5.9b `app/lessons`: "Open demonstration" loads the demo into `scoreStore` and does not
-      navigate (`LessonsScreen.tsx:129` calls only `openDemoScore`), so pressing the one control
-      that promises to show you the music appears to do nothing — the learner has to know to walk to
-      Practice themselves. Found while driving 5.8 in a browser; it is why that slice's e2e has to
-      click Practice after it. Either navigate, or render the demonstration inline under the lesson
-      and rename the control. Violates DESIGN rule 5 (feedback within 100ms) as written.
-      *Proof: pressing it puts the demonstration in front of the learner with no second step, driven
-      in a browser from the lesson list.*
-- [x] 5.9b `app/lessons`: "Open demonstration" now navigates to Practice after loading the demo
-      score, instead of only calling `openDemoScore` and leaving the learner on the Lessons screen.
-      `LessonsScreen` takes a new `onOpenDemo` callback; `Shell` wires it to `goTo('practice')`,
-      the same navigation function the nav rail already uses.
-      *Proof: driven in a browser — clicking "Open demonstration" lands on the Practice screen with
-      the demo's heading and transport controls visible, no second click needed; `e2e/lessons.spec.ts`
-      updated to assert this directly (no manual `nav(page, 'Practice')` click after the button
-      anymore) and both its tests pass.*
+- [x] 5.8 `content/demoScores`: authored real G/F major scale demos and pointed those lessons at them.
+      Root cause a layer down: `techniqueScore` defaulted `keyFifths` to 0, so all 12 technique-library
+      tonics engraved in C regardless — `keySignatureForTonic` now supplies it. Full history: git log.
+- [x] 5.9 `content`: audited all 40 `demoScoreId` lessons on five dimensions (key, hand, octave, note
+      values, concept) — **11 mismatches, not the 2 reported**. The 4 key ones fixed by 5.8; the other
+      7 real but a different fix shape, tracked as 5.9a. Full table in the commit body.
+- [x] 5.9a `content`: authored a real demo for each of the 7 non-key mismatches (hand/octave, eighth
+      notes, dotted rhythm, I-IV-I progression, circle of fifths, relative minors, contrary motion) —
+      all via `@core/notation/score.ts` builders, no verbatim transcription. `demoScores.ts` split into
+      `demoScores.ts` + `harmonyDemoScores.ts` + `demoScoreTypes.ts` on file-size grounds. Each fix has
+      a content assertion reading the demo's actual notes, not its title; all 7 driven live (a0f985f).
+      Full history: git log.
+- [x] 5.9b `app/lessons`: "Open demonstration" now navigates to Practice after loading the demo score
+      (`LessonsScreen`'s new `onOpenDemo` → `Shell`'s `goTo('practice')`), instead of leaving the
+      learner on the Lessons screen. Driven in a browser: one click, no second step (ec91440).
 - [ ] 5.10 Lesson quality also depends on **3.24** (six REQ-3.5.1 topics with no lesson at any level)
       and **3.25** (`LessonBody` can render only `KeyboardDiagram`, so 7 staff/rhythm lessons are
       structurally incapable of having a diagram). Both are referenced here, not restated: this aspect
@@ -454,15 +387,10 @@ forced start, no stopping, unrepeatable exercises, an 80–90% adaptive band. Th
 
 - [x] 5.11 `core/generator/melody`: rebuilt `LEVEL_ROWS` into six levels (was five) — level 1 is a
       genuine stepwise-one-direction run (`stepwiseLine.ts`, new), no level below the top exceeds 2
-      accidentals (old level 4/5's E-major/D♯-minor bug moved to the new level 6, on purpose).
-      `levelDefaults.ts` split out for the line budget; `adaptive.ts`'s `MAX_LEVEL` re-exports it.
-      Adversarial review (Opus) caught two real regressions, both fixed: `doubleHand`'s `'unison'`
-      folds hands into the wrong octave unless L/R ranges are exactly congruent (widening level 2's
-      right range alone broke it — guarded now by `levelDefaults.test.ts`); `dictation.ts` depended
-      on stepwise mode's dropped "ends on tonic" guarantee, so it now opts out and sizes its own leap
-      budget instead of borrowing the ladder's tiny one.
-      *Proof: monotonic-ladder property test, a 500-seed level-1 assertion, `stepwiseLine.test.ts`'s
-      direction/start-variety check; browser: level 1 renders a real 4-note ascending run, console clean.*
+      accidentals (old E-major/D♯-minor bug moved to level 6, on purpose). Opus review caught two real
+      regressions, both fixed (`doubleHand` unison octave fold, `dictation.ts`'s leap budget). Proof:
+      monotonic-ladder property test, 500-seed level-1 assertion; browser: level 1 renders a real
+      4-note ascending run (5e3d8be). Full history: git log.
 - [ ] 5.12 `app/sightreading`: expose the generator parameters the core already supports (REQ-3.4.2:
       key, range, rhythm, hands, accidentals, independence). The screen offers a level number and a
       metronome toggle — a learner cannot drill their own weak spot and a teacher cannot say "3/4 in
