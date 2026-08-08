@@ -66,6 +66,40 @@ describe('EarTrainingScreen — melodic dictation', () => {
     expect(screen.getByTestId('dictation-note-count')).toHaveTextContent('0 notes recorded')
   })
 
+  // REQ-3.6.1 (roadmap 3.23): the learner has no other way to know what pulse the prompt was
+  // played at — see `useEarTraining.ts`'s own doc.
+  it('shows the tempo the prompt was played at', async () => {
+    const user = userEvent.setup()
+    setup()
+
+    await user.selectOptions(screen.getByLabelText('Drill'), 'Melodic dictation')
+    await user.click(screen.getByRole('button', { name: 'Play' }))
+
+    expect(screen.getByTestId('dictation-tempo')).toHaveTextContent('120 bpm')
+  })
+
+  // Asserted against the RECORDED AudioOutput calls with exact timestamps, not the rendered
+  // "count-in plays first" label — a label proves nothing about what actually reached the
+  // AudioOutput (see the module doc's own warning about the silent PLAY_VELOCITY = 0 defect).
+  it('plays a one-bar count-in of clicks before the prompt notes', async () => {
+    const user = userEvent.setup()
+    const { audioOutput, clock } = setup()
+    const baseMs = clock.now()
+
+    await user.selectOptions(screen.getByLabelText('Drill'), 'Melodic dictation')
+    await user.click(screen.getByRole('button', { name: 'Play' }))
+
+    const clicks = audioOutput.calls.filter((c) => c.kind === 'click')
+    expect(clicks).toEqual([
+      { kind: 'click', accented: true, at: baseMs - 2000 },
+      { kind: 'click', accented: false, at: baseMs - 1500 },
+      { kind: 'click', accented: false, at: baseMs - 1000 },
+      { kind: 'click', accented: false, at: baseMs - 500 },
+    ])
+    const firstNoteOn = audioOutput.calls.find((c) => c.kind === 'noteOn')
+    expect(firstNoteOn?.at).toBe(baseMs)
+  })
+
   it('pressing back the exact prompt notes at the exact moments they played, then submitting, grades it correct with a per-note breakdown', async () => {
     const user = userEvent.setup()
     const { audioOutput, clock } = setup()
@@ -199,6 +233,18 @@ describe('EarTrainingScreen — interval-melodic (the default drill)', () => {
 
     expect(audioOutput.playedNotes.length).toBeGreaterThan(0)
     expect(screen.getByRole('group', { name: 'Interval answer' })).toBeInTheDocument()
+  })
+
+  // The count-in (roadmap 3.23, REQ-3.6.1) is scoped to dictation only — an interval answer is
+  // graded on pitch, never timing, so it gets none. Also confirms no tempo display leaks in.
+  it('does not play a count-in or show a tempo, unlike a dictation drill', async () => {
+    const user = userEvent.setup()
+    const { audioOutput } = setup()
+
+    await user.click(screen.getByRole('button', { name: 'Play' }))
+
+    expect(audioOutput.calls.some((c) => c.kind === 'click')).toBe(false)
+    expect(screen.queryByTestId('dictation-tempo')).toBeNull()
   })
 
   it('answering changes the graded result region', async () => {

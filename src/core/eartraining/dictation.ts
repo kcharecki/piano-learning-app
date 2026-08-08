@@ -42,6 +42,31 @@
  * and `rhythmAccuracy`, however, are tracked independently of `status` — a
  * transposed answer (every pitch wrong, every onset exact) scores
  * `pitchAccuracy: 0` and `rhythmAccuracy: 1`, which is the pedagogical point.
+ *
+ * ## Tempo-scale robustness (roadmap 3.23, REQ-3.6.1)
+ *
+ * A dictation prompt plays with no displayed tempo and no count-in metronome
+ * to grade against (that gap is REQ-3.6.1's screen half — see
+ * `app/eartraining/useEarTraining.ts`'s own doc), so a learner who reproduces
+ * the exact right rhythm a few percent off the prompt's own tempo used to
+ * fail every note near the end of the phrase: a fixed absolute-tick tolerance
+ * does not distinguish "wrong rhythm" from "right rhythm, wrong pulse" — the
+ * timing error from a constant tempo ratio accumulates note over note, so the
+ * last note in a phrase is always the one that crosses the tolerance line.
+ * Measured: replaying a level 3-5 melodic phrase 8% slow graded incorrect in
+ * 416 of 900 cases.
+ *
+ * `gradeDictation` now fits a single scale factor between the answer's
+ * onsets and the prompt's own (`fitTempoScale`), clamped to
+ * `[1/maxTempoScale, maxTempoScale]`, and compares against the *scaled*
+ * expected onsets (`scaleExpected`) instead of the raw ones — the ±eighth
+ * tolerance still applies, just around the fitted pulse instead of the
+ * written one. The fit is deliberately blind to a constant offset between the
+ * two lists (see `fitTempoScale`'s own doc): it forgives a consistently
+ * faster or slower performance, never a performance that is merely late or
+ * early by a fixed amount, and never an unbounded rescue — `maxTempoScale: 1`
+ * (or a mismatched note count, where no single scale factor is even
+ * well-defined) recovers the pre-3.23 behaviour exactly, bit for bit.
  */
 import { at, invariant } from '@core/shared/invariant.ts'
 import {
@@ -341,9 +366,23 @@ export type DictationGrade = EarGrade & {
 export type DictationGradeOptions = {
   /** How far off an onset may be and still count as the same note. Defaults to an eighth. */
   readonly toleranceTicks?: Ticks
+  /** Accept a uniform tempo difference between the answer and the prompt, fitting a single
+   *  best scale factor within [1/MAX, MAX] before applying toleranceTicks (roadmap 3.23).
+   *  Defaults to allowing a modest difference; pass 1 to require the prompt's own tempo. */
+  readonly maxTempoScale?: number
 }
 
 const DEFAULT_TOLERANCE_TICKS: Ticks = EIGHTH
+
+/**
+ * REQ-3.6.1 (roadmap 3.23): how far a uniform tempo difference between the answer and the prompt
+ * is forgiven before it grades as a rhythm error. 1.15 = up to 15% faster or slower — comfortably
+ * past the measured defect (a phrase replayed 8% slow graded incorrect in 416 of 900 cases before
+ * this fix), while nowhere near "half speed" or "double speed", which is a different rhythm, not
+ * the same one played unevenly. See `fitTempoScale`'s own doc for why the bound is a hard clamp,
+ * never an unbounded fit — an unbounded fit would make every rhythm "correct" at some scale.
+ */
+const DEFAULT_MAX_TEMPO_SCALE = 1.15
 
 type ExpectedNote = { readonly midi: Midi; readonly startTick: Ticks }
 
@@ -517,6 +556,111 @@ function alignDictation(
 }
 
 /**
+ * The single scale factor that best explains the answer's onsets as the expected onsets played
+ * uniformly faster or slower (roadmap 3.23, REQ-3.6.1). Returns exactly `1` (no adjustment)
+ * whenever a scale cannot meaningfully be fit:
+ *
+ *  - `expected.length !== given.length`: a missing or extra note means the alignment itself is
+ *    already ambiguous — that is what `alignDictation`'s edit-distance search is for. Fitting a
+ *    scale against a note count that does not even match would be fitting noise, not tempo, and
+ *    every existing missing/extra/drop-and-insert test relies on this fallback to stay unchanged.
+ *  - `expected.length < 2`: a single note (or none) has no onset GAP to measure a tempo from.
+ *
+ * The fit is over each list's own offsets from its own first element — `expected[i] -
+ * expected[0]` against `given[i] - given[0]` — never the raw onset ticks. That is deliberate: it
+ * makes the fit blind to a constant additive offset between the two lists (every gap stays the
+ * same size under a pure shift, so the least-squares slope comes out to exactly `1` no matter how
+ * large the shift), and sensitive only to a genuine uniform stretch or compression of the gaps
+ * between notes — which is what "played at a different tempo" actually means, as opposed to
+ * "played late". A phrase shifted by a fixed number of ticks (not a tempo difference at all) is
+ * NOT rescued by this fit — see the "a paired note with matching pitch but an out-of-tolerance
+ * onset grades wrong-rhythm" test, built from exactly such a shift, which stays wrong-rhythm on
+ * every note after this change.
+ *
+ * The closed-form ordinary-least-squares slope through the origin of those offset pairs
+ * (`sum(oe*og) / sum(oe*oe)`) is the "single best scale factor" — clamped to
+ * `[1/maxTempoScale, maxTempoScale]`, never left unbounded. `maxTempoScale: 1` collapses the
+ * clamp to a single point, forcing the result to exactly `1` regardless of the data: the caller's
+ * way of asking for the pre-3.23 behaviour verbatim.
+ */
+function fitTempoScale(
+  expected: readonly ExpectedNote[],
+  given: readonly DictationAnswerNote[],
+  maxTempoScale: number,
+): number {
+  if (expected.length !== given.length || expected.length < 2) return 1
+  const anchorE = at(expected, 0).startTick
+  const anchorG = at(given, 0).startTick
+  let sumOeOe = 0
+  let sumOeOg = 0
+  for (let i = 1; i < expected.length; i++) {
+    const oe = at(expected, i).startTick - anchorE
+    const og = at(given, i).startTick - anchorG
+    sumOeOe += oe * oe
+    sumOeOg += oe * og
+  }
+  if (sumOeOe === 0) return 1
+  const raw = sumOeOg / sumOeOe
+  if (!Number.isFinite(raw) || raw <= 0) return 1
+  const minScale = 1 / maxTempoScale
+  return Math.min(maxTempoScale, Math.max(minScale, raw))
+}
+
+/**
+ * `expected`, with every onset rescaled by `scale` around `expected[0]`'s own onset — the
+ * comparison list `gradeDictation` actually aligns the answer against once a tempo scale has been
+ * fit. Anchored at `expected`'s own first note, never `given`'s: that is what keeps a constant
+ * offset between the two lists from being silently absorbed into the "tempo" explanation (see
+ * `fitTempoScale`'s own doc) — only the fitted scale moves the comparison list, never a shift.
+ * `scale === 1` returns `expected` itself, unchanged, not a recomputed copy, so a caller that
+ * pins `maxTempoScale: 1` (or an answer that is already at the prompt's own tempo, where the fit
+ * lands on exactly `1`) gets bit-for-bit the pre-3.23 comparison, not a floating-point-adjacent
+ * one.
+ */
+function scaleExpected(expected: readonly ExpectedNote[], scale: number): readonly ExpectedNote[] {
+  const anchor = expected[0]
+  if (anchor === undefined || scale === 1) return expected
+  const anchorTick = anchor.startTick
+  return expected.map((n) => ({
+    midi: n.midi,
+    startTick: asTicks(anchorTick + scale * (n.startTick - anchorTick)),
+  }))
+}
+
+/** Missing/extra notes in `a` — see `betterAlignment`'s own doc for why this is the primary
+ *  quality signal, ahead of onset accuracy. */
+function structuralMismatchCount(a: AlignResult): number {
+  return a.results.filter((r) => r.status === 'missing' || r.status === 'extra').length
+}
+
+/**
+ * Whichever of `scaled`/`raw` is the better structural explanation of the same answer (roadmap
+ * 3.23). `fitTempoScale` fits its scale from simple index-paired offsets — a cheap, order-only
+ * correspondence that assumes `given[i]` really does answer `expected[i]`. That assumption holds
+ * for a genuine uniform-tempo difference (both lists have the same notes, in the same order, just
+ * timed differently), but not for an answer that drops one note and appends an unrelated one: the
+ * counts happen to still match, so `fitTempoScale` still returns a number, but it is fit against a
+ * garbage correspondence and can drag several unrelated notes out of tolerance along with it — see
+ * the "dropping one note and appending a spurious one" test, which is exactly this shape and
+ * regressed without this check.
+ *
+ * So the fit is never trusted blind: both the raw and the scaled alignment are actually run, and
+ * this picks the better one. Fewer missing/extra notes wins outright — `alignDictation`'s own cost
+ * model already makes an indel the DP's last resort (see the module doc), so a missing/extra pair
+ * appearing is exactly what "this scale does not actually explain the data" looks like; a tempo
+ * scale must never be allowed to paper over a genuinely different note count or correspondence. A
+ * tie on that count is broken by more onsets landing inside tolerance — the resurrection this
+ * feature exists to make. `raw` wins every further tie, so a scale that does not demonstrably help
+ * is never preferred over the pre-3.23 result.
+ */
+function betterAlignment(scaled: AlignResult, raw: AlignResult): AlignResult {
+  const scaledMismatch = structuralMismatchCount(scaled)
+  const rawMismatch = structuralMismatchCount(raw)
+  if (scaledMismatch !== rawMismatch) return scaledMismatch < rawMismatch ? scaled : raw
+  return scaled.rhythmHits > raw.rhythmHits ? scaled : raw
+}
+
+/**
  * Grade a played-back answer against a dictation item's prompt, note by note.
  * See the module doc for the alignment strategy. `item.prompt.notes` is
  * always sorted by onset (a `Score` invariant), so `expectedIndex` in the
@@ -542,9 +686,14 @@ export function gradeDictation(
     Number.isFinite(toleranceTicks) && toleranceTicks >= 0,
     `gradeDictation: toleranceTicks must be a finite number >= 0, got ${toleranceTicks}`,
   )
+  const maxTempoScale = opts?.maxTempoScale ?? DEFAULT_MAX_TEMPO_SCALE
+  invariant(
+    Number.isFinite(maxTempoScale) && maxTempoScale >= 1,
+    `gradeDictation: maxTempoScale must be a finite number >= 1, got ${maxTempoScale}`,
+  )
   const gradePitch = item.kind !== 'rhythmic-dictation'
 
-  const expected: readonly ExpectedNote[] = item.prompt.notes.map((n) => ({
+  const rawExpected: readonly ExpectedNote[] = item.prompt.notes.map((n) => ({
     midi: n.midi,
     startTick: n.startTick,
   }))
@@ -553,15 +702,26 @@ export function gradeDictation(
   order.sort((a, b) => at(answer, a).startTick - at(answer, b).startTick)
   const sortedGiven = order.map((originalIndex) => at(answer, originalIndex))
 
-  const { results, pitchHits, rhythmHits } = alignDictation(
-    expected,
-    sortedGiven,
-    order,
-    toleranceTicks,
-    gradePitch,
-  )
+  // REQ-3.6.1 (roadmap 3.23): try the tempo-scaled expected onsets against the raw written ones
+  // and keep whichever aligns better — see fitTempoScale's and betterAlignment's own docs for
+  // exactly what this does and does not forgive, and why the fit alone is never trusted blind.
+  const tempoScale = fitTempoScale(rawExpected, sortedGiven, maxTempoScale)
+  const rawAligned = alignDictation(rawExpected, sortedGiven, order, toleranceTicks, gradePitch)
+  const { results, pitchHits, rhythmHits } =
+    tempoScale === 1
+      ? rawAligned
+      : betterAlignment(
+          alignDictation(
+            scaleExpected(rawExpected, tempoScale),
+            sortedGiven,
+            order,
+            toleranceTicks,
+            gradePitch,
+          ),
+          rawAligned,
+        )
 
-  const total = expected.length
+  const total = rawExpected.length
   const rhythmAccuracy = total === 0 ? (answer.length === 0 ? 1 : 0) : rhythmHits / total
   const pitchAccuracy = gradePitch
     ? total === 0

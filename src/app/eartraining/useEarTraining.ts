@@ -104,10 +104,17 @@ import {
 } from '@core/eartraining/dictation.ts'
 import { nextDueItemId, recordEarAttempt, type EarAttempt } from '@core/eartraining/session.ts'
 import { retentionStats, type RetentionStats } from '@core/srs/scheduler.ts'
-import { makeTempoMap, msToTick, tickToMs } from '@core/timing/tempo.ts'
+import { bpmAtTick, makeTempoMap, msToTick, tickToMs, type TempoMap } from '@core/timing/tempo.ts'
 import type { AudioOutput, DateSource, MidiInput, Rng } from '@core/ports/index.ts'
 import { seededRng } from '@core/ports/rng.ts'
-import { addTicks, millis, ticks, type Midi, type Millis } from '@core/shared/units.ts'
+import {
+  addTicks,
+  millis,
+  ticks,
+  TICKS_PER_QUARTER,
+  type Midi,
+  type Millis,
+} from '@core/shared/units.ts'
 import type { ChordQuality } from '@core/theory/chords.ts'
 import type { Interval } from '@core/theory/intervals.ts'
 import type { ScaleType } from '@core/theory/scales.ts'
@@ -157,6 +164,10 @@ export type UseEarTraining = {
    *  keyboard"). A real press reaches `pressDictationNote` exactly like an
    *  on-screen key press; see `useFlashcardDrill`'s identical wiring. */
   readonly midi: MidiConnection
+  /** The current item's own written tempo (bpm at tick 0), for the screen to
+   *  display — REQ-3.6.1 (roadmap 3.23), see the module doc's "A count-in and
+   *  a displayed tempo" section. `undefined` with no item loaded yet. */
+  readonly promptTempoBpm: number | undefined
   setKind(kind: EarItemKind): void
   /** Generate (SRS-due, else fresh) and play the next item for the current kind. */
   start(): void
@@ -244,6 +255,53 @@ function gradeAnswerForItem(item: EarItem, answer: EarAnswer): EarGrade | Dictat
  * multiple-choice kind, and any clean dictation) is unaffected because the
  * ratio is 1.
  */
+
+/**
+ * ## A count-in and a displayed tempo for dictation (roadmap 3.23, REQ-3.6.1)
+ *
+ * A dictation prompt used to play with no visible tempo and no pulse before
+ * the learner answers — `gradeDictation`'s fixed onset tolerance was graded
+ * against a tempo the learner had no way to perceive, so a correct rhythm
+ * played a little fast or slow failed outright (measured: 416 of 900 cases
+ * at 8% slow). `dictation.ts`'s own tempo-scale fit (roadmap 3.23) makes a
+ * *consistent* tempo difference survive grading either way, but a learner
+ * still needs the pulse to be consistent AGAINST — hence the two additions
+ * here, both screen-only, neither touching grading:
+ *
+ *  - `promptTempoBpm`: the current item's own tempo (`bpmAtTick` at tick 0),
+ *    for `EarTrainingScreen` to display. Computed from `item.prompt.tempos`,
+ *    never hand-rolled — see `timing/tempo.ts`'s own module doc for why that
+ *    is the one place allowed to know a tick<->ms mapping.
+ *  - `scheduleItem` gives every dictation item (never a multiple-choice kind
+ *    — see below) a one-bar count-in of `AudioOutput.click` calls before the
+ *    prompt's own notes, at the SAME tempo, built entirely from `tickToMs`'s
+ *    documented negative-tick extrapolation (`timing/tempo.ts`: "ticks before
+ *    0 extrapolate backwards at the first tempo, which is what a count-in
+ *    needs") — never a second, hand-rolled ms/tick computation. First beat
+ *    accented, one click per beat of the prompt's own first measure's time
+ *    signature.
+ *
+ * Only dictation kinds get a count-in: an interval, chord or scale answer is
+ * graded on WHAT was played, never WHEN, so a count-in there would only be
+ * something to sit through for no pedagogical benefit — see the "does not
+ * schedule a count-in for a non-dictation kind" test, which pins that this is
+ * a deliberate scope limit, not an oversight.
+ *
+ * No metronome continues into the answering phase, on purpose. Every other
+ * scheduled sound in this hook — including the count-in above — is scheduled
+ * from a single `AudioOutput.now()` reading against something of KNOWN
+ * length (the module doc's own "look-ahead scheduling" section: "the hook
+ * never blocks wall-clock time waiting for sound to finish"). The answering
+ * phase has no known length — the learner free-plays for as long as they
+ * like before `submitDictation` — so ticking through it would need an
+ * open-ended, continuously-rescheduled click stream: a different scheduling
+ * model `AudioOutput`/`Scheduler` does not offer today (no "cancel remaining
+ * clicks on submit" hook, no recurring-schedule primitive). Building that
+ * infrastructure just for a nice-to-have accent track is out of scope for
+ * this task; the count-in alone already gives the learner the pulse
+ * `gradeDictation`'s tempo-scale fit is graded against, which is the actual
+ * defect this task exists to fix.
+ */
 function accuracyForAttempt(_kind: EarItemKind, grade: EarGrade | DictationGrade): number {
   if ('pitchAccuracy' in grade) {
     const extras = grade.notes.filter((n) => n.status === 'extra').length
@@ -254,10 +312,28 @@ function accuracyForAttempt(_kind: EarItemKind, grade: EarGrade | DictationGrade
   return grade.correct ? 1 : 0
 }
 
-/** Schedule every note of `item.prompt` from one `audioOutput.now()` reading. */
+/**
+ * A one-bar count-in of clicks ending exactly at tick 0 (first beat accented), scheduled entirely
+ * from negative ticks against the item's own tempo map — see the module doc's "A count-in and a
+ * displayed tempo" section. `item.prompt.measures[0]` always exists (`makeScore` requires at least
+ * one measure), so the beat count is always well-defined; falling back to 4 is unreachable in
+ * practice and only guards `noUncheckedIndexedAccess`, not a real code path.
+ */
+function scheduleCountIn(audioOutput: AudioOutput, item: EarItem, baseMs: Millis, tempoMap: TempoMap): void {
+  const beats = item.prompt.measures[0]?.timeSignature.beats ?? 4
+  for (let i = 0; i < beats; i++) {
+    const tick = ticks(-(beats - i) * TICKS_PER_QUARTER)
+    const atMs = millis(baseMs + tickToMs(tempoMap, tick))
+    audioOutput.click(i === 0, atMs)
+  }
+}
+
+/** Schedule every note of `item.prompt` from one `audioOutput.now()` reading, plus a count-in
+ *  first for a dictation item — see the module doc's "A count-in and a displayed tempo" section. */
 function scheduleItem(audioOutput: AudioOutput, item: EarItem): void {
   const tempoMap = makeTempoMap(item.prompt.tempos)
   const baseMs = audioOutput.now()
+  if (isDictationKind(item.kind)) scheduleCountIn(audioOutput, item, baseMs, tempoMap)
   for (const note of item.prompt.notes) {
     const onMs = millis(baseMs + tickToMs(tempoMap, note.startTick))
     const offMs = millis(baseMs + tickToMs(tempoMap, addTicks(note.startTick, note.durationTicks)))
@@ -472,6 +548,10 @@ export function useEarTraining(options: UseEarTrainingOptions = {}): UseEarTrain
     [session, kind],
   )
 
+  // REQ-3.6.1 (roadmap 3.23): see the module doc's "A count-in and a displayed tempo" section.
+  const promptTempoBpm =
+    item === undefined ? undefined : bpmAtTick(makeTempoMap(item.prompt.tempos), ticks(0))
+
   return {
     phase,
     item,
@@ -480,6 +560,7 @@ export function useEarTraining(options: UseEarTrainingOptions = {}): UseEarTrain
     stats,
     kind,
     midi,
+    promptTempoBpm,
     setKind: setKindState,
     start,
     replay,

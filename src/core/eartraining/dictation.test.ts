@@ -413,3 +413,195 @@ describe('gradeDictation', () => {
     expect(grade.rhythmAccuracy).toBe(1)
   })
 })
+
+// ---------------------------------------------------------------------------
+// grading — tempo-scale robustness (roadmap 3.23, REQ-3.6.1)
+// ---------------------------------------------------------------------------
+
+/**
+ * A synthetic phrase with `n` notes evenly spaced a quarter note (480 ticks) apart, entirely
+ * hand-built rather than drawn from `generateMelodicDictation` — the tempo-scale margin math in
+ * the tests below (how far outside the accepted bound a factor has to land before the clamped fit
+ * can no longer explain it) depends on knowing the exact inter-onset gap, which a generated
+ * phrase's variable spacing does not give.
+ */
+function buildEvenPhrase(n: number): EarItem {
+  const gap = 480
+  const pitches = [60, 62, 64, 65, 67, 69, 71, 72]
+  const notes = Array.from({ length: n }, (_, i) => ({
+    midi: pitches[i % pitches.length] as number,
+    startTick: i * gap,
+    durationTicks: 240,
+    hand: 'right' as const,
+  }))
+  const score = makeScore({
+    id: `test:even-phrase:${n}`,
+    measures: [{ durationTicks: n * gap }],
+    notes,
+  })
+  return {
+    id: `test:even-phrase:${n}`,
+    kind: 'melodic-dictation',
+    prompt: score,
+    answerKey: 'irrelevant-for-this-test',
+    level: 1,
+  }
+}
+
+/** A uniform scale of `answer`'s onsets around its own first onset. */
+function scaleAnswer(answer: readonly DictationAnswerNote[], factor: number): DictationAnswerNote[] {
+  const anchor = answer[0]?.startTick ?? asTicks(0)
+  return answer.map((n) => ({
+    midi: n.midi,
+    startTick: asTicks(anchor + factor * (n.startTick - anchor)),
+  }))
+}
+
+// Independent of dictation.ts's own private default — every test in this block that cares about
+// "inside" vs "outside" the bound passes this explicitly, so it stays correct even if the private
+// default changes.
+const TEST_MAX_SCALE = 1.2
+
+describe('gradeDictation — tempo-scale robustness (roadmap 3.23, REQ-3.6.1)', () => {
+  it('grades a uniformly-scaled, otherwise note-perfect answer identically to the unscaled one, for any factor inside the accepted bound', () => {
+    fc.assert(
+      fc.property(
+        seedArb,
+        levelArb,
+        fc.boolean(),
+        fc.double({ min: 1 / TEST_MAX_SCALE, max: TEST_MAX_SCALE, noNaN: true }),
+        (seed, level, melodic, factor) => {
+          const item = melodic
+            ? generateMelodicDictation(level, {}, seededRng(seed))
+            : generateRhythmicDictation(level, {}, seededRng(seed))
+          const full = toAnswer(item)
+          fc.pre(full.length >= 2)
+          const scaled = scaleAnswer(full, factor)
+
+          const unscaledGrade = gradeDictation(item, full, { maxTempoScale: TEST_MAX_SCALE })
+          const scaledGrade = gradeDictation(item, scaled, { maxTempoScale: TEST_MAX_SCALE })
+
+          expect(unscaledGrade.correct).toBe(true) // sanity: the unscaled answer is the item's own notes
+          expect(scaledGrade.correct).toBe(unscaledGrade.correct)
+          expect(scaledGrade.pitchAccuracy).toBe(unscaledGrade.pitchAccuracy)
+          expect(scaledGrade.rhythmAccuracy).toBe(unscaledGrade.rhythmAccuracy)
+        },
+      ),
+    )
+  })
+
+  it('does not forgive a uniform scale factor outside the accepted bound', () => {
+    fc.assert(
+      fc.property(fc.integer({ min: 2, max: 8 }), (n) => {
+        const item = buildEvenPhrase(n)
+        const full = toAnswer(item)
+        // Comfortably outside TEST_MAX_SCALE: even clamped to the bound's own edge, the
+        // reconstructed onset for the last (largest-offset) note is still off by
+        // (factor - TEST_MAX_SCALE) * lastOffset, which for the smallest phrase here (n=2,
+        // lastOffset=480) is 2.4 * 480 = 1152 ticks — far past the default eighth-note tolerance.
+        const factor = TEST_MAX_SCALE * 3
+        const scaled = scaleAnswer(full, factor)
+
+        const grade = gradeDictation(item, scaled, { maxTempoScale: TEST_MAX_SCALE })
+
+        expect(grade.correct).toBe(false)
+        expect(grade.rhythmAccuracy).toBeLessThan(1)
+      }),
+    )
+  })
+
+  // The exact defect this task measures: a phrase replayed 8% slower than written, graded with
+  // the DEFAULT options (no maxTempoScale passed) — this is what a real dictation answer typed a
+  // little under tempo looks like. Before this task, 416 of 900 such cases graded incorrect.
+  it('a phrase replayed 8% slower than written grades correct under the default tolerance', () => {
+    fc.assert(
+      fc.property(seedArb, levelArb, fc.boolean(), (seed, level, melodic) => {
+        const item = melodic
+          ? generateMelodicDictation(level, {}, seededRng(seed))
+          : generateRhythmicDictation(level, {}, seededRng(seed))
+        const full = toAnswer(item)
+        fc.pre(full.length >= 2)
+        const slow = scaleAnswer(full, 1.08)
+
+        const grade = gradeDictation(item, slow) // default options
+
+        expect(grade.correct).toBe(true)
+        expect(grade.rhythmAccuracy).toBe(1)
+      }),
+    )
+  })
+
+  it('maxTempoScale: 1 recovers the pre-3.23 behaviour exactly — the same 8% slower answer the default forgives now grades wrong', () => {
+    const item = buildEvenPhrase(8)
+    const full = toAnswer(item)
+    const slow = scaleAnswer(full, 1.08)
+
+    const withTolerance = gradeDictation(item, slow)
+    expect(withTolerance.correct).toBe(true)
+
+    // maxTempoScale: 1 is exactly gradeDictation(item, slow) with no tempo-scale fit at all — the
+    // per-note classification (wrong-rhythm vs missing/extra, depending on how far the drift has
+    // pushed a note past `alignDictation`'s own mutual-nearest gate) is that function's own
+    // implementation detail, not something this test pins; only that the forgiveness is gone.
+    const strict = gradeDictation(item, slow, { maxTempoScale: 1 })
+    expect(strict.correct).toBe(false)
+    expect(strict.notes.some((n) => n.status !== 'correct')).toBe(true)
+  })
+
+  // The regression this task exists to guard: an isolated, genuinely wrong onset (not a uniform
+  // tempo difference at all — every other note in the phrase is exact) must not be smoothed away
+  // by the tempo-scale fit. A `rhythmAccuracy` that always returns 1 would pass every test above
+  // but fails this one.
+  it('a genuinely wrong onset — not a uniform tempo difference — still grades wrong-rhythm regardless of the default tolerance', () => {
+    fc.assert(
+      fc.property(fc.integer({ min: 2, max: 8 }), (n) => {
+        const item = buildEvenPhrase(n)
+        const full = toAnswer(item)
+        const lastIndex = full.length - 1
+        const distorted = full.map((note, i) =>
+          i === lastIndex ? { midi: note.midi, startTick: asTicks(note.startTick + 2000) } : note,
+        )
+
+        const grade = gradeDictation(item, distorted)
+
+        expect(grade.correct).toBe(false)
+        expect(grade.rhythmAccuracy).toBeLessThan(1)
+        expect(grade.notes[lastIndex]?.status).not.toBe('correct')
+      }),
+    )
+  })
+
+  it('a tempo-scaled AND transposed answer keeps pitchAccuracy 0 while rhythmAccuracy stays 1 — the two axes stay independent under scaling too', () => {
+    fc.assert(
+      fc.property(seedArb, levelArb, (seed, level) => {
+        const item = generateMelodicDictation(level, {}, seededRng(seed))
+        const full = toAnswer(item)
+        fc.pre(full.length >= 2)
+        const scaled = scaleAnswer(full, 1.1)
+        const answer = scaled.map((n) => ({ midi: asMidi(n.midi + 1), startTick: n.startTick }))
+
+        const grade = gradeDictation(item, answer)
+
+        expect(grade.rhythmAccuracy).toBe(1)
+        expect(grade.pitchAccuracy).toBe(0)
+        expect(grade.correct).toBe(false)
+      }),
+    )
+  })
+
+  it('a mismatched note count (a missing note) never engages the tempo-scale fit — dropping one note behaves exactly as without it', () => {
+    fc.assert(
+      fc.property(seedArb, levelArb, (seed, level) => {
+        const item = generateMelodicDictation(level, {}, seededRng(seed))
+        const full = toAnswer(item)
+        fc.pre(full.length >= 2)
+        const dropped = full.slice(1) // drop the first note — an unequal count either way
+
+        const withDefaultTolerance = gradeDictation(item, dropped)
+        const withNoTolerance = gradeDictation(item, dropped, { maxTempoScale: 1 })
+
+        expect(withDefaultTolerance).toEqual(withNoTolerance)
+      }),
+    )
+  })
+})

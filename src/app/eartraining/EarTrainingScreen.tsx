@@ -188,7 +188,11 @@ export function EarTrainingScreen(props: EarTrainingScreenProps) {
             {kind === 'rhythmic-dictation'
               ? 'Tap back the rhythm — any key counts, only the timing is graded.'
               : 'Play back the phrase on the keyboard below, in order.'}
+            {' A one-bar count-in plays first, so you can hear the pulse.'}
           </p>
+          {drill.promptTempoBpm !== undefined && (
+            <p data-testid="dictation-tempo">Tempo: {Math.round(drill.promptTempoBpm)} bpm</p>
+          )}
           <DictationAnswerPad
             key={drill.item.id}
             notes={drill.dictationNotes}

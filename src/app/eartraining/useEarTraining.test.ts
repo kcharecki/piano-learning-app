@@ -606,3 +606,77 @@ describe('useEarTraining — dictation answers (roadmap 3.11, REQ-3.6.1/3.6.2)',
     expect(result.current.dictationNotes).toHaveLength(0)
   })
 })
+
+describe('useEarTraining — count-in and prompt tempo (roadmap 3.23, REQ-3.6.1)', () => {
+  // Level 1 melodic dictation is 4/4 at the default 120 bpm — a quarter note is 500ms — so a
+  // one-bar count-in is exactly 4 clicks, 500ms apart, the last one landing 500ms before the
+  // first note. Asserted against the RECORDED AudioOutput calls with exact timestamps, not a
+  // rendered label: this repo has already shipped a silent "hear it" feature (PLAY_VELOCITY = 0)
+  // that stayed green under 16 label-only tests, so a count-in that never actually reaches the
+  // AudioOutput must fail here.
+  it('start() for a melodic dictation item schedules a one-bar count-in of clicks before the prompt notes', () => {
+    const { result, audioOutput, clock } = setup()
+    act(() => result.current.setKind('melodic-dictation'))
+    const baseMs = clock.now()
+
+    act(() => result.current.start())
+
+    const clicks = audioOutput.calls.filter((c) => c.kind === 'click')
+    expect(clicks).toEqual([
+      { kind: 'click', accented: true, at: baseMs - 2000 },
+      { kind: 'click', accented: false, at: baseMs - 1500 },
+      { kind: 'click', accented: false, at: baseMs - 1000 },
+      { kind: 'click', accented: false, at: baseMs - 500 },
+    ])
+    const firstNoteOn = audioOutput.calls.find((c) => c.kind === 'noteOn')
+    expect(firstNoteOn?.at).toBe(baseMs)
+    // The count-in is audio, not silence: `click` itself carries no velocity, but the prompt
+    // notes that follow it must still be audible and properly note-off'd — a count-in that
+    // accidentally swallowed the prompt's own playback would still pass the calls-shape
+    // assertion above without this.
+    const noteOns = audioOutput.calls.filter((c) => c.kind === 'noteOn')
+    const noteOffs = audioOutput.calls.filter((c) => c.kind === 'noteOff')
+    expect(noteOns.length).toBeGreaterThan(0)
+    expect(noteOns.every((c) => c.kind === 'noteOn' && c.velocity > 0)).toBe(true)
+    expect(noteOffs).toHaveLength(noteOns.length)
+  })
+
+  it('start() for a rhythmic dictation item also schedules a count-in', () => {
+    const { result, audioOutput } = setup()
+    act(() => result.current.setKind('rhythmic-dictation'))
+
+    act(() => result.current.start())
+
+    expect(audioOutput.calls.filter((c) => c.kind === 'click')).toHaveLength(4)
+  })
+
+  it('replay() schedules a fresh count-in too, doubling the recorded clicks', () => {
+    const { result, audioOutput } = setup()
+    act(() => result.current.setKind('melodic-dictation'))
+    act(() => result.current.start())
+    expect(audioOutput.calls.filter((c) => c.kind === 'click')).toHaveLength(4)
+
+    act(() => result.current.replay())
+
+    expect(audioOutput.calls.filter((c) => c.kind === 'click')).toHaveLength(8)
+  })
+
+  // Deliberate scope limit, not an oversight — see the module doc's "A count-in and a displayed
+  // tempo" section on why only dictation grading needs a pulse to be graded against.
+  it('does not schedule a count-in for a non-dictation kind', () => {
+    const { result, audioOutput } = setup() // defaults to interval-melodic
+
+    act(() => result.current.start())
+
+    expect(audioOutput.calls.some((c) => c.kind === 'click')).toBe(false)
+  })
+
+  it('promptTempoBpm is undefined before any item is loaded, and the written tempo (120) once one is', () => {
+    const { result } = setup()
+    expect(result.current.promptTempoBpm).toBeUndefined()
+
+    act(() => result.current.start())
+
+    expect(result.current.promptTempoBpm).toBe(120)
+  })
+})
