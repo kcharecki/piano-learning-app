@@ -40,7 +40,7 @@ afterEach(() => {
 
 describe('LessonsScreen', () => {
   it('shows level 1\'s lessons and the first one selected by default, with its explanation', () => {
-    render(<LessonsScreen onOpen={vi.fn()} />)
+    render(<LessonsScreen onOpen={vi.fn()} onOpenDemo={vi.fn()} />)
 
     const expected = lessonsForLevel(CURRICULUM, 1)
     const list = screen.getByRole('list', { name: 'Lessons' })
@@ -66,7 +66,7 @@ describe('LessonsScreen', () => {
 
   it('picking a level shows that level\'s own lessons, and selecting one shows its exercises', async () => {
     const user = userEvent.setup()
-    render(<LessonsScreen onOpen={vi.fn()} />)
+    render(<LessonsScreen onOpen={vi.fn()} onOpenDemo={vi.fn()} />)
 
     await user.click(screen.getByRole('button', { name: 'Level 2' }))
 
@@ -87,7 +87,7 @@ describe('LessonsScreen', () => {
 
   it('clicking the "Next lesson" button moves the selection to the independently-computed next lesson', async () => {
     const user = userEvent.setup()
-    render(<LessonsScreen onOpen={vi.fn()} />)
+    render(<LessonsScreen onOpen={vi.fn()} onOpenDemo={vi.fn()} />)
 
     const firstLesson = lessonsForLevel(CURRICULUM, 1)[0]
     if (firstLesson === undefined) throw new Error('expected level 1 to have lessons')
@@ -111,7 +111,7 @@ describe('LessonsScreen', () => {
     })
 
     const onOpen = vi.fn<(exercise: Exercise) => void>()
-    render(<LessonsScreen onOpen={onOpen} />)
+    render(<LessonsScreen onOpen={onOpen} onOpenDemo={vi.fn()} />)
 
     // Select a lesson OTHER than the default (first) selection, whose demo
     // differs from the default's — otherwise an implementation that always
@@ -150,9 +150,10 @@ describe('LessonsScreen', () => {
     expect(loaded?.sourceName).toContain(targetLesson.title)
   })
 
-  it('"Open demonstration" loads the selected lesson\'s demo score without opening any exercise', async () => {
+  it('"Open demonstration" loads the selected lesson\'s demo score and tells the shell to navigate, without opening any exercise', async () => {
     const user = userEvent.setup()
-    render(<LessonsScreen onOpen={vi.fn()} />)
+    const onOpenDemo = vi.fn()
+    render(<LessonsScreen onOpen={vi.fn()} onOpenDemo={onOpenDemo} />)
 
     const firstLesson = lessonsForLevel(CURRICULUM, 1)[0]
     if (firstLesson === undefined || firstLesson.demoScoreId === undefined) {
@@ -166,11 +167,14 @@ describe('LessonsScreen', () => {
     await user.click(screen.getByRole('button', { name: 'Open demonstration' }))
 
     expect(useScoreStore.getState().loaded?.score).toBe(demo.score)
+    // The bug this closes (roadmap 5.9b): the control loaded the score but
+    // never told the shell to navigate, so pressing it appeared to do nothing.
+    expect(onOpenDemo).toHaveBeenCalledTimes(1)
   })
 
   it('an exercise that does not open the practice screen does not touch scoreStore', async () => {
     const user = userEvent.setup()
-    render(<LessonsScreen onOpen={() => {}} />)
+    render(<LessonsScreen onOpen={() => {}} onOpenDemo={vi.fn()} />)
 
     const firstLesson = lessonsForLevel(CURRICULUM, 1)[0]
     if (firstLesson === undefined) throw new Error('expected level 1 to have lessons')

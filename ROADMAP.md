@@ -432,6 +432,14 @@ mismatch worse: the audio wins and a beginner cannot tell which one is lying.
       and rename the control. Violates DESIGN rule 5 (feedback within 100ms) as written.
       *Proof: pressing it puts the demonstration in front of the learner with no second step, driven
       in a browser from the lesson list.*
+- [x] 5.9b `app/lessons`: "Open demonstration" now navigates to Practice after loading the demo
+      score, instead of only calling `openDemoScore` and leaving the learner on the Lessons screen.
+      `LessonsScreen` takes a new `onOpenDemo` callback; `Shell` wires it to `goTo('practice')`,
+      the same navigation function the nav rail already uses.
+      *Proof: driven in a browser — clicking "Open demonstration" lands on the Practice screen with
+      the demo's heading and transport controls visible, no second click needed; `e2e/lessons.spec.ts`
+      updated to assert this directly (no manual `nav(page, 'Practice')` click after the button
+      anymore) and both its tests pass.*
 - [ ] 5.10 Lesson quality also depends on **3.24** (six REQ-3.5.1 topics with no lesson at any level)
       and **3.25** (`LessonBody` can render only `KeyboardDiagram`, so 7 staff/rhythm lessons are
       structurally incapable of having a diagram). Both are referenced here, not restated: this aspect

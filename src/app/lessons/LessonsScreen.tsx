@@ -25,6 +25,11 @@ export type LessonsScreenProps = {
    *  `SessionPlanScreen` already does. The demo score is loaded FIRST for
    *  practice-screen destinations. */
   readonly onOpen: (exercise: Exercise) => void
+  /** Called after "Open demonstration" loads the demo score into `scoreStore`,
+   *  so the shell can navigate to Practice — the control used to load the
+   *  score and leave the learner on the Lessons screen with no visible change
+   *  (roadmap 5.9b). */
+  readonly onOpenDemo: () => void
 }
 
 /** The two exercise kinds the shell routes to the practice screen, per
@@ -35,7 +40,7 @@ function opensPracticeScreen(exercise: Exercise): boolean {
   return exercise.kind === 'play' || exercise.kind === 'repertoire'
 }
 
-export function LessonsScreen({ onOpen }: LessonsScreenProps) {
+export function LessonsScreen({ onOpen, onOpenDemo }: LessonsScreenProps) {
   const {
     level,
     levels,
@@ -55,6 +60,11 @@ export function LessonsScreen({ onOpen }: LessonsScreenProps) {
   function handleOpenExercise(exercise: Exercise): void {
     if (opensPracticeScreen(exercise)) openDemoScore()
     onOpen(exercise)
+  }
+
+  function handleOpenDemo(): void {
+    openDemoScore()
+    onOpenDemo()
   }
 
   const demo = selected?.demoScoreId === undefined ? undefined : demoScoreById(selected.demoScoreId)
@@ -126,7 +136,7 @@ export function LessonsScreen({ onOpen }: LessonsScreenProps) {
 
           <LessonBody explanation={selected.explanation} />
 
-          <button type="button" onClick={openDemoScore}>
+          <button type="button" onClick={handleOpenDemo}>
             Open demonstration
           </button>
           {demo !== undefined && <p>Demonstration: {demo.title}</p>}
