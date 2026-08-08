@@ -53,6 +53,44 @@ test('the Theory destination drives the reference from the circle of fifths (roa
   expect(errors).toEqual([])
 })
 
+test('the looked-up scale is engraved as real staff notation (roadmap 3.14, REQ-3.5.3/3.5.4)', async ({
+  page,
+}) => {
+  test.setTimeout(30_000)
+  const errors = collectErrors(page)
+  await page.goto('/')
+  await nav(page, 'Theory').click()
+
+  // A real OSMD render is well past the 50-element discriminator this suite
+  // uses (see round6.spec.ts) — a text list of note names, which is what the
+  // reference showed before 3.14, is not.
+  const staff = page.locator('.scale-staff')
+  await expect(staff.locator('svg')).toBeVisible({ timeout: 15_000 })
+  expect(await staff.locator('svg *').count()).toBeGreaterThan(50)
+
+  // The engraving must follow the lookup, not sit frozen on the default. C
+  // major has no key signature at all, so VexFlow draws no `vf-keysignature`
+  // group; F# major draws one holding six sharp glyphs. Both read off the
+  // rendered SVG, not off the requested scale.
+  const keySignature = staff.locator('svg .vf-keysignature')
+  await expect(keySignature).toHaveCount(0)
+
+  await page.getByLabel('Root', { exact: true }).selectOption({ label: 'F#' })
+  await expect(staff).toHaveAttribute('aria-label', /F# major/, { timeout: 10_000 })
+  await expect(keySignature).toHaveCount(1, { timeout: 10_000 })
+  expect(await keySignature.locator('path').count()).toBeGreaterThanOrEqual(6)
+
+  // Presentation (roadmap 3.14's visual pass): this staff is READ, not played.
+  // OSMD builds its playback cursor as an <img> overlay either way; showing it
+  // parks a "you are here" highlight on the first note of a score nothing is
+  // playing, so on a reference it must stay hidden. The part name ("Piano",
+  // the only instrument this app ever engraves) must not be drawn at all.
+  await expect(staff.locator('img')).toBeHidden()
+  await expect(staff).not.toContainText('Piano')
+
+  expect(errors).toEqual([])
+})
+
 test('the Ear training destination plays a prompt and grades an answer (roadmap 3.10)', async ({
   page,
 }) => {

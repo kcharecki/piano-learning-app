@@ -160,11 +160,23 @@ The M3 gaps that are unbuilt features rather than defects. Each states its proof
 
 - [x] 3.12 `app`: route the topic quizzes no flashcard deck covers to the MIDI-answered `TheoryDrillPanel`.
 - [x] 3.13 `app/theory`: hear it (REQ-3.5.3, 3.5.4)
-- [ ] 3.14 `app/theory`: the staff half of "see it on staff and keyboard" (REQ-3.5.3, 3.5.4) — the
-      reference renders a keyboard SVG and a table of note names; `osmdEngraver` is never imported
-      by the theory layer.
-      *Proof: a looked-up scale is engraved as real notation (an OSMD svg past the 50-element
-      discriminator, as `e2e/round6.spec.ts` does for technique).*
+- [x] 3.14 `app/theory`: the staff half of "see it on staff and keyboard" (REQ-3.5.3, 3.5.4).
+      Proven in a browser: `e2e/screens.spec.ts` drives the reference, asserts the OSMD svg past
+      the 50-element discriminator, and reads the six-sharp key signature off the engraving after
+      switching to F# major. The visual pass added a `'reference'` presentation to `osmdEngraver`
+      (no playback cursor on a score nothing plays, no `♩=120`, no engraved title duplicating the
+      heading, no synthetic `8/4` meter, tight page margins) and dropped the "Piano" part label
+      app-wide, which is roadmap 5.13's part-name half.
+- [ ] 3.14a `core/notation`: per-note spelling, so the engraving spells what `scaleNotes` spelled.
+      `ScoreNote` carries only a sounding midi number, so `musicxmlwriter`'s `pitchXml` re-derives
+      the written spelling from the measure's key signature — one `preferFlats` choice per measure,
+      against a table holding only the twelve single sharp/flat spellings. Seen on screen in 3.14's
+      own visual pass: F# major's leading tone E# engraves as F♮ (then F# for the octave), and 93 of
+      the 192 root x scale-type combinations the reference can draw mis-spell at least one degree
+      (42 the E#/B#/Cb/Fb class, 51 the per-measure-vs-per-note gap in harmonic/melodic minor).
+      Sounds right, reads wrong. Blocks 5.35's minor fingerings being shown next to correct notation.
+      *Proof: F# major's 7th degree engraves as E#, G harmonic minor's as F#, and every existing
+      musicxml/writer round-trip fixture still passes.*
 - [x] 3.15 `app/theory`: look up ANY chord (REQ-3.5.4) — any root × quality × inversion, with symbol, figured bass, spelled tones and keyboard highlight.
 - [ ] 3.15a `app/theory`: extract the duplicated chord/scale audio helpers (play, panic, the shared
       `AudioContext`) out of `ChordScaleReference.tsx` and `ChordLookup.tsx` into a leaf module.

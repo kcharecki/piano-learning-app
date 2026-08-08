@@ -13,14 +13,25 @@
  * whenever `musicXml` changes, and a fresh string every render would re-engrave
  * every frame of the preview countdown.
  */
+import type { EngraverFactory } from '@app/score/engraver.ts'
 import { ScoreViewer } from '@app/score/ScoreViewer.tsx'
 import { writeMusicXml } from '@core/notation/musicxmlwriter.ts'
 import type { Score } from '@core/notation/score.ts'
 import { useMemo } from 'react'
 
-export type ExerciseScoreProps = { readonly score: Score }
+export type ExerciseScoreProps = {
+  readonly score: Score
+  /** Forwarded verbatim to `ScoreViewer`. Absent — every caller until roadmap
+   *  3.14 — means the default OSMD engraver, i.e. today's behaviour exactly.
+   *  `ScaleStaff` passes a reference-presentation engraver through here. */
+  readonly createEngraver?: EngraverFactory
+}
 
-export function ExerciseScore({ score }: ExerciseScoreProps) {
+export function ExerciseScore({ score, createEngraver }: ExerciseScoreProps) {
   const musicXml = useMemo(() => writeMusicXml(score), [score])
-  return <ScoreViewer musicXml={musicXml} score={score} />
+  // Spread rather than `createEngraver={createEngraver}`: under
+  // `exactOptionalPropertyTypes` an explicit `undefined` is not the same as an
+  // absent prop, and absent is what has to reach `ScoreViewer` so its own
+  // default engraver applies for every caller that passes nothing.
+  return <ScoreViewer musicXml={musicXml} score={score} {...(createEngraver && { createEngraver })} />
 }

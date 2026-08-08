@@ -1185,6 +1185,40 @@ describe('cursor movement', () => {
   })
 })
 
+describe('createOsmdEngraver: presentation (roadmap 3.14)', () => {
+  const ONSETS = [0, 480, 960]
+
+  async function loadWith(
+    opts: Parameters<typeof createOsmdEngraver>[0],
+  ): Promise<ReturnType<typeof makeFakeCursor>> {
+    const cursor = makeFakeCursor(ONSETS)
+    const fakeOsmd = makeFakeOsmd([measureOf(containerOf(note(60)))])
+    const withCursor: OsmdLike = { ...fakeOsmd, cursor: cursor.cursor }
+    const engraver = createOsmdEngraver({ ...opts, createOsmd: () => withCursor })
+    await engraver.load(document.createElement('div'), '<xml/>', singleNoteScore())
+    return cursor
+  }
+
+  it("shows the playback cursor by default, so every existing caller is unchanged", async () => {
+    const cursor = await loadWith(undefined)
+    expect(cursor.calls.show).toBe(1)
+  })
+
+  it('never shows a playback cursor on a reference score', async () => {
+    // The scale staff on the theory reference has nothing playing it, so a
+    // cursor parked on its first note is a lie about state.
+    const cursor = await loadWith({ presentation: 'reference' })
+    expect(cursor.calls.show).toBe(0)
+  })
+
+  it('still caches the onsets in reference mode, so moveCursorTo stays usable', async () => {
+    const cursor = await loadWith({ presentation: 'reference' })
+    // The load-time walk visits every onset whichever mode it is in — hiding
+    // the cursor must not also disable cursor movement.
+    expect(cursor.calls.next).toBeGreaterThanOrEqual(ONSETS.length)
+  })
+})
+
 describe('createOsmdEngraver: MAX_CURSOR_STEPS cap (roadmap 2.32f)', () => {
   // Negative case first: an ordinary short score never comes near the cap,
   // so the cap-reached warning must never fire for it.

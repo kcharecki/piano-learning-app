@@ -221,6 +221,11 @@ const DEFAULT_OSMD_OPTIONS = {
   autoResize: true,
   drawTitle: true,
   followCursor: true,
+  // Every score this app engraves is solo piano, so the part name OSMD prints
+  // to the left of the first system is always the literal word "Piano" — pure
+  // noise that also steals horizontal space from the music (roadmap 5.13's
+  // part-name half; its "Untitled Score" half belongs to the generators).
+  drawPartNames: false,
   defaultColorMusic: SCORE_INK,
   defaultColorNotehead: SCORE_INK,
   defaultColorStem: SCORE_INK,
@@ -229,9 +234,44 @@ const DEFAULT_OSMD_OPTIONS = {
   defaultColorTitle: SCORE_INK,
 }
 
+/**
+ * How the engraved score is presented.
+ *
+ * - `'practice'` — the default: a piece being played. Playback cursor shown,
+ *   title and tempo mark drawn, page margins as OSMD lays them out.
+ * - `'reference'` — a few notes shown to be *read*, not played (the theory
+ *   reference's scale staff, roadmap 3.14). A playback cursor highlighting
+ *   the first note reads as "you are here" on a score nothing is playing;
+ *   the tempo mark is meaningless for a scale; the title duplicates the
+ *   heading the surrounding screen already renders; and OSMD's default page
+ *   margins leave a one-bar scale sitting in ~360px of empty paper.
+ *   `compacttight` is OSMD's own name for the tight-margin mode.
+ */
+export type ScorePresentation = 'practice' | 'reference'
+
+const REFERENCE_OSMD_OPTIONS = {
+  ...DEFAULT_OSMD_OPTIONS,
+  drawingParameters: 'compacttight',
+  drawTitle: false,
+  drawMetronomeMarks: false,
+}
+
 /** The only place the real OSMD library is constructed. */
-function defaultCreateOsmd(container: HTMLElement): OsmdLike {
-  return new OpenSheetMusicDisplay(container, DEFAULT_OSMD_OPTIONS) as unknown as OsmdLike
+function defaultCreateOsmd(container: HTMLElement, presentation: ScorePresentation): OsmdLike {
+  const options = presentation === 'reference' ? REFERENCE_OSMD_OPTIONS : DEFAULT_OSMD_OPTIONS
+  const instance = new OpenSheetMusicDisplay(container, options)
+  if (presentation === 'reference') {
+    // A scale has no meter. `ScaleStaff` sizes its single measure to the
+    // scale's own note count, so the engraved signature would read "8/4" for
+    // a seven-note scale plus its octave (or 5/4, 6/4, 12/4 for the
+    // pentatonics, whole tone and chromatic) — a meter claim no printed
+    // scale book makes and no learner should read as one. The KEY signature
+    // is left on: that one is real and is half the point of the reference.
+    // `EngravingRules` is the public accessor for the same object the
+    // protected `rules` field holds (see `OpenSheetMusicDisplay.d.ts`).
+    instance.EngravingRules.RenderTimeSignatures = false
+  }
+  return instance as unknown as OsmdLike
 }
 
 /**
@@ -523,6 +563,9 @@ export type OsmdEngraverOptions = {
   readonly scheduleRender?: (run: () => void) => void
   /** Injection seam for tests — defaults to the real `OpenSheetMusicDisplay`. */
   readonly createOsmd?: (container: HTMLElement) => OsmdLike
+  /** Defaults to `'practice'`, i.e. exactly the behaviour every existing caller
+   *  already gets. See `ScorePresentation`. */
+  readonly presentation?: ScorePresentation
 }
 
 /**
@@ -541,7 +584,8 @@ export type ScoreEngraverWithMeasureLabels = ScoreEngraver & {
 
 export function createOsmdEngraver(opts?: OsmdEngraverOptions): ScoreEngraverWithMeasureLabels {
   const scheduleRender = opts?.scheduleRender ?? defaultScheduleRender
-  const createOsmd = opts?.createOsmd ?? defaultCreateOsmd
+  const presentation = opts?.presentation ?? 'practice'
+  const createOsmd = opts?.createOsmd ?? ((container) => defaultCreateOsmd(container, presentation))
 
   let osmd: OsmdLike | undefined
   /** The element `load()` rendered into — bounds the walk `noteIdAt` does. */
@@ -655,7 +699,9 @@ export function createOsmdEngraver(opts?: OsmdEngraverOptions): ScoreEngraverWit
       instance.render()
       onsetTicks = collectOnsetTicks(instance.cursor)
       cursorIndex = 0
-      instance.cursor.show()
+      // Walked above either way — `moveCursorTo` stays callable in both modes
+      // — but only SHOWN when something can play. See `ScorePresentation`.
+      if (presentation !== 'reference') instance.cursor.show()
       osmd = instance
       containerEl = container
       noteById = buildNoteIdMap(instance, score)

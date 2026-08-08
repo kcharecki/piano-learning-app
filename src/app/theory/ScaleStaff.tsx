@@ -73,6 +73,7 @@
  */
 import { useMemo } from 'react'
 import type { JSX } from 'react'
+import { createOsmdEngraver } from '@app/score/osmdEngraver.ts'
 import { ExerciseScore } from '@app/sightreading/ExerciseScore.tsx'
 import { makeScore, type Score, type ScoreNoteInput } from '@core/notation/score.ts'
 import { TICKS_PER_QUARTER } from '@core/shared/units.ts'
@@ -165,12 +166,23 @@ export function buildScaleScore(root: SpelledPitch, scaleType: ScaleType): Score
   })
 }
 
+/**
+ * This scale is READ, not played: no playback cursor parked on its first note,
+ * no `♩= 120` above a scale that has no tempo, no engraved title duplicating
+ * the heading the reference already shows, and tight page margins so eight
+ * quarter notes do not sit in a page of empty paper. See `ScorePresentation`
+ * in `osmdEngraver.ts`. Module-level so its identity is stable across renders
+ * — `ScoreViewer` re-engraves whenever its engraver factory changes.
+ */
+const createReferenceEngraver = (): ReturnType<typeof createOsmdEngraver> =>
+  createOsmdEngraver({ presentation: 'reference' })
+
 /** Engraves the looked-up scale next to the reference's keyboard diagram. */
 export function ScaleStaff({ root, scaleType }: ScaleStaffProps): JSX.Element {
   const score = useMemo(() => buildScaleScore(root, scaleType), [root, scaleType])
   return (
     <div className="scale-staff" role="img" aria-label={`${score.meta.title} staff notation`}>
-      <ExerciseScore score={score} />
+      <ExerciseScore score={score} createEngraver={createReferenceEngraver} />
     </div>
   )
 }
