@@ -16,13 +16,16 @@ import { GRADED_PIECES } from '@content/repertoire/gradedPieces.ts'
 import { act, cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { initialLevelState } from '@core/progress/levels.ts'
 import { useRepertoireStore } from '@app/state/repertoireStore.ts'
 import { useScoreStore, type LoadedScore } from '@app/state/scoreStore.ts'
+import { useLevelStore } from '@app/state/levelStore.ts'
 import { RepertoireScreen } from './RepertoireScreen.tsx'
 
 function resetStores(): void {
   useRepertoireStore.setState({ pieces: [] })
   useScoreStore.setState({ loaded: undefined, importError: undefined })
+  useLevelStore.setState({ levelState: initialLevelState(), hydrated: false })
 }
 
 afterEach(() => {
@@ -245,5 +248,37 @@ describe('RepertoireScreen', () => {
     expect(useScoreStore.getState().loaded?.sourceName).toBe(firstEntry.title)
     expect(useScoreStore.getState().loaded?.score.id).toBe(firstEntry.scoreId)
     expect(onOpenInPractice).toHaveBeenCalledTimes(1)
+  })
+
+  it('the "Below my level" filter shows only catalogue pieces strictly below the playing track level (roadmap 5.3)', async () => {
+    act(() => {
+      useLevelStore.getState().setTrackLevel('playing', 3)
+    })
+    renderScreen()
+    const user = userEvent.setup()
+    const catalogueRegion = screen.getByRole('region', { name: 'Graded library' })
+
+    const level1Entry = GRADED_PIECES.find((p) => p.level === 1)
+    const level4Entry = GRADED_PIECES.find((p) => p.level === 4)
+    if (level1Entry === undefined || level4Entry === undefined) {
+      throw new Error('expected seeded catalogue entries at level 1 and level 4')
+    }
+    // Unfiltered: both a below-level and an at-or-above-level piece show.
+    expect(within(catalogueRegion).getByText(level1Entry.title)).toBeInTheDocument()
+    expect(within(catalogueRegion).getByText(level4Entry.title)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('checkbox', { name: /Below my level/ }))
+
+    expect(within(catalogueRegion).getByText(level1Entry.title)).toBeInTheDocument()
+    expect(within(catalogueRegion).queryByText(level4Entry.title)).not.toBeInTheDocument()
+  })
+
+  it('the "Below my level" filter shows an honest empty state for a level-1 learner (nothing exists below level 1)', async () => {
+    renderScreen()
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('checkbox', { name: /Below my level/ }))
+
+    expect(screen.getByText('No catalogue pieces below level 1 yet.')).toBeInTheDocument()
   })
 })

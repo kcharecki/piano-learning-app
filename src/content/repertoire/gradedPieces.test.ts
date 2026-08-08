@@ -26,13 +26,39 @@ const EXPECTED_KEY_FIFTHS: ReadonlyMap<string, number> = new Map([
   ['beethoven-sonatina-op-49-no-1', -2],
   ['bach-invention-no-1-bwv-772', 0],
   ['chopin-prelude-op-28-no-4', 1],
+  ['twinkle-twinkle-little-star', 0],
+  ['row-row-row-your-boat', 0],
+  ['frere-jacques', 0],
+  ['this-old-man', 0],
+  ['old-macdonald-had-a-farm', 0],
+  ['lightly-row', 0],
+  ['yankee-doodle', 0],
+  ['jolly-old-saint-nicholas', 0],
+  ['ring-around-the-rosie', 0],
+  ['rain-rain-go-away', 0],
+  ['the-farmer-in-the-dell', 0],
+  ['when-the-saints-go-marching-in', 0],
+  ['jingle-bells', 1],
+  ['camptown-races', 1],
+  ['oh-susanna', 1],
+  ['auld-lang-syne', 1],
+  ['simple-gifts', -1],
+  ['home-on-the-range', -1],
+  ['my-bonnie-lies-over-the-ocean', 1],
+  ['danny-boy', 1],
 ])
 
 const KEBAB_CASE = /^[a-z0-9]+(-[a-z0-9]+)*$/
 
 describe('GRADED_PIECES', () => {
-  it('has exactly 20 entries', () => {
-    expect(GRADED_PIECES.length).toBe(20)
+  it('has exactly 40 entries', () => {
+    expect(GRADED_PIECES.length).toBe(40)
+  })
+
+  it('roadmap 5.3: has at least 40 entries and at least 25 at level <= 2', () => {
+    expect(GRADED_PIECES.length).toBeGreaterThanOrEqual(40)
+    const belowOrAtLevel2 = GRADED_PIECES.filter((p) => p.level <= 2).length
+    expect(belowOrAtLevel2).toBeGreaterThanOrEqual(25)
   })
 
   it('has unique, kebab-case ids', () => {
@@ -106,7 +132,7 @@ describe('GRADED_PIECES', () => {
     }
   })
 
-  it('folds cleanly through addPiece into a real 20-piece RepertoirePiece library that preserves content', () => {
+  it('folds cleanly through addPiece into a real 40-piece RepertoirePiece library that preserves content', () => {
     let library: readonly RepertoirePiece[] = []
     for (const piece of GRADED_PIECES) {
       const result = addPiece(library, piece)
@@ -114,7 +140,7 @@ describe('GRADED_PIECES', () => {
       if (!result.ok) throw new Error('unreachable')
       library = result.value
     }
-    expect(library.length).toBe(20)
+    expect(library.length).toBe(40)
     expect(
       library.map(({ id, title, composer, level }) => ({ id, title, composer, level })),
     ).toEqual(

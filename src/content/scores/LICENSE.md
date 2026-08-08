@@ -82,3 +82,40 @@ as the Twinkle melody above:
 No 20th-century work, and nothing with an unclear or disputed public-domain
 status, was included; where a piece's difficulty was uncertain it was left
 out in favor of a clearly-graded alternative rather than guessed at.
+
+## Roadmap 5.3 — 20 more pieces, widening the catalogue toward the 40 Piece Challenge
+
+Roadmap 5.3 added 20 more entries (all level 1–2, plus reusing the existing
+`twinkle-twinkle-little-star.musicxml` as a 21st catalogue entry — see its own
+section above) so the catalogue has real mass **below** a learner's level, per
+Elissa Milne's 40 Piece Challenge. As above, the specific arrangement in each
+new file (key, left-hand accompaniment, register, excerpt length) is this
+app's own, not a reproduction of any published edition. What each claims to
+be _that piece_ rests on:
+
+- **Verified this session against a real letter-note transcription fetched
+  from noobnotes.net** (a dedicated beginner letter-notes site; URLs recorded
+  in the roadmap 5.3 commit body), then re-registered into this app's own
+  key/register/rhythm: Row, Row, Row Your Boat; Old MacDonald Had a Farm;
+  Yankee Doodle; Oh! Susanna; Auld Lang Syne; When the Saints Go Marching In.
+- **This app's own transcription from memory of a tune with a single,
+  universally-taught melody** (no meaningfully different versions exist to
+  confuse) — attempted but not confirmed against an external written source
+  this session, so treat these as "confirmed melodic contour, this app's own
+  rendition" rather than source-verified: Frère Jacques, This Old Man,
+  Lightly Row, Jolly Old Saint Nicholas, Ring Around the Rosie, Rain Rain Go
+  Away, The Farmer in the Dell, Jingle Bells (chorus), Camptown Races
+  (chorus), Simple Gifts, Home on the Range (chorus), My Bonnie Lies Over the
+  Ocean, and Danny Boy (opening phrase only, "Londonderry Air" — a famously
+  intricate melody, so only the well-known ascending-4th opening phrase is
+  bundled, not a claim on the rest).
+
+Every new melody is the same two provenance classes as above: anonymous
+traditional/folk (all of the nursery rhymes and folk songs) or a composer who
+died well before 1900 (James Lord Pierpont 1893, Stephen Foster 1864, Daniel
+E. Kelley 1905, Elder Joseph Brackett 1873, Frederic Weatherly's *lyrics*
+1929 — the "Londonderry Air" melody itself is anonymous traditional Irish, so
+the tune predates his 1913 words regardless). "Home on the Range" and
+"Danny Boy" carry attribution disputes over lyric/verse authorship in some
+sources; the bundled instrumental melody line in both cases is the
+long-public-domain traditional tune, not the disputed verse text.

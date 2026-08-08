@@ -32,6 +32,14 @@ export type RepertoireScreenProps = {
 export function RepertoireScreen({ onOpenInPractice }: RepertoireScreenProps) {
   const repertoire = useRepertoire()
   const [level, setLevel] = useState(MIN_LEVEL)
+  const [belowLevelOnly, setBelowLevelOnly] = useState(false)
+
+  // REQ-5.2/roadmap 5.3: "below the learner's current level, not at it" — the
+  // 40 Piece Challenge shape the catalogue was widened toward. Strictly below,
+  // so a level-1 learner (nothing exists below level 1) correctly sees none.
+  const visibleCatalogue = belowLevelOnly
+    ? repertoire.catalogue.filter((piece) => piece.level < repertoire.playingLevel)
+    : repertoire.catalogue
 
   const addDisabledReason =
     repertoire.loadedScoreTitle === undefined
@@ -118,8 +126,19 @@ export function RepertoireScreen({ onOpenInPractice }: RepertoireScreenProps) {
           per-row error display. */}
       <section className="repertoire-catalogue" role="region" aria-label="Graded library">
         <h3>Graded library</h3>
+        <label className="repertoire-catalogue-filter">
+          <input
+            type="checkbox"
+            checked={belowLevelOnly}
+            onChange={(e) => setBelowLevelOnly(e.target.checked)}
+          />
+          Below my level (playing level {repertoire.playingLevel})
+        </label>
+        {belowLevelOnly && visibleCatalogue.length === 0 && (
+          <p>No catalogue pieces below level {repertoire.playingLevel} yet.</p>
+        )}
         <ul aria-label="Graded pieces">
-          {repertoire.catalogue.map((piece) => {
+          {visibleCatalogue.map((piece) => {
             const alreadyAdded = repertoire.catalogueAddedIds.has(piece.id)
             return (
               <li key={piece.id} className="repertoire-catalogue-piece">

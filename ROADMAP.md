@@ -323,13 +323,24 @@ assessment, read-ahead, loop practice, tempo ramp — exists to be used on a pie
       heading and engraving are Greensleeves', then play its first beat and see it graded correct.
       Visual pass both widths/themes, console clean.* Extended `scripts/visual-pass.mjs` with
       `--click <label>` to reach a post-interaction state (e.g. an added piece's row) for a screenshot.
-- [ ] 5.3 `content`: widen the catalogue toward the 40 Piece Challenge shape — ~40 pieces with the
-      mass **below** the learner's current level, not at it. Elissa Milne's 40 Piece Challenge is the
-      highest-leverage sight-reading intervention in the literature and the app can currently support
-      1/40th of it. Bundled scores only; a metadata row is not a piece.
-      *Proof: `GRADED_PIECES` has ≥ 40 entries, every one with a parseable bundled score, and ≥ 25 of
-      them at level ≤ 2; the Repertoire screen can filter to "below my level" and the list is
-      non-empty for a level-2 learner.*
+- [x] 5.3 `content`: widened the catalogue toward the 40 Piece Challenge shape — `GRADED_PIECES` now
+      has 40 entries (was 20), all 20 new ones at level 1–2, every one resolving to a real bundled
+      `.musicxml` (19 newly authored + `twinkle-twinkle-little-star.musicxml` newly added to the
+      catalogue), giving 31 of 40 at level ≤ 2. Melodies for 6 (Row Row Row Your Boat, Old MacDonald,
+      Yankee Doodle, Oh! Susanna, Auld Lang Syne, When the Saints Go Marching In) were fetched from
+      noobnotes.net letter-note transcriptions this session, not just recalled; the remaining 14 are
+      this app's own rendition of a single universally-known melody, flagged as such rather than
+      claimed as source-verified — see `LICENSE.md`'s new "Roadmap 5.3" section for the full
+      per-piece breakdown. Added a "Below my level" checkbox to the Repertoire screen's Graded
+      library, filtering to `piece.level < playingLevel` (strictly below, so a level-1 learner
+      correctly sees an honest empty state, not a silently-empty list).
+      *Proof: `gradedPieces.test.ts` asserts ≥ 40 entries and ≥ 25 at level ≤ 2, plus every scoreId
+      resolves to a real parsed Score. Driven in the browser on this worktree's own dev server: all
+      40 catalogue rows render; raising the playing track level to 3 via the dashboard's own override
+      and checking "Below my level" shows exactly the 31 level 1–2 pieces and hides Für Elise
+      (level 3) and above; unchecking restores all 40. Visual pass (`scripts/visual-pass.mjs
+      Repertoire --level playing=3`) at both widths, both themes: console clean, no layout
+      regression.*
 
 ### Input accessibility — **3/10 → 9**
 
