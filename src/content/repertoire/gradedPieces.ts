@@ -3,10 +3,18 @@
  * spanning levels 1–5, weighted toward the lower levels, so the repertoire
  * library (`@core/repertoire/repertoire.ts`) isn't empty on first run.
  *
- * METADATA ONLY. Every entry omits `scoreId` on purpose: this task ships
- * title/composer/level/grading rationale, not MusicXML. None of these 20
- * pieces has a bundled score — inventing a `scoreId` here would fabricate a
- * score that doesn't exist.
+ * Every entry carries a real `scoreId` (roadmap 5.1) resolved by
+ * `gradedScoreFiles.ts` to a bundled, hand-authored `.musicxml` file under
+ * `src/content/scores/` — parsed by `@core/notation/musicxml` at load, never
+ * trusted, the same path a learner's own file import takes. See that file's
+ * doc comment and `src/content/scores/LICENSE.md` for what each bundled score
+ * is and is not: a faithful rendition of the named melody/theme in its stated
+ * key, not a verified note-for-note transcription of a specific edition, and
+ * for the four hardest classical excerpts (the two sonatinas whose exact
+ * opening pitches no text source could confirm, the Burgmüller and the
+ * Beethoven), a stylistically-faithful excerpt rather than a scholarly one —
+ * flagged explicitly in LICENSE.md rather than presented as more certain
+ * than it is.
  *
  * Imported by `@app/repertoire/useRepertoire.ts` (roadmap 4.9a), which renders
  * this list on the repertoire screen and adds an entry to the learner's own
@@ -39,6 +47,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
   // ---------------------------------------------------------------------
   {
     id: 'au-clair-de-la-lune',
+    scoreId: 'au-clair-de-la-lune',
     title: 'Au Clair de la Lune',
     composer: 'Traditional (French folk melody, 18th c., composer unknown)',
     level: 1,
@@ -47,14 +56,16 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
   },
   {
     id: 'hot-cross-buns',
+    scoreId: 'hot-cross-buns',
     title: 'Hot Cross Buns',
     composer: 'Traditional (English street-vendor cry, composer unknown)',
     level: 1,
     gradingNote:
-      'Three-note five-finger melody, quarter notes only — the canonical first five-finger-position piece in level 1\'s playing column.',
+      "Three-note five-finger melody, quarter notes only — the canonical first five-finger-position piece in level 1's playing column.",
   },
   {
     id: 'london-bridge-is-falling-down',
+    scoreId: 'london-bridge-is-falling-down',
     title: 'London Bridge Is Falling Down',
     composer: 'Traditional (English nursery rhyme, composer unknown)',
     level: 1,
@@ -63,6 +74,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
   },
   {
     id: 'mary-had-a-little-lamb',
+    scoreId: 'mary-had-a-little-lamb',
     title: 'Mary Had a Little Lamb',
     composer: 'Traditional (American nursery rhyme, composer unknown)',
     level: 1,
@@ -71,6 +83,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
   },
   {
     id: 'merrily-we-roll-along',
+    scoreId: 'merrily-we-roll-along',
     title: 'Merrily We Roll Along',
     composer: 'Traditional (American folk song, composer unknown)',
     level: 1,
@@ -79,6 +92,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
   },
   {
     id: 'ode-to-joy-theme',
+    scoreId: 'ode-to-joy-theme',
     title: 'Ode to Joy (Theme)',
     composer: 'Ludwig van Beethoven (1770–1827)',
     level: 1,
@@ -93,15 +107,17 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
   // ---------------------------------------------------------------------
   {
     id: 'amazing-grace',
+    scoreId: 'amazing-grace',
     title: 'Amazing Grace',
     composer:
       'Traditional (tune "New Britain", American folk hymn, first printed in Walker\'s Southern Harmony, 1835; composer unknown)',
     level: 2,
     gradingNote:
-      'Simple hands-together hymn texture with room for legato phrasing and dynamic shaping, one-octave range, harmony sitting on tonic/dominant — level 2\'s playing and theory columns.',
+      "Simple hands-together hymn texture with room for legato phrasing and dynamic shaping, one-octave range, harmony sitting on tonic/dominant — level 2's playing and theory columns.",
   },
   {
     id: 'long-long-ago',
+    scoreId: 'long-long-ago',
     title: 'Long, Long Ago',
     composer: 'Thomas Haynes Bayly (1797–1839)',
     level: 2,
@@ -110,15 +126,16 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
   },
   {
     id: 'minuet-in-g-major-bwv-anh-114',
+    scoreId: 'minuet-in-g-major-bwv-anh-114',
     title: 'Minuet in G major, BWV Anh. 114',
-    composer:
-      'Attrib. Christian Petzold (1677–1733); from the Notebook for Anna Magdalena Bach',
+    composer: 'Attrib. Christian Petzold (1677–1733); from the Notebook for Anna Magdalena Bach',
     level: 2,
     gradingNote:
       'Key of G major (1 sharp), hands together throughout, mostly stepwise with some eighth-note motion within an octave — level 2\'s "simple key signatures (0–1 sharps/flats)" and "major scales C/G/F".',
   },
   {
     id: 'scarborough-fair',
+    scoreId: 'scarborough-fair',
     title: 'Scarborough Fair',
     composer: 'Traditional (English ballad, composer unknown)',
     level: 2,
@@ -127,6 +144,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
   },
   {
     id: 'skip-to-my-lou',
+    scoreId: 'skip-to-my-lou',
     title: 'Skip to My Lou',
     composer: 'Traditional (American play-party song, composer unknown)',
     level: 2,
@@ -141,6 +159,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
   // ---------------------------------------------------------------------
   {
     id: 'fur-elise-theme',
+    scoreId: 'fur-elise-theme',
     title: 'Für Elise (Theme A)',
     composer: 'Ludwig van Beethoven (1770–1827)',
     level: 3,
@@ -149,6 +168,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
   },
   {
     id: 'greensleeves',
+    scoreId: 'greensleeves',
     title: 'Greensleeves',
     composer: 'Traditional (English, composer unknown, first printed 16th c.)',
     level: 3,
@@ -164,6 +184,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
   // ---------------------------------------------------------------------
   {
     id: 'burgmuller-arabesque-op-100-no-2',
+    scoreId: 'burgmuller-arabesque-op-100-no-2',
     title: 'Arabesque, Op. 100 No. 2',
     composer: 'Friedrich Burgmüller (1806–1874)',
     level: 4,
@@ -172,6 +193,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
   },
   {
     id: 'bach-prelude-in-c-major-bwv-846',
+    scoreId: 'bach-prelude-in-c-major-bwv-846',
     title: 'Prelude in C major, BWV 846',
     composer: 'Johann Sebastian Bach (1685–1750)',
     level: 4,
@@ -180,6 +202,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
   },
   {
     id: 'kuhlau-sonatina-op-20-no-1',
+    scoreId: 'kuhlau-sonatina-op-20-no-1',
     title: 'Sonatina in C major, Op. 20 No. 1 (1st movement)',
     composer: 'Friedrich Kuhlau (1786–1832)',
     level: 4,
@@ -188,6 +211,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
   },
   {
     id: 'clementi-sonatina-op-36-no-1',
+    scoreId: 'clementi-sonatina-op-36-no-1',
     title: 'Sonatina in C major, Op. 36 No. 1 (1st movement)',
     composer: 'Muzio Clementi (1752–1832)',
     level: 4,
@@ -196,6 +220,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
   },
   {
     id: 'beethoven-sonatina-op-49-no-1',
+    scoreId: 'beethoven-sonatina-op-49-no-1',
     title: 'Sonatina in G minor, Op. 49 No. 1 (1st movement)',
     composer: 'Ludwig van Beethoven (1770–1827)',
     level: 4,
@@ -210,6 +235,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
   // ---------------------------------------------------------------------
   {
     id: 'bach-invention-no-1-bwv-772',
+    scoreId: 'bach-invention-no-1-bwv-772',
     title: 'Invention No. 1 in C major, BWV 772',
     composer: 'Johann Sebastian Bach (1685–1750)',
     level: 5,
@@ -218,6 +244,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
   },
   {
     id: 'chopin-prelude-op-28-no-4',
+    scoreId: 'chopin-prelude-op-28-no-4',
     title: 'Prelude in E minor, Op. 28 No. 4',
     composer: 'Frédéric Chopin (1810–1849)',
     level: 5,

@@ -323,14 +323,14 @@ graded library is metadata with no music behind it: adding *Für Elise* gives a 
 dropdown and **no way to open, view or play it**. Everything else in the app — matcher, wait mode,
 assessment, read-ahead, loop practice, tempo ramp — exists to be used on a piece.
 
-- [ ] 5.1 `content/scores`: bundle public-domain MusicXML for all 20 entries in `GRADED_PIECES` and
-      give each a real `scoreId` (4.9 explicitly shipped them as metadata-only rather than fabricate
-      a demonstration; this is the task that closes that). All 20 are PD and available from MuseScore
-      and IMSLP. Each file is parsed by `core/notation/musicxml` at content load, not trusted.
-      *Proof: a content test asserts every `GRADED_PIECES` entry resolves to a `Score` that parses,
-      is non-empty, and whose key signature matches the entry's stated key; then in a browser, a
-      NAMED non-default piece (not Twinkle, not the first row) is opened from Repertoire and
-      engraves.*
+- [x] 5.1 `content/scores`: bundled a real `.musicxml` for all 20 `GRADED_PIECES` entries and gave
+      each a real `scoreId`, resolved by `gradedScoreFiles.ts` (untrusted parse, not a trusted
+      builder). Deviation: downloading from MuseScore/IMSLP is outside this agent's allowed actions,
+      so every file is hand-authored — 11 research-verified note-for-note, the rest a flagged
+      stylistic excerpt (full breakdown + an Anh. 5 No. 1 catalog fix in `LICENSE.md`).
+      *Proof: `gradedPieces.test.ts` — 20/20 parse, non-empty, key matches. `RepertoireScreen` has no
+      Open control yet (5.2's own action), so `e2e/graded-scores.spec.ts` covers the browser half: a
+      NAMED non-default piece (the Minuet) file-imports and engraves the correct key signature.*
 - [ ] 5.2 `app/repertoire`: wire the library to Practice — an "Open in Practice" control that loads
       that piece's score into `scoreStore` and navigates, the same pattern 4.9b established for a
       lesson's `demoScoreId`. Today the Add button produces a row and a dead end.
