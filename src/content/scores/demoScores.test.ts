@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { notesInMeasure, validateScore, type ScoreNote } from '@core/notation/score.ts'
+import { TICKS_PER_QUARTER } from '@core/shared/units.ts'
 import { analyseScore } from '@core/theory/analysis.ts'
 import { keyFromFifths } from '@core/theory/keys.ts'
 import { DEMO_SCORES, demoScoreById, type DemoScore } from './demoScores.ts'
@@ -30,14 +31,22 @@ const AUTHORED_DEMO_IDS = [
   'demo-c-major-triad-broken',
   'demo-i-v-i-c-major',
   'demo-i-iv-v-i-c-major',
+  'demo-i-iv-i-c-major',
   'demo-authentic-cadence-c-major',
+  'demo-c-major-and-a-minor-triads',
   'demo-hands-together-parallel-motion-c',
   'demo-lh-root-rh-melody-simple-piece',
   'demo-g-major-scale-one-octave-rh',
   'demo-f-major-scale-one-octave-rh',
+  'demo-c-major-scale-two-octaves-hands-together',
+  'demo-rhythm-reading-eighth-notes',
+  'demo-dotted-rhythm-3-4',
+  'demo-circle-of-fifths-c-g-f',
+  'demo-contrary-motion-different-rhythms-c',
   'demo-key-signatures-g-and-f',
   'demo-keys-d-major-and-b-flat-major',
 ]
+
 
 describe('DEMO_SCORES registry', () => {
   it('contains at least the 18 required demonstrations', () => {
@@ -102,12 +111,24 @@ describe('DEMO_SCORES registry', () => {
     'demo-lh-root-rh-melody-simple-piece': 0,
     'demo-g-major-scale-one-octave-rh': 1,
     'demo-f-major-scale-one-octave-rh': -1,
+    'demo-c-major-scale-two-octaves-hands-together': 0,
+    'demo-rhythm-reading-eighth-notes': 0,
+    'demo-dotted-rhythm-3-4': 0,
+    'demo-i-iv-i-c-major': 0,
+    'demo-c-major-and-a-minor-triads': 0,
+    'demo-contrary-motion-different-rhythms-c': 0,
   }
+
+  const MIXED_KEY_DEMO_IDS = [
+    'demo-key-signatures-g-and-f',
+    'demo-keys-d-major-and-b-flat-major',
+    'demo-circle-of-fifths-c-g-f',
+  ]
 
   it('every single-key demo carries its documented key signature throughout', () => {
     expect(Object.keys(EXPECTED_KEY_FIFTHS).sort()).toEqual(
       DEMO_SCORES.map((d) => d.id)
-        .filter((id) => id !== 'demo-key-signatures-g-and-f' && id !== 'demo-keys-d-major-and-b-flat-major')
+        .filter((id) => !MIXED_KEY_DEMO_IDS.includes(id))
         .sort(),
     )
     for (const [id, expected] of Object.entries(EXPECTED_KEY_FIFTHS)) {
@@ -131,6 +152,18 @@ describe('DEMO_SCORES registry', () => {
     expect(
       demo.score.measures.every((m) => m.timeSignature.beats === 3 && m.timeSignature.beatType === 4),
     ).toBe(true)
+  })
+
+  it('demo-dotted-rhythm-3-4 keeps its 3/4 time signature', () => {
+    const demo = requireDemo('demo-dotted-rhythm-3-4')
+    expect(
+      demo.score.measures.every((m) => m.timeSignature.beats === 3 && m.timeSignature.beatType === 4),
+    ).toBe(true)
+  })
+
+  it('demo-circle-of-fifths-c-g-f changes key mid-score: C major, then G major (1 sharp), then F major (1 flat)', () => {
+    const demo = requireDemo('demo-circle-of-fifths-c-g-f')
+    expect(demo.score.measures.map((m) => m.keyFifths)).toEqual([0, 0, 1, 1, -1, -1])
   })
 
   it('every entry has a unique, non-empty, kebab-case id', () => {
@@ -213,6 +246,23 @@ describe('harmony demonstrations analyse as intended', () => {
     expect(analysis.chords.map((c) => c.numeral?.inversion)).toEqual([0, 1, 2, 0])
   })
 
+  it('demo-i-iv-i-c-major reads as I, IV, I — stopping short of the dominant (roadmap 5.9a)', () => {
+    const analysis = analyseScore(requireDemo('demo-i-iv-i-c-major').score, cMajor)
+    const degrees = analysis.chords.map((c) => c.numeral?.degree)
+    const qualities = analysis.chords.map((c) => c.numeral?.quality)
+    expect(degrees).toEqual([1, 4, 1])
+    expect(qualities).toEqual(['major', 'major', 'major'])
+    expect(analysis.chords.map((c) => c.numeral?.inversion)).toEqual([0, 0, 0])
+  })
+
+  it('demo-c-major-and-a-minor-triads reads as I, then vi — the relative minor (roadmap 5.9a)', () => {
+    const analysis = analyseScore(requireDemo('demo-c-major-and-a-minor-triads').score, cMajor)
+    const degrees = analysis.chords.map((c) => c.numeral?.degree)
+    const qualities = analysis.chords.map((c) => c.numeral?.quality)
+    expect(degrees).toEqual([1, 6])
+    expect(qualities).toEqual(['major', 'minor'])
+  })
+
   it('demo-authentic-cadence-c-major reads as a root-position V then I and is classified perfect authentic', () => {
     const analysis = analyseScore(requireDemo('demo-authentic-cadence-c-major').score, cMajor)
     expect(analysis.chords.map((c) => c.numeral?.degree)).toEqual([5, 1])
@@ -282,5 +332,87 @@ describe('non-harmony demonstrations carry the content they claim to', () => {
     expect(firstHalf).toContain(1)
     expect(secondHalf).toContain(10)
     expect(secondHalf).toContain(3)
+  })
+
+  it('demo-c-major-scale-two-octaves-hands-together keeps both hands two octaves apart at every simultaneous pair (roadmap 5.9a)', () => {
+    const notes = requireDemo('demo-c-major-scale-two-octaves-hands-together').score.notes
+    const byTick = new Map<number, { right?: number; left?: number }>()
+    for (const n of notes) {
+      const entry = byTick.get(n.startTick) ?? {}
+      if (n.hand === 'right') entry.right = n.midi
+      else entry.left = n.midi
+      byTick.set(n.startTick, entry)
+    }
+    let pairsChecked = 0
+    for (const { right, left } of byTick.values()) {
+      if (right === undefined || left === undefined) continue
+      expect(right - left).toBe(24)
+      pairsChecked++
+    }
+    expect(pairsChecked).toBeGreaterThan(0)
+    const rightNotes = notes.filter((n) => n.hand === 'right').map((n) => n.midi)
+    expect(Math.max(...rightNotes) - Math.min(...rightNotes)).toBeGreaterThanOrEqual(24)
+  })
+
+  it('demo-rhythm-reading-eighth-notes actually contains eighth notes, not just quarters and a title (roadmap 5.9a)', () => {
+    const notes = requireDemo('demo-rhythm-reading-eighth-notes').score.notes
+    const EIGHTH_TICKS = TICKS_PER_QUARTER / 2
+    expect(notes.some((n) => n.durationTicks === EIGHTH_TICKS)).toBe(true)
+    expect(notes.every((n) => n.durationTicks <= TICKS_PER_QUARTER)).toBe(true)
+  })
+
+  it('demo-dotted-rhythm-3-4 pairs a dotted quarter with an eighth — the long-short pattern (roadmap 5.9a)', () => {
+    const notes = requireDemo('demo-dotted-rhythm-3-4').score.notes
+    const DOTTED_QUARTER_TICKS = (TICKS_PER_QUARTER * 3) / 2
+    const EIGHTH_TICKS = TICKS_PER_QUARTER / 2
+    let foundLongShortPair = false
+    for (let i = 0; i + 1 < notes.length; i++) {
+      const a = at(notes, i)
+      const b = at(notes, i + 1)
+      if (a.durationTicks === DOTTED_QUARTER_TICKS && b.durationTicks === EIGHTH_TICKS) {
+        foundLongShortPair = true
+      }
+    }
+    expect(foundLongShortPair).toBe(true)
+  })
+
+  it('demo-circle-of-fifths-c-g-f sounds no accidentals in the C bars, F# in the G bars, Bb in the F bars (roadmap 5.9a)', () => {
+    const score = requireDemo('demo-circle-of-fifths-c-g-f').score
+    const cBars = [...notesInMeasure(score, 0), ...notesInMeasure(score, 1)].map((n) => n.midi % 12)
+    const gBars = [...notesInMeasure(score, 2), ...notesInMeasure(score, 3)].map((n) => n.midi % 12)
+    const fBars = [...notesInMeasure(score, 4), ...notesInMeasure(score, 5)].map((n) => n.midi % 12)
+    expect(cBars).not.toContain(6)
+    expect(cBars).not.toContain(10)
+    expect(gBars).toContain(6)
+    expect(fBars).toContain(10)
+  })
+
+  it('demo-contrary-motion-different-rhythms-c moves the hands in opposite directions with different note values (roadmap 5.9a)', () => {
+    const notes = requireDemo('demo-contrary-motion-different-rhythms-c').score.notes
+    const rightNotes = notes.filter((n) => n.hand === 'right')
+    const leftNotes = notes.filter((n) => n.hand === 'left')
+    expect(rightNotes.length).toBeGreaterThan(0)
+    expect(leftNotes.length).toBeGreaterThan(0)
+
+    const rightDurations = new Set(rightNotes.map((n) => n.durationTicks))
+    const leftDurations = new Set(leftNotes.map((n) => n.durationTicks))
+    expect([...rightDurations].some((d) => leftDurations.has(d))).toBe(false)
+
+    // Bar 1 (ticks 0..W): right hand rises, left hand falls.
+    const barTicks = TICKS_PER_QUARTER * 4
+    const rightBar1 = rightNotes.filter((n) => n.startTick < barTicks)
+    const leftBar1 = leftNotes.filter((n) => n.startTick < barTicks)
+    const rightBar1Direction = at(rightBar1, rightBar1.length - 1).midi - at(rightBar1, 0).midi
+    const leftBar1Direction = at(leftBar1, leftBar1.length - 1).midi - at(leftBar1, 0).midi
+    expect(rightBar1Direction).toBeGreaterThan(0)
+    expect(leftBar1Direction).toBeLessThan(0)
+
+    // Bar 2: directions swap, so both bars are genuinely contrary.
+    const rightBar2 = rightNotes.filter((n) => n.startTick >= barTicks)
+    const leftBar2 = leftNotes.filter((n) => n.startTick >= barTicks)
+    const rightBar2Direction = at(rightBar2, rightBar2.length - 1).midi - at(rightBar2, 0).midi
+    const leftBar2Direction = at(leftBar2, leftBar2.length - 1).midi - at(leftBar2, 0).midi
+    expect(rightBar2Direction).toBeLessThan(0)
+    expect(leftBar2Direction).toBeGreaterThan(0)
   })
 })

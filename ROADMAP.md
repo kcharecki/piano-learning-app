@@ -384,22 +384,31 @@ mismatch worse: the audio wins and a beginner cannot tell which one is lying.
       while demonstrating a C major waltz; both now have their own two-key demos). The other 7 are
       real but a different shape of fix, so they are 5.9a rather than a softened score. Full table
       in the commit body.
-- [ ] 5.9a `content`: the 7 non-key demo mismatches the 5.9 audit found. Each needs an authored
-      demo, not a repoint, because no existing demo shows the thing:
-      * `l3-two-octave-scales-hands-together` — says "two octaves, hands together", demos a
-        one-octave RIGHT-HAND-ONLY scale. (HAND + OCTAVE. Cheapest of the seven: the drill
-        `scale-c-major-2oct-hands-together` already exists.)
-      * `l2-eighth-notes` — teaches eighth notes; demo contains only whole/half/quarter.
-      * `l3-dotted-rhythms` — teaches dotted quarter + eighth; demo is three plain quarters.
-      * `l2-i-iv-v-i-progression` — prose says "combining IV with V into a full progression comes
-        later", demo plays the full I-IV-V-I. Needs a I-IV-I demo (or the prose changes).
-      * `l3-circle-of-fifths` — demo is a I-IV-V-I entirely in C; nothing circle-related.
-      * `l3-relative-minors` — prose says "play both back to back", demo has no A minor triad.
-      * `l3-two-hand-coordination` — prose says "beyond parallel motion", demo IS the parallel
-        motion demo.
-      *Proof: extend `demoKeyConsistency.test.ts`'s approach to the dimension being fixed — an
-      assertion that reads the demo's actual notes, never its title — and drive one of them in a
-      browser. Do not fix these by editing the prose to match a weaker demo.*
+- [x] 5.9a `content`: authored a real demo for each of the 7 non-key mismatches (all via
+      `@core/notation/score.ts` builders, same low-risk pattern as the rest of `demoScores.ts` —
+      no verbatim melody transcription involved):
+      * `l3-two-octave-scales-hands-together` → `demo-c-major-scale-two-octaves-hands-together`,
+        the `scale-c-major-2oct-hands-together` drill rendered. Its left hand legitimately crosses
+        middle C (the registry's hands-together drills are two octaves apart, not one — corrected
+        the task's own "an octave apart" assumption against `HAND_OCTAVE_OFFSET`), so the
+        registry-wide RH/LH range test needed no exception after all — the drill still resolves
+        within range end to end.
+      * `l2-eighth-notes` → `demo-rhythm-reading-eighth-notes` (two quarters, four eighths, a bar
+        of eighths).
+      * `l3-dotted-rhythms` → `demo-dotted-rhythm-3-4` (dotted-quarter + eighth long-short pairs).
+      * `l2-i-iv-v-i-progression` → `demo-i-iv-i-c-major`, stopping at IV as the prose says.
+      * `l3-circle-of-fifths` → `demo-circle-of-fifths-c-g-f` (C, then neighbours G/+1♯ and F/-1♭).
+      * `l3-relative-minors` → `demo-c-major-and-a-minor-triads` (both triads back to back).
+      * `l3-two-hand-coordination` → `demo-contrary-motion-different-rhythms-c` (opposite
+        directions, different note values per hand, both bars).
+      `demoScores.ts` split into `demoScores.ts` + `harmonyDemoScores.ts` + `demoScoreTypes.ts` on
+      file-size grounds (eslint `max-lines`), not a functional boundary.
+      *Proof: `demoScores.test.ts` extended with one content assertion per dimension fixed (octave
+      span + hand-apart interval, eighth-note durations, the dotted long-short pair, keyFifths
+      sequence + pitch classes per key, roman-numeral analysis for I-IV-I and I/vi, opposite
+      melodic direction + distinct duration sets per hand) — all read the demo's actual notes, not
+      its title. All 7 lessons driven in a running browser: each opens its new demo by name and
+      engraves as real OSMD SVG (console clean). `npm run verify` green (3323 tests).*
 - [ ] 5.9b `app/lessons`: "Open demonstration" loads the demo into `scoreStore` and does not
       navigate (`LessonsScreen.tsx:129` calls only `openDemoScore`), so pressing the one control
       that promises to show you the music appears to do nothing — the learner has to know to walk to

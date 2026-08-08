@@ -30,18 +30,10 @@ import {
 } from '@core/notation/score.ts'
 import { TICKS_PER_QUARTER } from '@core/shared/units.ts'
 import { techniqueDrillById, techniqueScore, type TechniqueDrill } from '@core/technique/library.ts'
-import { buildChord, invertChord, type Chord } from '@core/theory/chords.ts'
-import { spell, toMidi } from '@core/theory/pitch.ts'
+import { HARMONY_DEMO_SCORES } from './harmonyDemoScores.ts'
+import type { DemoScore } from './demoScoreTypes.ts'
 
-export type DemoScore = {
-  /** Stable, kebab-case, content-derived. Referenced by `Lesson.demoScoreId`. */
-  readonly id: string
-  /** Shown to the learner above the engraving. */
-  readonly title: string
-  /** One or two sentences: what this demonstration is FOR. */
-  readonly description: string
-  readonly score: Score
-}
+export type { DemoScore } from './demoScoreTypes.ts'
 
 // ---------------------------------------------------------------------------
 // tick helpers — note values in ticks, TICKS_PER_QUARTER-relative
@@ -116,13 +108,12 @@ function drill(id: string): TechniqueDrill {
   return found
 }
 
-const midisOf = (c: Chord): readonly number[] => c.notes.map(toMidi)
-
 // ---------------------------------------------------------------------------
 // MIDI note names, around middle C (60)
 // ---------------------------------------------------------------------------
 
-const G2 = 43
+const F2 = 41
+const A2 = 45
 const C3 = 48
 const D3 = 50
 const E3 = 52
@@ -141,14 +132,6 @@ const G4 = 67
 const A4 = 69
 const Bb4 = 70
 const C5 = 72
-
-// ---------------------------------------------------------------------------
-// C major triads used by the harmony demos — derived, not hand-typed
-// ---------------------------------------------------------------------------
-
-const C_MAJOR_TRIAD = buildChord(spell('C', 0, 4), 'major', 0)
-const F_MAJOR_TRIAD = buildChord(spell('F', 0, 4), 'major', 0)
-const G_MAJOR_TRIAD = buildChord(spell('G', 0, 4), 'major', 0)
 
 // ---------------------------------------------------------------------------
 // 1-2. middle C position, hands separately
@@ -258,78 +241,10 @@ const WALTZ_3_4: Score = makeScore({
 })
 
 // ---------------------------------------------------------------------------
-// 8-9. the C major triad, blocked then broken
+// 8-9, 10-11, 12: the C major triad (blocked/broken), I-V-I, I-IV-V-I and
+// the perfect authentic cadence live in `harmonyDemoScores.ts` — moved out
+// on file-size grounds, spliced into `DEMO_SCORES` below.
 // ---------------------------------------------------------------------------
-
-const C_MAJOR_TRIAD_BLOCKED: Score = makeScore({
-  id: 'demo-c-major-triad-blocked',
-  meta: { title: 'C Major Triad — Blocked' },
-  measures: bars(4),
-  notes: [
-    ...chordNotes('right', 0, W, midisOf(C_MAJOR_TRIAD)),
-    ...chordNotes('right', W, W, midisOf(invertChord(C_MAJOR_TRIAD, 1))),
-    ...chordNotes('right', W * 2, W, midisOf(invertChord(C_MAJOR_TRIAD, 2))),
-    ...chordNotes('right', W * 3, W, midisOf(C_MAJOR_TRIAD)),
-  ],
-})
-
-const C_MAJOR_TRIAD_BROKEN: Score = makeScore({
-  id: 'demo-c-major-triad-broken',
-  meta: { title: 'C Major Triad — Broken' },
-  measures: bars(1),
-  notes: run('right', 0, E, [C4, E4, G4, C5, G4, E4, C4]),
-})
-
-// ---------------------------------------------------------------------------
-// 10-11. I-V-I and I-IV-V-I progressions in C, blocked chords over LH roots
-// ---------------------------------------------------------------------------
-
-const I_V_I_C_MAJOR: Score = makeScore({
-  id: 'demo-i-v-i-c-major',
-  meta: { title: 'I–V–I Progression in C Major' },
-  measures: bars(3),
-  notes: [
-    ...chordNotes('left', 0, W, [C3]),
-    ...chordNotes('right', 0, W, midisOf(C_MAJOR_TRIAD)),
-    ...chordNotes('left', W, W, [G2]),
-    ...chordNotes('right', W, W, midisOf(G_MAJOR_TRIAD)),
-    ...chordNotes('left', W * 2, W, [C3]),
-    ...chordNotes('right', W * 2, W, midisOf(C_MAJOR_TRIAD)),
-  ],
-})
-
-const I_IV_V_I_C_MAJOR: Score = makeScore({
-  id: 'demo-i-iv-v-i-c-major',
-  meta: { title: 'I–IV–V–I Progression in C Major' },
-  measures: bars(4),
-  notes: [
-    ...chordNotes('left', 0, W, [C3]),
-    ...chordNotes('right', 0, W, midisOf(C_MAJOR_TRIAD)),
-    ...chordNotes('left', W, W, [F3]),
-    ...chordNotes('right', W, W, midisOf(F_MAJOR_TRIAD)),
-    ...chordNotes('left', W * 2, W, [G2]),
-    ...chordNotes('right', W * 2, W, midisOf(G_MAJOR_TRIAD)),
-    ...chordNotes('left', W * 3, W, [C3]),
-    ...chordNotes('right', W * 3, W, midisOf(C_MAJOR_TRIAD)),
-  ],
-})
-
-// ---------------------------------------------------------------------------
-// 12. perfect authentic cadence in C — root position V then I, RH melody
-//     landing on the tonic (the soprano condition `classifyCadence` checks)
-// ---------------------------------------------------------------------------
-
-const AUTHENTIC_CADENCE_C_MAJOR: Score = makeScore({
-  id: 'demo-authentic-cadence-c-major',
-  meta: { title: 'Perfect Authentic Cadence in C Major' },
-  measures: bars(2),
-  notes: [
-    ...chordNotes('left', 0, W, [G2]),
-    ...chordNotes('right', 0, W, midisOf(G_MAJOR_TRIAD)),
-    ...chordNotes('left', W, W, [C3]),
-    ...chordNotes('right', W, W, [...midisOf(C_MAJOR_TRIAD), C5]),
-  ],
-})
 
 // ---------------------------------------------------------------------------
 // 13. hands-together parallel motion in C position
@@ -381,6 +296,115 @@ const F_MAJOR_SCALE_RH: Score = {
   id: 'demo-f-major-scale-one-octave-rh',
   meta: { title: 'F Major Scale, One Octave — Right Hand', composer: '' },
 }
+
+// ---------------------------------------------------------------------------
+// 19. C major scale, two octaves, hands together, two octaves apart (roadmap
+//     5.9a — reuses the level-3 technique drill of the same shape, the exact
+//     scale `l3-two-octave-scales-hands-together-ex1` already drills, so the
+//     demonstration and the exercise agree). `HAND_OCTAVE_OFFSET` in
+//     `@core/technique/library.ts` places every hands-together drill's left
+//     hand two octaves below the right, not one — keeping the left hand at
+//     or below middle C throughout, same as every other demo here.
+// ---------------------------------------------------------------------------
+
+const C_MAJOR_SCALE_2OCT_HANDS_TOGETHER: Score = {
+  ...techniqueScore(drill('scale-c-major-2oct-hands-together'), 72),
+  id: 'demo-c-major-scale-two-octaves-hands-together',
+  meta: { title: 'C Major Scale, Two Octaves — Hands Together', composer: '' },
+}
+
+// ---------------------------------------------------------------------------
+// 20. eighth notes in 4/4 (roadmap 5.9a) — same single-repeated-pitch
+//     convention as RHYTHM_4_4, extended to the finer subdivision: two
+//     quarters, then four eighths, then a full bar of eighths.
+// ---------------------------------------------------------------------------
+
+const RHYTHM_EIGHTH_NOTES: Score = makeScore({
+  id: 'demo-rhythm-reading-eighth-notes',
+  meta: { title: 'Rhythm Reading — Eighth Notes in 4/4' },
+  measures: bars(2),
+  notes: [
+    ...run('right', 0, Q, [C4, C4]),
+    ...run('right', H, E, [C4, C4, C4, C4]),
+    ...run('right', W, E, [C4, C4, C4, C4, C4, C4, C4, C4]),
+  ],
+})
+
+// ---------------------------------------------------------------------------
+// 21. dotted quarter + eighth, the "long-short" pattern (roadmap 5.9a) — same
+//     3/4 waltz metre as WALTZ_3_4 (reuses WALTZ_BAR), single repeated pitch
+//     so only the rhythm changes, same convention as RHYTHM_4_4.
+// ---------------------------------------------------------------------------
+
+const DOTTED_Q = Q + E
+
+const DOTTED_RHYTHM_3_4: Score = makeScore({
+  id: 'demo-dotted-rhythm-3-4',
+  meta: { title: 'Dotted Rhythm in 3/4' },
+  measures: bars(2, { beats: 3, beatType: 4 }),
+  notes: [
+    ...run('right', 0, DOTTED_Q, [C4]),
+    ...run('right', DOTTED_Q, E, [C4]),
+    ...run('right', DOTTED_Q + E, Q, [C4]),
+    ...run('right', WALTZ_BAR, DOTTED_Q, [C4]),
+    ...run('right', WALTZ_BAR + DOTTED_Q, E, [C4]),
+    ...run('right', WALTZ_BAR + DOTTED_Q + E, Q, [C4]),
+  ],
+})
+
+// ---------------------------------------------------------------------------
+// 22. I-IV-I in C major lives in `harmonyDemoScores.ts` (roadmap 5.9a —
+//     `l2-i-iv-v-i-progression`'s prose says combining IV with V comes
+//     later, so its demo must stop at IV).
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// 23. circle of fifths — C, then its clockwise neighbour G (+1 sharp) and its
+//     counter-clockwise neighbour F (-1 flat) (roadmap 5.9a). Same
+//     four-note-run-per-key-pair shape as KEY_SIGNATURES_G_AND_F below, so
+//     the same pitch-class assertions apply, with a C major pair prepended.
+// ---------------------------------------------------------------------------
+
+const CIRCLE_OF_FIFTHS_C_G_F: Score = makeScore({
+  id: 'demo-circle-of-fifths-c-g-f',
+  meta: { title: 'Circle of Fifths — C, Then Its Neighbours G and F' },
+  measures: [{ keyFifths: 0 }, {}, { keyFifths: 1 }, {}, { keyFifths: -1 }, {}],
+  notes: [
+    ...run('right', 0, Q, [C4, D4, E4, F4]),
+    ...run('right', W, Q, [G4, F4, E4, D4]),
+    ...run('right', W * 2, Q, [C4, D4, E4, Fs4]),
+    ...run('right', W * 3, Q, [G4, Fs4, E4, D4]),
+    ...run('right', W * 4, Q, [F4, G4, A4, Bb4]),
+    ...run('right', W * 5, Q, [C5, Bb4, A4, G4]),
+  ],
+})
+
+// ---------------------------------------------------------------------------
+// 24. C major and A minor triads, back to back, lives in
+//     `harmonyDemoScores.ts` (roadmap 5.9a — relative keys share a key
+//     signature).
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// 25. contrary motion with different rhythms in each hand (roadmap 5.9a) —
+//     the two-hand-coordination lesson's prose explicitly promises "beyond
+//     parallel motion... different rhythms... different directions", which
+//     HANDS_TOGETHER_PARALLEL_MOTION (same direction, same rhythm) does not
+//     show. Bar 1: RH rises in quarters while LH falls in halves; bar 2
+//     mirrors it (RH falls, LH rises) so both bars are genuinely contrary.
+// ---------------------------------------------------------------------------
+
+const CONTRARY_MOTION_DIFFERENT_RHYTHMS: Score = makeScore({
+  id: 'demo-contrary-motion-different-rhythms-c',
+  meta: { title: 'Hands Together — Contrary Motion, Different Rhythms' },
+  measures: bars(2),
+  notes: [
+    ...run('right', 0, Q, [C4, D4, E4, F4]),
+    ...run('left', 0, H, [C3, A2]),
+    ...run('right', W, Q, [G4, F4, E4, D4]),
+    ...run('left', W, H, [F2, C3]),
+  ],
+})
 
 // ---------------------------------------------------------------------------
 // 17-18. key-signature demonstrations — the key CHANGES mid-score so the
@@ -465,36 +489,10 @@ export const DEMO_SCORES: readonly DemoScore[] = [
     description: 'An "oom-pah-pah" waltz texture in 3/4: a left-hand root on beat 1 under right-hand notes on beats 2 and 3.',
     score: WALTZ_3_4,
   },
-  {
-    id: 'demo-c-major-triad-blocked',
-    title: 'C Major Triad — Blocked',
-    description: 'The C major triad struck as a block chord through root position, first inversion, second inversion, and back.',
-    score: C_MAJOR_TRIAD_BLOCKED,
-  },
-  {
-    id: 'demo-c-major-triad-broken',
-    title: 'C Major Triad — Broken',
-    description: 'The same C major triad played one note at a time, ascending through the octave and back down.',
-    score: C_MAJOR_TRIAD_BROKEN,
-  },
-  {
-    id: 'demo-i-v-i-c-major',
-    title: 'I–V–I Progression in C Major',
-    description: 'The tonic-dominant-tonic progression in C major, as blocked chords over left-hand roots.',
-    score: I_V_I_C_MAJOR,
-  },
-  {
-    id: 'demo-i-iv-v-i-c-major',
-    title: 'I–IV–V–I Progression in C Major',
-    description: 'The tonic-subdominant-dominant-tonic progression in C major, as blocked chords over left-hand roots.',
-    score: I_IV_V_I_C_MAJOR,
-  },
-  {
-    id: 'demo-authentic-cadence-c-major',
-    title: 'Perfect Authentic Cadence in C Major',
-    description: 'A root-position V-I cadence in C major with the melody landing on the tonic — the strongest way a phrase can end.',
-    score: AUTHENTIC_CADENCE_C_MAJOR,
-  },
+  // The C major triad (blocked/broken), I-V-I, I-IV-V-I, I-IV-I, the perfect
+  // authentic cadence, and C major/A minor as relative keys — see
+  // `harmonyDemoScores.ts`.
+  ...HARMONY_DEMO_SCORES,
   {
     id: 'demo-hands-together-parallel-motion-c',
     title: 'Hands Together — Parallel Motion in C Position',
@@ -519,6 +517,41 @@ export const DEMO_SCORES: readonly DemoScore[] = [
     title: 'F Major Scale, One Octave — Right Hand',
     description: 'The F major scale ascending and descending one octave, right hand, with standard fingering — one flat, Bb.',
     score: F_MAJOR_SCALE_RH,
+  },
+  {
+    id: 'demo-c-major-scale-two-octaves-hands-together',
+    title: 'C Major Scale, Two Octaves — Hands Together',
+    description:
+      'The C major scale ascending and descending two octaves, hands together two octaves apart — the same scale the level-3 technique drill plays.',
+    score: C_MAJOR_SCALE_2OCT_HANDS_TOGETHER,
+  },
+  {
+    id: 'demo-rhythm-reading-eighth-notes',
+    title: 'Rhythm Reading — Eighth Notes in 4/4',
+    description:
+      'A single repeated pitch in 4/4 so only the rhythm changes: two quarter notes, four eighth notes, then a full bar of eighth notes.',
+    score: RHYTHM_EIGHTH_NOTES,
+  },
+  {
+    id: 'demo-dotted-rhythm-3-4',
+    title: 'Dotted Rhythm in 3/4',
+    description:
+      'A single repeated pitch in 3/4: a dotted quarter note followed by an eighth note (the "long-short" pattern), then a plain quarter to close the bar.',
+    score: DOTTED_RHYTHM_3_4,
+  },
+  {
+    id: 'demo-circle-of-fifths-c-g-f',
+    title: 'Circle of Fifths — C, Then Its Neighbours G and F',
+    description:
+      'The same short stepwise phrase in three keys: C major (no sharps or flats), then its clockwise neighbour G major (one sharp), then its counter-clockwise neighbour F major (one flat).',
+    score: CIRCLE_OF_FIFTHS_C_G_F,
+  },
+  {
+    id: 'demo-contrary-motion-different-rhythms-c',
+    title: 'Hands Together — Contrary Motion, Different Rhythms',
+    description:
+      'The two hands move in opposite directions with different note values: the right hand in quarter notes one way, the left hand in half notes the other.',
+    score: CONTRARY_MOTION_DIFFERENT_RHYTHMS,
   },
   {
     id: 'demo-key-signatures-g-and-f',

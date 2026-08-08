@@ -92,7 +92,7 @@ export const LEVEL_3_LESSONS: readonly Lesson[] = [
       'Start each hand alone across the full two octaves before combining them. The two hands\' ' +
       'thumb crossings fall at different points in the scale, so each hand must keep its own ' +
       'fingering steady while the other one crosses — do not expect the crossings to line up.',
-    demoScoreId: demo('demo-c-major-scale-one-octave-rh'),
+    demoScoreId: demo('demo-c-major-scale-two-octaves-hands-together'),
     exercises: [
       techniqueEx('l3-two-octave-scales-hands-together-ex1', 'scale-c-major-2oct-hands-together', 8),
       playEx('l3-two-octave-scales-hands-together-ex2', 'Play the two-octave C major scale hands together', 6),
@@ -154,7 +154,7 @@ export const LEVEL_3_LESSONS: readonly Lesson[] = [
       'other way, has one flat — the pattern you have already been building scale by scale.\n\n' +
       'The circle is worth learning as a picture, not just a list: once you can place a key on it, ' +
       'you instantly know its neighbours, which are the keys a piece is most likely to modulate into.',
-    demoScoreId: demo('demo-i-iv-v-i-c-major'),
+    demoScoreId: demo('demo-circle-of-fifths-c-g-f'),
     exercises: [
       // Finding 1: `buildKeySignatureDeck`'s default level-1 deck only holds
       // fifths -1..+1 (F/C/G), so a lesson about the WHOLE circle of fifths
@@ -183,7 +183,7 @@ export const LEVEL_3_LESSONS: readonly Lesson[] = [
       'The A minor triad — A, C, E — uses the same three white keys as the C major triad, just ' +
       'starting from a different one; play both back to back and listen for how the same notes can sound like two different "home" chords.\n\n' +
       '[diagram:a-minor-triad]',
-    demoScoreId: demo('demo-c-major-triad-blocked'),
+    demoScoreId: demo('demo-c-major-and-a-minor-triads'),
     exercises: [
       theoryQuizEx(
         'l3-relative-minors-ex1',
@@ -270,10 +270,10 @@ export const LEVEL_3_LESSONS: readonly Lesson[] = [
       'worth being able to count without hesitation.\n\n' +
       'Count the underlying eighth-note pulse ("1-and-2-and") underneath a dotted rhythm until the ' +
       'long-short shape locks in, the same subdivision approach used for plain eighth notes in level 2.',
-    demoScoreId: demo('demo-waltz-rhythm-3-4'),
+    demoScoreId: demo('demo-dotted-rhythm-3-4'),
     exercises: [
       sightReadEx('l3-dotted-rhythms-ex1', 3, 10),
-      playEx('l3-dotted-rhythms-ex2', 'Play the waltz demonstration counting the eighth-note pulse', 5),
+      playEx('l3-dotted-rhythms-ex2', 'Play the dotted-rhythm demonstration counting the eighth-note pulse', 5),
     ],
   },
   {
@@ -311,10 +311,10 @@ export const LEVEL_3_LESSONS: readonly Lesson[] = [
       'than reading one, pausing, then reading the other.\n\n' +
       'Preview both staves before playing: find where the hands move together and where they diverge, ' +
       "so you know in advance which moments will need the most attention.",
-    demoScoreId: demo('demo-hands-together-parallel-motion-c'),
+    demoScoreId: demo('demo-contrary-motion-different-rhythms-c'),
     exercises: [
       sightReadEx('l3-two-hand-coordination-ex1', 3, 10),
-      playEx('l3-two-hand-coordination-ex2', 'Play the parallel-motion demonstration at sight, hands together', 5),
+      playEx('l3-two-hand-coordination-ex2', 'Play the contrary-motion demonstration at sight, hands together', 5),
     ],
   },
 ]
