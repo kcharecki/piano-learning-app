@@ -56,7 +56,9 @@ describe('sessionCandidates', () => {
     const tooHigh = sessionCandidates({ sightReadingLevel: 99, loadedScore: undefined })
 
     expect(tooLow['sight-reading'][0]?.params?.level).toBe(1)
-    expect(tooHigh['sight-reading'][0]?.params?.level).toBe(5)
+    // Sight reading's own ladder (roadmap 5.11) tops out at 6, independently
+    // of the curriculum's separate 1..5 playing/theory tracks.
+    expect(tooHigh['sight-reading'][0]?.params?.level).toBe(6)
   })
 
   it('offers both flashcard decks FlashcardScreen can actually open for the theory-ear segment', () => {

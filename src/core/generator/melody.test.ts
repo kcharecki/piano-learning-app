@@ -16,6 +16,7 @@ import {
 import {
   defaultParamsForLevel,
   generateMelody,
+  MAX_GENERATOR_LEVEL,
   type GeneratorParams,
   type HandIndependence,
   type MidiRange,
@@ -538,9 +539,11 @@ describe('generateMelody — Err on invalid or unsatisfiable parameters', () => 
 // defaultParamsForLevel
 // ---------------------------------------------------------------------------
 
+const LEVELS = Array.from({ length: MAX_GENERATOR_LEVEL }, (_, i) => i + 1)
+
 describe('defaultParamsForLevel', () => {
   it('produces a generateMelody-able score for every level and several seeds', () => {
-    for (let level = 1; level <= 5; level++) {
+    for (const level of LEVELS) {
       const params = defaultParamsForLevel(level)
       for (const seed of [1, 2, 3]) {
         const result = generateMelody(params, seededRng(seed))
@@ -550,15 +553,17 @@ describe('defaultParamsForLevel', () => {
     }
   })
 
-  it('clamps levels outside 1..5', () => {
+  it(`clamps levels outside 1..${MAX_GENERATOR_LEVEL}`, () => {
     expect(defaultParamsForLevel(0)).toEqual(defaultParamsForLevel(1))
     expect(defaultParamsForLevel(-5)).toEqual(defaultParamsForLevel(1))
-    expect(defaultParamsForLevel(6)).toEqual(defaultParamsForLevel(5))
-    expect(defaultParamsForLevel(99)).toEqual(defaultParamsForLevel(5))
+    expect(defaultParamsForLevel(MAX_GENERATOR_LEVEL + 1)).toEqual(
+      defaultParamsForLevel(MAX_GENERATOR_LEVEL),
+    )
+    expect(defaultParamsForLevel(99)).toEqual(defaultParamsForLevel(MAX_GENERATOR_LEVEL))
   })
 
   it('is monotonically harder in range width as level rises', () => {
-    const widths = [1, 2, 3, 4, 5].map((level) => {
+    const widths = LEVELS.map((level) => {
       const p = defaultParamsForLevel(level)
       return p.rightRange.high - p.rightRange.low
     })
@@ -571,21 +576,71 @@ describe('defaultParamsForLevel', () => {
   it('is monotonically harder in rhythm as level rises', () => {
     // RHYTHMS is already ordered easiest-to-hardest, so its index is a stand-in
     // for a difficulty score.
-    const difficulties = [1, 2, 3, 4, 5].map((level) =>
-      RHYTHMS.indexOf(defaultParamsForLevel(level).rhythm),
-    )
+    const difficulties = LEVELS.map((level) => RHYTHMS.indexOf(defaultParamsForLevel(level).rhythm))
     for (let i = 1; i < difficulties.length; i++) {
       expect(at(difficulties, i)).toBeGreaterThanOrEqual(at(difficulties, i - 1))
     }
     expect(at(difficulties, difficulties.length - 1)).toBeGreaterThan(at(difficulties, 0))
   })
 
-  it('is monotonically harder in maxLeapSemitones and accidentalDensity as level rises', () => {
-    const leaps = [1, 2, 3, 4, 5].map((level) => defaultParamsForLevel(level).maxLeapSemitones)
-    const densities = [1, 2, 3, 4, 5].map((level) => defaultParamsForLevel(level).accidentalDensity)
+  it('is monotonically harder in maxLeapSemitones, accidentalDensity and bars as level rises', () => {
+    const leaps = LEVELS.map((level) => defaultParamsForLevel(level).maxLeapSemitones)
+    const densities = LEVELS.map((level) => defaultParamsForLevel(level).accidentalDensity)
+    const bars = LEVELS.map((level) => defaultParamsForLevel(level).bars)
     for (let i = 1; i < leaps.length; i++) {
       expect(at(leaps, i)).toBeGreaterThanOrEqual(at(leaps, i - 1))
       expect(at(densities, i)).toBeGreaterThanOrEqual(at(densities, i - 1))
+      expect(at(bars, i)).toBeGreaterThanOrEqual(at(bars, i - 1))
+    }
+  })
+
+  it('never exceeds 2 sharps/flats below the top level (RCM/ABRSM/Faber hold early grades to 0-1)', () => {
+    for (const level of LEVELS) {
+      const fifths = Math.abs(defaultParamsForLevel(level).key.signature.fifths)
+      if (level < MAX_GENERATOR_LEVEL) {
+        expect(fifths).toBeLessThanOrEqual(2)
+      }
+    }
+    // Negative control: the top level is where harder keys are allowed to live,
+    // so this assertion is discriminating, not vacuously true of every row.
+    expect(
+      Math.abs(defaultParamsForLevel(MAX_GENERATOR_LEVEL).key.signature.fifths),
+    ).toBeGreaterThan(2)
+  })
+
+  it('level 1 generates only diatonic steps, all in one direction, over 500 seeds', () => {
+    const params = defaultParamsForLevel(1)
+    expect(params.stepwiseOneDirection).toBe(true)
+    const scalePcs = scalePitchClasses(params.key)
+    const scaleTones: number[] = []
+    for (let m = params.rightRange.low; m <= params.rightRange.high; m++) {
+      if (scalePcs.has(pc(m))) scaleTones.push(m)
+    }
+    for (let seed = 0; seed < 500; seed++) {
+      const result = generateMelody(params, seededRng(seed))
+      expect(result.ok).toBe(true)
+      if (!result.ok) continue
+      const pitches = handNotes(result.value, 'right')
+        .slice()
+        .sort((a, b) => a.startTick - b.startTick)
+        .map((n) => n.midi)
+      // Exact length, not just "more than one" — a slice that's short by one
+      // note (an off-by-one in the picker) would otherwise pass silently: the
+      // score still validates because `validateScore` doesn't require every
+      // measure to carry a note.
+      expect(pitches.length).toBe(params.bars)
+      const diffs = pitches.slice(1).map((p, i) => p - (pitches[i] as number))
+      const allAscending = diffs.every((d) => d > 0)
+      const allDescending = diffs.every((d) => d < 0)
+      expect(allAscending || allDescending).toBe(true)
+      // Every consecutive pair must be scale-adjacent — no scale tone skipped —
+      // which also implies every pitch is in key (accidentalDensity plays no
+      // part in this mode).
+      for (const p of pitches) expect(scalePcs.has(pc(p))).toBe(true)
+      const indices = pitches.map((p) => scaleTones.indexOf(p))
+      expect(indices.every((idx) => idx !== -1)).toBe(true)
+      const indexDiffs = indices.slice(1).map((idx, i) => idx - (indices[i] as number))
+      expect(indexDiffs.every((d) => Math.abs(d) === 1)).toBe(true)
     }
   })
 })

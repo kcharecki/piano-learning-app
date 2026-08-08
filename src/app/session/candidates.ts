@@ -41,6 +41,7 @@ import { MAX_LEVEL, MIN_LEVEL, type Exercise } from '@core/curriculum/types.ts'
 import type { SessionSegmentKind } from '@core/curriculum/session.ts'
 import type { LoadedScore } from '@app/state/scoreStore.ts'
 import { techniqueLibrary } from '@core/technique/library.ts'
+import { MAX_LEVEL as SIGHT_READING_MAX_LEVEL } from '@core/sightreading/adaptive.ts'
 
 /** Moderate estimate for one flashcard-deck sitting — large enough that a
  * short segment reasonably shows just one pass, small enough that a longer
@@ -80,8 +81,19 @@ function techniqueCandidates(level: number): readonly Exercise[] {
   }))
 }
 
+/**
+ * Sight reading's own ladder (roadmap 5.11) runs 1..`SIGHT_READING_MAX_LEVEL`
+ * independently of the curriculum's 1..`MAX_LEVEL` playing/theory tracks —
+ * clamping this label with the curriculum's bound silently displayed "level
+ * 5" for a learner the store had genuinely advanced to level 6.
+ */
+function clampSightReadingLevel(level: number): number {
+  if (!Number.isFinite(level)) return MIN_LEVEL
+  return Math.min(SIGHT_READING_MAX_LEVEL, Math.max(MIN_LEVEL, Math.floor(level)))
+}
+
 function sightReadingCandidates(sightReadingLevel: number): readonly Exercise[] {
-  const level = clampLevel(sightReadingLevel)
+  const level = clampSightReadingLevel(sightReadingLevel)
   return [
     {
       id: 'sight-reading-continue',

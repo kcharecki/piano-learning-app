@@ -435,16 +435,17 @@ forced start, no stopping, unrepeatable exercises, an 80–90% adaptive band. Th
 `melody.ts:626 LEVEL_ROWS` resolves to: level 1 C major with a **7-semitone leap** permitted; level 4
 **E major (4♯)**; level 5 **D♯ minor (6♯)**.
 
-- [ ] 5.11 `core/generator/melody`: rebuild `LEVEL_ROWS` (`src/core/generator/melody.ts:626` — the
-      review's `melody.ts:626` is this file). Level 1 is stepwise in one direction only
-      (RCM Preparatory A: "two four-note melodies… moving by step in one direction only") — `maxLeap`
-      of a step, not a fifth. No key past 2 accidentals inside the first 5 levels; D♯ minor is an
-      off-by-intent in the fifths column and E minor/A minor is the intended shape. Insert levels so
-      1 → 2 is not RH-only-whole-notes-in-C to hands-together-quarters-in-G-with-accidentals in one
-      step (RCM spends two grades on that transition).
-      *Proof: a property test over every level asserts the monotonic ladder — accidentals, max leap,
-      bar count and rhythm density never decrease with level, and no level under 6 exceeds 2 sharps or
-      flats; plus a named assertion that level 1 generates only steps, checked over 500 seeds.*
+- [x] 5.11 `core/generator/melody`: rebuilt `LEVEL_ROWS` into six levels (was five) — level 1 is a
+      genuine stepwise-one-direction run (`stepwiseLine.ts`, new), no level below the top exceeds 2
+      accidentals (old level 4/5's E-major/D♯-minor bug moved to the new level 6, on purpose).
+      `levelDefaults.ts` split out for the line budget; `adaptive.ts`'s `MAX_LEVEL` re-exports it.
+      Adversarial review (Opus) caught two real regressions, both fixed: `doubleHand`'s `'unison'`
+      folds hands into the wrong octave unless L/R ranges are exactly congruent (widening level 2's
+      right range alone broke it — guarded now by `levelDefaults.test.ts`); `dictation.ts` depended
+      on stepwise mode's dropped "ends on tonic" guarantee, so it now opts out and sizes its own leap
+      budget instead of borrowing the ladder's tiny one.
+      *Proof: monotonic-ladder property test, a 500-seed level-1 assertion, `stepwiseLine.test.ts`'s
+      direction/start-variety check; browser: level 1 renders a real 4-note ascending run, console clean.*
 - [ ] 5.12 `app/sightreading`: expose the generator parameters the core already supports (REQ-3.4.2:
       key, range, rhythm, hands, accidentals, independence). The screen offers a level number and a
       metronome toggle — a learner cannot drill their own weak spot and a teacher cannot say "3/4 in

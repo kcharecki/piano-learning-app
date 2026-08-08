@@ -25,8 +25,10 @@
  *
  * ## Level bounds
  *
- * Sight-reading levels are 1..5, matching `core/generator/melody.ts`'s
- * `defaultParamsForLevel` ladder. `adaptLevel` clamps every result (and
+ * Sight-reading levels are `MIN_LEVEL..MAX_LEVEL`, matching
+ * `core/generator/melody.ts`'s `defaultParamsForLevel` ladder exactly
+ * (`MAX_LEVEL` is re-exported from that ladder's own length, not a second
+ * hand-maintained copy of it). `adaptLevel` clamps every result (and
  * `current`, defensively) to that range, so it can never hand back a level
  * the generator does not know how to build for.
  *
@@ -67,6 +69,7 @@
 import {
   defaultParamsForLevel,
   generateMelody,
+  MAX_GENERATOR_LEVEL,
   type GeneratorParams,
 } from '@core/generator/melody.ts'
 import { keyFromFifths } from '@core/theory/keys.ts'
@@ -76,7 +79,7 @@ import { isRetired, type SightReadingRecord } from './session.ts'
 
 /** Matches `defaultParamsForLevel`'s ladder in `core/generator/melody.ts`. */
 export const MIN_LEVEL = 1
-export const MAX_LEVEL = 5
+export const MAX_LEVEL = MAX_GENERATOR_LEVEL
 
 const DEFAULT_WINDOW = 3
 const DEFAULT_BAND: readonly [number, number] = [0.8, 0.9]
