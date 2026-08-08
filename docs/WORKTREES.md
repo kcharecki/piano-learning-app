@@ -20,6 +20,17 @@ everything below: **worktree sessions build; only the main-checkout session merg
 
 ## Starting a parallel session
 
+**Desktop app (the usual way here):** **+ New session** in the sidebar (Ctrl+N), same
+project folder — for a git repo the desktop app puts every new session in its own worktree
+automatically, under `.claude/worktrees/` (Settings → Claude Code: "Worktree location",
+optional branch prefix). Type `/next` in the new session; it detects the worktree and claims
+a task. The FIRST session — the one opened directly on the project folder — is the main
+checkout and stays the integrator. Ctrl+click a session in the sidebar for a split view;
+hover → archive icon removes a session's worktree when its branch is merged. Sessions can
+also check on each other ("what is the t2 session doing?") and message each other.
+
+**Terminal CLI:**
+
 ```bash
 claude --worktree t1
 ```
