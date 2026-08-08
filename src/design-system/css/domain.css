@@ -7,6 +7,7 @@
    SELECTOR MAP (known ✓ / assumed ?):
    ✓ .practice-controls        transport bar
    ✓ .keyboard-diagram         on-screen piano + reference diagrams
+   ✓ .practice-keyboard        the practice screen's playable keyboard
    ✓ .circle-of-fifths         interactive SVG wrapper
    ✓ .chord-scale-reference    scale/chord tables
    ✓ .flashcard-screen         flashcard drill
@@ -179,6 +180,29 @@
 .note-marker[data-state="missed"]::before { content: "○"; }
 .note-marker[data-state="extra"]    { color: var(--fb-extra-ink); }
 .note-marker[data-state="extra"]::before { content: "+"; }
+
+/* ---------- Practice screen's playable keyboard (.practice-keyboard) ----------
+   Wraps a .keyboard-diagram directly under the engraving (roadmap 5.4). The
+   toggle is a quiet, small control: it is a preference, not a transport
+   action, and must not compete with Play in the sticky bar above. */
+.practice-keyboard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+}
+.practice-keyboard-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+.practice-keyboard-hint {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
 
 /* ---------- On-screen piano (.keyboard-diagram) ----------
    Also used small as a reference diagram inside .chord-scale-reference.

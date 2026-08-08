@@ -627,3 +627,26 @@ export function chordGroups(
   }
   return groups
 }
+
+/**
+ * The lowest and highest sounding pitch in a score, or `undefined` for a score
+ * with no notes at all (a rests-only rhythm pattern is a real case — see
+ * `core/generator/rhythm`).
+ *
+ * Exists for the on-screen keyboard (roadmap 5.4, REQ-3.3.7): a fallback
+ * keyboard drawn at the full 88 keys is unplayable at any width, and one drawn
+ * at a fixed guessed range leaves the notes of the loaded piece off the end of
+ * itself. Tied continuations are INCLUDED — a tie carries a real sounding
+ * pitch, and this asks what the piece sounds, not which onsets the matcher
+ * expects.
+ */
+export function pitchRange(score: Score): { readonly low: Midi; readonly high: Midi } | undefined {
+  let low: Midi | undefined
+  let high: Midi | undefined
+  for (const note of score.notes) {
+    if (low === undefined || note.midi < low) low = note.midi
+    if (high === undefined || note.midi > high) high = note.midi
+  }
+  if (low === undefined || high === undefined) return undefined
+  return { low, high }
+}

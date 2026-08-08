@@ -137,6 +137,22 @@ describe('PracticeScreen', () => {
 
     expect(screen.getByText(/^No MIDI keyboard connected/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Play' })).toBeEnabled()
+    // Roadmap 5.4: "usable" has to mean PLAYABLE, not just readable — without
+    // a keyboard on screen there is no way to enter a note on this browser.
+    expect(screen.getByRole('group', { name: 'Play the score' })).toBeInTheDocument()
+  })
+
+  it('shows the on-screen keyboard when Web MIDI works but NO keyboard is plugged in (roadmap 5.4)', () => {
+    // The commonest no-hardware case, and the one an "is the Web MIDI API
+    // present" check gets wrong: on Chrome with permission granted and nothing
+    // plugged in, `midi.input` EXISTS and the device list is empty. Keying the
+    // default off the input would leave this learner with no way to play at
+    // all, on the browser most of them are using.
+    loadSampleScore()
+    render(<PracticeScreen midiInput={new FakeMidiInput([])} />)
+
+    expect(screen.getByText(/^No MIDI keyboard connected/)).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Play the score' })).toBeInTheDocument()
   })
 
   it('composes the store, the engine and every control into one working screen', async () => {
@@ -521,12 +537,25 @@ describe('PracticeScreen', () => {
 
   // Kills a mutant that hardcodes `canRecord` to `true` (or drops the prop,
   // which defaults RecordPanel's own `disabled` check to enabled) — Record
-  // must actually reflect whether a MIDI keyboard is connected.
-  it('disables Record when no MIDI keyboard is connected (roadmap 2.14)', () => {
+  // must actually reflect whether the learner has any way to play.
+  //
+  // Roadmap 5.4 CHANGED what that means. It used to be "is a MIDI keyboard
+  // connected"; with the on-screen keyboard it is "is there a device OR a
+  // visible on-screen keyboard", because on-screen notes now go through the
+  // same input and record identically. With no device the keyboard is shown by
+  // default, so Record is enabled — the case that must stay disabled is the
+  // one where the learner has hidden it and has no device either.
+  it('disables Record only when there is neither a device nor an on-screen keyboard (roadmap 5.4)', async () => {
     loadSampleScore()
     const neverResolves = (): Promise<never> => new Promise(() => {})
     render(<PracticeScreen connectMidi={neverResolves} />)
 
+    // No device, keyboard shown by default: playable, therefore recordable.
+    expect(screen.getByRole('button', { name: 'Record' })).toBeEnabled()
+
+    await userEvent.click(screen.getByRole('checkbox', { name: /on-screen keyboard/i }))
+
+    expect(screen.queryByRole('group', { name: 'Play the score' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Record' })).toBeDisabled()
   })
 
