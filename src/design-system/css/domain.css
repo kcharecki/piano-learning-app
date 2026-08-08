@@ -203,6 +203,16 @@
   font-size: var(--text-sm);
   color: var(--text-2);
 }
+.qwerty-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+.qwerty-hint kbd { margin: 0 1px; }
 
 /* ---------- On-screen piano (.keyboard-diagram) ----------
    Also used small as a reference diagram inside .chord-scale-reference.

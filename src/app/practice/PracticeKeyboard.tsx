@@ -27,6 +27,9 @@
  * own notes off the end of it) — see `keyboardRangeFor`.
  */
 import { OnScreenKeyboard } from '@app/drills/OnScreenKeyboard.tsx'
+import { QwertyHint } from '@app/keyboardInput/QwertyHint.tsx'
+import { defaultBaseNote } from '@app/keyboardInput/qwertyNoteMap.ts'
+import { useQwertyNoteInput } from '@app/keyboardInput/useQwertyNoteInput.ts'
 import type { Score } from '@core/notation/score.ts'
 import type { Midi } from '@core/shared/units.ts'
 import { keyboardRangeFor } from './keyboardRange.ts'
@@ -56,6 +59,17 @@ export function PracticeKeyboard({
   disabled = false,
 }: PracticeKeyboardProps) {
   const { low, high } = keyboardRangeFor(score)
+
+  // Same seam the on-screen keyboard presses through (roadmap 5.5) — a typed
+  // note enters `playableInput` exactly like a click or a MIDI key would.
+  useQwertyNoteInput({
+    enabled: visible && !disabled,
+    low,
+    high,
+    baseNote: defaultBaseNote(low, high),
+    onPress,
+    onRelease,
+  })
 
   return (
     <section className="practice-keyboard" aria-label="On-screen keyboard">
@@ -107,6 +121,7 @@ export function PracticeKeyboard({
           label="Play the score"
         />
       )}
+      {visible && !disabled && <QwertyHint />}
     </section>
   )
 }

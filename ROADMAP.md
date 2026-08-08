@@ -343,11 +343,26 @@ one screen where playing matters is the one that refuses non-MIDI input.
       during render) and a default keyed off `midi.input !== undefined` — true even with
       permission granted and nothing plugged in, the commonest no-hardware case — now keyed off an
       attached device.
-- [ ] 5.5 `app`: computer-keyboard note input as a first-class second input, mapped once and shared by
-      every note-answered screen (Practice, Flashcards, Theory, Dictation, Technique). The only
-      `keydown` listener in the app today is the Rhythm drill's spacebar.
-      *Proof: with no MIDI and without touching the mouse, a phrase is typed on the QWERTY row and
-      graded on Practice and on Dictation; the mapping is shown on screen, not documented only.*
+- [x] 5.5 `app/keyboardInput`: computer-keyboard note input as a first-class second input, mapped once
+      (`qwertyNoteMap.ts`) and shared by Practice, Flashcards, Theory and Dictation — the screens that
+      already render `OnScreenKeyboard`. `KeyA` plays the BOTTOM of whatever range is in view, climbing
+      through A S D F G H J K L ; (white) and W E T Y U O P (black), laid out over the on-screen
+      keyboard's own geography. First cut anchored at middle C instead — tidy, but made the bundled
+      sample's own first beat (48/52/55/60) only 25% reachable, since the mapping only climbs. Anchoring
+      at the range's own low fixed it, caught by a test asserting the actual first-beat chord, not by
+      inspection. The mapping only ever spans 17 semitones, so a wide multi-octave Practice range is
+      only ever partly reachable by typing — a real, deliberate limit of a finite physical keyboard, not
+      a bug; an octave-shift key is the natural follow-up (not opened as a task, no evidence yet that
+      typing is the primary input on a wide piece rather than a narrow-range fallback).
+      *Proof: `e2e/qwerty-note-input.spec.ts` strips `navigator.requestMIDIAccess` and types on
+      `window` only (no mouse) — graded correct by the real matcher on Practice, recorded on Dictation.
+      Driven live on all four screens in the running app (Playwright for Practice, whose grading needs
+      real transport ticks; the browser directly for the other three): each shows "Or type it…" and
+      grades a typed note. Technique has no `OnScreenKeyboard` to hang this on at all — a gap 5.5 found,
+      not fixed; tracked as 5.5a below rather than dropped silently.*
+- [ ] 5.5a `app/technique`: `useTechniqueDrill` feeds a `NoteMatcher` straight from `midi.input.onEvent`
+      — no on-screen fallback exists, so 5.5's computer-keyboard mapping had nothing to attach to.
+      Needs its own `OnScreenKeyboard` (or a `PlayableMidiInput` wrapper) before it can share 5.5's hook.
 - [ ] 5.6 `app`: an input-capability banner that states what this browser can and cannot do — one
       line, dismissible, naming Web MIDI's absence and what it costs (see B.7's platform reality).
       Silent degradation is what makes the current state read as broken rather than limited.

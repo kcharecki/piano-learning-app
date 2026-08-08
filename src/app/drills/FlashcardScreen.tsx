@@ -12,6 +12,9 @@
  * plain-text fifths readout plus `KeySignatureAnswerPad`. All four share the
  * same feedback/stats testids below.
  */
+import { QwertyHint } from '@app/keyboardInput/QwertyHint.tsx'
+import { defaultBaseNote } from '@app/keyboardInput/qwertyNoteMap.ts'
+import { useQwertyNoteInput } from '@app/keyboardInput/useQwertyNoteInput.ts'
 import { MidiDeviceStatus } from '@app/practice/MidiDeviceStatus.tsx'
 import type { ConnectMidi } from '@app/practice/useMidiConnection.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
@@ -90,6 +93,15 @@ export function FlashcardScreen(props: FlashcardScreenProps) {
     ...drillProps
   } = props
   const drill = useFlashcardDrill({ level, kind, ...drillProps })
+  // Only the 'staff-to-key' card answers with a note at all — the other
+  // three kinds have their own answer pads (roadmap 5.5).
+  useQwertyNoteInput({
+    enabled: drill.card?.kind === 'staff-to-key',
+    low: drill.range.low,
+    high: drill.range.high,
+    baseNote: defaultBaseNote(drill.range.low, drill.range.high),
+    onPress: drill.answerNote,
+  })
   const metronome = useMetronome({
     ...(props.clock === undefined ? {} : { clock: props.clock }),
     ...(audioOutput === undefined ? {} : { audioOutput }),
@@ -194,6 +206,7 @@ export function FlashcardScreen(props: FlashcardScreenProps) {
             high={drill.range.high}
             onPress={drill.answerNote}
           />
+          <QwertyHint />
           <AnswerFeedback grade={drill.lastGrade} />
         </section>
       ) : drill.card.kind === 'interval-on-staff' ? (

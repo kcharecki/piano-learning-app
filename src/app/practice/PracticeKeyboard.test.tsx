@@ -118,4 +118,26 @@ describe('PracticeKeyboard', () => {
 
     expect(onRelease).toHaveBeenCalledOnce()
   })
+
+  it('plays and releases through the computer keyboard, and shows the mapping (roadmap 5.5)', () => {
+    const onPress = vi.fn()
+    const onRelease = vi.fn()
+    render(<PracticeKeyboard {...props} onPress={onPress} onRelease={onRelease} />)
+
+    expect(screen.getByText(/or type it/i)).toBeInTheDocument()
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA', bubbles: true }))
+    expect(onPress).toHaveBeenCalledOnce()
+    expect(onRelease).not.toHaveBeenCalled()
+
+    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyA', bubbles: true }))
+    expect(onRelease).toHaveBeenCalledOnce()
+  })
+
+  it('does not answer through the computer keyboard when hidden', () => {
+    const onPress = vi.fn()
+    render(<PracticeKeyboard {...props} visible={false} onPress={onPress} />)
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA', bubbles: true }))
+    expect(onPress).not.toHaveBeenCalled()
+  })
 })

@@ -49,6 +49,9 @@
 import { useMidiConnection, type ConnectMidi } from '@app/practice/useMidiConnection.ts'
 import { MidiDeviceStatus } from '@app/practice/MidiDeviceStatus.tsx'
 import { OnScreenKeyboard } from '@app/drills/OnScreenKeyboard.tsx'
+import { QwertyHint } from '@app/keyboardInput/QwertyHint.tsx'
+import { defaultBaseNote } from '@app/keyboardInput/qwertyNoteMap.ts'
+import { useQwertyNoteInput } from '@app/keyboardInput/useQwertyNoteInput.ts'
 import { useFlashcardStore } from '@app/state/flashcardStore.ts'
 import { createBrowserRng } from '@app/sightreading/rng.ts'
 import {
@@ -315,6 +318,16 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
 
   const range = useMemo(() => rangeFor(), [])
 
+  // `handleNote` already no-ops with no `item` loaded, so this can stay
+  // unconditionally enabled (roadmap 5.5).
+  useQwertyNoteInput({
+    enabled: true,
+    low: range.low,
+    high: range.high,
+    baseNote: defaultBaseNote(range.low, range.high),
+    onPress: handleNote,
+  })
+
   return (
     <div className="theory-drill-panel">
       <h2>Theory drills</h2>
@@ -369,6 +382,7 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
             {playedGroups.length} / {item.answer.length} played
           </p>
           <OnScreenKeyboard low={range.low} high={range.high} onPress={handleNote} />
+          <QwertyHint />
           <AnswerFeedback result={lastResult} />
         </section>
       )}

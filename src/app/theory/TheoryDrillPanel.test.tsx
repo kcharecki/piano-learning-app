@@ -131,6 +131,26 @@ describe('TheoryDrillPanel', () => {
     expect(screen.getByTestId('theory-stats-total')).toHaveTextContent('1')
   })
 
+  it('answers through the computer keyboard, and shows the mapping (roadmap 5.5)', () => {
+    render(<TheoryDrillPanel rng={scriptedRng([0])} midiInput={new FakeMidiInput()} />)
+
+    expect(screen.getByText(/or type it/i)).toBeInTheDocument()
+    expect(screen.getByTestId('theory-progress')).toHaveTextContent('0 / ')
+
+    // `KeyA` always lands on a note inside the panel's own range —
+    // `defaultBaseNote` clamps into it — regardless of the seeded item, so
+    // this proves the QWERTY path reaches `handleNote` without depending on
+    // which note happens to be correct. `act()` because a raw
+    // `window.dispatchEvent` is not a React-managed event — without it the
+    // state update from `onPress` has not committed yet when the assertion
+    // below reads the DOM.
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA', bubbles: true }))
+    })
+
+    expect(screen.getByTestId('theory-progress')).toHaveTextContent('1 / ')
+  })
+
   it('a wrong note grades the attempt incorrect, still scheduling the card', async () => {
     const user = userEvent.setup()
     render(<TheoryDrillPanel rng={scriptedRng([0])} midiInput={new FakeMidiInput()} />)

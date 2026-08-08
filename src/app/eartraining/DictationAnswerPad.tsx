@@ -12,6 +12,9 @@
  * feedback.
  */
 import { OnScreenKeyboard } from '@app/drills/OnScreenKeyboard.tsx'
+import { QwertyHint } from '@app/keyboardInput/QwertyHint.tsx'
+import { defaultBaseNote } from '@app/keyboardInput/qwertyNoteMap.ts'
+import { useQwertyNoteInput } from '@app/keyboardInput/useQwertyNoteInput.ts'
 import type { DictationAnswerNote } from '@core/eartraining/dictation.ts'
 import type { Midi } from '@core/shared/units.ts'
 import type { JSX } from 'react'
@@ -33,12 +36,21 @@ export function DictationAnswerPad({
   low,
   high,
 }: DictationAnswerPadProps): JSX.Element {
+  useQwertyNoteInput({
+    enabled: true,
+    low,
+    high,
+    baseNote: defaultBaseNote(low, high),
+    onPress,
+  })
+
   return (
     <div className="dictation-answer-pad">
       <p data-testid="dictation-note-count" aria-live="polite">
         {notes.length} note{notes.length === 1 ? '' : 's'} recorded
       </p>
       <OnScreenKeyboard low={low} high={high} onPress={onPress} />
+      <QwertyHint />
       <div role="group" aria-label="Dictation controls">
         <button type="button" onClick={onClear} disabled={notes.length === 0}>
           Clear

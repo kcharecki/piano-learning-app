@@ -87,6 +87,15 @@ describe('DictationAnswerPad', () => {
     expect(screen.getByRole('button', { name: 'Submit' })).toBeEnabled()
   })
 
+  it('typing a mapped computer-keyboard key calls onPress with that note, and shows the mapping (roadmap 5.5)', () => {
+    const { onPress } = setup()
+
+    expect(screen.getByText(/or type it/i)).toBeInTheDocument()
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA', bubbles: true }))
+    expect(onPress).toHaveBeenCalledWith(60 as Midi)
+  })
+
   it('Clear and Submit call their own handler, not each other, once notes exist', async () => {
     const user = userEvent.setup()
     const { onClear, onSubmit } = setup({

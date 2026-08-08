@@ -73,6 +73,27 @@ describe('FlashcardScreen', () => {
     expect(screen.getByTestId('flashcard-stats-total')).toHaveTextContent('1')
   })
 
+  it('answering through the computer keyboard grades the card, and the mapping is shown (roadmap 5.5)', () => {
+    const clock = new FakeClock()
+    const midiInput = new FakeMidiInput()
+    render(<FlashcardScreen clock={clock} midiInput={midiInput} rng={seededRng(42)} />)
+
+    expect(screen.getByText(/or type it/i)).toBeInTheDocument()
+
+    const codes = ['KeyA', 'KeyW', 'KeyS', 'KeyE', 'KeyD', 'KeyF', 'KeyT', 'KeyG', 'KeyY', 'KeyH', 'KeyU', 'KeyJ']
+    for (const code of codes) {
+      // `act()`: a raw `window.dispatchEvent` is not a React-managed event, so
+      // without it the resulting state update has not committed when the
+      // DOM is read on the next line.
+      act(() => {
+        window.dispatchEvent(new KeyboardEvent('keydown', { code, bubbles: true }))
+      })
+      if (screen.queryByTestId('flashcard-feedback') !== null) break
+    }
+
+    expect(screen.getByTestId('flashcard-feedback')).toBeInTheDocument()
+  })
+
   it('changing the level rebuilds the deck', async () => {
     const user = userEvent.setup()
     render(<FlashcardScreen rng={seededRng(1)} midiInput={new FakeMidiInput()} />)
