@@ -183,7 +183,7 @@ const LEVEL_2_EXIT_CRITERIA: readonly ExitCriterion[] = [
   {
     id: 'l2-exit-sight-reading',
     track: 'sight-reading',
-    description: 'Sight-read level 2 material (one-octave range, eighth notes) at 80% accuracy or better.',
+    description: 'Sight-read level 2 material (hands together, quarter notes, no accidentals) at 80% accuracy or better.',
     check: { kind: 'sight-reading', minLevel: 2, minAccuracy: 0.8 },
   },
   {
@@ -230,7 +230,7 @@ const LEVEL_3_EXIT_CRITERIA: readonly ExitCriterion[] = [
   {
     id: 'l3-exit-sight-reading',
     track: 'sight-reading',
-    description: 'Sight-read level 3 material (keys to 2 sharps/flats, dotted rhythms) at 80% accuracy or better.',
+    description: 'Sight-read level 3 material (keys to 1 sharp, eighth notes, hands together) at 80% accuracy or better.',
     check: { kind: 'sight-reading', minLevel: 3, minAccuracy: 0.8 },
   },
   {

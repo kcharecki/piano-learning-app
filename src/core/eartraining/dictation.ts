@@ -215,6 +215,21 @@ export function generateMelodicDictation(level: number, opts: DictationOptions, 
       bars,
       hands: 'right',
       rightRange: range,
+      // Level 1's stepwise-one-direction mode (roadmap 5.11) does not end on
+      // the tonic — see melody.ts's module doc — but this function's own
+      // bars-shrinking strategy above depends on that ending exactly like
+      // every other level's does. Dictation grades a fixed melody the
+      // learner names back, not a sight-reading shape, so the pedagogical
+      // reason for that mode doesn't apply here either.
+      stepwiseOneDirection: false,
+      // Level 1's own `maxLeapSemitones` is sized for that mode (a straight
+      // run needs no leap budget at all) and is too small to cadence a
+      // single-bar 'whole-half' draw — that style can place just one note in
+      // the whole bar, which then has to reach the tonic in one leap that
+      // spans the caller's entire `range`. Dictation isn't teaching leap
+      // difficulty the way sight reading is, so give it exactly the headroom
+      // it needs rather than borrowing the ladder's pedagogical value.
+      maxLeapSemitones: Math.max(defaults.maxLeapSemitones, range.high - range.low),
     }
     const result = generateMelody(params, rng)
     if (!result.ok) {

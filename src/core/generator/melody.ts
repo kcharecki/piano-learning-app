@@ -15,6 +15,14 @@
  * tonic. A second hand, when requested, either gets its own independent line
  * or is derived from the first (doubled, parallel third, or block chords).
  *
+ * `stepwiseOneDirection` (level 1 only, roadmap 5.11) replaces that walk
+ * entirely: RCM Preparatory A's "four-note melody, moving by step in one
+ * direction only" is not a constrained random walk, it is a contiguous run
+ * of the key's own scale tones, read forward or backward. There is no
+ * cadence back onto the tonic in this mode — a four-note run has no room for
+ * one — so the "always ends on tonic" guarantee above applies only when
+ * `stepwiseOneDirection` is unset.
+ *
  * Every search in this file (`nearestValid`, `buildBarDurations`) is bounded
  * by construction, so `generateMelody` always terminates. When a parameter
  * combination cannot be satisfied — the range is too narrow to hold any note
@@ -23,11 +31,11 @@
  */
 import { at, assertNever, invariant } from '@core/shared/invariant.ts'
 import { err, ok, type Result } from '@core/shared/result.ts'
-import { midi as asMidi, TICKS_PER_QUARTER, type Midi } from '@core/shared/units.ts'
+import { TICKS_PER_QUARTER, type Midi } from '@core/shared/units.ts'
 import { pickWeighted, type Rng } from '@core/ports/rng.ts'
 import { spelledPitchClass, type SpelledPitch } from '@core/theory/pitch.ts'
 import { buildScale } from '@core/theory/scales.ts'
-import { keyFromFifths, keyName, type Key } from '@core/theory/keys.ts'
+import { keyName, type Key } from '@core/theory/keys.ts'
 import {
   makeScore,
   measureDurationTicks,
@@ -36,6 +44,7 @@ import {
   type ScoreNoteInput,
   type TimeSignature,
 } from '@core/notation/score.ts'
+import { generateStepwiseOneDirectionLine } from './stepwiseLine.ts'
 
 export type RhythmStyle = 'whole-half' | 'quarters' | 'eighths' | 'dotted' | 'syncopated'
 export type HandIndependence = 'unison' | 'parallel' | 'blocked-chords' | 'independent'
@@ -52,10 +61,12 @@ export type GeneratorParams = {
   readonly maxLeapSemitones: number
   readonly accidentalDensity: number
   readonly handIndependence: HandIndependence
+  /** Level 1 only: a contiguous run of scale tones in one direction, no leaps, no cadence steering. */
+  readonly stepwiseOneDirection?: boolean
 }
 
 /** One generated note, before it is stamped with a hand and fed to `makeScore`. */
-type PlacedNote = {
+export type PlacedNote = {
   readonly startTick: number
   readonly durationTicks: number
   readonly midi: number
@@ -248,7 +259,8 @@ function pickSteeredNote(
  * `style`, pitches walked note by note within `range` and the key described
  * by `scalePcs`/`tonicPc`. The whole final bar steers gradually onto a
  * reachable tonic — see {@link pickSteeredNote} — landing there exactly on
- * the last note.
+ * the last note. `stepwiseOneDirection` bypasses all of that — see
+ * {@link generateStepwiseOneDirectionLine}.
  */
 function generateMelodicLine(
   rng: Rng,
@@ -261,7 +273,11 @@ function generateMelodicLine(
   tonicPc: number,
   accidentalDensity: number,
   maxLeap: number,
+  stepwiseOneDirection = false,
 ): Result<readonly PlacedNote[], string> {
+  if (stepwiseOneDirection) {
+    return generateStepwiseOneDirectionLine(rng, bars, ts, range, scalePcs)
+  }
   const barTicks = measureDurationTicks(ts)
   const barUnits = barTicks / GRID
   invariant(
@@ -507,6 +523,7 @@ function generateSecondHand(
         tonicPc,
         params.accidentalDensity,
         params.maxLeapSemitones,
+        params.stepwiseOneDirection ?? false,
       )
     case 'unison':
       return doubleHand(primary, range, false, degreePcs)
@@ -550,6 +567,7 @@ export function generateMelody(params: GeneratorParams, rng: Rng): Result<Score,
     tonicPc,
     params.accidentalDensity,
     params.maxLeapSemitones,
+    params.stepwiseOneDirection ?? false,
   )
   if (!primary.ok) return primary
 
@@ -587,65 +605,6 @@ export function generateMelody(params: GeneratorParams, rng: Rng): Result<Score,
 // level defaults (requirements.md section 2)
 // ---------------------------------------------------------------------------
 
-const range = (low: number, high: number): MidiRange => ({ low: asMidi(low), high: asMidi(high) })
-
-/**
- * One row per level of requirements.md section 2: fifths, mode, bars, time
- * signature, hands, right low/high, left low/high (`null` when unused),
- * rhythm, max leap, accidental density, hand independence — monotonically
- * harder in range width, rhythm and leap size as the level rises.
- *
- * `maxLeap` is chosen, not just guessed: each level's rhythm style bounds how
- * few notes its last bar can ever collapse to (a 'whole-half' bar can be a
- * single whole note), and the cadence in {@link generateMelodicLine} needs
- * `notes-in-last-bar * maxLeap` to reach any point in the range. Level 1's
- * 4/4 bar can fall to one note, so its leap has to cover the whole range
- * width on its own; the busier styles at higher levels can't collapse that
- * far, so their floor is lower even though the range is wider.
- */
-type LevelRow = readonly [
-  number,
-  'major' | 'minor',
-  number,
-  TimeSignature,
-  GeneratorParams['hands'],
-  number,
-  number,
-  number | null,
-  number | null,
-  RhythmStyle,
-  number,
-  number,
-  HandIndependence,
-]
-
-const FOUR_FOUR: TimeSignature = { beats: 4, beatType: 4 }
-const THREE_FOUR: TimeSignature = { beats: 3, beatType: 4 }
-const SIX_EIGHT: TimeSignature = { beats: 6, beatType: 8 }
-
-const LEVEL_ROWS: readonly LevelRow[] = [
-  [0, 'major', 4, FOUR_FOUR, 'right', 60, 67, null, null, 'whole-half', 7, 0, 'unison'],
-  [1, 'major', 4, FOUR_FOUR, 'both', 60, 72, 48, 60, 'quarters', 8, 0.05, 'unison'],
-  [2, 'major', 8, THREE_FOUR, 'both', 60, 76, 48, 64, 'eighths', 9, 0.1, 'parallel'],
-  [4, 'major', 8, SIX_EIGHT, 'both', 60, 79, 48, 67, 'dotted', 11, 0.15, 'blocked-chords'],
-  [6, 'minor', 8, FOUR_FOUR, 'both', 60, 84, 36, 60, 'syncopated', 12, 0.25, 'independent'],
-]
-
-export function defaultParamsForLevel(level: number): GeneratorParams {
-  const row = at(LEVEL_ROWS, Math.min(5, Math.max(1, Math.round(level))) - 1)
-  const [fifths, mode, bars, ts, hands, rLow, rHigh, lLow, lHigh, rhythm, maxLeap, density, indep] =
-    row
-  return {
-    key: keyFromFifths(fifths, mode),
-    bars,
-    timeSignature: ts,
-    hands,
-    rightRange: range(rLow, rHigh),
-    ...(lLow === null || lHigh === null ? {} : { leftRange: range(lLow, lHigh) }),
-    rhythm,
-    maxLeapSemitones: maxLeap,
-    accidentalDensity: density,
-    handIndependence: indep,
-  }
-}
+/** See `levelDefaults.ts` — split out so this file can stay under the line budget. */
+export { defaultParamsForLevel, MAX_GENERATOR_LEVEL } from './levelDefaults.ts'
 
