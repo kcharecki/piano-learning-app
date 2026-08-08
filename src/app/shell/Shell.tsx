@@ -11,6 +11,7 @@
  * exercise to the screen that runs it, which is why the nav state lives here
  * rather than inside that screen.
  */
+import { InputCapabilityBanner } from '@app/shell/InputCapabilityBanner.tsx'
 import { ScoreScreen } from '@app/score/ScoreScreen.tsx'
 import { DashboardScreen } from '@app/dashboard/DashboardScreen.tsx'
 import { FlashcardScreen } from '@app/drills/FlashcardScreen.tsx'
@@ -273,6 +274,7 @@ export function Shell() {
         </ul>
       </nav>
       <main className="app-main">
+        <InputCapabilityBanner />
         {renderScreen(screen, open, () => goTo('practice'), technique, deck, theoryDrill)}
       </main>
     </div>
