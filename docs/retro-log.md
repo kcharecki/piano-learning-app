@@ -16,6 +16,42 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
+## 2026-08-08 (fifth session) — merged 5.4, shipped 5.5, and the Browser pane's compositing gap
+
+- user-reported defects since last session: 0.
+- slices proven / started: integrated task/5.4 (parallel worktree, playable practice screen)
+  + shipped 5.5 (computer-keyboard note input) = 2 / 2.
+- gate catches before commit: 2.
+  1. My own first cut of 5.5 anchored the QWERTY mapping at middle C. A test asserting the
+     bundled sample's ACTUAL first-beat chord (48/52/55/60) — not just "some note presses" —
+     found only 1 of 4 notes reachable, since the mapping only climbs from its base. Anchored
+     at the range's own low instead; all four now reachable. Caught before commit, not after.
+  2. The 5.5 proof named Technique among the note-answered screens; it has no `OnScreenKeyboard`
+     at all to hang a computer-keyboard mapping on. Filed as 5.5a rather than silently narrowing
+     the task's own scope to fit what existed.
+- docs budget (ROADMAP+CLAUDE+PROCESS): 954 (798 + 42 + 114, approx — CLAUDE.md/PROCESS.md
+  unchanged this session besides this entry's own PROCESS.md edit below).
+- cost note: the ROADMAP.md merge conflict (task/5.4 vs. three master commits since) cost real
+  time — both sides had rewritten large stretches, and the honest fix was re-applying task/5.4's
+  specific tick onto master's version rather than trying to reconcile the diff mechanically.
+  Bigger cost: ~20 minutes spent manually driving the MCP Browser pane (clicking refs, reading
+  the DOM) after it silently stopped compositing (`document.hidden === true`, `screenshot`
+  timing out) — before remembering `scripts/visual-pass.mjs` already exists and does exactly
+  this with a real (non-pane) Playwright browser. It found nothing the pane couldn't have.
+- hypothesis: **the experience gate names `scripts/visual-pass.mjs` for the visual pass, but
+  nothing steers a session to it FIRST when the interactive Browser pane is the thing that's
+  broken** — I defaulted to the interactive tool because it is the first one listed in this
+  session's tool surface, not because it was the right one once it stopped compositing.
+- change: added a line to the experience gate (below) naming `visual-pass.mjs` + a driven
+  Playwright e2e spec as the fallback the moment the interactive pane fails to screenshot or
+  `document.hidden` is true, instead of troubleshooting the pane itself. **Review-by
+  2026-08-22 (or 3 sessions):** keep if a future session hits the same pane failure and the
+  line saves it the detour; revert if the pane just works next time and this reads as dead prose.
+- experiment verdicts due: "Find the class before fixing the instance" (review-by 2026-08-29)
+  not yet due, but this session is a second confirming data point (5.5's middle-C anchor bug,
+  found by testing the class of "which notes are reachable", not the instance of "does A press
+  something"). `scripts/visual-pass.mjs` (review-by 2026-08-22) not yet due.
+
 ## 2026-08-08 (fourth session) — Triage cleared; the reported defect was never the whole defect
 
 - user-reported defects since last session: 0. One mid-session question (was I aware of the

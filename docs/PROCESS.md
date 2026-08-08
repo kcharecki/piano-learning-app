@@ -47,6 +47,10 @@ over a dozen "tests green, feature dead in the browser" defects. The browser dri
    1280px and 1024px, dark and light, and exits 1 on any console error. Judge the four
    screenshots against `docs/DESIGN.md`'s checklist as a picky user. Findings fixed *before*
    the tick, not filed for later. Do not hand-roll a driver script; extend that one.
+   **If the interactive Browser pane won't composite** (`screenshot` times out, or
+   `document.hidden` reads true) — go straight to `visual-pass.mjs` for the screenshots and a
+   driven Playwright e2e spec for the interaction proof, rather than troubleshooting the pane.
+   It is a real Playwright browser and does not share the pane's compositing dependency.
 4. **Console clean** during the proof drive — no errors, no React warnings.
 5. **States handled** — empty, loading, error, and no-MIDI each handled or explicitly N/A.
 6. **No perf regression** — `e2e/perf-large-score.spec.ts` budgets still green when the slice
