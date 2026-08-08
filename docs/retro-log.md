@@ -16,6 +16,41 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
+## 2026-08-08 (second session) — Triage cleared; the gate caught a dead feature on its first run
+
+- user-reported defects since last session: 0 new. The standing one (T.1, `verify` exit 1) is fixed.
+- slices proven / started: 4 / 4 — T.1 (verify green), 3.14, 3.18a, 3.23 (+3.19b ticked on
+  existing evidence). All four boxes T.1 was blocking passed the gate.
+- gate catches before commit: **7**, none of which a test would have found.
+  1. **3.18a was completely inert.** `buildMeasureLabels`, `ScoreViewer`'s `measureLabels` prop
+     and the engraver's `setMeasureLabels` all shipped tested last session, and *no caller ever
+     passed the prop*. Driving the Practice screen returned an empty label list. This is the
+     defect class the gate was written for, caught on its first real session.
+  2–5. 3.14's engraving had a playback cursor on a score nothing plays, a `♩=120` on a scale, a
+     title duplicating the heading beside it, and a synthetic `8/4` meter in 360px of empty paper.
+  6. Every retention stat printed its label twice ("Cards 0 CARDS") on two screens.
+  7. `.keyboard-diagram { width: 100% }` at ≤1024px drew the 5-key dictation pad against ~700px
+     of empty frame.
+  Also found, recorded, not silently fixed: 3.14a (per-note spelling — F# major's E# engraves as
+  F♮) and T.2 (`audio-clock-drift` e2e red on a clean tree, ~5994 ms/min vs a 150 budget).
+- docs budget (ROADMAP+CLAUDE+PROCESS lines): 773 + 92 + 100 = **965**
+- cost note: the visual pass dominated. The Browser pane could not composite frames, so every
+  screenshot went through a hand-written Playwright script — six of them written and deleted
+  across four slices, each re-deriving the same drawer-opening, theme-setting, error-collecting
+  boilerplate. The slices themselves were small and serial; no subagent was warranted and none
+  was used.
+- hypothesis: the experience gate is the right gate and is working, but it had **no tooling**.
+  A gate that must be re-implemented from scratch every session is a gate that will get skipped
+  on a session that feels rushed — and skipping it is exactly how 3.18a shipped dead.
+- change: added `scripts/visual-pass.mjs` — one command per destination, both widths, both
+  themes, exits 1 on any console error, with `--level`/`--select` for state-gated screens.
+  `docs/PROCESS.md` step 3 now names it and forbids hand-rolled drivers. **Review-by 2026-08-22
+  (or 4 sessions):** keep if the next sessions' visual passes run through it; revert if it turns
+  out screens need so much bespoke setup that the flags grow faster than the value.
+- experiment verdicts due: none — the 2026-08-08 redesign experiments are reviewed ~2026-08-22.
+- note for the next session: T.2 is the triage item, then Phase 5's "playable content" group
+  (5.1/5.2), the highest-impact unstarted work.
+
 ## 2026-08-08 — Process redesign (baseline entry)
 
 User verdict on the old round protocol, verbatim intent: too many bugs reaching them; long,

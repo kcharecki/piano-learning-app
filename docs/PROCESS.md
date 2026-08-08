@@ -42,9 +42,11 @@ over a dozen "tests green, feature dead in the browser" defects. The browser dri
 2. **Driven proof on real content** — the task's proof action performed in the running app
    against a real piece or full drill flow, never only a six-bar fixture. Evidence captured:
    screenshot, console, or a driven e2e asserting behaviour (not presence).
-3. **Visual pass** — screenshot every changed screen at desktop width AND ≤1024px, light and
-   dark theme, judged against `docs/DESIGN.md`'s checklist as a picky user. Findings fixed
-   *before* the tick, not filed for later.
+3. **Visual pass** — `node scripts/visual-pass.mjs <destination>` (with `--level track=n` /
+   `--select sel=label` when the screen needs a state first) shoots every changed screen at
+   1280px and 1024px, dark and light, and exits 1 on any console error. Judge the four
+   screenshots against `docs/DESIGN.md`'s checklist as a picky user. Findings fixed *before*
+   the tick, not filed for later. Do not hand-roll a driver script; extend that one.
 4. **Console clean** during the proof drive — no errors, no React warnings.
 5. **States handled** — empty, loading, error, and no-MIDI each handled or explicitly N/A.
 6. **No perf regression** — `e2e/perf-large-score.spec.ts` budgets still green when the slice
