@@ -16,6 +16,38 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
+## 2026-08-08 (sixth session) — integrated four worktree branches, shipped 5.2
+
+- user-reported defects since last session: 0
+- slices proven / started: 5/5 — four worktree branches merged serially (5.1 graded-score bundle,
+  5.11 sight-reading ladder rebuild, 5.9a demo-mismatch fixes, 5.9b Open-demonstration navigation),
+  each verified green before the next merge; plus one new slice, 5.2 (Open in Practice).
+- gate catches before commit:
+  1. The 5.9a/5.9b merge conflicted on ROADMAP.md only (both worktrees ticked adjacent lines);
+     resolving it left a duplicate stray `[ ] 5.9b` block in the file that a plain merge-conflict
+     resolve would have shipped — caught while compressing the file for the docs budget, not by
+     any test.
+  2. `npm run verify:full`'s `knip` step is red (T.4, logged, not fixed this session — see below).
+  3. Merging the four branches pushed ROADMAP.md to 809/816 lines against the 800 budget —
+     `docs:budget` caught it immediately, compressed the done entries' proof prose to one-liners.
+- docs budget (ROADMAP+CLAUDE+PROCESS lines): 754 + 101 + 130 = **985**
+- cost note: integration (4 merges + `npm run verify` each + a ROADMAP compression pass) was the
+  bulk of the session; the one new slice (5.2) was delegated to a single Sonnet builder for the
+  hook/component/tests, with the shared file (`Shell.tsx`) wired by the main thread per the
+  delegation rule — no full fan-out workflow needed for a wiring-shaped task.
+- hypothesis: the integrator's own step (0) says "clear STALE claims" but gives no signal for
+  *when* a claim is stale vs. still-active-and-slow — this session found 5.4's worktree claimed
+  with 0 commits ahead (already merged in a prior session) only by reading `worktrees.mjs status`
+  closely, not because anything flagged it.
+- change: none — logged the knip regression (T.4) as a proper Triage item with a proof action
+  rather than fixing it inline (it is unrelated to this session's slices and touching knip config
+  deserves its own verified slice, not a rider on this commit). Extended `scripts/visual-pass.mjs`
+  with `--click <label>` instead, so a post-interaction visual state doesn't need a hand-rolled
+  driver — the tool paying rent as designed. **No process-file change this session** — the loop
+  (integrate → triage → slice → gate → retro) held up under a 5-branch session without needing a
+  new rule; the docs-budget and visual-pass tooling from prior retros are what caught things.
+- experiment verdicts due: none this session (2026-08-22 review-by is still open).
+
 ## 2026-08-08 (fifth session) — merged 5.4, shipped 5.5, and the Browser pane's compositing gap
 
 - user-reported defects since last session: 0.
