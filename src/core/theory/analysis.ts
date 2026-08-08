@@ -351,15 +351,68 @@ function tonicTriadPrevalenceScore(
 }
 
 /**
+ * The tick, at or after `measureStartTick`, of the earliest left-hand onset in
+ * the measure — a fresh onset exactly on the downbeat, or the earliest
+ * left-hand onset later in the measure. `undefined` when no left-hand voice
+ * ever sounds in this measure at all.
+ *
+ * Exists because a late-entering left hand — a rest on the downbeat, or an
+ * upper-voice pickup sounding first while the bass waits a beat — has no bass at
+ * the measure's own start tick even though it plainly does have one, one beat
+ * later, once it enters. Sampling only `measureStartTick` would silently read
+ * that as "no bass here" and drop real evidence rather than report it honestly.
+ */
+function firstBassTickInMeasure(score: Score, measureStartTick: number): number | undefined {
+  const candidateTicks = new Set<number>()
+  for (const note of score.notes) {
+    if (note.hand !== 'left') continue
+    if (note.startTick >= measureStartTick) candidateTicks.add(note.startTick)
+  }
+  for (const tick of [...candidateTicks].sort((a, b) => a - b)) {
+    if (bassAt(score, asTicks(tick)) !== undefined) return tick
+  }
+  return undefined
+}
+
+/**
+ * The pitch class of the bass's own last distinct value before `beforeTick`,
+ * skipping any left-hand onset whose bass pitch class equals `excludeClass` —
+ * walking backwards from `beforeTick` through left-hand onsets until one is
+ * found whose bass differs from the tonic just reached. Anchoring to the
+ * barline tick instead (as a prior version of this function did) breaks on a
+ * left-hand rest straddling the barline from the OTHER side: an early release
+ * before the barline leaves the barline tick silent even though the
+ * subdominant plainly sounded a beat earlier, in the same measure.
+ */
+function priorDistinctBassClass(
+  score: Score,
+  beforeTick: number,
+  excludeClass: number,
+): number | undefined {
+  const onsets = new Set<number>()
+  for (const note of score.notes) {
+    if (note.hand === 'left' && note.startTick < beforeTick) onsets.add(note.startTick)
+  }
+  for (const onset of [...onsets].sort((a, b) => b - a)) {
+    const bass = bassAt(score, asTicks(onset))
+    if (bass !== undefined && bass % 12 !== excludeClass) return bass % 12
+  }
+  return undefined
+}
+
+/**
  * A plagal (iv -> i) bass motion arriving at the piece's own final measure: the bass
- * at the final measure's own start tick is the minor tonic, AND the bass sounding
- * immediately before that (whatever it moved FROM) is the minor subdominant (a
- * perfect fourth below the tonic, i.e. `tonicClass + 5`). This is the evidence the
- * plagal defect (roadmap 3.19a) needs and the plain "last bass is the minor tonic"
- * vote cannot supply on its own: a piece can land on the minor-tonic bass at its very
- * end by simple coincidence (see the "single vote" fixture, where the piece's other
- * half is the unrelated major tonic) — but the bass actually being DRIVEN there by its
- * own subdominant right before is real harmonic motion, not coincidence.
+ * at the first tick the left hand actually sounds within the final measure
+ * (`firstBassTickInMeasure` — not necessarily the measure's own start tick; see its
+ * doc comment) is the minor tonic, AND the bass's own last distinct value before that
+ * (`priorDistinctBassClass` — not necessarily sampled at the barline; see its doc
+ * comment) is the minor subdominant (a perfect fourth below the tonic, i.e.
+ * `tonicClass + 5`). This is the evidence the plagal defect (roadmap 3.19a) needs and
+ * the plain "last bass is the minor tonic" vote cannot supply on its own: a piece can
+ * land on the minor-tonic bass at its very end by simple coincidence (see the "single
+ * vote" fixture, where the piece's other half is the unrelated major tonic) — but the
+ * bass actually being DRIVEN there by its own subdominant right before is real
+ * harmonic motion, not coincidence.
  *
  * The bass landing on the tonic class is not enough on its own: it says nothing about
  * whether the chord actually arriving there is the minor tonic TRIAD (as opposed to,
@@ -370,16 +423,18 @@ function tonicTriadPrevalenceScore(
 function plagalMotionIntoFinalMeasure(score: Score, minorTonicClass: number): boolean {
   const lastMeasure = at(score.measures, score.measures.length - 1)
   if (lastMeasure.startTick <= 0) return false
-  const finalBass = bassAt(score, lastMeasure.startTick)
+  const finalBassTick = firstBassTickInMeasure(score, lastMeasure.startTick)
+  if (finalBassTick === undefined) return false
+  const finalBass = bassAt(score, asTicks(finalBassTick))
   if (finalBass === undefined || finalBass % 12 !== minorTonicClass) return false
   const minorThirdClass = (minorTonicClass + 3) % 12
-  const hasMinorThird = soundingAtTick(score, lastMeasure.startTick).some(
+  const hasMinorThird = soundingAtTick(score, asTicks(finalBassTick)).some(
     (note) => note.midi % 12 === minorThirdClass,
   )
   if (!hasMinorThird) return false
   const subdominantClass = (minorTonicClass + 5) % 12
-  const priorBass = bassAt(score, asTicks(lastMeasure.startTick - 1))
-  return priorBass !== undefined && priorBass % 12 === subdominantClass
+  const priorBassClass = priorDistinctBassClass(score, finalBassTick, minorTonicClass)
+  return priorBassClass === subdominantClass
 }
 
 /** Guess the key from the score's own key signature and its pitch content. */

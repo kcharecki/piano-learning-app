@@ -535,6 +535,166 @@ describe('detectKey — a plagal (iv -> i) minor piece not bracketed by a tonic 
 })
 
 // ---------------------------------------------------------------------------
+// LATE LEFT-HAND ENTRY (roadmap 3.19b): the final measure's bass may not
+// sound at the measure's own start tick at all
+// ---------------------------------------------------------------------------
+
+describe('detectKey — plagal motion into a final measure whose left hand enters LATE', () => {
+  it('REGRESSION: a late left-hand entry in the final measure (rest on the downbeat, right-hand pickup sounding first) still casts the plagal vote and reads A MINOR', () => {
+    // Before this fix, `plagalMotionIntoFinalMeasure` sampled the bass at exactly the
+    // final measure's own `startTick`. Here nothing sounds in the left hand at that
+    // tick at all — the left hand rests on the downbeat while a right-hand upper-voice
+    // pickup (E5) sounds alone, and only enters a beat late with the tonic triad. A
+    // stub that reverts to sampling `bassAt(score, lastMeasure.startTick)` directly
+    // finds no bass there, drops the plagal vote, and fails this test by reporting C
+    // major even though the harmony plainly IS iv -> i, arriving one beat late.
+    //
+    // mm1 (0-1920):    iv, D4-F4-A4, left hand, held the whole bar — the subdominant
+    //                  the final measure's bass must be driven FROM. Bass is D, not
+    //                  the minor tonic, so `firstIsMinorTonic` is false.
+    // mm2 (1920-3840): the left hand RESTS on the downbeat; a right-hand pickup (E5)
+    //                  sounds alone from 1920 to 2160; the left hand finally enters at
+    //                  2160 with the tonic triad (A3-C4-E4), held to the end of the bar.
+    //
+    // No leading tone anywhere, so the plagal vote is the ONLY thing that can push
+    // `minorScore` past `MINOR_KEY_THRESHOLD`: `lastIsMinorTonic` alone tops out at
+    // `WEIGHT_LAST_BASS + PREVALENCE_CLAMP` = 2 + 0.49 = 2.49, strictly below the 2.5
+    // threshold, so without the plagal vote this MUST stay major; with it,
+    // `WEIGHT_LAST_BASS + WEIGHT_PLAGAL_MOTION - PREVALENCE_CLAMP` = 3 - 0.49 = 2.51
+    // clears the threshold regardless of the actual prevalence value.
+    const score = makeScore({
+      id: 'late-left-hand-entry-probe',
+      measures: [{ keyFifths: 0 }, { keyFifths: 0 }],
+      notes: [
+        // mm1: iv, D4-F4-A4
+        { midi: 62, startTick: 0, durationTicks: 1920, hand: 'left' },
+        { midi: 65, startTick: 0, durationTicks: 1920, hand: 'left' },
+        { midi: 69, startTick: 0, durationTicks: 1920, hand: 'left' },
+        // mm2: right-hand pickup, sounding ALONE on the downbeat — no left hand yet.
+        { midi: 76, startTick: 1920, durationTicks: 240, hand: 'right' }, // E5
+        // mm2: the left hand finally enters a beat late with the tonic triad.
+        { midi: 57, startTick: 2160, durationTicks: 1680, hand: 'left' }, // A3
+        { midi: 60, startTick: 2160, durationTicks: 1680, hand: 'left' }, // C4
+        { midi: 64, startTick: 2160, durationTicks: 1680, hand: 'left' }, // E4
+      ],
+    })
+    const key = detectKey(score)
+    expect(key.tonic.letter).toBe('A')
+    expect(key.tonic.alter).toBe(0)
+    expect(key.mode).toBe('minor')
+  })
+
+  it('does not cast the plagal vote from a late-entering left hand when the prior bass was not actually the subdominant (no false positive from the wider sampling window)', () => {
+    // Guards the fix itself: widening the sample window to "the first tick the left
+    // hand sounds in the final measure" must not turn into "any late-entering tonic
+    // bass counts as plagal". Here the bass right before the final barline is the
+    // MAJOR tonic (C), not the minor subdominant (D) — so even though the left hand
+    // again enters a beat late with the minor tonic triad, the plagal vote must not
+    // fire, and this piece has nothing else pushing it to minor.
+    //
+    // mm1 (0-1920):    I, C4-E4-G4, left hand, held the whole bar — NOT the minor
+    //                  subdominant, so the motion into mm2 is not plagal at all.
+    // mm2 (1920-3840): left hand rests on the downbeat; right-hand pickup (E5) sounds
+    //                  alone from 1920 to 2160; left hand enters at 2160 with A3-C4-E4
+    //                  (the minor tonic triad) — bass lands on the tonic pitch class
+    //                  by coincidence, not by subdominant motion.
+    const score = makeScore({
+      id: 'late-left-hand-entry-false-positive-probe',
+      measures: [{ keyFifths: 0 }, { keyFifths: 0 }],
+      notes: [
+        // mm1: I, C4-E4-G4
+        { midi: 60, startTick: 0, durationTicks: 1920, hand: 'left' },
+        { midi: 64, startTick: 0, durationTicks: 1920, hand: 'left' },
+        { midi: 67, startTick: 0, durationTicks: 1920, hand: 'left' },
+        // mm2: right-hand pickup, sounding ALONE on the downbeat.
+        { midi: 76, startTick: 1920, durationTicks: 240, hand: 'right' }, // E5
+        // mm2: the left hand enters a beat late with the minor tonic triad.
+        { midi: 57, startTick: 2160, durationTicks: 1680, hand: 'left' }, // A3
+        { midi: 60, startTick: 2160, durationTicks: 1680, hand: 'left' }, // C4
+        { midi: 64, startTick: 2160, durationTicks: 1680, hand: 'left' }, // E4
+      ],
+    })
+    const key = detectKey(score)
+    expect(key.tonic.letter).toBe('C')
+    expect(key.mode).toBe('major')
+  })
+
+  // roadmap 3.19b follow-up finding 1: the mirror image of a late-entering left
+  // hand — an EARLY-RELEASING left hand — is the same rest-straddling-the-barline
+  // notation, just moved a beat earlier. Anchoring the prior-bass sample to the
+  // barline tick (`lastMeasure.startTick - 1`) still misses it: the subdominant
+  // stops sounding a beat before the barline, so the barline-anchored tick reads
+  // silence and the plagal vote is dropped even though the harmony is the same
+  // iv -> i motion as the REGRESSION fixture above, just notated with the rest on
+  // the other side of the barline.
+  it('a left-hand EARLY RELEASE before the barline (the mirror image of a late entry) still casts the plagal vote and reads A MINOR', () => {
+    // mm1 (0-1920): iv, D4-F4-A4, left hand, sounding 0-1440 then resting on beat 4
+    //               (1440-1920) — the subdominant releases a beat early, before the
+    //               barline, rather than entering a beat late after it.
+    // mm2 (1920-3840): a right-hand pickup (E5) sounds 1920-2160; the left hand
+    //               enters at 2160 with the tonic triad (A3-C4-E4), held to the end.
+    const score = makeScore({
+      id: 'early-left-hand-release-probe',
+      measures: [{ keyFifths: 0 }, { keyFifths: 0 }],
+      notes: [
+        // mm1: iv, D4-F4-A4, releasing a beat early (ticks 0-1440 of 1920)
+        { midi: 62, startTick: 0, durationTicks: 1440, hand: 'left' },
+        { midi: 65, startTick: 0, durationTicks: 1440, hand: 'left' },
+        { midi: 69, startTick: 0, durationTicks: 1440, hand: 'left' },
+        // mm2: right-hand pickup, sounding ALONE on the downbeat.
+        { midi: 76, startTick: 1920, durationTicks: 240, hand: 'right' }, // E5
+        // mm2: the left hand enters a beat late with the tonic triad.
+        { midi: 57, startTick: 2160, durationTicks: 1680, hand: 'left' }, // A3
+        { midi: 60, startTick: 2160, durationTicks: 1680, hand: 'left' }, // C4
+        { midi: 64, startTick: 2160, durationTicks: 1680, hand: 'left' }, // E4
+      ],
+    })
+    const key = detectKey(score)
+    expect(key.tonic.letter).toBe('A')
+    expect(key.tonic.alter).toBe(0)
+    expect(key.mode).toBe('minor')
+  })
+
+  // roadmap 3.19b follow-up finding 2: pins the documented "FIRST left-hand onset
+  // in the final measure" policy against a fixture that can actually distinguish
+  // it from "LAST left-hand onset" — every existing fixture has exactly one
+  // left-hand onset in the final measure, so any tick-selection policy agrees on
+  // it. Here the final measure has TWO distinct left-hand onsets: a non-tonic bass
+  // (F3) first, then the tonic triad later. Under "first" (the documented,
+  // shipped policy) the final bass is F, not the tonic, so the plagal vote must
+  // not fire and the score must read major.
+  it('samples the FIRST left-hand onset in the final measure, not the last, when the measure has two distinct left-hand onsets', () => {
+    // mm1 (0-1920): iv, D4-F4-A4, held the whole bar — the subdominant.
+    // mm2 (1920-3840): left hand rests on the downbeat; right-hand pickup (E5)
+    //               sounds 1920-2160; left hand enters at 2160 with a bare F3 (not
+    //               the tonic), then re-attacks at 2400 with the tonic triad
+    //               (A3-C4-E4). Under "first left-hand onset", the sampled bass is
+    //               F3 — not the minor tonic — so the plagal vote must not fire.
+    const score = makeScore({
+      id: 'two-left-hand-onsets-final-measure-probe',
+      measures: [{ keyFifths: 0 }, { keyFifths: 0 }],
+      notes: [
+        // mm1: iv, D4-F4-A4
+        { midi: 62, startTick: 0, durationTicks: 1920, hand: 'left' },
+        { midi: 65, startTick: 0, durationTicks: 1920, hand: 'left' },
+        { midi: 69, startTick: 0, durationTicks: 1920, hand: 'left' },
+        // mm2: right-hand pickup, sounding ALONE on the downbeat.
+        { midi: 76, startTick: 1920, durationTicks: 240, hand: 'right' }, // E5
+        // mm2: left hand's FIRST onset is a bare, non-tonic F3.
+        { midi: 53, startTick: 2160, durationTicks: 240, hand: 'left' }, // F3
+        // mm2: left hand's SECOND onset is the tonic triad.
+        { midi: 57, startTick: 2400, durationTicks: 1440, hand: 'left' }, // A3
+        { midi: 60, startTick: 2400, durationTicks: 1440, hand: 'left' }, // C4
+        { midi: 64, startTick: 2400, durationTicks: 1440, hand: 'left' }, // E4
+      ],
+    })
+    const key = detectKey(score)
+    expect(key.tonic.letter).toBe('C')
+    expect(key.mode).toBe('major')
+  })
+})
+
+// ---------------------------------------------------------------------------
 // property (roadmap 3.19a): a piece built entirely from one tonic triad
 // reads as that triad's own key
 // ---------------------------------------------------------------------------
