@@ -32,7 +32,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell -NoProfile -Command \"if (git status --porcelain) { 'TREE DIRTY at session start. Recovery is protocol step 0, before any roadmap work: npm run verify; green -> commit leftovers in module-sized slices; red -> fixing it is the next task. See docs/efficiency-guide.md section 5.' }\""
+            "command": "powershell -NoProfile -Command \"if (git status --porcelain) { 'TREE DIRTY at session start. Recovery is step 0 of the session loop (docs/PROCESS.md): npm run verify; green -> slice-commit leftovers; red -> fixing it is triage item #1. Never start new work on a dirty tree.' }\""
           }
         ]
       }

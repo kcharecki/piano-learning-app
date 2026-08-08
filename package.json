@@ -25,7 +25,8 @@
     "knip:prod": "knip --production --include files,dependencies",
     "knip:prod:all": "knip --production",
     "mutate": "stryker run",
-    "verify": "npm run typecheck && npm run lint && npm run test:all",
+    "docs:budget": "node scripts/check-docs-budget.mjs",
+    "verify": "npm run docs:budget && npm run typecheck && npm run lint && npm run test:all",
     "verify:full": "npm run verify && npm run knip && npm run knip:prod:all && npm run test:e2e",
     "checkpoint": "node scripts/checkpoint.mjs"
   },

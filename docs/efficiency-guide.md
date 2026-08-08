@@ -1,5 +1,11 @@
 # How to work on this project efficiently
 
+> **2026-08-08: the round protocol described here is superseded by `docs/PROCESS.md`**
+> (vertical slices + experience gate + retro). Still live from this file: the telemetry
+> (§1–§8, as evidence), and **Appendices A–D** — the agent prompt templates and workflow
+> skeleton, which PROCESS.md's delegation rules reference. The "drop-in replacement"
+> section at the bottom is historical.
+
 Audience: the orchestrating agent at the start of a session. Grounded in measured telemetry from
 the 2026-07-31 → 08-01 session ([efficiency-guide-prompt.md](efficiency-guide-prompt.md)); every
 claim cites a numbered fact from it. Where a recommendation goes beyond the telemetry it is marked
