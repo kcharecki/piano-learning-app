@@ -17,13 +17,12 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
 
 ## Triage — before any feature work
 
-- [ ] T.1 `npm run verify` exits 1 on master: 9 unhandled OSMD `TypeError: Cannot set
-      properties of null (setting 'font')` exceptions from TheoryScreen.test.tsx /
-      Shell.test.tsx (thrown async inside opensheetmusicdisplay's renderAndScrollBack timer
-      after jsdom teardown), introduced by the 3.14 ScaleStaff work — committed as WIP on
-      user request 2026-08-08. All 3252 tests pass; the unhandled rejections are the gate.
-      3.14 / 3.18a / 3.19b / 3.23 boxes stay unticked until each passes the experience gate.
-      Proof: `npm run verify` exits 0.
+- [x] T.1 `npm run verify` exited 1 on master with 9 unhandled OSMD `TypeError: Cannot set
+      properties of null (setting 'font')` exceptions while all 3252 tests passed. Cause:
+      happy-dom has no canvas, and `autoResize: true` makes OSMD re-render on a timer it owns,
+      so the throw landed outside the promise `ScoreViewer` catches. Fixed by mocking
+      `ScoreViewer` in the two screen tests that reached a real OSMD (33fabaa). All four blocked
+      boxes then passed the experience gate this session: 3.14, 3.18a, 3.19b, 3.23.
 
 - [ ] T.2 `e2e/audio-clock-drift.spec.ts` fails on master: the sustained-session drift measures
       ~5994 ms/min against a 150 ms/min budget. Reproduced on a clean tree at 529ac23, so it
@@ -239,7 +238,7 @@ The M3 gaps that are unbuilt features rather than defects. Each states its proof
       one is centred under a different bar, below its staff.*
 - [x] 3.19 `core/theory/analysis`: make the minor-key leading-tone vote positional
 - [x] 3.19a `core/theory/analysis`: the `>= 2` vote threshold itself.
-- [ ] 3.19b `core/theory/analysis`: `plagalMotionIntoFinalMeasure` samples the final measure's bass
+- [x] 3.19b `core/theory/analysis`: `plagalMotionIntoFinalMeasure` samples the final measure's bass
       at its `startTick`, so a final measure whose left hand enters late (a rest, or an upper-voice
       pickup first) may sample no bass at all and drop the vote. Raised by 3.19a's review as
       SUSPECTED and rejected there for the right reason — no failing fixture was produced, and
@@ -248,6 +247,10 @@ The M3 gaps that are unbuilt features rather than defects. Each states its proof
       say so.
       *Proof: a constructed minor score with a late left-hand entry in its final bar reads minor,
       and every 3.19/3.19a fixture still reads what it reads now.*
+      The failing score was written first, as demanded (`analysis.test.ts`, "LATE LEFT-HAND ENTRY"),
+      so this was a real defect, not the speculative rewrite this task warned against. Core-only:
+      its browser-visible surface is the analysis on the Practice screen, which roadmap 3.18a
+      landed and drove this session.
 - [x] 3.20 `app/theory`: SRS that re-serves the actual due fact (REQ-3.5.6)
 - [ ] 3.21 `app/eartraining`: clap/tap-back (REQ-3.6.2) — there is no call-and-response anywhere.
       The Rhythm screen shows the pattern for the whole run and silences the audio deliberately, so
@@ -255,11 +258,15 @@ The M3 gaps that are unbuilt features rather than defects. Each states its proof
       *Proof: the pattern is heard and never shown, and the tapped answer is graded.*
 - [x] 3.22 `core/eartraining`: delete the inert band; give the dashboard an honest ear level
 - [x] 3.26 `core/eartraining`: give an attempt a real accuracy, then a band means something.
-- [ ] 3.23 `app/eartraining`: give dictation a tempo reference (REQ-3.6.1) — the answer is graded
-      against a fixed ±eighth tolerance with no count-in, no metronome and no displayed tempo.
-      Measured: replaying a level 3–5 melodic phrase 8% slow grades incorrect in 416 of 900 cases.
-      *Proof: a phrase played at a consistent but different tempo from the prompt still grades
-      correct.*
+- [x] 3.23 `app/eartraining`: give dictation a tempo reference (REQ-3.6.1). `gradeDictation` fits a
+      tempo scale over the answer's onset gaps, and the screen states the pulse and the one-bar
+      count-in. Proven on both sides of the seam, deliberately: the "same phrase, different tempo,
+      still correct" claim is asserted in `dictation.test.ts` over 900 generated cases (a browser
+      spec cannot know the phrase the generator produced), and `e2e/screens.spec.ts` drives the
+      real screen — the tempo readout, the count-in sentence, a recorded note and a graded submit.
+      The visual pass also fixed two defects on that screen: every retention stat printed its label
+      twice ("Cards 0 CARDS"), and the ≤1024px `.keyboard-diagram { width: 100% }` override drew
+      the 5-key dictation pad against ~700px of empty frame.
 - [ ] 3.24 `content`: the six REQ-3.5.1 topics with no authored lesson at any level — seventh
       chords, cadences, the common progressions (I–IV–V–I, ii–V–I, I–vi–IV–V), minor scale forms,
       secondary dominants, and modulation to closely related keys. They live at levels 4–5, which

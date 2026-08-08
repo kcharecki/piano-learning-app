@@ -378,6 +378,20 @@
   border-top: var(--border-w) solid var(--border-1);
   width: 100%;
 }
+/* Each stat's label is printed twice in the markup: once as the `<dt>` that
+   pairs it with its `<dd>` for assistive tech, and once as the `.stat` tile's
+   own caption under the number. Both were visible, so the row read
+   "Cards 0 CARDS  Due 0 DUE". The `<dt>` is the one to hide — the tile is the
+   design (number first, caption under it) — and it is hidden the way that
+   keeps it in the accessibility tree, never `display: none`. */
+.eartraining-stats > dt, .retention-stats > dt {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 .eartraining-stats .stat, .retention-stats .stat { display: grid; justify-items: center; gap: 2px; }
 .eartraining-stats .stat b, .retention-stats .stat b {
   font-size: var(--text-xl);

@@ -114,6 +114,39 @@ test('the Ear training destination plays a prompt and grades an answer (roadmap 
   expect(errors).toEqual([])
 })
 
+test('dictation states its tempo and count-in, and grades a played-back answer (roadmap 3.23, REQ-3.6.1)', async ({
+  page,
+}) => {
+  test.setTimeout(30_000)
+  const errors = collectErrors(page)
+  await page.goto('/')
+  await nav(page, 'Ear training').click()
+
+  await page.locator('#eartraining-drill-select').selectOption({ label: 'Melodic dictation' })
+  await page.getByRole('button', { name: /^Play/ }).click()
+
+  // The tempo reference REQ-3.6.1 asks for, on screen rather than implied: the
+  // learner is told the pulse they are answering against, and that a count-in
+  // sounds first. Before roadmap 3.23 the phrase arrived cold and the answer
+  // was graded against a fixed absolute tolerance.
+  await expect(page.getByTestId('dictation-tempo')).toHaveText(/Tempo: \d+ bpm/)
+  await expect(page.getByRole('region', { name: 'Answer' })).toContainText('count-in')
+
+  // Answering must reach the grader. The generated phrase is unknown to this
+  // spec, so what is asserted is that a submitted answer is GRADED — a verdict
+  // plus the note-by-note breakdown — not that it is right. Whether a correct
+  // answer played at a different tempo still grades correct is asserted where
+  // the tempo fit lives, over 900 generated cases, in dictation.test.ts.
+  const pad = page.getByRole('group', { name: /keyboard/i })
+  await pad.getByRole('button').first().click()
+  await expect(page.getByText(/1 notes? recorded/)).toBeVisible()
+
+  await page.getByRole('button', { name: 'Submit' }).click()
+  await expect(page.getByTestId('eartraining-feedback')).toBeVisible({ timeout: 10_000 })
+
+  expect(errors).toEqual([])
+})
+
 test('the Progress dashboard shows honest zeros before any practice (roadmap 4.7)', async ({
   page,
 }) => {

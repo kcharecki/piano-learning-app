@@ -25,7 +25,12 @@
   }
   input[type="range"]::-webkit-slider-thumb { width: 28px; height: 28px; margin-top: -11px; }
   input[type="range"]::-moz-range-thumb { width: 24px; height: 24px; }
-  .keyboard-diagram { --key-h: 190px; --white-key-w: 52px; width: 100%; }
+  /* No `width: 100%` here: the base rule is `width: max-content; max-width:
+     100%; overflow-x: auto`, which already makes a full 37-key keyboard fill
+     the width and scroll at 52px per key. Forcing 100% only changed the NARROW
+     case — the dictation answer pad spans a handful of keys, and it drew them
+     against ~700px of empty frame. */
+  .keyboard-diagram { --key-h: 190px; --white-key-w: 52px; }
   .practice-controls .tempo-group input[type="range"] { width: 180px; }
 
   /* Nav collapses to drawer */
