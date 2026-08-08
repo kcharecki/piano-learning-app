@@ -73,6 +73,18 @@ if (command === 'claim') {
     console.error('usage: worktrees.mjs claim <task-id | main-checkout>')
     process.exit(2)
   }
+  // The two claim kinds never cross-check each other automatically — a
+  // worktree session claims by `git branch -m task/<id>`, a raw git command
+  // this script cannot intercept, so it can only guard its OWN half: refuse a
+  // main-checkout claim for an id a worktree branch already holds. (2026-08-08:
+  // a main-checkout session claimed 5.5a via this ref while a worktree session
+  // independently renamed onto `task/5.5a`, and neither side's claim was
+  // visible to the other's check — both implemented the same roadmap task.)
+  if (id !== 'main-checkout' && git(['rev-parse', '--verify', '--quiet', `refs/heads/task/${id}`])) {
+    console.error(`ALREADY CLAIMED: ${id} — a worktree branch task/${id} already holds it. ` +
+      'Pick a different task.')
+    process.exit(1)
+  }
   try {
     // Create-only: old value "" means the ref must not exist. Atomic under races.
     git(['update-ref', `refs/claims/${id}`, 'HEAD', ''], { orThrow: true })

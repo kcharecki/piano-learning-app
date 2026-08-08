@@ -16,6 +16,46 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
+## 2026-08-08 (seventh session) — generated-score titles, Technique's on-screen fallback, two merges
+
+- user-reported defects since last session: 0
+- slices proven / started: 4/4 — 5.13 (generated exercises get a real score title instead of
+  "Untitled Score") and 5.5a (Technique gets the on-screen-keyboard/qwerty fallback Practice
+  already has, reusing `createPlayableInput` and `PracticeKeyboard` rather than duplicating
+  either), plus two worktree branches integrated (5.16 activity-kind display names, 5.6
+  input-capability banner).
+- gate catches before commit:
+  1. `scripts/worktree-isolation.test.mjs`'s eslint sub-test timed out at 5s under load (7 active
+     worktrees at once) — confirmed a false red by rerunning it alone (1.3s); not a real defect,
+     not touched.
+  2. The 5.6 merge conflicted on ROADMAP.md (adjacent 5.5a/5.6 lines, both sessions editing the
+     same stretch) — line-local, resolved by keeping both entries.
+  3. The real catch: `node scripts/worktrees.mjs status` showed `task/5.5a` actively claimed by a
+     *different* worktree session AFTER this session had already claimed and shipped 5.5a on
+     master via a `refs/claims/5.5a` main-checkout claim. Two sessions independently implemented
+     the same roadmap task in parallel — neither claim kind checks the other. Not caught by any
+     test; caught by reading `status` output closely, same class of gap the sixth session's retro
+     flagged for STALE detection.
+- docs budget (ROADMAP+CLAUDE+PROCESS lines): 765 + 101 + 130 = **996**
+- cost note: two Explore-agent dispatches (one research-only for 5.5a's wiring, kept off the main
+  thread's context) plus direct implementation; the interactive Browser pane wouldn't composite
+  again (same class the fifth session hit), so both slices' visual proof went straight to
+  `scripts/visual-pass.mjs` + driven tests per the standing rule — no time lost troubleshooting it.
+- hypothesis: **the two claim kinds (`refs/claims/<id>` and `task/<id>` branches) are visible to
+  each other in `status` output but nothing stops a session from claiming an id the other kind
+  already holds** — a worktree session claims by raw `git branch -m`, which this script cannot
+  intercept, so at least the main-checkout half is enforceable in code.
+- change: `worktrees.mjs claim <id>` now refuses when a `task/<id>` branch already exists (was
+  previously only atomic against other main-checkout claims). Smoke-tested: claiming an id with an
+  existing worktree branch is refused, a fresh id still succeeds. Does not close the reverse
+  direction (a worktree session's `git branch -m` cannot consult `refs/claims/*` without wrapping
+  that command too — left as a documented residual risk, not silently declared fixed). **Review-by
+  2026-08-15 (or 2 sessions):** keep if no further same-id collision occurs; if one recurs on the
+  worktree-claims-a-main-checkout-id direction, that direction needs the same treatment (likely a
+  wrapper script worktree sessions call instead of raw `git branch -m`).
+- experiment verdicts due: none this session (nearest review-by, 2026-08-15, is this session's own
+  new experiment; 2026-08-22 and 2026-08-29 are both still open).
+
 ## 2026-08-08 (sixth session) — integrated four worktree branches, shipped 5.2
 
 - user-reported defects since last session: 0
