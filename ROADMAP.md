@@ -23,6 +23,13 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
       adapter's tracking RATIO instead of raw clock slopes, holds on any machine. Full history: archive.
 - [x] T.3 main-checkout `eslint .` walked into other sessions' worktrees and could turn master's
       verify red — root-anchored globs + `worktree-isolation.test.mjs` (623ac1b). Full history: archive.
+- [ ] T.4 `npm run verify:full` is red on `knip`: "Unresolved imports (1) /src/adapters/audio/webaudio.ts
+      e2e/audio-clock-drift.spec.ts:202". The spec's `page.evaluate` dynamic-imports that adapter by an
+      absolute browser URL path (`import('/src/adapters/audio/webaudio.ts')`), which is correct for the
+      page context but unresolvable by knip's Node-side static resolver. Predates this session (traced
+      to 5c7a461); `npm run verify` (the per-slice gate) does not run knip, so this shipped invisibly.
+      *Proof: `npm run verify:full` green; fix is a knip config/ignore for that plugin's dynamic-import
+      pattern, or an equivalent that does not change the spec's actual browser-side behaviour.*
 
 ## Phase 0 — Foundation
 
@@ -307,12 +314,15 @@ assessment, read-ahead, loop practice, tempo ramp — exists to be used on a pie
       entries (`gradedScoreFiles.ts`, untrusted parse) — MuseScore/IMSLP download was out of scope,
       so 11 are research-verified note-for-note and the rest a flagged stylistic excerpt (7d0721d).
       Full history: git log.
-- [ ] 5.2 `app/repertoire`: wire the library to Practice — an "Open in Practice" control that loads
-      that piece's score into `scoreStore` and navigates, the same pattern 4.9b established for a
-      lesson's `demoScoreId`. Today the Add button produces a row and a dead end.
-      *Proof: e2e — add a named level-3 piece, open it, and assert the Practice screen's loaded score
-      is that piece (with a different score loaded first, so "nothing changed" cannot pass), then play
-      three of its own notes through the fake MIDI keyboard and see them graded correct.*
+- [x] 5.2 `app/repertoire`: an "Open in Practice" control per piece row (shown only when
+      `canOpenInPractice` resolves the piece's `scoreId` to a bundled file — a manually
+      "Add loaded score"-d piece gets no dead control) loads the score into `scoreStore` and
+      navigates, the same `openDemoScore`/`onOpenDemo` split 4.9b/5.9b established.
+      *Proof: `e2e/repertoire-open-practice.spec.ts` — add Greensleeves (level 3) from the catalogue,
+      open it from a different score already loaded (the default Twinkle), assert the Practice
+      heading and engraving are Greensleeves', then play its first beat and see it graded correct.
+      Visual pass both widths/themes, console clean.* Extended `scripts/visual-pass.mjs` with
+      `--click <label>` to reach a post-interaction state (e.g. an added piece's row) for a screenshot.
 - [ ] 5.3 `content`: widen the catalogue toward the 40 Piece Challenge shape — ~40 pieces with the
       mass **below** the learner's current level, not at it. Elissa Milne's 40 Piece Challenge is the
       highest-leverage sight-reading intervention in the literature and the app can currently support

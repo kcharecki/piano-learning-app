@@ -196,4 +196,96 @@ describe('useRepertoire', () => {
     expect(useRepertoireStore.getState().pieces).toHaveLength(0)
     expect(result.current.addError).toBeUndefined()
   })
+
+  it('canOpenInPractice is true for a piece added from the graded catalogue', () => {
+    const catalogueEntry = GRADED_PIECES[0]
+    if (catalogueEntry === undefined) throw new Error('expected a seeded catalogue entry')
+
+    const { result } = renderHook(() => useRepertoire())
+    act(() => result.current.addFromCatalogue(catalogueEntry.id))
+
+    const piece = result.current.pieces.find((p) => p.id === catalogueEntry.id)
+    if (piece === undefined) throw new Error('expected the added piece')
+    expect(result.current.canOpenInPractice(piece)).toBe(true)
+  })
+
+  it('canOpenInPractice is false for a piece with no scoreId, and for one with a scoreId that resolves to no bundled file', () => {
+    useRepertoireStore.setState({
+      pieces: [
+        {
+          id: 'no-score-id',
+          title: 'No score id',
+          composer: '',
+          level: 1,
+          status: 'learning',
+          sessions: [],
+          bestAccuracy: 0,
+          notes: '',
+        },
+        {
+          id: 'unresolvable',
+          title: 'Unresolvable',
+          composer: '',
+          level: 1,
+          status: 'learning',
+          sessions: [],
+          bestAccuracy: 0,
+          notes: '',
+          scoreId: 'not-a-bundled-score-id',
+        },
+      ],
+    })
+
+    const { result } = renderHook(() => useRepertoire())
+    const [noScoreId, unresolvable] = result.current.pieces
+    if (noScoreId === undefined || unresolvable === undefined) {
+      throw new Error('expected both seeded pieces')
+    }
+    expect(result.current.canOpenInPractice(noScoreId)).toBe(false)
+    expect(result.current.canOpenInPractice(unresolvable)).toBe(false)
+  })
+
+  it('openInPractice loads the piece\'s bundled score into scoreStore under the piece\'s title', () => {
+    const catalogueEntry = GRADED_PIECES[0]
+    if (catalogueEntry === undefined) throw new Error('expected a seeded catalogue entry')
+
+    const { result } = renderHook(() => useRepertoire())
+    act(() => result.current.addFromCatalogue(catalogueEntry.id))
+    act(() => result.current.openInPractice(catalogueEntry.id))
+
+    const loaded = useScoreStore.getState().loaded
+    if (loaded === undefined) throw new Error('expected openInPractice to load a score')
+    expect(loaded.sourceName).toBe(catalogueEntry.title)
+    expect(loaded.score.id).toBe(catalogueEntry.scoreId)
+    expect(loaded.musicXml).toBeDefined()
+  })
+
+  it('openInPractice is a no-op when the piece cannot be opened in practice', () => {
+    useRepertoireStore.setState({
+      pieces: [
+        {
+          id: 'no-score-id',
+          title: 'No score id',
+          composer: '',
+          level: 1,
+          status: 'learning',
+          sessions: [],
+          bestAccuracy: 0,
+          notes: '',
+        },
+      ],
+    })
+
+    const { result } = renderHook(() => useRepertoire())
+    act(() => result.current.openInPractice('no-score-id'))
+
+    expect(useScoreStore.getState().loaded).toBeUndefined()
+  })
+
+  it('openInPractice is a no-op for an unknown piece id', () => {
+    const { result } = renderHook(() => useRepertoire())
+    act(() => result.current.openInPractice('not-a-piece-id'))
+
+    expect(useScoreStore.getState().loaded).toBeUndefined()
+  })
 })

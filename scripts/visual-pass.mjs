@@ -18,6 +18,10 @@
  *                         override first (the route a learner takes), so
  *                         level-gated UI is actually on screen
  *   --select <sel>=<label>  choose an option in a <select> on the destination
+ *   --click <label>       click a button by accessible name on the destination,
+ *                         in order given — for reaching a post-interaction state
+ *                         (e.g. "Add" a catalogue piece, then screenshot the row
+ *                         that only appears once something is in the library)
  *   --out <dir>           where the PNGs go (default: ./visual-pass)
  *   --url <url>           dev server (default: http://localhost:5173)
  *
@@ -33,7 +37,7 @@ const HEIGHT = 900
 
 function parseArgs(argv) {
   const [destination, ...rest] = argv
-  const opts = { destination, out: './visual-pass', url: 'http://localhost:5173', levels: [], selects: [] }
+  const opts = { destination, out: './visual-pass', url: 'http://localhost:5173', levels: [], selects: [], clicks: [] }
   for (let i = 0; i < rest.length; i += 2) {
     const value = rest[i + 1]
     if (value === undefined) break
@@ -41,6 +45,7 @@ function parseArgs(argv) {
     else if (rest[i] === '--url') opts.url = value
     else if (rest[i] === '--level') opts.levels.push(value)
     else if (rest[i] === '--select') opts.selects.push(value)
+    else if (rest[i] === '--click') opts.clicks.push(value)
   }
   return opts
 }
@@ -97,6 +102,9 @@ for (const theme of THEMES) {
     for (const select of opts.selects) {
       const [selector, label] = splitPair(select)
       await page.locator(selector).selectOption({ label })
+    }
+    for (const label of opts.clicks) {
+      await page.getByRole('button', { name: label, exact: true }).first().click()
     }
     // Long enough for an OSMD engrave to settle; the gate is about what the
     // learner ends up looking at, not about first paint.

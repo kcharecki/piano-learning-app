@@ -149,7 +149,7 @@ function openedTheoryDrillOf(exercise: Exercise): OpenedTheoryDrill | undefined 
 function renderScreen(
   screen: ScreenId,
   open: (exercise: Exercise) => void,
-  openDemo: () => void,
+  goToPractice: () => void,
   technique: OpenedTechnique | undefined,
   deck: OpenedDeck | undefined,
   theoryDrill: OpenedTheoryDrill | undefined,
@@ -158,7 +158,7 @@ function renderScreen(
     case 'today':
       return <SessionPlanScreen onOpen={open} />
     case 'lessons':
-      return <LessonsScreen onOpen={open} onOpenDemo={openDemo} />
+      return <LessonsScreen onOpen={open} onOpenDemo={goToPractice} />
     case 'practice':
       return <ScoreScreen />
     case 'sight-reading':
@@ -213,7 +213,7 @@ function renderScreen(
         />
       )
     case 'repertoire':
-      return <RepertoireScreen />
+      return <RepertoireScreen onOpenInPractice={goToPractice} />
     case 'progress':
       return <DashboardScreen />
   }

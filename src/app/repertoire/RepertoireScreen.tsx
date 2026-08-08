@@ -22,7 +22,14 @@ function daysSinceText(days: number | null): string {
   return whole === 1 ? '1 day since last practice' : `${whole} days since last practice`
 }
 
-export function RepertoireScreen() {
+export type RepertoireScreenProps = {
+  /** Called after `openInPractice` loads a piece's bundled score into
+   *  `scoreStore`, so the shell can navigate to Practice — the same split as
+   *  `LessonsScreen`'s `onOpenDemo` prop. */
+  readonly onOpenInPractice: () => void
+}
+
+export function RepertoireScreen({ onOpenInPractice }: RepertoireScreenProps) {
   const repertoire = useRepertoire()
   const [level, setLevel] = useState(MIN_LEVEL)
 
@@ -76,8 +83,13 @@ export function RepertoireScreen() {
               key={piece.id}
               piece={piece}
               daysSince={repertoire.daysSince(piece)}
+              canOpenInPractice={repertoire.canOpenInPractice(piece)}
               onStatusChange={(status) => repertoire.setStatus(piece.id, status)}
               onNotesChange={(notes) => repertoire.setNotes(piece.id, notes)}
+              onOpenInPractice={() => {
+                repertoire.openInPractice(piece.id)
+                onOpenInPractice()
+              }}
             />
           ))}
         </ul>
@@ -133,11 +145,20 @@ export function RepertoireScreen() {
 type PieceRowProps = {
   readonly piece: RepertoirePiece
   readonly daysSince: number | null
+  readonly canOpenInPractice: boolean
   readonly onStatusChange: (status: RepertoireStatus) => void
   readonly onNotesChange: (notes: string) => void
+  readonly onOpenInPractice: () => void
 }
 
-function PieceRow({ piece, daysSince, onStatusChange, onNotesChange }: PieceRowProps) {
+function PieceRow({
+  piece,
+  daysSince,
+  canOpenInPractice,
+  onStatusChange,
+  onNotesChange,
+  onOpenInPractice,
+}: PieceRowProps) {
   const statusId = `repertoire-status-${piece.id}`
   const notesId = `repertoire-notes-${piece.id}`
 
@@ -165,6 +186,17 @@ function PieceRow({ piece, daysSince, onStatusChange, onNotesChange }: PieceRowP
       <textarea id={notesId} value={piece.notes} onChange={(e) => onNotesChange(e.target.value)} />
 
       <span className="repertoire-piece-practice">{daysSinceText(daysSince)}</span>
+
+      {/* Only pieces added from the graded catalogue resolve to a bundled
+          score file — see `canOpenInPractice`'s doc comment. A piece added
+          via "Add loaded score" gets no control here rather than a
+          disabled/no-op one, per this module's existing convention (see the
+          catalogue list's Add/Already-in-library split above). */}
+      {canOpenInPractice && (
+        <button type="button" onClick={onOpenInPractice}>
+          Open in Practice
+        </button>
+      )}
     </li>
   )
 }

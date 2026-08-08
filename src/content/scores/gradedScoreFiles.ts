@@ -60,3 +60,8 @@ export function gradedScoreById(scoreId: string): Result<Score, string> {
   if (raw === undefined) return err(`no bundled graded score for scoreId "${scoreId}"`)
   return parseMusicXml(raw, { id: scoreId })
 }
+
+/** The raw MusicXML text bundled for `scoreId`, or undefined if there is no such file. */
+export function gradedScoreXmlById(scoreId: string): string | undefined {
+  return GRADED_SCORE_FILES.get(scoreId)
+}

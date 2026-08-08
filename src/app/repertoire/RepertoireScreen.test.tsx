@@ -15,7 +15,7 @@ import { ticks } from '@core/shared/units.ts'
 import { GRADED_PIECES } from '@content/repertoire/gradedPieces.ts'
 import { act, cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useRepertoireStore } from '@app/state/repertoireStore.ts'
 import { useScoreStore, type LoadedScore } from '@app/state/scoreStore.ts'
 import { RepertoireScreen } from './RepertoireScreen.tsx'
@@ -59,16 +59,20 @@ function maintainedPiece(id: string, title: string, daysAgo: number): Repertoire
   }
 }
 
+function renderScreen(onOpenInPractice: () => void = () => {}) {
+  return render(<RepertoireScreen onOpenInPractice={onOpenInPractice} />)
+}
+
 describe('RepertoireScreen', () => {
   it('renders the Repertoire and Review due regions', () => {
-    render(<RepertoireScreen />)
+    renderScreen()
 
     expect(screen.getByRole('region', { name: 'Repertoire' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Review due' })).toBeInTheDocument()
   })
 
   it('disables Add loaded score until a score is loaded and not yet in the library', async () => {
-    render(<RepertoireScreen />)
+    renderScreen()
     expect(screen.getByRole('button', { name: 'Add loaded score' })).toBeDisabled()
 
     act(() => {
@@ -83,7 +87,7 @@ describe('RepertoireScreen', () => {
 
   it('changing the Status select calls through to the store and updates the rendered status', async () => {
     useRepertoireStore.setState({ pieces: [maintainedPiece('piece-1', 'Moonlight Sonata', 0)] })
-    render(<RepertoireScreen />)
+    renderScreen()
     const user = userEvent.setup()
 
     const statusSelect = screen.getByRole('combobox', { name: 'Status' })
@@ -102,7 +106,7 @@ describe('RepertoireScreen', () => {
         maintainedPiece('recent', 'Recent Piece', 3),
       ],
     })
-    render(<RepertoireScreen />)
+    renderScreen()
 
     const dueRegion = screen.getByRole('region', { name: 'Review due' })
     expect(within(dueRegion).getByText(/Overdue Piece/)).toBeInTheDocument()
@@ -110,7 +114,7 @@ describe('RepertoireScreen', () => {
   })
 
   it('renders the Graded library region listing the shipped catalogue', () => {
-    render(<RepertoireScreen />)
+    renderScreen()
 
     const catalogueRegion = screen.getByRole('region', { name: 'Graded library' })
     const firstEntry = GRADED_PIECES[0]
@@ -124,7 +128,7 @@ describe('RepertoireScreen', () => {
   })
 
   it('an Add click on a catalogue piece reaches the store and the row flips to already-added', async () => {
-    render(<RepertoireScreen />)
+    renderScreen()
     const user = userEvent.setup()
     const catalogueRegion = screen.getByRole('region', { name: 'Graded library' })
     const firstEntry = GRADED_PIECES[0]
@@ -156,11 +160,90 @@ describe('RepertoireScreen', () => {
         },
       ],
     })
-    render(<RepertoireScreen />)
+    renderScreen()
 
     const catalogueRegion = screen.getByRole('region', { name: 'Graded library' })
     const row = within(catalogueRegion).getByText(firstEntry.title).closest('li')
     if (row === null) throw new Error('expected the catalogue row to render as a list item')
     expect(within(row as HTMLElement).getByText('Already in your library')).toBeInTheDocument()
+  })
+
+  it('shows Open in Practice for a piece with a resolvable scoreId but not for one without', () => {
+    const firstEntry = GRADED_PIECES[0]
+    if (firstEntry === undefined) throw new Error('expected a seeded catalogue entry')
+    if (firstEntry.scoreId === undefined) throw new Error('expected the seeded entry to carry a scoreId')
+    useRepertoireStore.setState({
+      pieces: [
+        {
+          id: firstEntry.id,
+          title: firstEntry.title,
+          composer: firstEntry.composer,
+          level: firstEntry.level,
+          status: 'learning',
+          sessions: [],
+          bestAccuracy: 0,
+          notes: '',
+          scoreId: firstEntry.scoreId,
+        },
+        {
+          id: 'loaded-score-piece',
+          title: 'No bundled score',
+          composer: 'Composer',
+          level: 1,
+          status: 'learning',
+          sessions: [],
+          bestAccuracy: 0,
+          notes: '',
+          // Mirrors addLoadedScore's convention of using the loaded score's own
+          // id as scoreId — never a bundled catalogue file.
+          scoreId: 'loaded-score-piece',
+        },
+      ],
+    })
+    renderScreen()
+
+    const libraryRegion = screen.getByRole('list', { name: 'Repertoire pieces' })
+    const openableRow = within(libraryRegion).getByText(firstEntry.title).closest('li')
+    const unopenableRow = within(libraryRegion).getByText('No bundled score').closest('li')
+    if (openableRow === null || unopenableRow === null) {
+      throw new Error('expected both piece rows to render as list items')
+    }
+
+    expect(
+      within(openableRow as HTMLElement).getByRole('button', { name: 'Open in Practice' }),
+    ).toBeInTheDocument()
+    expect(
+      within(unopenableRow as HTMLElement).queryByRole('button', { name: 'Open in Practice' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('clicking Open in Practice loads the score then calls onOpenInPractice', async () => {
+    const firstEntry = GRADED_PIECES[0]
+    if (firstEntry === undefined) throw new Error('expected a seeded catalogue entry')
+    if (firstEntry.scoreId === undefined) throw new Error('expected the seeded entry to carry a scoreId')
+    useRepertoireStore.setState({
+      pieces: [
+        {
+          id: firstEntry.id,
+          title: firstEntry.title,
+          composer: firstEntry.composer,
+          level: firstEntry.level,
+          status: 'learning',
+          sessions: [],
+          bestAccuracy: 0,
+          notes: '',
+          scoreId: firstEntry.scoreId,
+        },
+      ],
+    })
+    const onOpenInPractice = vi.fn()
+    renderScreen(onOpenInPractice)
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('button', { name: 'Open in Practice' }))
+
+    expect(useScoreStore.getState().loaded?.sourceName).toBe(firstEntry.title)
+    expect(useScoreStore.getState().loaded?.score.id).toBe(firstEntry.scoreId)
+    expect(onOpenInPractice).toHaveBeenCalledTimes(1)
   })
 })

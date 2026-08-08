@@ -18,6 +18,7 @@ import {
   type RepertoireStatus,
 } from '@core/repertoire/repertoire.ts'
 import { GRADED_PIECES, type GradedPiece } from '@content/repertoire/gradedPieces.ts'
+import { gradedScoreById, gradedScoreXmlById } from '@content/scores/gradedScoreFiles.ts'
 import { useRepertoireStore } from '@app/state/repertoireStore.ts'
 import { useScoreStore } from '@app/state/scoreStore.ts'
 
@@ -55,6 +56,20 @@ export type UseRepertoireResult = {
   setNotes(id: string, notes: string): void
   /** Days since last practice, or null — core `daysSincePractice`. */
   daysSince(piece: RepertoirePiece): number | null
+  /**
+   * True iff `piece.scoreId` names a bundled graded score file — the only
+   * pieces `openInPractice` can actually load. A piece added via "Add loaded
+   * score" carries its own loaded score's id as `scoreId`, which is never a
+   * bundled catalogue file, so this is false for it.
+   */
+  canOpenInPractice(piece: RepertoirePiece): boolean
+  /**
+   * Loads `pieceId`'s bundled graded score into `scoreStore`, the same
+   * wiring `openDemoScore` uses for a lesson's demo score. A no-op — never
+   * throws — when the piece is unknown or `canOpenInPractice` would be false
+   * for it.
+   */
+  openInPractice(pieceId: string): void
 }
 
 const defaultDate: DateSource = { epochMillis: () => Date.now() }
@@ -68,6 +83,7 @@ export function useRepertoire(options: UseRepertoireOptions = {}): UseRepertoire
   const setStatusInStore = useRepertoireStore((s) => s.setStatus)
   const setNotesInStore = useRepertoireStore((s) => s.setNotes)
   const loaded = useScoreStore((s) => s.loaded)
+  const loadScore = useScoreStore((s) => s.loadScore)
 
   const [addError, setAddError] = useState<string | undefined>(undefined)
 
@@ -129,6 +145,25 @@ export function useRepertoire(options: UseRepertoireOptions = {}): UseRepertoire
     setAddError(result.ok ? undefined : result.error)
   }
 
+  function canOpenInPractice(piece: RepertoirePiece): boolean {
+    return piece.scoreId !== undefined && gradedScoreXmlById(piece.scoreId) !== undefined
+  }
+
+  function openInPractice(pieceId: string): void {
+    const piece = pieces.find((p) => p.id === pieceId)
+    if (piece === undefined || !canOpenInPractice(piece)) return
+    // canOpenInPractice narrows scoreId to defined but TS can't see that
+    // across the function boundary, so re-check here defensively.
+    if (piece.scoreId === undefined) return
+    const result = gradedScoreById(piece.scoreId)
+    if (!result.ok) return
+    loadScore({
+      score: result.value,
+      sourceName: piece.title,
+      musicXml: gradedScoreXmlById(piece.scoreId),
+    })
+  }
+
   return {
     pieces,
     due,
@@ -142,5 +177,7 @@ export function useRepertoire(options: UseRepertoireOptions = {}): UseRepertoire
     setStatus: setStatusInStore,
     setNotes: setNotesInStore,
     daysSince,
+    canOpenInPractice,
+    openInPractice,
   }
 }
