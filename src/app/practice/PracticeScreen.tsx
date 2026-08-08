@@ -42,6 +42,8 @@ import { HandMuteControl } from './HandMuteControl.tsx'
 import { LoopRangeControl } from './LoopRangeControl.tsx'
 import { MetronomeControl } from './MetronomeControl.tsx'
 import { MidiDeviceStatus } from './MidiDeviceStatus.tsx'
+import { createPlayableInput, type PlayableMidiInput } from './playableInput.ts'
+import { PracticeKeyboard } from './PracticeKeyboard.tsx'
 import { RecordPanel } from './RecordPanel.tsx'
 import { ReviewOverlay } from './ReviewOverlay.tsx'
 import { TempoControl } from './TempoControl.tsx'
@@ -121,6 +123,44 @@ export function PracticeScreen(props: PracticeScreenProps) {
         : {},
   )
 
+  // The input everything downstream actually reads (roadmap 5.4, REQ-3.3.7).
+  // NOT `midi.input`: that is `undefined` wherever Web MIDI is absent — Safari,
+  // Firefox, every browser on iPadOS — and `useRecorder` builds no fan-out from
+  // an absent source, which left matching, feedback colouring, wait mode,
+  // assessment, timing feedback, recording and the tempo ramp all inert on the
+  // one screen where playing is the point. `createPlayableInput` is always
+  // present, forwards the device when there is one, and lets the on-screen
+  // keyboard below emit through the same seam. See `playableInput.ts`.
+  //
+  // Held in state and rebuilt only when the device changes (the pattern
+  // `useRecorder` uses for its own fan-out, and for the same reason): every
+  // consumer's subscription must stay pinned to one object across plain
+  // re-renders, which a `useMemo` React may discard cannot promise.
+  const [playableInput, setPlayableInput] = useState<PlayableMidiInput | undefined>(undefined)
+  useEffect(() => {
+    const next = createPlayableInput(midi.input, clock)
+    setPlayableInput(next)
+    return () => next.dispose()
+  }, [midi.input, clock])
+
+  // Shown by default exactly when it is the learner's only way to play, and
+  // hidden by default when a keyboard is plugged in — but `undefined` until
+  // the learner touches the toggle, so that an explicit choice is never undone
+  // by a device connecting or dropping mid-session.
+  const [showKeyboardChoice, setShowKeyboardChoice] = useState<boolean | undefined>(undefined)
+  // "Is there a keyboard to play?" is NOT `midi.input !== undefined`: on Chrome
+  // with Web MIDI granted and nothing plugged in, the input exists and the
+  // device list is empty — the commonest no-hardware case there is, and the one
+  // that would have been left with no way to play at all. This is the same
+  // predicate `MidiDeviceStatus` prints from, so the status line and the
+  // keyboard can never disagree about whether a keyboard is attached.
+  const deviceAttached =
+    midi.input !== undefined && midi.devices.some((device) => device.id === midi.selectedDeviceId)
+  const showKeyboard = showKeyboardChoice ?? !deviceAttached
+  // Latched keys stay down until pressed again, which is the only way a
+  // single-pointer device can hold a chord — see `OnScreenKeyboard`.
+  const [latchKeys, setLatchKeys] = useState(false)
+
   const scoreViewerRef = useRef<ScoreViewerHandle>(null)
 
   // `useRecorder` needs the engine's transport primitives, and the engine needs
@@ -136,8 +176,11 @@ export function PracticeScreen(props: PracticeScreenProps) {
   }
 
   const recorder = useRecorder({
-    // The raw live input — the recorder wraps it, it does not consume the fan-out.
-    source: midi.input,
+    // The raw live input — the recorder wraps it, it does not consume the
+    // fan-out. `playableInput` (device + on-screen keys) rather than
+    // `midi.input`, so a clicked note is recorded and replayed exactly as a
+    // played one is (roadmap 5.4).
+    source: playableInput,
     clock,
     date,
     scoreId: loaded?.score.id,
@@ -476,6 +519,28 @@ export function PracticeScreen(props: PracticeScreenProps) {
           {...(props.measureLabels === undefined ? {} : { measureLabels: props.measureLabels })}
         />
       )}
+      {/* Directly under the engraving — where the hands go — rather than as a
+          fourteenth entry in the control column below (roadmap 5.4; 5.17/5.18
+          hold the record that this screen is already too dense). Notes pressed
+          here enter `playableInput`, the same seam the MIDI device feeds, so
+          they are graded by the real matcher and advance wait mode. */}
+      <PracticeKeyboard
+        score={loaded.score}
+        onPress={(note) => playableInput?.press(note)}
+        onRelease={(note) => playableInput?.release(note)}
+        deviceConnected={deviceAttached}
+        visible={showKeyboard}
+        onVisibleChange={setShowKeyboardChoice}
+        latch={latchKeys}
+        // `OnScreenKeyboard` releases everything still latched when this
+        // changes, so port state and what is drawn as down cannot diverge.
+        onLatchChange={setLatchKeys}
+        // Deliberately NOT disabled during an assessment run, unlike every
+        // control around it: an assessment is a pass the learner PLAYS, and
+        // this is how they play it when there is no MIDI keyboard. Locking it
+        // with the rest would make assessment unreachable on exactly the
+        // browsers roadmap 5.4 exists for.
+      />
       {/* Per-measure notes attach to wherever the playhead is; fingering and
           highlight edits need a selected note — clicking a notehead in the
           viewer above provides one (roadmap 4.8a). */}
@@ -534,7 +599,11 @@ export function PracticeScreen(props: PracticeScreenProps) {
       <RecordPanel
         phase={recorder.phase}
         recording={recorder.recording}
-        canRecord={midi.input !== undefined}
+        // Roadmap 5.4: a recording no longer needs hardware — on-screen notes
+        // go through the same input. Still false when there is neither a
+        // device nor a visible keyboard, because then nothing can be played
+        // and an enabled Record button would capture an empty take.
+        canRecord={deviceAttached || showKeyboard}
         onStartRecording={recorder.startRecording}
         onStopRecording={recorder.stopRecording}
         onStartReplay={recorder.startReplay}

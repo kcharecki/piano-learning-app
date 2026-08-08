@@ -11,6 +11,7 @@ import {
   notesAtTick,
   notesInMeasure,
   notesInRange,
+  pitchRange,
   scoreDurationTicks,
   soundingAtTick,
   validateScore,
@@ -1179,5 +1180,77 @@ describe('query cost', () => {
     expect(ids(notesAtTick(bigScore, last.startTick))).toEqual([last.id])
     expect(measureAtTick(bigScore, last.startTick)?.index).toBe(2499)
     expect(soundingAtTick(bigScore, T(last.startTick + 100))).toHaveLength(1)
+  })
+})
+
+describe('pitchRange', () => {
+  it('reports the lowest and highest sounding pitch', () => {
+    const score = buildTestScore(
+      [
+        { midi: 64, startTick: 0 },
+        { midi: 55, startTick: 480 },
+        { midi: 72, startTick: 960 },
+        { midi: 60, startTick: 1440 },
+      ],
+      { measureCount: 1 },
+    )
+    expect(pitchRange(score)).toEqual({ low: 55, high: 72 })
+  })
+
+  it('is undefined for a score with no notes', () => {
+    expect(pitchRange(buildTestScore([], { measureCount: 2 }))).toBeUndefined()
+  })
+
+  it('collapses to a single pitch for a one-note score', () => {
+    expect(pitchRange(SINGLE_NOTE)).toEqual({
+      low: at(SINGLE_NOTE.notes, 0).midi,
+      high: at(SINGLE_NOTE.notes, 0).midi,
+    })
+  })
+
+  it('includes tied continuations — a tie sounds a real pitch', () => {
+    // TIED_NOTES' extremes must be found whether or not a note is a tie
+    // continuation; filtering them (as the matcher does for onsets) would be
+    // wrong here, and this fixture is the one that can tell the difference.
+    const tiedMidis = TIED_NOTES.notes.map((n) => n.midi)
+    expect(pitchRange(TIED_NOTES)).toEqual({
+      low: Math.min(...tiedMidis),
+      high: Math.max(...tiedMidis),
+    })
+    expect(TIED_NOTES.notes.some((n) => n.tiedFrom)).toBe(true)
+  })
+
+  it('brackets every note of every fixture', () => {
+    for (const score of ALL_FIXTURES) {
+      const range = pitchRange(score)
+      if (score.notes.length === 0) {
+        expect(range).toBeUndefined()
+        continue
+      }
+      if (range === undefined) throw new Error(`${score.id}: expected a range`)
+      for (const note of score.notes) {
+        expect(note.midi).toBeGreaterThanOrEqual(range.low)
+        expect(note.midi).toBeLessThanOrEqual(range.high)
+      }
+    }
+  })
+
+  it('property: low <= high, and both are pitches the score actually contains', () => {
+    fc.assert(
+      fc.property(
+        fc.array(fc.integer({ min: 21, max: 108 }), { minLength: 1, maxLength: 40 }),
+        (pitches) => {
+          const score = buildTestScore(
+            pitches.map((midi, i) => ({ midi, startTick: i * 120 })),
+            { measureCount: Math.ceil((pitches.length * 120) / BAR) + 1 },
+          )
+          const range = pitchRange(score)
+          if (range === undefined) throw new Error('expected a range')
+          expect(range.low).toBeLessThanOrEqual(range.high)
+          expect(pitches).toContain(range.low)
+          expect(pitches).toContain(range.high)
+        },
+      ),
+    )
   })
 })
