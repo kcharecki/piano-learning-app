@@ -46,6 +46,47 @@ describe('TechniqueScreen', () => {
 
     expect(screen.getByText(/no MIDI keyboard connected/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Start' })).toBeEnabled()
+    // roadmap 5.5a: with no device, the on-screen fallback is on by default —
+    // before this fix Technique had no `OnScreenKeyboard` at all.
+    expect(screen.getByRole('group', { name: 'Play the score' })).toBeInTheDocument()
+  })
+
+  it('running a drill entirely through the on-screen keyboard adds a point to its tempo history (roadmap 5.5a)', async () => {
+    const user = userEvent.setup()
+    const clock = new FakeClock()
+    const audioOutput = new RecordingAudioOutput(clock)
+    const neverResolves = (): Promise<never> => new Promise(() => {})
+
+    render(
+      <TechniqueScreen
+        clock={clock}
+        date={clock}
+        connectMidi={neverResolves}
+        audioOutput={audioOutput}
+        frameDriver={manualDriver()}
+      />,
+    )
+
+    const drill = techniqueLibrary(1)[0]
+    if (drill === undefined) throw new Error('expected at least one level-1 drill')
+
+    clock.advance(5_000)
+    await user.click(screen.getByRole('button', { name: 'Start' }))
+
+    const score = techniqueScore(drill, drill.targetBpm)
+    const msPerBeat = 60000 / drill.targetBpm
+    clock.advance(4 * msPerBeat)
+    for (const note of score.notes) {
+      const key = screen.getByRole('button', { name: `Key ${note.midi}` })
+      await user.pointer({ target: key, keys: '[MouseLeft>]' })
+      await user.pointer({ target: key, keys: '[/MouseLeft]' })
+      clock.advance(msPerBeat)
+    }
+
+    await user.click(screen.getByRole('button', { name: 'Stop' }))
+
+    expect(screen.getByTestId('technique-result')).toHaveTextContent('Clean')
+    expect(screen.getByTestId('technique-history').children).toHaveLength(1)
   })
 
   it('surfaces every engraved note\'s recommended fingering to the learner (REQ-3.7.1)', () => {

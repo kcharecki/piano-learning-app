@@ -2,7 +2,9 @@
  * Technique drill wiring (roadmap 4.4a, REQ-3.7.1/3.7.2/3.7.3) — picks a drill
  * from `techniqueLibrary(level)`, engraves it (fingerings included, see
  * `techniqueScore`), runs it against `useMetronome`'s click track, captures
- * the learner's onsets from the MIDI input, and on `stop()` scores the run
+ * the learner's onsets from a `PlayableMidiInput` (roadmap 5.5a — the device
+ * when one is connected, plus whatever the screen's on-screen/qwerty fallback
+ * presses through `press`/`release`), and on `stop()` scores the run
  * with `evennessOf`/`isClean` and appends a `TechniqueAttempt` to
  * `techniqueStore` — the store the dashboard's `tempoHistory`/`bestCleanBpm`
  * readers already know how to read (`@core/technique/evenness.ts`).
@@ -42,6 +44,7 @@
  * hook actually guarantees), not on rendered engraving output.
  */
 import { createBrowserClock } from '@app/practice/clock.ts'
+import { createPlayableInput, type PlayableMidiInput } from '@app/practice/playableInput.ts'
 import {
   useMidiConnection,
   type ConnectMidi,
@@ -53,7 +56,7 @@ import { useTechniqueStore } from '@app/state/techniqueStore.ts'
 import { measureDurationTicks, scoreDurationTicks, type Score, type TimeSignature } from '@core/notation/score.ts'
 import type { AudioOutput, Clock, DateSource, MidiInput } from '@core/ports/index.ts'
 import { MATCHER_DEFAULTS, NoteMatcher } from '@core/practice/matcher.ts'
-import { bpm as asBpm, millis as asMillis, type Bpm } from '@core/shared/units.ts'
+import { bpm as asBpm, millis as asMillis, type Bpm, type Midi } from '@core/shared/units.ts'
 import { MAX_BPM, MIN_BPM } from '@core/timing/metronome.ts'
 import { makeTempoMap, tickToMs, type TempoMap } from '@core/timing/tempo.ts'
 import {
@@ -101,6 +104,12 @@ export type TechniqueDrillApi = {
   readonly start: () => void
   /** No-op if no run is in progress. */
   readonly stop: () => void
+  /** Sound a note now, as if a key went down (roadmap 5.5a) — the on-screen
+   *  keyboard and computer-keyboard input both press through this, same seam
+   *  a real MIDI key feeds, so a clicked/typed note is scored exactly like a
+   *  played one. */
+  readonly press: (note: Midi) => void
+  readonly release: (note: Midi) => void
 }
 
 type Run = {
@@ -187,11 +196,25 @@ export function useTechniqueDrill(options: UseTechniqueDrillOptions): TechniqueD
   const [lastAttempt, setLastAttempt] = useState<TechniqueAttempt | undefined>(undefined)
   const runRef = useRef<Run | undefined>(undefined)
 
-  // Feed the run's matcher and onset list from real MIDI events while a run
+  // The run's actual input (roadmap 5.5a, mirrors `playableInput.ts`'s
+  // reasoning on Practice): NOT `midi.input` directly, which is `undefined`
+  // wherever Web MIDI is absent and left this screen's on-screen/qwerty
+  // fallback with no seam to press through. `createPlayableInput` always
+  // exists, forwards the device when there is one, and also emits from
+  // `press`/`release` below — the matcher cannot tell a clicked note from a
+  // played one, which is the point.
+  const [playableInput, setPlayableInput] = useState<PlayableMidiInput | undefined>(undefined)
+  useEffect(() => {
+    const next = createPlayableInput(midi.input, clock)
+    setPlayableInput(next)
+    return () => next.dispose()
+  }, [midi.input, clock])
+
+  // Feed the run's matcher and onset list from the merged input while a run
   // is in progress; a no-op outside one (`runRef.current` is `undefined`).
   useEffect(() => {
-    if (midi.input === undefined) return undefined
-    return midi.input.onEvent((event) => {
+    if (playableInput === undefined) return undefined
+    return playableInput.onEvent((event) => {
       const run = runRef.current
       if (run === undefined) return
       const t = event.time - run.anchorMs
@@ -211,7 +234,7 @@ export function useTechniqueDrill(options: UseTechniqueDrillOptions): TechniqueD
         run.matcher.noteOff(event.note, asMillis(t))
       }
     })
-  }, [midi.input])
+  }, [playableInput])
 
   function start(): void {
     if (drill === undefined || score === undefined) return
@@ -275,6 +298,14 @@ export function useTechniqueDrill(options: UseTechniqueDrillOptions): TechniqueD
     setLastAttempt(attempt)
   }
 
+  function press(note: Midi): void {
+    playableInput?.press(note)
+  }
+
+  function release(note: Midi): void {
+    playableInput?.release(note)
+  }
+
   return {
     drills,
     drill,
@@ -289,5 +320,7 @@ export function useTechniqueDrill(options: UseTechniqueDrillOptions): TechniqueD
     setBpm: metronome.setBpm,
     start,
     stop,
+    press,
+    release,
   }
 }

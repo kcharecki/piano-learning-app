@@ -8,6 +8,7 @@
  * clean-tempo history (REQ-3.7.3).
  */
 import { MidiDeviceStatus } from '@app/practice/MidiDeviceStatus.tsx'
+import { PracticeKeyboard } from '@app/practice/PracticeKeyboard.tsx'
 import type { ConnectMidi } from '@app/practice/useMidiConnection.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { ExerciseScore } from '@app/sightreading/ExerciseScore.tsx'
@@ -57,6 +58,17 @@ export function TechniqueScreen(props: TechniqueScreenProps) {
     const parsed = Number(bpmText)
     if (Number.isFinite(parsed)) drill.setBpm(parsed)
   }
+
+  // Same on-screen/qwerty fallback Practice renders (roadmap 5.4/5.5), and the
+  // same "shown by default exactly when it is the learner's only way to play"
+  // rule (roadmap 5.5a) — a chord-inversions drill needs the latch just as
+  // much as a chord in a piece does.
+  const deviceAttached =
+    drill.midi.input !== undefined &&
+    drill.midi.devices.some((device) => device.id === drill.midi.selectedDeviceId)
+  const [showKeyboardChoice, setShowKeyboardChoice] = useState<boolean | undefined>(undefined)
+  const showKeyboard = showKeyboardChoice ?? !deviceAttached
+  const [latchKeys, setLatchKeys] = useState(false)
 
   return (
     <div className="technique-screen">
@@ -151,6 +163,20 @@ export function TechniqueScreen(props: TechniqueScreenProps) {
           </p>
         </section>
       )}
+      {/* Directly under the engraving, same placement and reasoning as
+          Practice (roadmap 5.4) — notes pressed here enter the drill's own
+          `PlayableMidiInput` (roadmap 5.5a), the same seam a MIDI keyboard
+          feeds, so they are scored by the real matcher a run is using. */}
+      <PracticeKeyboard
+        score={drill.score}
+        onPress={drill.press}
+        onRelease={drill.release}
+        deviceConnected={deviceAttached}
+        visible={showKeyboard}
+        onVisibleChange={setShowKeyboardChoice}
+        latch={latchKeys}
+        onLatchChange={setLatchKeys}
+      />
 
       {drill.lastAttempt !== undefined && (
         <p role="status" data-testid="technique-result">

@@ -348,9 +348,15 @@ one screen where playing matters is the one that refuses non-MIDI input.
       the range's own low note, not middle C. Spans 17 semitones — a wide Practice range is only partly
       reachable by typing, a real keyboard limit, not a bug. Found, not fixed: Technique has no
       `OnScreenKeyboard` to hang this on (5.5a). Full history: git log.
-- [ ] 5.5a `app/technique`: `useTechniqueDrill` feeds a `NoteMatcher` straight from `midi.input.onEvent`
-      — no on-screen fallback exists, so 5.5's computer-keyboard mapping had nothing to attach to.
-      Needs its own `OnScreenKeyboard` (or a `PlayableMidiInput` wrapper) before it can share 5.5's hook.
+- [x] 5.5a `app/technique`: `useTechniqueDrill` fed its `NoteMatcher` straight from `midi.input.onEvent`,
+      with no on-screen fallback for 5.5's computer-keyboard mapping to attach to. Reused the
+      `PlayableMidiInput` wrapper roadmap 5.4 already built (`@app/practice/playableInput.ts`) rather
+      than a second one, and reused `PracticeKeyboard` itself (already generic over any `Score` +
+      press/release pair) rather than duplicating its toggle/latch UI. `useTechniqueDrill` now exposes
+      `press`/`release`; `TechniqueScreen` renders the same on-screen keyboard + qwerty hint Practice
+      does, directly under the engraving. Driven in the browser: a level-1 drill run entirely through
+      clicked on-screen keys, no MIDI at all, scores clean and lands in the tempo history — same proof
+      as a unit test driving `press()`/`release()` directly. Both widths/themes, console clean.
 - [ ] 5.6 `app`: an input-capability banner that states what this browser can and cannot do — one
       line, dismissible, naming Web MIDI's absence and what it costs (see B.7's platform reality).
       Silent degradation is what makes the current state read as broken rather than limited.

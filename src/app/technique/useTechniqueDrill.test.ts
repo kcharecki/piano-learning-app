@@ -224,6 +224,45 @@ describe('useTechniqueDrill', () => {
     expect(useTechniqueStore.getState().attempts).toHaveLength(0)
   })
 
+  it('scores a run driven entirely through press()/release() — no MIDI device at all (roadmap 5.5a)', () => {
+    const drill = firstDrillOf(1)
+    const clock = new FakeClock()
+    const audioOutput = new RecordingAudioOutput(clock)
+    const neverResolves = (): Promise<never> => new Promise(() => {})
+
+    const { result } = renderHook(() =>
+      useTechniqueDrill({
+        level: 1,
+        initialDrillId: drill.id,
+        clock,
+        date: clock,
+        connectMidi: neverResolves,
+        audioOutput,
+        frameDriver: manualDriver(),
+      }),
+    )
+
+    runStart(clock)
+    act(() => result.current.start())
+    const score = result.current.score
+    if (score === undefined) throw new Error('expected a score once started')
+
+    const msPerBeat = 60000 / result.current.bpm
+    const countInMs = COUNT_IN_BEATS * msPerBeat
+    clock.advance(countInMs)
+    for (const note of score.notes) {
+      act(() => result.current.press(note.midi))
+      act(() => result.current.release(note.midi))
+      clock.advance(msPerBeat)
+    }
+
+    act(() => result.current.stop())
+
+    expect(result.current.lastAttempt?.evenness).toBe(1)
+    expect(result.current.lastAttempt?.accuracy).toBe(1)
+    expect(result.current.lastAttempt?.clean).toBe(true)
+  })
+
   it('falls back to the first drill of a level when none is selected yet', () => {
     const neverResolves = (): Promise<never> => new Promise(() => {})
     const { result } = renderHook(() => useTechniqueDrill({ level: 2, connectMidi: neverResolves }))
