@@ -598,7 +598,14 @@ export function generateMelody(params: GeneratorParams, rng: Rng): Result<Score,
     keyFifths: params.key.signature.fifths,
   }))
 
-  return ok(makeScore({ id: scoreId(params), measures, notes }))
+  return ok(
+    makeScore({
+      id: scoreId(params),
+      meta: { title: `Sight Reading — ${keyName(params.key)}` },
+      measures,
+      notes,
+    }),
+  )
 }
 
 // ---------------------------------------------------------------------------

@@ -142,6 +142,14 @@ describe('techniqueScore', () => {
     })
   }
 
+  // roadmap 5.13: a generated score with no title engraves as "Untitled Score".
+  it('carries the drill title as the score title, for every drill kind', () => {
+    for (const drill of allDrills()) {
+      const score = techniqueScore(drill, drill.targetBpm)
+      expect(score.meta.title).toBe(drill.title)
+    }
+  })
+
   // For a two-handed drill each hand independently spans `octaves` octaves;
   // the two hands sit in different registers, so only one hand's notes are
   // checked here rather than the combined (wider) range of both.

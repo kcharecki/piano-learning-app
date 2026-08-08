@@ -6,7 +6,7 @@ import { midi } from '@core/shared/units.ts'
 import { seededRng } from '@core/ports/rng.ts'
 import { spelledPitchClass } from '@core/theory/pitch.ts'
 import { buildScale } from '@core/theory/scales.ts'
-import { keyFromFifths, type Key } from '@core/theory/keys.ts'
+import { keyFromFifths, keyName, type Key } from '@core/theory/keys.ts'
 import {
   validateScore,
   type Score,
@@ -130,6 +130,13 @@ describe('generateMelody — basic shape', () => {
       const last = at(notes, notes.length - 1)
       expect(pc(last.midi)).toBe(tonicPc)
     }
+  })
+
+  // roadmap 5.13: a generated score with no title engraves as "Untitled Score".
+  it('carries a title naming the key, not the default empty title', () => {
+    const params = baseParams({ key: keyFromFifths(2, 'major') })
+    const score = unwrap(generateMelody(params, seededRng(1)))
+    expect(score.meta.title).toContain(keyName(params.key))
   })
 
   it('every note of a right-hand-only score is on the right hand and within rightRange', () => {

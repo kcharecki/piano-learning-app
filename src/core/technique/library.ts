@@ -345,6 +345,7 @@ function noteInputs(run: Run, hand: Hand, noteDuration: number): ScoreNoteInput[
 
 function scoreFromRuns(
   id: string,
+  title: string,
   runs: readonly { readonly run: Run; readonly hand: Hand }[],
   bpm: number,
   keyFifths: number,
@@ -356,11 +357,12 @@ function scoreFromRuns(
   for (const { run, hand } of runs) notes.push(...noteInputs(run, hand, noteDuration))
   const measureCount = Math.max(1, Math.ceil((maxLen * noteDuration) / WHOLE))
   const measures = Array.from({ length: measureCount }, (_, i) => (i === 0 ? { keyFifths } : {}))
-  return makeScore({ id, measures, notes, tempos: [{ tick: 0, bpm }] })
+  return makeScore({ id, meta: { title }, measures, notes, tempos: [{ tick: 0, bpm }] })
 }
 
 function chordInversionScore(
   id: string,
+  title: string,
   tonic: SpelledPitch,
   quality: 'major' | 'minor',
   hands: 'left' | 'right' | 'both',
@@ -389,7 +391,7 @@ function chordInversionScore(
   const measures = Array.from({ length: TRIAD_INVERSIONS.length }, (_, i) =>
     i === 0 ? { keyFifths } : {},
   )
-  return makeScore({ id, measures, notes, tempos: [{ tick: 0, bpm }] })
+  return makeScore({ id, meta: { title }, measures, notes, tempos: [{ tick: 0, bpm }] })
 }
 
 /** The drill as a playable, engravable Score WITH fingerings on every note (REQ-3.7.1). */
@@ -402,7 +404,7 @@ export function techniqueScore(drill: TechniqueDrill, bpm: number): Score {
         run: fiveFingerRun(handTonic(drill.tonic, hand, drill.hands), hand, type),
         hand,
       }))
-      return scoreFromRuns(id, runs, bpm, keyFifthsFor(drill.tonic, qualityOf(type)))
+      return scoreFromRuns(id, drill.title, runs, bpm, keyFifthsFor(drill.tonic, qualityOf(type)))
     }
     case 'scale': {
       invariant(drill.scaleType !== undefined, 'scale drill requires scaleType')
@@ -413,7 +415,7 @@ export function techniqueScore(drill: TechniqueDrill, bpm: number): Score {
         run: scaleUpAndDown(handTonic(drill.tonic, hand, drill.hands), type, octaves, hand),
         hand,
       }))
-      return scoreFromRuns(id, runs, bpm, keyFifthsFor(drill.tonic, qualityOf(type)))
+      return scoreFromRuns(id, drill.title, runs, bpm, keyFifthsFor(drill.tonic, qualityOf(type)))
     }
     case 'arpeggio': {
       invariant(drill.scaleType !== undefined, 'arpeggio drill requires scaleType')
@@ -429,13 +431,20 @@ export function techniqueScore(drill: TechniqueDrill, bpm: number): Score {
         ),
         hand,
       }))
-      return scoreFromRuns(id, runs, bpm, keyFifthsFor(drill.tonic, qualityOf(drill.scaleType)))
+      return scoreFromRuns(
+        id,
+        drill.title,
+        runs,
+        bpm,
+        keyFifthsFor(drill.tonic, qualityOf(drill.scaleType)),
+      )
     }
     case 'chord-inversions': {
       invariant(drill.scaleType !== undefined, 'chord-inversions drill requires scaleType')
       const quality = qualityOf(drill.scaleType)
       return chordInversionScore(
         id,
+        drill.title,
         drill.tonic,
         quality,
         drill.hands,

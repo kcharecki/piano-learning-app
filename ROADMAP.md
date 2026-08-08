@@ -408,11 +408,12 @@ forced start, no stopping, unrepeatable exercises, an 80–90% adaptive band. Th
       *Proof: set key = G, hands = left only, no accidentals, and assert the generated exercise's
       engraving actually has one sharp, one staff of notes and no accidental glyphs — read off the
       rendered SVG, not off the request.*
-- [ ] 5.13 `core/notation/musicxml` (writer): generated exercises engrave with the title **"Untitled
-      Score"** and the part name "Piano" printed above the staff, on both Sight reading and Technique.
-      Give generated scores a real title and suppress the part name.
-      *Proof: the rendered SVG for a generated sight-reading exercise and a technique drill contains
-      neither "Untitled Score" nor a "Piano" part label, and does contain the exercise's own title.*
+- [x] 5.13 `core/generator`: generated exercises engraved with the title "Untitled Score" — the part
+      name half ("Piano" above the staff) was already fixed app-wide as a side effect of 3.14. Gave
+      `generateMelody` a `Sight Reading — <key>` title and `techniqueScore` the drill's own title
+      (all four drill kinds: five-finger, scale, arpeggio, chord-inversions). Driven in the browser:
+      Sight reading renders "Sight Reading — C major", Technique renders "C major five-finger
+      pattern, right hand". Full history: git log.
 
 ### Progress & motivation — **4/10 → 9**
 
