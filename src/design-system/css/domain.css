@@ -130,6 +130,20 @@
 .midi-status[data-state="connected"]::before { background: var(--fb-correct); }
 .midi-status[data-state="connected"] { color: var(--text-1); }
 
+/* Input-capability banner (roadmap 5.6): names a platform limit, not an error. */
+.input-capability-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-w) solid var(--warn);
+  border-radius: var(--radius-2);
+  background: var(--fb-late-dim);
+}
+.input-capability-banner p { margin: 0; font-size: var(--text-sm); color: var(--text-1); flex: 1; }
+.input-capability-banner .btn-icon { flex-shrink: 0; }
+
 /* ---------- Notation frame ----------
    A light "paper" sheet inside the dark shell. OSMD renders its
    own black-on-light SVG onto it; the frame provides margin,
