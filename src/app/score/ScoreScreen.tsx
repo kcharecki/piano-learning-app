@@ -15,7 +15,7 @@ import { useLevelStore } from '@app/state/levelStore.ts'
 import { PracticeScreen } from '@app/practice/PracticeScreen.tsx'
 import sampleMusicXml from '@content/scores/twinkle-twinkle-little-star.musicxml?raw'
 import { useEffect } from 'react'
-import { AnalysisPanel } from './AnalysisPanel.tsx'
+import { AnalysisPanel, useMeasureLabels } from './AnalysisPanel.tsx'
 import { ImportPanel } from './ImportPanel.tsx'
 
 const SAMPLE_SCORE_SOURCE_NAME = 'Twinkle, Twinkle, Little Star (bundled sample)'
@@ -31,6 +31,16 @@ export function ScoreScreen() {
   const loadScore = useScoreStore((s) => s.loadScore)
   const theoryLevel = useLevelStore((s) => s.levelState.levels.theory)
   const levelsHydrated = useLevelStore((s) => s.hydrated)
+  // REQ-3.5.5's second half (roadmap 3.18a): the SAME reading the panel below
+  // prints, placed under the measure it describes on the engraving itself, so
+  // the learner is not mapping "m.3" back to the third bar by eye. One
+  // computation feeds both — memoised on the score, above the early return,
+  // because `PracticeScreen` re-renders every animation frame while playing.
+  const measureLabels = useMeasureLabels(loaded?.score)
+  // One gate for both halves of REQ-3.5.5 — the numerals on the engraving and
+  // the panel under it appear together or not at all. See the panel's comment
+  // below for why the level and the hydration flag are both part of it.
+  const showAnalysis = levelsHydrated && theoryLevel >= MIN_ANALYSIS_THEORY_LEVEL
 
   useEffect(() => {
     if (loaded !== undefined) return
@@ -53,7 +63,9 @@ export function ScoreScreen() {
           <h2>
             {loaded.score.meta.title.length > 0 ? loaded.score.meta.title : loaded.sourceName}
           </h2>
-          <PracticeScreen />
+          <PracticeScreen
+            {...(showAnalysis && measureLabels !== undefined ? { measureLabels } : {})}
+          />
           {/* `PracticeScreen` renders `ScoreViewer` only when `musicXml` is
               defined. Every import path now supplies it — a MIDI file is
               engraved from MusicXML written back out of the parsed Score
@@ -76,9 +88,7 @@ export function ScoreScreen() {
               (`persistence.ts`), so reading `theoryLevel` before that
               settles would show nothing and then pop the panel in for a
               level 4-5 learner instead of just rendering it from the start. */}
-          {levelsHydrated && theoryLevel >= MIN_ANALYSIS_THEORY_LEVEL && (
-            <AnalysisPanel score={loaded.score} />
-          )}
+          {showAnalysis && <AnalysisPanel score={loaded.score} />}
         </section>
       )}
     </div>

@@ -146,33 +146,71 @@ export function buildMeasureLabels(score: Score, analysis: Analysis): ReadonlyMa
  * tears down/rebuilds every `<text>` node in the engraving each time. This
  * hook is the unmissable way to get the labels instead: call it once with the
  * current `score` and pass its result straight through as `measureLabels`.
+ *
+ * Accepts `undefined` so its caller can hold the hook above a conditional —
+ * `ScoreScreen` renders nothing at all until the bundled sample has parsed,
+ * and a hook cannot be called after that early return. `undefined` in means
+ * `undefined` out, i.e. "no labels", never an empty map (which would read as
+ * "analysed, found nothing" and clear labels already on the engraving).
  */
 // eslint-disable-next-line react-refresh/only-export-components -- shared hook, not a component; deliberately reused by ScoreViewer callers
-export function useMeasureLabels(score: Score): ReadonlyMap<number, string> {
-  return useMemo(() => buildMeasureLabels(score, analyseScore(score)), [score])
+export function useMeasureLabels(score: Score | undefined): ReadonlyMap<number, string> | undefined {
+  return useMemo(
+    () => (score === undefined ? undefined : buildMeasureLabels(score, analyseScore(score))),
+    [score],
+  )
+}
+
+/** "m.4, m.8" — where each cadence type lands, for the summary line. */
+function cadenceSummary(rows: readonly MeasureRow[]): readonly string[] {
+  const byLabel = new Map<string, string[]>()
+  for (const row of rows) {
+    for (const cadence of row.cadences) {
+      const at = byLabel.get(cadence)
+      if (at === undefined) byLabel.set(cadence, [`m.${row.number}`])
+      else at.push(`m.${row.number}`)
+    }
+  }
+  return [...byLabel].map(([label, at]) => `${label} at ${at.join(', ')}`)
 }
 
 export function AnalysisPanel({ score }: AnalysisPanelProps) {
   const analysis = useMemo(() => analyseScore(score), [score])
   const rows = useMemo(() => buildRows(score, analysis), [score, analysis])
+  const cadences = useMemo(() => cadenceSummary(rows), [rows])
 
   return (
     <section role="region" aria-label="Harmonic analysis" className="analysis-panel">
       <h2>Harmonic analysis</h2>
       <p className="analysis-key">Key: {keyName(analysis.key)}</p>
-      <ol className="analysis-measures">
-        {rows.map((row) => (
-          <li key={row.index} data-testid={`analysis-measure-${row.index}`}>
-            <span className="measure-no">m.{row.number}</span>
-            <span className="numerals">{row.labels.join(' ')}</span>
-            {row.cadences.map((cadence, i) => (
-              <span key={i} className="cadence">
-                {cadence}
-              </span>
-            ))}
-          </li>
-        ))}
-      </ol>
+      {cadences.map((line) => (
+        <p key={line} className="analysis-cadence-summary">
+          {line}
+        </p>
+      ))}
+      {/* Collapsed by default since roadmap 3.18a put the same numerals under
+          the measures they describe on the engraving above (docs/DESIGN.md's
+          "adding means demoting" rule — this list is what 3.18a demotes). It
+          stays reachable rather than deleted: it is the only text-structured
+          reading of the analysis, the engraving's numerals being bare SVG
+          <text>, and the only one at all when a score has no notation to
+          engrave (`loaded.musicXml === undefined`). */}
+      <details className="analysis-detail">
+        <summary>Measure by measure</summary>
+        <ol className="analysis-measures">
+          {rows.map((row) => (
+            <li key={row.index} data-testid={`analysis-measure-${row.index}`}>
+              <span className="measure-no">m.{row.number}</span>
+              <span className="numerals">{row.labels.join(' ')}</span>
+              {row.cadences.map((cadence, i) => (
+                <span key={i} className="cadence">
+                  {cadence}
+                </span>
+              ))}
+            </li>
+          ))}
+        </ol>
+      </details>
     </section>
   )
 }

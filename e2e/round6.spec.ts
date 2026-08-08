@@ -58,9 +58,72 @@ test('the roman-numeral analysis of the bundled sample is shown under the score,
   // text: "m.1" and "I" are adjacent spans, so a text-level word-boundary
   // match sees "m.1I" and fails for reasons that have nothing to do with the
   // analysis being right.
+  // The per-measure list moved behind a `<details>` when roadmap 3.18a put the
+  // same numerals on the engraving (docs/DESIGN.md's "adding means demoting").
+  await analysis.getByRole('group').getByText('Measure by measure').click()
   const numerals = await analysis.locator('.numerals').allInnerTexts()
   expect(numerals.slice(0, 4)).toEqual(['I', 'V', 'IV', 'I'])
   await expect(analysis).toContainText(/cadence/i)
+
+  expect(errors).toEqual([])
+})
+
+test('the roman numeral for a measure is drawn under THAT measure of the engraving (roadmap 3.18a, REQ-3.5.5)', async ({
+  page,
+}) => {
+  test.setTimeout(30_000)
+  const errors = collectErrors(page)
+  await page.goto('/')
+
+  // Same route a learner takes: the dashboard's own level override.
+  await nav(page, 'Progress').click()
+  await page.getByTestId('dashboard-level-select-theory').selectOption('4')
+  await nav(page, 'Practice').click()
+
+  const container = page.getByTestId('score-container')
+  await expect(container.locator('svg')).toBeVisible({ timeout: 15_000 })
+
+  // Geometry, not presence: each numeral's horizontal centre must fall inside
+  // the horizontal span of the measure it names, and below its staff. Read off
+  // the laid-out SVG — the whole point of 3.18a is that the learner stops
+  // mapping "m.3" back to the third bar by eye, and a label drawn in the right
+  // document order but the wrong place would pass any text-level assertion.
+  const placement = await container.evaluate((el) => {
+    const svg = el.querySelector('svg')
+    if (svg === null) return null
+    // Each bar is drawn once per staff (treble and bass), so a bar's identity
+    // here is its own box, and the bar a numeral belongs to is the one it sits
+    // directly beneath: same horizontal span, lowest staff still above it.
+    const bars = [...svg.querySelectorAll('.vf-measure')].map((m) => {
+      const b = (m as SVGGraphicsElement).getBBox()
+      return { left: b.x, right: b.x + b.width, bottom: b.y + b.height }
+    })
+    return [...svg.querySelectorAll('g[data-measure-labels] text')].map((t) => {
+      const b = (t as SVGGraphicsElement).getBBox()
+      const centre = b.x + b.width / 2
+      const above = bars
+        .filter((bar) => centre >= bar.left && centre <= bar.right && bar.bottom <= b.y + 1)
+        .sort((x, y) => y.bottom - x.bottom)
+      const owner = above[0]
+      return {
+        text: t.textContent,
+        centre: Math.round(centre),
+        // The bar this numeral is drawn under, or null if it is under none.
+        owner: owner === undefined ? null : `${Math.round(owner.left)}-${Math.round(owner.bottom)}`,
+      }
+    })
+  })
+
+  expect(placement).not.toBeNull()
+  const labels = placement ?? []
+  // Twinkle is 12 bars; the analysis names one numeral per bar.
+  expect(labels.length).toBe(12)
+  expect(labels.map((p) => p.text).slice(0, 4)).toEqual(['I', 'V', 'IV', 'I'])
+  // Every numeral is under a bar...
+  expect(labels.filter((p) => p.owner === null)).toEqual([])
+  // ...and under a DIFFERENT one, which is what rules out twelve numerals
+  // stacked under bar 1 or drawn at the same x.
+  expect(new Set(labels.map((p) => p.owner)).size).toBe(12)
 
   expect(errors).toEqual([])
 })

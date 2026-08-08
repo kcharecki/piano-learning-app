@@ -75,6 +75,11 @@ export type PracticeScreenProps = {
   readonly midiInput?: MidiInput
   readonly connectMidi?: ConnectMidi
   readonly frameDriver?: FrameDriver
+  /** Text to place under each measure of the engraving, keyed by 1-based
+   *  measure number — forwarded verbatim to `ScoreViewer` (roadmap 3.18a).
+   *  `ScoreScreen` passes the roman-numeral reading here, under the same
+   *  theory-level gate the side panel uses; absent means today's behaviour. */
+  readonly measureLabels?: ReadonlyMap<number, string>
 }
 
 export function PracticeScreen(props: PracticeScreenProps) {
@@ -464,6 +469,11 @@ export function PracticeScreen(props: PracticeScreenProps) {
           // to draw fingering/highlight for real.
           score={loaded.score}
           onSelectNote={handleSelectNote}
+          // Spread, not `measureLabels={props.measureLabels}`: under
+          // `exactOptionalPropertyTypes` an explicit `undefined` is not an
+          // absent prop, and absent is what makes `ScoreViewer` skip the
+          // label effect entirely for every caller that passes nothing.
+          {...(props.measureLabels === undefined ? {} : { measureLabels: props.measureLabels })}
         />
       )}
       {/* Per-measure notes attach to wherever the playhead is; fingering and

@@ -25,6 +25,15 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
       3.14 / 3.18a / 3.19b / 3.23 boxes stay unticked until each passes the experience gate.
       Proof: `npm run verify` exits 0.
 
+- [ ] T.2 `e2e/audio-clock-drift.spec.ts` fails on master: the sustained-session drift measures
+      ~5994 ms/min against a 150 ms/min budget. Reproduced on a clean tree at 529ac23, so it
+      predates this session's work and is not a 3.14/3.18a regression. Either `webaudio.ts`'s
+      exponential-filtered anchor (roadmap 2.32e) has actually regressed, or the spec is measuring
+      a headless-Chromium artefact — a suspended/throttled `AudioContext` with no output device
+      advances its clock differently from a real one. Decide which before changing either.
+      *Proof: `npx playwright test` is green, and whichever way it resolves, the spec's comment
+      says what the number means on a machine with no audio device.*
+
 ## Phase 0 — Foundation
 
 Scaffold, test harness, lint boundary, docs, core shared/ports — all done.
@@ -218,10 +227,16 @@ The M3 gaps that are unbuilt features rather than defects. Each states its proof
       a destination you leave your place for; `Shell` renders exactly one screen.
       *Proof: open it from the practice screen without losing the loaded score.*
 - [x] 3.18 `app/score`: gate applied analysis to theory level 4+ (REQ-3.5.5)
-- [ ] 3.18a `app/score`: put the numerals ON the engraving (REQ-3.5.5's second half) — the analysis
-      is a side list of `m.N` rows beside the score, so the learner maps measure numbers back to
-      the staff by eye. `osmdEngraver` is where this belongs.
-      *Proof: the numeral for measure 3 is positioned under measure 3 of the rendered score.*
+- [x] 3.18a `app/score`: put the numerals ON the engraving (REQ-3.5.5's second half). The 7829b8d
+      commit built the whole path — `buildMeasureLabels`, `ScoreViewer`'s `measureLabels` prop,
+      the engraver's `setMeasureLabels` — and wired it to NOTHING: no caller ever passed the prop,
+      so the numerals were absent from the running app under a green suite. Found by driving the
+      Practice screen and reading the SVG, not by a test. `ScoreScreen` now passes them through
+      `PracticeScreen`, under the same theory-level-4 gate as the panel, and the panel's
+      now-duplicated per-measure list moved behind a `<details>` (docs/DESIGN.md rule 3) leaving
+      the key and a cadence summary in the open.
+      *Proof: `e2e/round6.spec.ts` reads every numeral's box off the rendered SVG and asserts each
+      one is centred under a different bar, below its staff.*
 - [x] 3.19 `core/theory/analysis`: make the minor-key leading-tone vote positional
 - [x] 3.19a `core/theory/analysis`: the `>= 2` vote threshold itself.
 - [ ] 3.19b `core/theory/analysis`: `plagalMotionIntoFinalMeasure` samples the final measure's bass

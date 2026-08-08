@@ -117,6 +117,44 @@ describe('ScoreScreen', () => {
     })
   })
 
+  describe('numerals on the engraving (roadmap 3.18a, REQ-3.5.5)', () => {
+    /** The last `measureLabels` any render handed the viewer. */
+    function labelsSeenByViewer(): ReadonlyMap<number, string> | undefined {
+      const calls = scoreViewerSpy.mock.calls as [
+        { measureLabels?: ReadonlyMap<number, string> },
+      ][]
+      return calls.at(-1)?.[0].measureLabels
+    }
+
+    // 3.18a's plumbing (buildMeasureLabels, ScoreViewer's prop, the engraver's
+    // setMeasureLabels) all shipped tested and CONNECTED TO NOTHING: no caller
+    // ever passed the prop, so the numerals were absent from the running app
+    // while every unit test stayed green. These two cases are the wiring.
+    it('hands the viewer the roman numeral for each measure at theory level 4', async () => {
+      setTheoryLevel(4)
+      render(<ScoreScreen />)
+      await screen.findByText('Twinkle, Twinkle, Little Star')
+
+      await waitFor(() => expect(labelsSeenByViewer()).toBeDefined())
+      const labels = labelsSeenByViewer()
+      // Keyed 1-based, per the ScoreViewer contract, and carrying the sample's
+      // own I-V-IV-I skeleton — the same reading the panel prints.
+      expect(labels?.get(1)).toBe('I')
+      expect(labels?.get(2)).toBe('V')
+      expect(labels?.get(3)).toBe('IV')
+      expect(labels?.size).toBe(12)
+    })
+
+    it('hands the viewer no labels below the gate, so the engraving stays clean at level 1', async () => {
+      setTheoryLevel(1)
+      render(<ScoreScreen />)
+      await screen.findByText('Twinkle, Twinkle, Little Star')
+
+      await waitFor(() => expect(scoreViewerSpy).toHaveBeenCalled())
+      expect(labelsSeenByViewer()).toBeUndefined()
+    })
+  })
+
   describe('hydration gate (startup race, see levelStore.ts `hydrated`)', () => {
     // A stub that reads only `theoryLevel >= MIN_ANALYSIS_THEORY_LEVEL` (i.e.
     // drops the `hydrated &&` clause) is killed by this case: the level is
