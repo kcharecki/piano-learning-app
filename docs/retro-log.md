@@ -16,6 +16,50 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
+## 2026-08-11 (eighth session) — microphone pitch-detection fallback, two merges, one triage fix
+
+- user-reported defects since last session: 0
+- slices proven / started: 1/1 — roadmap 5.7 (promoted B.1): a three-layer microphone
+  pitch-detection input (pure YIN algorithm + pure onset/offset debounce state machine in
+  `core/audio/`, a `getUserMedia`/`AnalyserNode` adapter implementing the same `MidiInput` port
+  `webmidi.ts` does, wired into Practice behind an opt-in toggle). Sized as one slice because a
+  partially-wired pitch detector is exactly the "green tests, inert feature" failure this process
+  exists to stop — algorithm, adapter and UI landed together or not at all. Also: integrated two
+  awaiting-merge worktree branches (5.12 sight-reading customizer, 5.15 streak-any-activity test),
+  and fixed triage item T.4 (`knip` false-red on a page-context dynamic import).
+- gate catches before commit:
+  1. Parabolic-interpolation sign error in the pitch detector, caught by its own property test
+     (200 sine tones across the piano range) before any adapter code was written — algorithm-level
+     property tests earning their keep exactly as CLAUDE.md's testing rule intends.
+  2. `.status-group` had no `flex-wrap`, so adding the mic toggle pushed the practice-controls bar
+     past both required visual-pass widths (1024px, 1280px) into horizontal overflow — found only
+     because I measured `document.body.scrollWidth` against `window.innerWidth` instead of trusting
+     that a small addition to an existing row couldn't regress layout.
+  3. The pitch-detection property test's default 5s timeout was fine uninstrumented (~1.6s) but
+     failed under `npm run test:cov`'s coverage instrumentation (~10s) — caught only because I ran
+     the coverage gate CLAUDE.md mandates by hand; `npm run verify` doesn't run it, so this would
+     have shipped invisibly like T.4 did.
+- docs budget (ROADMAP+CLAUDE+PROCESS lines): 801 + 101 + 130 = **1032**
+- cost note: no subagents dispatched — the algorithm/adapter/UI chain was tightly sequential
+  (each layer's interface had to be nailed down before the next could be written against it), so
+  parallelizing would have meant re-deriving contracts rather than saving time. Most of the turn
+  went to the DSP algorithm and its property tests, which is where the real correctness risk lived.
+- hypothesis: **when the interactive Browser pane's `screenshot` times out, I reached for ad-hoc
+  `javascript_tool` computed-style checks instead of `docs/PROCESS.md` step 3's documented
+  fallback, `scripts/visual-pass.mjs`** — the instruction was right there and I didn't consult it
+  until writing this retro, even though the fifth and seventh sessions hit the identical failure
+  and the tool exists specifically because of it. The ad-hoc checks weren't wrong (they caught the
+  real overflow bug above), but they're weaker evidence than an actual screenshot, and re-deriving
+  a workaround each time is the exact one-off-script cost `visual-pass.mjs`'s own module comment
+  says it exists to remove.
+- change: none to the tooling — `visual-pass.mjs` already does the right thing; the gap was not
+  reading `docs/PROCESS.md` step 3 at the moment the pane failed. Adding a process change to fix a
+  process I already have written down would just be a second copy to fall out of sync. Instead:
+  ran `visual-pass.mjs` retroactively before writing this entry and confirmed the real screenshots
+  (both widths, both themes, console clean) agree with the ad-hoc checks. No review-by — this is a
+  discipline note, not an experiment.
+- experiment verdicts due: none this session (nearest review-by, 2026-08-15, is not yet due).
+
 ## 2026-08-08 (seventh session) — generated-score titles, Technique's on-screen fallback, two merges
 
 - user-reported defects since last session: 0
