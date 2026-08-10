@@ -8,6 +8,7 @@ import {
   FAKE_MIDI_DEVICE_NAME,
   type RelativeFakeMidiEvent,
 } from './fake-midi.ts'
+import { seedPlayingLevel } from './seedLevel.ts'
 
 /**
  * E2E proof for roadmap 2.11 (REQ-3.3.4/3.3.5): an assessment run driven end
@@ -61,6 +62,10 @@ test('assessment run driven end to end: play it, review lists problem measures, 
   // access on mount.
   await installFakeMidi(page)
   await page.goto('/')
+  // Roadmap 5.17 gates "Start assessment" behind the `playing` track's level
+  // — a fresh app starts every track at level 1.
+  await seedPlayingLevel(page, 3)
+  await page.reload()
 
   await page
     .getByRole('navigation', { name: /main/i })
@@ -89,6 +94,10 @@ test('assessment run driven end to end: play it, review lists problem measures, 
   const loopRangeSettle = page.getByRole('group', { name: 'Loop range' })
   await expect(loopRangeSettle.getByLabel('to measure')).toHaveValue('6')
   await page.waitForTimeout(300)
+
+  // "Start assessment" lives behind the collapsed "More tools" disclosure
+  // (roadmap 5.17) — open it before reaching for the button inside.
+  await page.getByText('More tools').click()
 
   // Play measures 1-3 correctly; say nothing for measures 4-6 (indices 3-5) —
   // their notes close as `missed` when the transport plays off the end and

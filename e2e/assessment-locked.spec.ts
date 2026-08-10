@@ -2,6 +2,7 @@ import { expect, test, type ConsoleMessage, type Page } from '@playwright/test'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { installFakeMidi, FAKE_MIDI_DEVICE_NAME } from './fake-midi.ts'
+import { seedPlayingLevel } from './seedLevel.ts'
 
 /**
  * E2E proof for REQ-3.3.4 (M2 acceptance audit): while an assessment run is
@@ -45,6 +46,10 @@ test('tempo, loop range and Pause/Stop are disabled while an assessment runs, an
   // and installing it keeps this spec's setup identical to assessment.spec.ts.
   await installFakeMidi(page)
   await page.goto('/')
+  // Roadmap 5.17 gates "Start assessment" behind the `playing` track's level
+  // — a fresh app starts every track at level 1.
+  await seedPlayingLevel(page, 3)
+  await page.reload()
 
   await page
     .getByRole('navigation', { name: /main/i })
@@ -65,6 +70,11 @@ test('tempo, loop range and Pause/Stop are disabled while an assessment runs, an
   const loopRange = page.getByRole('group', { name: 'Loop range' })
   await expect(loopRange.getByLabel('to measure')).toHaveValue('6')
   await page.waitForTimeout(300)
+
+  // "Start assessment" and the tempo ramp both live behind the collapsed
+  // "More tools" disclosure (roadmap 5.17) — open it before reaching for
+  // either.
+  await page.getByText('More tools').click()
 
   // `exact` matters since roadmap 2.27 added a "Tempo ramp" control beside
   // this one — a substring match now resolves to two elements.

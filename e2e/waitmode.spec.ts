@@ -1,5 +1,6 @@
 import { expect, test, type ConsoleMessage, type Page } from '@playwright/test'
 import { installFakeMidi, FAKE_MIDI_DEVICE_NAME } from './fake-midi.ts'
+import { seedPlayingLevel } from './seedLevel.ts'
 
 /**
  * E2E proof for roadmap 2.30 (REQ-3.3.3): wait mode, driven end to end. It is
@@ -50,6 +51,10 @@ test('wait mode holds playback until the owed notes are played, then releases it
 
   await installFakeMidi(page)
   await page.goto('/')
+  // Roadmap 5.17 gates wait mode behind the `playing` track's level — a
+  // fresh app starts every track at level 1, below the gate.
+  await seedPlayingLevel(page, 3)
+  await page.reload()
   await page
     .getByRole('navigation', { name: /main/i })
     .getByRole('button', { name: 'Practice', exact: true })

@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { installFakeMidi, FAKE_MIDI_DEVICE_NAME } from './fake-midi.ts'
+import { seedPlayingLevel } from './seedLevel.ts'
 
 /**
  * E2E proof for roadmap 2.26 (REQ-3.4.5): the read-ahead drill, driven end to
@@ -126,6 +127,10 @@ test('read-ahead progressively hides notation strictly behind the cursor, leavin
   // access on mount.
   await installFakeMidi(page)
   await page.goto('/')
+  // Roadmap 5.17 gates Read ahead behind "More tools", itself behind the
+  // `playing` track's level — a fresh app starts every track at level 1.
+  await seedPlayingLevel(page, 3)
+  await page.reload()
 
   await page
     .getByRole('navigation', { name: /main/i })
@@ -153,6 +158,9 @@ test('read-ahead progressively hides notation strictly behind the cursor, leavin
   // Before the drill is on, nothing is occluded.
   await expect(hiddenNotes).toHaveCount(0)
 
+  // Read ahead lives behind the collapsed "More tools" disclosure (roadmap
+  // 5.17) — open it before reaching for the checkbox inside.
+  await page.getByText('More tools').click()
   const readAhead = page.getByRole('group', { name: 'Read ahead' })
   await readAhead.getByRole('checkbox').check()
 

@@ -1,4 +1,5 @@
 import { expect, test, type ConsoleMessage, type Page } from '@playwright/test'
+import { seedPlayingLevel } from './seedLevel.ts'
 
 /**
  * E2E proof for the round that emptied `knip.jsonc` (roadmap 3.2a, 3.3, 4.4a,
@@ -199,7 +200,14 @@ test('an annotation written against a measure survives a reload (roadmap 4.8)', 
   test.setTimeout(30_000)
   const errors = collectErrors(page)
   await page.goto('/')
+  // Roadmap 5.17 gates the annotation panel behind "More tools", itself
+  // behind the `playing` track's level — a fresh app starts every track at
+  // level 1. Seeded once, it survives this test's own later reload the same
+  // way the annotation itself does.
+  await seedPlayingLevel(page, 3)
+  await page.reload()
   await nav(page, 'Practice').click()
+  await page.getByText('More tools').click()
 
   const notes = page.getByRole('group', { name: 'Measure note' })
   await expect(notes).toBeVisible()
@@ -243,6 +251,9 @@ test('an annotation written against a measure survives a reload (roadmap 4.8)', 
 
   await page.reload()
   await nav(page, 'Practice').click()
+  // "More tools" is closed-by-default React state, not persisted — reopen it
+  // post-reload before reaching for the annotation panel inside.
+  await page.getByText('More tools').click()
 
   // REQ-3.2.6: annotations are persisted per piece. This is the assertion that
   // fails if `COLLECTIONS.annotations` is written by nothing, which was true
