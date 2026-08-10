@@ -159,6 +159,60 @@ describe('writeMusicXml: key-aware spelling avoids spurious accidentals', () => 
   })
 })
 
+// ============================================================== note.spelling
+
+describe('writeMusicXml: a note\'s own spelling (roadmap 3.14a)', () => {
+  it('engraves E# for midi 65, which fromMidi alone can never spell', () => {
+    // F# major (6 sharps): the 7th degree sounds F5 (midi 77) but is written E#.
+    // fromMidi's tables have no E# entry at all — this only works via note.spelling.
+    const score = makeScore({
+      id: 'x',
+      measures: [{ keyFifths: 6 }],
+      notes: [
+        { midi: 77, startTick: 0, durationTicks: 1920, hand: 'right', spelling: { letter: 'E', alter: 1, octave: 5 } },
+      ],
+    })
+    expect(writeMusicXml(score)).toContain('<step>E</step><alter>1</alter><octave>5</octave>')
+  })
+
+  it('overrides the measure\'s flat-biased preferFlats when the note\'s own spelling is sharp', () => {
+    // 2 flats -> fromMidi(preferFlats=true) would write midi 66 as Gb; the
+    // note's own spelling (F#, this scale's raised leading tone) wins instead.
+    const score = makeScore({
+      id: 'x',
+      measures: [{ keyFifths: -2 }],
+      notes: [
+        { midi: 66, startTick: 0, durationTicks: 1920, hand: 'right', spelling: { letter: 'F', alter: 1, octave: 4 } },
+      ],
+    })
+    expect(writeMusicXml(score)).toContain('<step>F</step><alter>1</alter><octave>4</octave>')
+  })
+
+  it('falls back to fromMidi when a note carries no spelling', () => {
+    const score = makeScore({
+      id: 'x',
+      measures: [{ keyFifths: -2 }],
+      notes: [{ midi: 66, startTick: 0, durationTicks: 1920, hand: 'right' }],
+    })
+    // Same midi/key as the previous case, no spelling given: falls back to the
+    // old per-measure-only behaviour (flat key -> Gb).
+    expect(writeMusicXml(score)).toContain('<step>G</step><alter>-1</alter><octave>4</octave>')
+  })
+
+  it('names a double-sharp accidental when the note\'s own spelling needs one', () => {
+    const score = makeScore({
+      id: 'x',
+      measures: [{ keyFifths: 0 }],
+      notes: [
+        { midi: 62, startTick: 0, durationTicks: 1920, hand: 'right', spelling: { letter: 'C', alter: 2, octave: 4 } },
+      ],
+    })
+    const xml = writeMusicXml(score)
+    expect(xml).toContain('<step>C</step><alter>2</alter><octave>4</octave>')
+    expect(xml).toContain('<accidental>double-sharp</accidental>')
+  })
+})
+
 // ======================================================================= tempo
 
 describe('writeMusicXml: tempo marks', () => {

@@ -28,6 +28,7 @@ import {
   type Midi,
   type Ticks,
 } from '@core/shared/units.ts'
+import { pitchName, toMidi, type SpelledPitch } from '@core/theory/pitch.ts'
 
 export type Hand = 'left' | 'right'
 export const HANDS = ['left', 'right'] as const
@@ -64,6 +65,15 @@ export type ScoreNote = {
   /** Is tied into the following note — no key release is expected at its end. */
   readonly tiedTo: boolean
   readonly fingering?: number
+  /**
+   * The WRITTEN pitch, when the builder knows one — e.g. F# major's leading
+   * tone is E#, not F. Omitted, the writer falls back to re-deriving a
+   * spelling from `midi` and the measure's key signature (`fromMidi`), which
+   * cannot represent E#/B#/Cb/Fb or a per-note sharp/flat choice that
+   * disagrees with the measure's single `preferFlats` bit. Must sound as
+   * `midi` — `buildNotes` rejects a mismatch.
+   */
+  readonly spelling?: SpelledPitch
 }
 
 export type Measure = {
@@ -148,6 +158,7 @@ export type ScoreNoteInput = {
   readonly tiedFrom?: boolean
   readonly tiedTo?: boolean
   readonly fingering?: number
+  readonly spelling?: SpelledPitch
 }
 
 export type MeasureInput = {
@@ -282,6 +293,12 @@ function buildNotes(
     invariant(Number.isInteger(voice) && voice >= 1, `note voice must be >= 1, got ${voice}`)
     const staff = n.staff ?? (n.hand === 'right' ? 1 : 2)
     invariant(Number.isInteger(staff) && staff >= 1, `note staff must be >= 1, got ${staff}`)
+    if (n.spelling !== undefined) {
+      invariant(
+        toMidi(n.spelling) === n.midi,
+        `note spelling ${pitchName(n.spelling)} sounds as ${toMidi(n.spelling)}, not the declared midi ${n.midi}`,
+      )
+    }
 
     const measureIndex = measureIndexAtTick(measures, n.startTick)
     invariant(measureIndex >= 0, `note at tick ${n.startTick} lies outside every measure`)
@@ -302,6 +319,7 @@ function buildNotes(
       tiedFrom: n.tiedFrom ?? false,
       tiedTo: n.tiedTo ?? false,
       ...(n.fingering === undefined ? {} : { fingering: n.fingering }),
+      ...(n.spelling === undefined ? {} : { spelling: n.spelling }),
     }
   })
   // Stable sort: notes that agree on both keys keep the order they came in.

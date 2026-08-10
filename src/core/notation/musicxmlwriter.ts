@@ -91,9 +91,25 @@ function clefXml(staff: number, clef: Clef): string {
   return `<clef number="${staff}"><sign>${sign}</sign><line>${line}</line></clef>`
 }
 
-/** 'sharp'/'flat'/'natural' — the only accidentals `fromMidi` ever spells (alter is -1, 0 or 1). */
+/**
+ * MusicXML's accidental names for every value `Alter` allows. `fromMidi`
+ * (the no-spelling fallback) only ever produces -1/0/1, but a note carrying
+ * its own `spelling` — e.g. a scale's raised leading tone — can legitimately
+ * need a double sharp/flat.
+ */
 function accidentalName(alter: number): string {
-  return alter > 0 ? 'sharp' : alter < 0 ? 'flat' : 'natural'
+  switch (alter) {
+    case 2:
+      return 'double-sharp'
+    case 1:
+      return 'sharp'
+    case 0:
+      return 'natural'
+    case -1:
+      return 'flat'
+    default:
+      return 'flat-flat'
+  }
 }
 
 /**
@@ -105,6 +121,13 @@ function accidentalName(alter: number): string {
  * whatever `accidentalState` last recorded for this letter+octave, falling
  * back to the key signature the first time that letter+octave is seen.
  * Mutates `accidentalState`; reset it once per measure.
+ *
+ * `note.spelling`, when the builder supplied one, is engraved AS WRITTEN —
+ * it is what lets a scale's E#/B#/Cb/Fb leading tone or a harmonic-minor
+ * raised 7th disagree with the measure's single sharps-vs-flats bias and
+ * still print correctly. Without it, `fromMidi` re-derives a spelling from
+ * `midi` alone, which can only ever choose between the twelve single
+ * sharp/flat spellings for that measure.
  */
 function pitchXml(
   note: ScoreNote,
@@ -112,7 +135,7 @@ function pitchXml(
   accidentalState: Map<string, number>,
 ): { readonly xml: string; readonly accidental?: string } {
   const preferFlats = keyFifths < 0
-  const spelled = fromMidi(note.midi, preferFlats)
+  const spelled = note.spelling ?? fromMidi(note.midi, preferFlats)
   const keyAlter = alterFor({ fifths: keyFifths, mode: 'major' }, spelled.letter)
   const stateKey = `${spelled.letter}${spelled.octave}`
   const priorAlter = accidentalState.get(stateKey) ?? keyAlter
