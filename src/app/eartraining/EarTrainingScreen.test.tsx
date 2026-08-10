@@ -7,7 +7,7 @@
 import { useEarTrainingStore } from '@app/state/earTrainingStore.ts'
 import { emptyEarSession } from '@core/eartraining/session.ts'
 import { seededRng } from '@core/ports/rng.ts'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FakeClock, FakeMidiInput, RecordingAudioOutput, scriptedRng } from '@test/fakes.ts'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -30,6 +30,13 @@ function setup() {
   const rng = scriptedRng([0])
   const midiInput = new FakeMidiInput()
   render(<EarTrainingScreen date={date} audioOutput={audioOutput} rng={rng} midiInput={midiInput} />)
+  // Off by default in THIS file's setup() (the screen's own real default is
+  // on — see the dedicated "tonal context" describe block below): every test
+  // above that block asserts prompt/count-in calls exactly, and predates
+  // roadmap 5.28, so leaving the screen's real default checked here would
+  // inject an extra drone into every one of them for no reason relevant to
+  // what each is actually testing.
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Play tonal context before each item' }))
   return { audioOutput, clock }
 }
 
@@ -330,5 +337,39 @@ describe('EarTrainingScreen — retention stats', () => {
     await user.click(screen.getByRole('button', { name: 'perfect fifth' }))
 
     expect(screen.getByTestId('eartraining-stats-total')).toHaveTextContent('1')
+  })
+})
+
+describe('EarTrainingScreen — tonal context toggle (roadmap 5.28)', () => {
+  it('defaults to on, and unchecking it drops the drone from the next thing played', async () => {
+    const user = userEvent.setup()
+    const clock = new FakeClock(9000)
+    const audioOutput = new RecordingAudioOutput(clock)
+    const date = new FakeClock(1_700_000_000_000)
+    const midiInput = new FakeMidiInput()
+    render(
+      <EarTrainingScreen
+        date={date}
+        audioOutput={audioOutput}
+        rng={scriptedRng([0])}
+        midiInput={midiInput}
+      />,
+    )
+
+    const toggle = screen.getByRole('checkbox', { name: 'Play tonal context before each item' })
+    expect(toggle).toBeChecked()
+
+    await user.click(screen.getByRole('button', { name: 'Play' }))
+    // Level 1 melodic interval prompt is 2 notes; the default-on drone adds
+    // 2 more (tonic + fifth) ahead of them.
+    expect(audioOutput.calls.filter((c) => c.kind === 'noteOn')).toHaveLength(4)
+    const afterFirstPlay = audioOutput.calls.filter((c) => c.kind === 'noteOn').length
+
+    await user.click(toggle)
+    expect(toggle).not.toBeChecked()
+    await user.click(screen.getByRole('button', { name: 'Replay' }))
+
+    // Only the 2 prompt notes this time — no drone.
+    expect(audioOutput.calls.filter((c) => c.kind === 'noteOn')).toHaveLength(afterFirstPlay + 2)
   })
 })

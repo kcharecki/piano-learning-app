@@ -160,6 +160,19 @@ describe('generateIntervalItem', () => {
     )
   })
 
+  // roadmap 5.28: the tonal-context drone anchors on the lower sounding
+  // note — an interval item has no real key, so that note is the most
+  // honest thing to call "the tonic" here.
+  it('carries the lower note as its tonal-context tonic (property)', () => {
+    fc.assert(
+      fc.property(arbLevel, fc.boolean(), arbSeed, (level, harmonic, seed) => {
+        const item = generateIntervalItem(level, { harmonic }, seededRng(seed))
+        const lowMidi = Math.min(...item.prompt.notes.map((n) => n.midi))
+        expect(item.contextTonicMidi).toBe(lowMidi)
+      }),
+    )
+  })
+
   it('kind matches the harmonic option', () => {
     fc.assert(
       fc.property(arbLevel, fc.boolean(), arbSeed, (level, harmonic, seed) => {

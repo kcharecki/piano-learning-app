@@ -217,7 +217,18 @@ export function generateChordQualityItem(level: number, opts: ChordItemOptions, 
     measures: [{}],
     notes: arpeggiated ? arpeggiatedChordNotes(notes, hand) : blockChordNotes(notes, hand),
   })
-  return { id, kind: 'chord-quality', prompt, answerKey: quality, level: clampedLevel }
+  // The chord's own root — not affected by which inversion actually sounds
+  // (roadmap 5.28): the tonal-context drone establishes the ROOT as a
+  // reference, exactly like the answer itself is graded by quality, never by
+  // voicing (see this module's own doc on inversions grading as their quality).
+  return {
+    id,
+    kind: 'chord-quality',
+    prompt,
+    answerKey: quality,
+    level: clampedLevel,
+    contextTonicMidi: toMidi(root),
+  }
 }
 
 export function gradeChordQualityAnswer(item: EarItem, answer: ChordQuality): EarGrade {
@@ -263,7 +274,16 @@ export function generateScaleModeItem(level: number, opts: ScaleItemOptions, rng
 
   const id = `scale-mode:${type}:${notes.join('-')}`
   const prompt = makeScore({ id, measures: [{}], notes: noteInputs })
-  return { id, kind: 'scale-mode', prompt, answerKey: type, level: clampedLevel }
+  // roadmap 5.28: the scale's own tonic is the tonal context to establish —
+  // it is also the prompt's own first and last sounding note.
+  return {
+    id,
+    kind: 'scale-mode',
+    prompt,
+    answerKey: type,
+    level: clampedLevel,
+    contextTonicMidi: toMidi(tonic),
+  }
 }
 
 export function gradeScaleModeAnswer(item: EarItem, answer: ScaleType): EarGrade {

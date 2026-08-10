@@ -55,6 +55,13 @@ function setup(overrides: Partial<UseEarTrainingOptions> = {}) {
     audioOutput,
     rng: scriptedRng([0]),
     midiInput: new FakeMidiInput(),
+    // Off by default in this file's own setup() (NOT the hook's real default,
+    // which is on — see the dedicated "tonal context" describe block below):
+    // every test above that block asserts prompt/count-in calls exactly, and
+    // was written before roadmap 5.28 existed, so leaving the hook's real
+    // default here would inject an extra drone into every one of them for no
+    // reason relevant to what each is actually testing.
+    tonalContext: false,
     ...overrides,
   }
   const { result, rerender } = renderHook((p: UseEarTrainingOptions) => useEarTraining(p), {
@@ -678,5 +685,119 @@ describe('useEarTraining — count-in and prompt tempo (roadmap 3.23, REQ-3.6.1)
     act(() => result.current.start())
 
     expect(result.current.promptTempoBpm).toBe(120)
+  })
+})
+
+describe('useEarTraining — tonal context (roadmap 5.28)', () => {
+  // Asserted against the RECORDED AudioOutput calls with exact timestamps —
+  // the same "assert the calls, not the projection" pattern the count-in
+  // tests above use (roadmap 3.13/3.23).
+  it('schedules a tonic+fifth drone ending exactly at tick 0, before a non-dictation item', () => {
+    const { result, audioOutput, clock } = setup({ tonalContext: true })
+    const baseMs = clock.now()
+
+    act(() => result.current.start())
+
+    const tonic = result.current.item?.contextTonicMidi
+    expect(tonic).toBeDefined()
+    if (tonic === undefined) return
+    const fifth = tonic + 7
+
+    const noteOns = audioOutput.calls.filter((c) => c.kind === 'noteOn')
+    const noteOffs = audioOutput.calls.filter((c) => c.kind === 'noteOff')
+    // Two beats at the default 120bpm = 1000ms — ends where the prompt's own
+    // first note begins (baseMs), starts 1000ms before that.
+    const contextOns = noteOns.filter((c) => c.at === baseMs - 1000)
+    expect(contextOns.map((c) => c.note).sort((a, b) => a - b)).toEqual([tonic, fifth].sort((a, b) => a - b))
+    expect(contextOns.every((c) => c.velocity === 55)).toBe(true)
+    const contextOffs = noteOffs.filter((c) => c.at === baseMs)
+    expect(contextOffs.map((c) => c.note).sort((a, b) => a - b)).toEqual([tonic, fifth].sort((a, b) => a - b))
+
+    // The prompt's own first note starts exactly where the drone ends —
+    // adjacent, never overlapping.
+    const promptOnset = noteOns.find((c) => c.at === baseMs)
+    expect(promptOnset).toBeDefined()
+  })
+
+  it('for a dictation item, the drone ends exactly where the count-in begins, before it, not overlapping it', () => {
+    const { result, audioOutput, clock } = setup({ tonalContext: true })
+    act(() => result.current.setKind('melodic-dictation'))
+    const baseMs = clock.now()
+
+    act(() => result.current.start())
+
+    const tonic = result.current.item?.contextTonicMidi
+    expect(tonic).toBeDefined()
+    if (tonic === undefined) return
+    const fifth = tonic + 7
+
+    // The count-in is a one-bar (4-beat) 4/4 count-in starting at baseMs - 2000
+    // (see the count-in tests above) — the drone's own 2 beats (1000ms) must
+    // end exactly there, at baseMs - 2000, i.e. start at baseMs - 3000.
+    const noteOns = audioOutput.calls.filter((c) => c.kind === 'noteOn')
+    const noteOffs = audioOutput.calls.filter((c) => c.kind === 'noteOff')
+    const contextOns = noteOns.filter((c) => c.at === baseMs - 3000)
+    expect(contextOns.map((c) => c.note).sort((a, b) => a - b)).toEqual([tonic, fifth].sort((a, b) => a - b))
+    const contextOffs = noteOffs.filter((c) => c.at === baseMs - 2000)
+    expect(contextOffs.map((c) => c.note).sort((a, b) => a - b)).toEqual([tonic, fifth].sort((a, b) => a - b))
+
+    const firstClick = audioOutput.calls.find((c) => c.kind === 'click')
+    expect(firstClick?.at).toBe(baseMs - 2000)
+    // No prompt/count-in note-on shares the drone's own start time — it never
+    // reaches back further than its own 2 beats.
+    expect(noteOns.some((c) => c.at < baseMs - 3000)).toBe(false)
+  })
+
+  it('tonalContext: false schedules no drone at all', () => {
+    const { result, audioOutput } = setup({ tonalContext: false })
+
+    act(() => result.current.start())
+
+    // Level 1 melodic interval item is exactly 2 notes (see the "generating
+    // and playing" describe block above) — no drone means no more than that.
+    expect(audioOutput.calls.filter((c) => c.kind === 'noteOn')).toHaveLength(2)
+  })
+
+  it('replay() schedules a fresh drone too, respecting tonalContext exactly like start() does', () => {
+    const { result, audioOutput } = setup({ tonalContext: true })
+    act(() => result.current.start())
+    const afterStart = audioOutput.calls.filter((c) => c.kind === 'noteOn').length
+
+    act(() => result.current.replay())
+
+    expect(audioOutput.calls.filter((c) => c.kind === 'noteOn')).toHaveLength(afterStart * 2)
+  })
+
+  // `rhythmic-dictation` never carries a `contextTonicMidi` (rhythm has no
+  // scale — core/eartraining/dictation.ts's own doc) — a drone there would be
+  // noise, not context, so none is scheduled even with the option on. The
+  // count-in is unrelated to tonal context and must still play.
+  it('a rhythmic-dictation item gets no drone (no tonic to anchor on) but keeps its count-in', () => {
+    const { result, audioOutput } = setup({ tonalContext: true })
+    act(() => result.current.setKind('rhythmic-dictation'))
+
+    act(() => result.current.start())
+
+    expect(result.current.item?.contextTonicMidi).toBeUndefined()
+    expect(audioOutput.calls.filter((c) => c.kind === 'click')).toHaveLength(4)
+    expect(audioOutput.calls.filter((c) => c.kind === 'noteOn')).toHaveLength(
+      result.current.item?.prompt.notes.length ?? -1,
+    )
+  })
+
+  // The literal proof text (roadmap 5.28): "the drill still grades the same
+  // answers" — the drone changes what is HEARD before an item, never what the
+  // item itself is or how an answer against it is scored.
+  it('grading is identical whether tonal context is on or off, for the same answer', () => {
+    const on = setup({ tonalContext: true })
+    act(() => on.result.current.start())
+    act(() => on.result.current.answer({ kind: 'interval-melodic', interval: P5 }))
+
+    const off = setup({ tonalContext: false })
+    act(() => off.result.current.start())
+    act(() => off.result.current.answer({ kind: 'interval-melodic', interval: P5 }))
+
+    expect(on.result.current.grade).toEqual(off.result.current.grade)
+    expect(on.result.current.item?.answerKey).toBe(off.result.current.item?.answerKey)
   })
 })

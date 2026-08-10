@@ -77,6 +77,7 @@ import {
 import { generateRhythm, rhythmToScore, type RhythmParams, type RhythmPattern } from '@core/generator/rhythm.ts'
 import type { Score, TimeSignature } from '@core/notation/score.ts'
 import { keyName, type Key } from '@core/theory/keys.ts'
+import { toMidi } from '@core/theory/pitch.ts'
 import type { EarGrade, EarItem } from '@core/eartraining/item.ts'
 import { midi as asMidi, ticks as asTicks, EIGHTH, type Midi, type Ticks } from '@core/shared/units.ts'
 import type { Rng } from '@core/ports/rng.ts'
@@ -271,7 +272,17 @@ export function generateMelodicDictation(level: number, opts: DictationOptions, 
   const answerKey = notesKey(score.notes, true)
   const id = `dictation:melodic:${keyName(key)}:${bars}b:${range.low}-${range.high}:${fnv1a(answerKey)}`
   const clampedLevel = Math.min(5, Math.max(1, Math.round(level)))
-  return { id, kind: 'melodic-dictation', prompt: score, answerKey, level: clampedLevel }
+  // roadmap 5.28: melodic dictation is generated IN a real Key (`key`,
+  // above) — unlike every other drill here, this one gets to use the actual
+  // tonic rather than a stand-in.
+  return {
+    id,
+    kind: 'melodic-dictation',
+    prompt: score,
+    answerKey,
+    level: clampedLevel,
+    contextTonicMidi: toMidi(key.tonic),
+  }
 }
 
 /**

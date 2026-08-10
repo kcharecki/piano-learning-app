@@ -109,11 +109,13 @@ import type { AudioOutput, DateSource, MidiInput, Rng } from '@core/ports/index.
 import { seededRng } from '@core/ports/rng.ts'
 import {
   addTicks,
+  midi,
   millis,
   ticks,
   TICKS_PER_QUARTER,
   type Midi,
   type Millis,
+  type Ticks,
 } from '@core/shared/units.ts'
 import type { ChordQuality } from '@core/theory/chords.ts'
 import type { Interval } from '@core/theory/intervals.ts'
@@ -149,6 +151,15 @@ export type UseEarTrainingOptions = {
    *  options. A ready-made input skips `connectMidi` entirely. */
   readonly midiInput?: MidiInput
   readonly connectMidi?: ConnectMidi
+  /**
+   * Play a brief tonic-context (a drone: tonic + fifth) before every item —
+   * REQ-3.6.1/REQ-3.6.2's "establish a tonal center first" (roadmap 5.28).
+   * Defaults on. Pass `false` for context-free practice: functional
+   * (key-relative) and context-free (interval-only) hearing are
+   * complementary skills, neither one obsoleting the other — see this
+   * option's own module-doc section below.
+   */
+  readonly tonalContext?: boolean
 }
 
 export type UseEarTraining = {
@@ -328,12 +339,62 @@ function scheduleCountIn(audioOutput: AudioOutput, item: EarItem, baseMs: Millis
   }
 }
 
-/** Schedule every note of `item.prompt` from one `audioOutput.now()` reading, plus a count-in
- *  first for a dictation item — see the module doc's "A count-in and a displayed tempo" section. */
-function scheduleItem(audioOutput: AudioOutput, item: EarItem): void {
+/** Beats of tonic-drone context (tonic + fifth, held together) played before an item
+ *  (roadmap 5.28) — see `scheduleContext`'s own doc below. */
+const CONTEXT_BEATS = 2
+/** Softer than a prompt note's own velocity (score notes default around 80):
+ *  the drone is a reference to listen past, not the thing being graded. */
+const CONTEXT_VELOCITY = 55
+
+/**
+ * A tonic + fifth drone ending exactly at `endTick` — negative-tick scheduled
+ * against the item's own tempo map, the same `tickToMs` extrapolation
+ * `scheduleCountIn` already uses, so no second hand-rolled ms/tick
+ * computation exists in this file. `endTick` is tick 0 for a non-dictation
+ * item, or the count-in's own start tick for a dictation item (see
+ * `scheduleItem`) — the drone always finishes right where the NEXT sound
+ * begins, never overlapping it.
+ */
+function scheduleContext(
+  audioOutput: AudioOutput,
+  tonicMidi: Midi,
+  baseMs: Millis,
+  tempoMap: TempoMap,
+  endTick: Ticks,
+): void {
+  const fifth = midi(tonicMidi + 7)
+  const startTick = ticks(endTick - CONTEXT_BEATS * TICKS_PER_QUARTER)
+  const onMs = millis(baseMs + tickToMs(tempoMap, startTick))
+  const offMs = millis(baseMs + tickToMs(tempoMap, endTick))
+  for (const pitch of [tonicMidi, fifth]) {
+    audioOutput.noteOn(pitch, CONTEXT_VELOCITY, onMs)
+    audioOutput.noteOff(pitch, offMs)
+  }
+}
+
+/**
+ * Schedule every note of `item.prompt` from one `audioOutput.now()` reading, plus (in order)
+ * a tonal-context drone (roadmap 5.28, unless `tonalContext` is false or the item carries no
+ * `contextTonicMidi` — see `scheduleContext`'s own doc above) and a count-in for a dictation
+ * item (module doc's "A count-in and a displayed tempo" section). Both extras schedule BEFORE
+ * the prompt's own notes and never touch their timestamps, so grading (which only ever reads
+ * `item.prompt`/the learner's answer) is unaffected either way.
+ */
+function scheduleItem(audioOutput: AudioOutput, item: EarItem, tonalContext: boolean): void {
   const tempoMap = makeTempoMap(item.prompt.tempos)
   const baseMs = audioOutput.now()
-  if (isDictationKind(item.kind)) scheduleCountIn(audioOutput, item, baseMs, tempoMap)
+  const isDictation = isDictationKind(item.kind)
+  if (tonalContext && item.contextTonicMidi !== undefined) {
+    // The drone ends where the FIRST sound after it begins: tick 0 for every
+    // other kind, or the count-in's own start tick for a dictation item — a
+    // dictation item's count-in must stay the sound immediately before the
+    // prompt (REQ-3.6.1's pulse-before-you-play-it purpose), not have the
+    // drone wedged between it and the prompt.
+    const beats = item.prompt.measures[0]?.timeSignature.beats ?? 4
+    const contextEndTick = isDictation ? ticks(-beats * TICKS_PER_QUARTER) : ticks(0)
+    scheduleContext(audioOutput, item.contextTonicMidi, baseMs, tempoMap, contextEndTick)
+  }
+  if (isDictation) scheduleCountIn(audioOutput, item, baseMs, tempoMap)
   for (const note of item.prompt.notes) {
     const onMs = millis(baseMs + tickToMs(tempoMap, note.startTick))
     const offMs = millis(baseMs + tickToMs(tempoMap, addTicks(note.startTick, note.durationTicks)))
@@ -410,7 +471,7 @@ export function useEarTraining(options: UseEarTrainingOptions = {}): UseEarTrain
   }
 
   function playItemNow(next: EarItem): void {
-    scheduleItem(getAudioOutput(), next)
+    scheduleItem(getAudioOutput(), next, options.tonalContext ?? true)
     setPhase('playing')
   }
 
@@ -436,7 +497,7 @@ export function useEarTraining(options: UseEarTrainingOptions = {}): UseEarTrain
     // grade is on screen, and re-entering 'answering'/'playing' would let a
     // second answer on the same item record a duplicate EarAttempt while the
     // learner can see the answer. See the review finding this fixes.
-    scheduleItem(getAudioOutput(), item)
+    scheduleItem(getAudioOutput(), item, options.tonalContext ?? true)
     // A dictation in progress must not survive a replay: pressDictationNote
     // anchors every later press to the *first* press's wall-clock time, and
     // replaying touches neither `dictationNotes` nor `firstPressMsRef` — so a

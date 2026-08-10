@@ -9,6 +9,7 @@
  * revealed — through code that already exists and is already tested.
  */
 import type { Score } from '@core/notation/score.ts'
+import type { Midi } from '@core/shared/units.ts'
 
 /** Which drill produced an item. Also the SRS card-id namespace, so keep them stable. */
 export type EarItemKind =
@@ -34,6 +35,16 @@ export type EarItem = {
   readonly answerKey: string
   /** 1-based; what `adaptLevel` moves up and down. */
   readonly level: number
+  /**
+   * The tonic to sound as a brief context (roadmap 5.28) before this item
+   * plays — undefined when the drill has no real tonal center to establish.
+   * `rhythmic-dictation` never sets this: rhythm has no scale (see
+   * `dictation.ts`'s own note on `opts.key` there), so a tonic before it
+   * would be noise, not context. App-level scheduling (`useEarTraining.ts`)
+   * reads this to play the context through `AudioOutput`; core never touches
+   * audio output itself.
+   */
+  readonly contextTonicMidi?: Midi
 }
 
 /** The result of grading one answer. Drills that grade note-by-note extend this. */
