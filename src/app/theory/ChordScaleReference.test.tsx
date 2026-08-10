@@ -214,6 +214,15 @@ describe('ChordScaleReference', () => {
     }
   })
 
+  it('a mode not in the graded syllabi reads that sentence instead of a bare dash (roadmap 5.37)', () => {
+    render(<Controlled initialType="dorian" />)
+    const row = screen.getByTestId('scale-degree-1')
+    expect(row).toHaveTextContent('no standard fingering — modes are not in the graded syllabi')
+    // Minor scales are a different case (roadmap 5.35, not this task) — they
+    // still read a bare dash, never this sentence, because minor scales ARE
+    // in the graded syllabi.
+  })
+
   it('substitutes the raised-leading-tone V and vii° chords for harmonic minor instead of the natural-minor reading', async () => {
     render(<Controlled initialType="harmonicMinor" />)
 

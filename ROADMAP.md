@@ -191,9 +191,15 @@ The M3 gaps that are unbuilt features rather than defects. Each states its proof
       *Proof: both components import the helper, neither declares its own, and 3.13's audio
       assertions (exact pitches, exact timestamps, a note-off per note-on, velocity above zero)
       still pass unchanged.*
-- [ ] 3.16 `core/theory`: fingering for the other 14 scale types (REQ-3.5.4) — `scaleFingering`
-      returns `null` unless the type is major/ionian, and the circle's whole inner ring lands the
-      user on `naturalMinor`, i.e. half the advertised flow reaches a fingering-less reference.
+- [ ] 3.16 `core/theory`: fingering for the minor forms (REQ-3.5.4) — `scaleFingering` returns
+      `null` unless the type is major/ionian, and the circle's whole inner ring lands the user on
+      `naturalMinor`, i.e. half the advertised flow reaches a fingering-less reference.
+      **Re-scoped by roadmap 5.37**: the mode half of this task (dorian/phrygian/lydian/
+      mixolydian/aeolian/locrian, plus chromatic/pentatonics/blues/whole tone) is deliberately NOT
+      shipped — RCM's 2022 chart has zero hits for any of them, so the reference now says so
+      instead of promising a table that was never going to exist (`NO_STANDARD_FINGERING_TYPES`,
+      `scales.ts`). What remains here is the minor forms only, tracked and shipped by **5.35**, a
+      narrower table-based approach — see that task rather than the derivation below.
       **ATTEMPTED 2026-08-04 AND REVERTED — read this before trying again.** Tables for the minor
       forms and chromatic plus a thumb-placement rule for the other ten types were built, passed a
       green 526-test suite, and were reverted after adversarial review found: 11 of 108 derived
@@ -493,17 +499,13 @@ it trains reading the word "half". Two further problems in that same screenshot:
 opens on whole and half **rests** (Faber puts the quarter rest last, at unit 10), and "complexity 1 =
 whole and half notes" inverts the order Faber and Alfred agree on, **quarter → half → whole**.
 
-- [x] 5.19 `app/rhythm`: engrave the pattern — reused `core/generator/rhythm.ts`'s existing
-      `rhythmToScore` (already built for silent transport playback) and `@app/sightreading/ExerciseScore.tsx`
-      (already reused by Technique) rather than duplicating the MusicXML-writer wiring a third time.
-      Deleted `PatternPreview.tsx`, the text stand-in ("Bar 1: half, half…"), following the exact
-      precedent 2.20 set when `NoteListPreview` was deleted for sight reading.
-      *Proof: `e2e/rhythm.spec.ts` — after Start, `score-container` holds a real OSMD svg (83 elements,
-      well past the 50-element discriminator), the pattern region's text contains neither "half" nor
-      "whole", and `[data-note-id]` count (real engraved notes) exactly equals matched+missed —
-      cross-checking the engraving against the same grade the tapping run produced. Driven live: Rhythm
-      screen, Start, real notation renders, Tap still works, console clean, both themes, both widths
-      (1280px and 768px, no horizontal scroll).*
+- [x] 5.19 `app/rhythm`: engrave the pattern — reused `rhythmToScore` (already built for silent
+      transport playback) and `@app/sightreading/ExerciseScore.tsx` (already reused by Technique)
+      instead of a third MusicXML-writer wiring. Deleted `PatternPreview.tsx`'s text stand-in
+      ("Bar 1: half, half…"), the same precedent 2.20 set deleting `NoteListPreview`.
+      *Proof: `e2e/rhythm.spec.ts` — a real OSMD svg (83 elements, past the 50-element discriminator),
+      no "half"/"whole" text, `[data-note-id]` count equals matched+missed. Driven live, both themes/
+      widths, console clean.*
 - [ ] 5.20 `core/generator/rhythm`: reorder complexity — level 1 is quarters and halves with **no rests**;
       rests enter after note values are secure, quarter rest first.
       *Proof: a property test over 500 generated level-1 patterns finds zero rests and no note longer
@@ -644,12 +646,18 @@ both fingering columns**, and minor scales are required from RCM Preparatory B o
       minor** and **Aeolian**. They are the same scales, and a beginner reads two entries as two
       things. Merge, with the alternative name shown as a subtitle.
       *Proof: the selector has one entry per distinct scale, and selecting it shows both names.*
-- [ ] 5.37 `—` for the modes is defensible and should be *labelled*, not filled. RCM's 2022 technical
+- [x] 5.37 `—` for the modes is defensible and should be *labelled*, not filled. RCM's 2022 technical
       requirements chart returns **zero hits** for dorian/phrygian/lydian/mixolydian/aeolian/locrian/
-      whole-tone/blues/pentatonic at any level; modes appear only in ABRSM's Jazz syllabus. Replace the
-      bare `—` with "no standard fingering — modes are not in the graded syllabi".
-      *Proof: the Dorian row reads that sentence rather than a dash, and 3.16 is re-scoped in the same
-      commit to say the mode half is deliberately not shipped.*
+      whole-tone/blues/pentatonic at any level; modes appear only in ABRSM's Jazz syllabus. Replaced the
+      bare `—` with "no standard fingering — modes are not in the graded syllabi" for exactly those
+      11 types (`NO_STANDARD_FINGERING_TYPES`, `core/theory/scales.ts`) — deliberately EXCLUDING the
+      three minor forms, which still read a bare dash: they lack a table today too, but they ARE in
+      the graded syllabi (RCM Preparatory B on), so the sentence would be false for them. That gap is
+      5.35's, not this one's.
+      *Proof: the Dorian row reads that sentence rather than a dash (both fingering cells merged into
+      one, roadmap-`ChordScaleReference.test.tsx`), a natural-minor row still reads a bare dash
+      unchanged, and 3.16 is re-scoped in the same commit to say the mode half is deliberately not
+      shipped. Driven live: Theory reference, Dorian selected, sentence visible; console clean.*
 - [ ] 5.38 The rest of this aspect is **3.14** (no staff rendering in the theory layer — `osmdEngraver`
       is never imported there), **3.15** (no chord picker, no sevenths, and the chord section vanishes
       entirely for the 10 modal/exotic types) and **3.17** (reference is a destination you leave your
@@ -714,17 +722,14 @@ next item, no completion state, no sense of being 3 of 5 through today.
       writes it never (5.14).
       *Proof: `planSession` emits a warm-up segment at every budget, it is first, it opens something
       real, and completing it writes a `warmup` row the Progress screen shows non-zero.*
-- [x] 5.46 `content/curriculum`: recalibrated level 1's playing exit criterion (`curriculum.ts`'s
-      `l1-exit-assessment`) off the hands-together `demo-lh-root-rh-melody-simple-piece` and onto the
-      hands-separate `demo-five-finger-c-major-hands-separately` (RH plays bars 1-3, LH plays bars 4-6
-      — genuinely hands-alone, not merely a different piece). `l2-exit-assessment` was already,
-      deliberately, the hands-together gate (its own pre-existing comment says so) — nothing to add
-      there. Faber's My First Piano Adventure and Alfred's Basic Piano Library both spend the bulk of
-      book 1 on hands-alone playing and introduce real hands-together coordination only entering book
-      2; gating level 1 on hands-together demanded a skill neither method expects that early.
-      *Proof: `curriculum.test.ts`'s validator pass is unchanged (39 tests green); the two dashboard
-      tests that seed a level-1 assessment (`useDashboard.test.ts`, `DashboardScreen.test.tsx`) updated
-      to the new piece id and still assert the same met/unmet split.*
+- [x] 5.46 `content/curriculum`: recalibrated level 1's playing exit criterion (`l1-exit-assessment`)
+      off the hands-together `demo-lh-root-rh-melody-simple-piece` and onto the hands-separate
+      `demo-five-finger-c-major-hands-separately` (RH bars 1-3, LH bars 4-6, genuinely hands-alone).
+      `l2-exit-assessment` was already, deliberately, the hands-together gate (own pre-existing
+      comment says so). Faber and Alfred both spend book 1 on hands-alone playing, introducing real
+      hands-together only in book 2 — level 1 was demanding a skill neither method teaches yet.
+      *Proof: `curriculum.test.ts` unchanged and green; the two dashboard tests seeding a level-1
+      assessment updated to the new piece id, same met/unmet split.*
 - [ ] 5.47 `app/progress`: a teacher/parent output — a printable practice sheet or assignment view.
       Export is JSON/CSV of raw logs, which is a backup format, not something anyone reads.
       *Proof: a week's practice renders as a printable summary (categories, minutes, pieces, what was
