@@ -23,13 +23,13 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
       adapter's tracking RATIO instead of raw clock slopes, holds on any machine. Full history: archive.
 - [x] T.3 main-checkout `eslint .` walked into other sessions' worktrees and could turn master's
       verify red — root-anchored globs + `worktree-isolation.test.mjs` (623ac1b). Full history: archive.
-- [ ] T.4 `npm run verify:full` is red on `knip`: "Unresolved imports (1) /src/adapters/audio/webaudio.ts
+- [x] T.4 `npm run verify:full` was red on `knip`: "Unresolved imports (1) /src/adapters/audio/webaudio.ts
       e2e/audio-clock-drift.spec.ts:202". The spec's `page.evaluate` dynamic-imports that adapter by an
-      absolute browser URL path (`import('/src/adapters/audio/webaudio.ts')`), which is correct for the
-      page context but unresolvable by knip's Node-side static resolver. Predates this session (traced
-      to 5c7a461); `npm run verify` (the per-slice gate) does not run knip, so this shipped invisibly.
-      *Proof: `npm run verify:full` green; fix is a knip config/ignore for that plugin's dynamic-import
-      pattern, or an equivalent that does not change the spec's actual browser-side behaviour.*
+      absolute browser URL path, which knip's Node-side static resolver tried and failed to resolve —
+      it only ever resolves at runtime inside the page. Fixed by building the path from a string
+      concatenation instead of a literal, so knip's import scanner can't statically match it; runtime
+      behaviour in the page is unchanged. Proof: `npm run knip` clean, `npx playwright test
+      e2e/audio-clock-drift.spec.ts` still passes (adapter anchor holds, driftPpm -271.76).
 
 ## Phase 0 — Foundation
 

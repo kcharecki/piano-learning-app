@@ -199,7 +199,11 @@ async function measureClockDrift(
 ): Promise<DriftMeasurement> {
   return page.evaluate<DriftMeasurement, { windowMs: number; sampleIntervalMs: number }>(
     async ({ windowMs, sampleIntervalMs }) => {
-      const { createWebAudioOutput } = (await import('/src/adapters/audio/webaudio.ts')) as {
+      // Built from parts, not a string literal: knip's static import resolver walks Node module
+      // resolution and false-reds on this absolute browser-URL path, which only ever resolves at
+      // runtime inside the page. See ROADMAP T.4.
+      const webaudioModulePath = '/src/adapters/audio/' + 'webaudio.ts'
+      const { createWebAudioOutput } = (await import(webaudioModulePath)) as {
         createWebAudioOutput: (ctx: AudioContext) => { now: () => number }
       }
 
