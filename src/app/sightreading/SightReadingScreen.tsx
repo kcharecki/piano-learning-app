@@ -11,6 +11,8 @@ import type { ConnectMidi } from '@app/practice/useMidiConnection.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { useState } from 'react'
 import { ExerciseScore } from './ExerciseScore.tsx'
+import { SightReadingCustomizer } from './SightReadingCustomizer.tsx'
+import type { SightReadingCustomization } from './customization.ts'
 import { useSightReadingTrainer } from './useSightReadingTrainer.ts'
 
 export type SightReadingScreenProps = {
@@ -30,7 +32,8 @@ function percent(fraction: number): string {
 
 export function SightReadingScreen(props: SightReadingScreenProps) {
   const [metronomeEnabled, setMetronomeEnabled] = useState(true)
-  const trainer = useSightReadingTrainer({ ...props, metronomeEnabled })
+  const [customization, setCustomization] = useState<SightReadingCustomization>({})
+  const trainer = useSightReadingTrainer({ ...props, metronomeEnabled, customization })
 
   return (
     <div className="sight-reading-screen">
@@ -51,6 +54,12 @@ export function SightReadingScreen(props: SightReadingScreenProps) {
         />
         Metronome click
       </label>
+
+      <SightReadingCustomizer
+        customization={customization}
+        onChange={setCustomization}
+        disabled={trainer.phase !== 'idle'}
+      />
 
       {trainer.error !== undefined && (
         <p role="alert" data-testid="sight-reading-error">

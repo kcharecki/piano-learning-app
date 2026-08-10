@@ -107,7 +107,8 @@ import { bpmAtTick, makeTempoMap, tickToMs } from '@core/timing/tempo.ts'
 import { millis as asMillis, ticks as asTicks } from '@core/shared/units.ts'
 import { invariant } from '@core/shared/invariant.ts'
 import { adaptLevel, nextExerciseParams } from '@core/sightreading/adaptive.ts'
-import { generateMelody } from '@core/generator/melody.ts'
+import { defaultParamsForLevel, generateMelody } from '@core/generator/melody.ts'
+import { applyCustomization, isCustomizationActive, type SightReadingCustomization } from './customization.ts'
 import {
   isRetired,
   retire,
@@ -159,6 +160,8 @@ export type UseSightReadingTrainerOptions = {
   readonly rng?: Rng
   /** REQ-3.9.1: on by default (a no-stopping run needs a pulse to keep to) but must be switchable. */
   readonly metronomeEnabled?: boolean
+  /** REQ-3.4.2: overrides `start()` applies on top of the level's own default params. */
+  readonly customization?: SightReadingCustomization
 }
 
 export type UseSightReadingTrainer = {
@@ -193,6 +196,8 @@ export function useSightReadingTrainer(
   levelRef.current = level
   const historyRef = useRef(history)
   historyRef.current = history
+  const customizationRef = useRef<SightReadingCustomization>(options.customization ?? {})
+  customizationRef.current = options.customization ?? {}
 
   const [clock] = useState<Clock>(() => options.clock ?? createBrowserClock())
   const [date] = useState<DateSource>(() => options.date ?? { epochMillis: () => Date.now() })
@@ -397,7 +402,15 @@ export function useSightReadingTrainer(
   function start(): void {
     setAudioOutput((current) => current ?? createDefaultAudioOutput())
     setError(undefined)
-    const params = nextExerciseParams(levelRef.current, rng, historyRef.current)
+    const customization = customizationRef.current
+    // A customized run picks its own key/hands/rhythm/etc. directly off the
+    // level's own default shape — the retirement-aware variant search in
+    // `nextExerciseParams` exists to vary an AUTO-drawn exercise away from an
+    // already-seen id, which is a different problem from "the learner asked
+    // for exactly this". See the customization module doc.
+    const params = isCustomizationActive(customization)
+      ? applyCustomization(defaultParamsForLevel(levelRef.current), customization)
+      : nextExerciseParams(levelRef.current, rng, historyRef.current)
     let generated = generateMelody(params, rng)
     if (!generated.ok) {
       setError(generated.error)

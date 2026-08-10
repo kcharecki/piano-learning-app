@@ -411,13 +411,19 @@ forced start, no stopping, unrepeatable exercises, an 80–90% adaptive band. Th
       regressions, both fixed (`doubleHand` unison octave fold, `dictation.ts`'s leap budget). Proof:
       monotonic-ladder property test, 500-seed level-1 assertion; browser: level 1 renders a real
       4-note ascending run (5e3d8be). Full history: git log.
-- [ ] 5.12 `app/sightreading`: expose the generator parameters the core already supports (REQ-3.4.2:
-      key, range, rhythm, hands, accidentals, independence). The screen offers a level number and a
-      metronome toggle — a learner cannot drill their own weak spot and a teacher cannot say "3/4 in
-      G, left hand only, no leaps".
-      *Proof: set key = G, hands = left only, no accidentals, and assert the generated exercise's
-      engraving actually has one sharp, one staff of notes and no accidental glyphs — read off the
-      rendered SVG, not off the request.*
+- [x] 5.12 `app/sightreading`: exposed the generator parameters `core/generator/melody.ts` already
+      supported (REQ-3.4.2: key, range, rhythm, hands, accidentals, independence) behind a closed-by-
+      default "Customize exercise" panel (`customization.ts`'s pure merge over a level's own
+      `defaultParamsForLevel`, applied only when at least one field is actually set — the ordinary
+      auto-drawn, retirement-aware path is unchanged). Bars/time signature/max leap stay level-governed;
+      range is a register shift (±1 octave, clamped to the real piano) rather than a free-form width,
+      so a custom range can never break the generator's own leap-vs-width invariant.
+      *Proof: `e2e/sight-reading-customizer.spec.ts` sets key = G, hands = left only, no accidentals,
+      and reads the rendered SVG — one `.vf-keysignature` sharp, one `.vf-clef` (single staff, not a
+      grand staff with an empty half), and every `.vf-modifiers` group empty. Visual pass both widths/
+      themes, console clean — caught and fixed one real defect: the unstyled control row wrapped
+      mid-label ("No" / "accidentals" split across lines) at 1024px, fixed with a `domain.css` rule
+      that wraps each label+control as one atomic unit.*
 - [x] 5.13 `core/generator`: generated exercises engraved with the title "Untitled Score" — the part
       name half ("Piano" above the staff) was already fixed app-wide as a side effect of 3.14. Gave
       `generateMelody` a `Sight Reading — <key>` title and `techniqueScore` the drill's own title
