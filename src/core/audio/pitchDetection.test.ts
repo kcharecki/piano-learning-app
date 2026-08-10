@@ -37,6 +37,9 @@ describe('detectPitch', () => {
   })
 
   it('property: a sine tone at every piano note round-trips to the same MIDI note, within a few cents', () => {
+    // 200 runs of a real O(bufferLength * maxTau) YIN pass comfortably clear
+    // the default 5s timeout uninstrumented, but coverage instrumentation
+    // slows it enough to need headroom.
     fc.assert(
       fc.property(arbPianoMidi, (midiNote) => {
         const freq = midiToFrequency(midiNote)
@@ -48,7 +51,7 @@ describe('detectPitch', () => {
       }),
       { numRuns: 200 },
     )
-  })
+  }, 20000)
 
   it('returns null for silence', () => {
     expect(detectPitch(new Float32Array(BUFFER_LENGTH), SAMPLE_RATE)).toBeNull()
