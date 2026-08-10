@@ -823,7 +823,7 @@ describe('persistence', () => {
         id: 'sibling-pe',
         startedAt: 1,
         endedAt: 2,
-        kind: 'warmup',
+        kind: 'technique',
         itemName: 'Sibling',
       }
       await store.put(PRACTICE_LOG_COLLECTION, PRACTICE_LOG_KEY, { practiceEntries: [entry] })
@@ -962,7 +962,7 @@ describe('persistence', () => {
         id: 'sibling-pe-2',
         startedAt: 1,
         endedAt: 2,
-        kind: 'warmup',
+        kind: 'technique',
         itemName: 'Sibling',
       }
       await store.put(PRACTICE_LOG_COLLECTION, PRACTICE_LOG_KEY, { practiceEntries: [entry] })
@@ -1036,7 +1036,7 @@ describe('persistence', () => {
         id: 'sibling-pe-3',
         startedAt: 1,
         endedAt: 2,
-        kind: 'warmup',
+        kind: 'technique',
         itemName: 'Sibling',
       }
       await store.put(PRACTICE_LOG_COLLECTION, PRACTICE_LOG_KEY, { practiceEntries: [entry] })

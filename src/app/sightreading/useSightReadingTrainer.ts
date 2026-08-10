@@ -120,6 +120,7 @@ import { useSightReadingStore } from '@app/state/sightReadingStore.ts'
 import { createBrowserClock } from '@app/practice/clock.ts'
 import { createDefaultAudioOutput } from '@app/practice/createDefaultAudioOutput.ts'
 import { useAssessment } from '@app/practice/useAssessment.ts'
+import { usePracticeLog } from '@app/practice/usePracticeLog.ts'
 import {
   useMidiConnection,
   type ConnectMidi,
@@ -276,6 +277,18 @@ export function useSightReadingTrainer(
   const assessmentRef = useRef(assessment)
   assessmentRef.current = assessment
 
+  // REQ-3.9.5 (roadmap 5.14): a sight-reading run is time worth logging on
+  // the same Progress screen `PracticeScreen`'s repertoire runs already
+  // populate — this is the sight-reading half of the seven silent screens
+  // the review named. One entry per run: started the instant the preview
+  // begins (`start()` below), closed out wherever that run's clock stops —
+  // a natural finish (the effect below) or an abandonment (the unmount
+  // effect further down), exactly the two places `session.finish()` itself
+  // is already called from.
+  const practiceLog = usePracticeLog({ clock, date })
+  const practiceLogRef = useRef(practiceLog)
+  practiceLogRef.current = practiceLog
+
   // The pump for the preview countdown — the same shape `usePracticeEngine`
   // uses for playback, driving `session.update()` instead of a transport
   // tick. `update()` flips the session to `'playing'` the instant its timer
@@ -338,6 +351,7 @@ export function useSightReadingTrainer(
     const updatedHistory = retire(historyRef.current, record)
     const newLevel = adaptLevel(levelRef.current, updatedHistory)
     addRecord(record)
+    practiceLogRef.current.stop({ accuracy: result.accuracy })
     setPreviousLevel(levelRef.current)
     setLevel(newLevel)
     setLastRecord(record)
@@ -394,6 +408,7 @@ export function useSightReadingTrainer(
       const updatedHistory = retire(historyRef.current, record)
       const newLevel = adaptLevel(levelRef.current, updatedHistory)
       addRecord(record)
+      practiceLogRef.current.stop({ accuracy: result.accuracy })
       setLevel(newLevel)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately mount-once; see the comment above
@@ -449,6 +464,7 @@ export function useSightReadingTrainer(
     })
     session.beginPreview()
     sessionRef.current = session
+    practiceLogRef.current.start('sightreading', `Sight reading — level ${levelRef.current}`)
     runScoreRef.current = contentScore
     matcherRef.current = new NoteMatcher(contentScore, makeTempoMap(contentScore.tempos), { hands })
     matcherAnchorRef.current = undefined

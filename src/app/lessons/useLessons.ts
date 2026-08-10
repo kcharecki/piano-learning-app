@@ -18,7 +18,9 @@
  * than leaving `selected` pointing at nothing — the previous, still-valid
  * selection is kept.
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { createBrowserClock } from '@app/practice/clock.ts'
+import { usePracticeLog } from '@app/practice/usePracticeLog.ts'
 import { useScoreStore } from '@app/state/scoreStore.ts'
 import { CURRICULUM } from '@content/curriculum/curriculum.ts'
 import { demoScoreById } from '@content/scores/demoScores.ts'
@@ -74,6 +76,15 @@ function levelOfLesson(lessonId: string): number | undefined {
 export function useLessons(): UseLessonsResult {
   const loadScore = useScoreStore((s) => s.loadScore)
 
+  // REQ-3.9.5 (roadmap 5.14): no `Clock`/`DateSource` is threaded through
+  // this hook's public options today — both are synthesized here purely to
+  // give `usePracticeLog` what `PracticeTimer`'s constructor needs.
+  const [clock] = useState(() => createBrowserClock())
+  const [date] = useState(() => ({ epochMillis: () => Date.now() }))
+  const practiceLog = usePracticeLog({ clock, date })
+  const practiceLogRef = useRef(practiceLog)
+  practiceLogRef.current = practiceLog
+
   const [level, setLevelRaw] = useState<number>(() => CURRICULUM_LEVELS[0] ?? 1)
   const [track, setTrack] = useState<Track | undefined>(undefined)
   const [selectedLessonId, setSelectedLessonId] = useState<string | undefined>(undefined)
@@ -99,6 +110,34 @@ export function useLessons(): UseLessonsResult {
     }
     return lessons[0]
   }, [selectedLessonId, level, lessons])
+
+  // REQ-3.9.5 (roadmap 5.14): time spent reading a lesson's body is worth
+  // logging even though the lesson itself has no phase machine — the
+  // natural boundary is "which lesson is `selected`", one entry per lesson
+  // viewed, closed and reopened whenever `selected` changes; the unmount
+  // safety net in `usePracticeLog` closes the final one. Opening a demo or
+  // exercise navigates to another screen that logs its own kind — this
+  // only ever covers time spent on THIS screen.
+  //
+  // The start() itself is deferred by a macrotask and cancelled in cleanup
+  // — see `useFlashcardDrill.ts`'s identical effect for why: React 18
+  // StrictMode's synchronous mount->cleanup->remount double-invoke would
+  // otherwise open and immediately close a real, stored, near-zero-duration
+  // session on every fresh mount, since a `PracticeTimer` session is not an
+  // idempotent resource the way a subscription is.
+  const selectedId = selected?.id
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      practiceLogRef.current.stop()
+      if (selectedId === undefined) return
+      const title = lessonById(CURRICULUM, selectedId)?.title ?? selectedId
+      practiceLogRef.current.start('lesson', title)
+    }, 0)
+    return () => {
+      clearTimeout(timer)
+      practiceLogRef.current.stop()
+    }
+  }, [selectedId])
 
   function setLevel(nextLevel: number): void {
     setLevelRaw(nextLevel)

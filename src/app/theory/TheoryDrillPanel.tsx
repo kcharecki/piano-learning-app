@@ -46,7 +46,9 @@
  * reappear — including a session's very first item, which used to be drawn
  * at random even with a backlog of overdue facts.
  */
+import { createBrowserClock } from '@app/practice/clock.ts'
 import { useMidiConnection, type ConnectMidi } from '@app/practice/useMidiConnection.ts'
+import { usePracticeLog } from '@app/practice/usePracticeLog.ts'
 import { MidiDeviceStatus } from '@app/practice/MidiDeviceStatus.tsx'
 import { OnScreenKeyboard } from '@app/drills/OnScreenKeyboard.tsx'
 import { QwertyHint } from '@app/keyboardInput/QwertyHint.tsx'
@@ -178,6 +180,13 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
 
   const [date] = useState<DateSource>(() => props.date ?? { epochMillis: () => Date.now() })
   const [rng] = useState<Rng>(() => props.rng ?? createBrowserRng())
+  // This panel deliberately takes no `clock` prop (see the module doc: no
+  // elapsed time is measured here) — this one is purely to satisfy
+  // `usePracticeLog`'s `PracticeTimer` constructor and is never exposed.
+  const [logClock] = useState(() => createBrowserClock())
+  const practiceLog = usePracticeLog({ clock: logClock, date })
+  const practiceLogRef = useRef(practiceLog)
+  practiceLogRef.current = practiceLog
   const midiConn = useMidiConnection(
     props.midiInput !== undefined
       ? { midiInput: props.midiInput }
@@ -245,6 +254,27 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
     setPendingNotes([])
     setLastResult(undefined)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only kind/level should reset the item
+  }, [kind, level])
+
+  // REQ-3.9.5 (roadmap 5.14): one log entry per topic+level, mirroring
+  // `useFlashcardDrill`'s deck-change pattern — closed and reopened whenever
+  // the topic or level changes, with `usePracticeLog`'s own unmount safety
+  // net closing the final one. The start() itself is deferred by a
+  // macrotask and cancelled in cleanup — see `useFlashcardDrill.ts`'s
+  // identical effect for why: React 18 StrictMode's synchronous
+  // mount->cleanup->remount double-invoke would otherwise open and
+  // immediately close a real, stored, near-zero-duration session on every
+  // fresh mount, since a `PracticeTimer` session is not an idempotent
+  // resource the way a subscription is.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      practiceLogRef.current.stop()
+      practiceLogRef.current.start('theory', `${KIND_LABEL[kind]} — level ${level}`)
+    }, 0)
+    return () => {
+      clearTimeout(timer)
+      practiceLogRef.current.stop()
+    }
   }, [kind, level])
 
   function commitAnswer(answered: TheoryQuizItem, correct: boolean): void {

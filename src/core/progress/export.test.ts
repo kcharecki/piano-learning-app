@@ -22,7 +22,6 @@ import {
 // ---------------------------------------------------------------------------
 
 const ACTIVITY_KINDS: readonly ActivityKind[] = [
-  'warmup',
   'technique',
   'sightreading',
   'repertoire',
@@ -603,7 +602,7 @@ describe('importProgress: corruption', () => {
       JSON.stringify({
         version: 1,
         exportedAt: 0,
-        practiceEntries: [{ id: 'pe-1', startedAt: 0, endedAt: 100, kind: 'warmup' }], // missing itemName
+        practiceEntries: [{ id: 'pe-1', startedAt: 0, endedAt: 100, kind: 'technique' }], // missing itemName
         srsCards: [],
         sightReadingHistory: [],
         levels: {},
@@ -663,7 +662,7 @@ describe('importProgress: corruption', () => {
         version: 1,
         exportedAt: 0,
         practiceEntries: [
-          { id: 'pe-1', startedAt: 1000, endedAt: 500, kind: 'warmup', itemName: 'Scales' },
+          { id: 'pe-1', startedAt: 1000, endedAt: 500, kind: 'technique', itemName: 'Scales' },
         ],
         srsCards: [],
         sightReadingHistory: [],
@@ -773,7 +772,7 @@ describe('exportCsv', () => {
           id: 'pe-1',
           startedAt: 0,
           endedAt: 60_000,
-          kind: 'warmup',
+          kind: 'technique',
           itemName: 'Scales',
           note: nasty,
         },

@@ -179,7 +179,7 @@ describe('useDashboard — practice log', () => {
       entry(1, 15, 'sightreading', 'Level 2 piece'),
       entry(3, 10, 'repertoire', 'Fur Elise'),
       entry(4, 10, 'theory', 'Key signatures'),
-      entry(5, 10, 'warmup', 'Warmup'),
+      entry(5, 10, 'eartraining', 'Interval drill'),
     ]
     useProgressStore.setState({ practiceEntries: entries })
 

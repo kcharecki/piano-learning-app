@@ -440,12 +440,31 @@ Lessons log nothing, so a learner who follows the Today plan and skips the reper
 screen, and is written by nothing. The review's verdict: a practice log that silently drops 6/7 of the
 work is worse than none, because it will be trusted.
 
-- [ ] 5.14 `app`: log practice time from all seven activity screens with their own category, through
-      one shared hook rather than seven copies of the call. Delete `'warmup'` or write it (5.24 writes
-      it) — a category rendered as `0 min` forever is a lie in the same class.
-      *Proof: e2e — run a short segment on each of the seven screens in one session, reload, and read
-      seven non-zero category rows off the Progress screen, cross-checked against the `practiceLog`
-      rows in IndexedDB (the 4.7b pattern: a screen re-deriving a plausible number cannot pass).*
+- [x] 5.14 `app`: log practice time from all seven activity screens through the existing
+      `usePracticeLog` hook (2.24/@app/practice/usePracticeLog.ts), reused across screens rather than
+      copied — Sight reading, Ear training and Technique log on their own explicit start/stop; Rhythm
+      shares `'technique'` (a tapping drill is the same physical/timing family); Flashcards and Theory
+      share `'theory'` (recall practice, and `FlashcardScreen` already doubles as the theory-quiz deck
+      per 4.9c); Lessons logs on `selected` lesson changes. Deleted `'warmup'` from `ActivityKind`
+      rather than writing it — nothing wrote it, and the real warm-up SEGMENT feature is 5.45, out of
+      scope here — so this is six `ActivityKind`s from seven screens, not seven from seven. Mount-driven
+      starts (Flashcards/Theory/Lessons) defer their `start()` one macrotask and cancel it in cleanup:
+      un-deferred, React 18 StrictMode's synchronous mount→cleanup→remount double-invoke stored a real,
+      near-zero-duration phantom entry on every fresh mount, caught by this task's own e2e before it
+      shipped — a `PracticeTimer` session is not the idempotent kind of resource that pattern is usually
+      applied to.
+      *Proof: `e2e/practice-log-all-screens.spec.ts` drives all seven screens for real in one session
+      (never seeded) and reads the resulting rows back from the real IndexedDB `practiceLog` store,
+      cross-checked against `totalMinutes` (the 4.7b pattern). Deviates from the proof as originally
+      written in two ways, both explained in the spec's own module doc: six non-empty `ActivityKind`
+      buckets, not seven (per the `'warmup'` deletion above), and per-kind duration is asserted exact
+      and positive from IndexedDB rather than demanding every individual on-screen row round to a
+      visible non-zero minute (the display rounds to the nearest whole minute; six real per-screen
+      interactions each meeting that bar would cost 3+ minutes of real wait for no stronger a proof).
+      The six controlled interactions do sum past that rounding threshold, so the Progress screen's
+      aggregate "This week" figure is asserted as a genuine visible non-zero number too, matching
+      `totalMinutes` run over the real stored rows. Visual pass (Progress screen, the only one whose
+      rendering changed — the `'warmup'` row is gone): both widths, both themes, console clean.
 - [x] 5.15 `core/progress`: found already correct, not a code defect — `currentStreakDays`/
       `longestStreakDays` never read `PracticeEntry.kind` at all, and `useDashboard.ts` already passed
       the full, unfiltered `practiceEntries` through (confirmed by `useDashboard.test.ts`'s own fixture,

@@ -93,7 +93,7 @@ describe('usePracticeLog', () => {
       initialProps: makeOptions(clock, clock),
     })
 
-    act(() => result.current.start('warmup', 'Scales'))
+    act(() => result.current.start('technique', 'Scales'))
     expect(() => {
       act(() => result.current.start('theory', 'Should be ignored'))
     }).not.toThrow()
@@ -102,7 +102,7 @@ describe('usePracticeLog', () => {
     act(() => {
       entry = result.current.stop()
     })
-    expect(entry).toMatchObject({ kind: 'warmup', itemName: 'Scales' })
+    expect(entry).toMatchObject({ kind: 'technique', itemName: 'Scales' })
   })
 
   it('a session still running at unmount is stopped and its entry is still stored (safety net)', () => {
