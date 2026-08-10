@@ -472,7 +472,7 @@ weight as Play. The app already tracks a per-track level and does not use it to 
 except for the analysis panel, correctly gated to theory level 4+ (3.18). That pattern should be the
 rule, not the exception.
 
-- [ ] 5.17 `app/practice`: progressive disclosure gated by track level. A level-1 learner sees
+- [~] (session: next-5-14) 5.17 `app/practice`: progressive disclosure gated by track level. A level-1 learner sees
       transport, tempo, hands and metronome. Wait mode appears when the curriculum introduces it.
       Assessment, tempo ramp, read-ahead and annotations live behind "More tools", with a manual
       override for the learner who wants everything.
