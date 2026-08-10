@@ -714,13 +714,17 @@ next item, no completion state, no sense of being 3 of 5 through today.
       writes it never (5.14).
       *Proof: `planSession` emits a warm-up segment at every budget, it is first, it opens something
       real, and completing it writes a `warmup` row the Progress screen shows non-zero.*
-- [ ] 5.46 `core/curriculum`: recalibrate level 1's playing exit criterion. It is currently "play a
-      simple hands-together piece at 75% accuracy"; Faber and Alfred take most of a first year to
-      reach genuine hands-together independence, so as a *level 1* gate it will stall beginners at the
-      first wall.
-      *Proof: the level-1 criteria are stated against a hands-separate piece, level 2 carries the
-      hands-together gate, and the curriculum validator still passes; the change is argued in the
-      commit body against the two methods.*
+- [x] 5.46 `content/curriculum`: recalibrated level 1's playing exit criterion (`curriculum.ts`'s
+      `l1-exit-assessment`) off the hands-together `demo-lh-root-rh-melody-simple-piece` and onto the
+      hands-separate `demo-five-finger-c-major-hands-separately` (RH plays bars 1-3, LH plays bars 4-6
+      — genuinely hands-alone, not merely a different piece). `l2-exit-assessment` was already,
+      deliberately, the hands-together gate (its own pre-existing comment says so) — nothing to add
+      there. Faber's My First Piano Adventure and Alfred's Basic Piano Library both spend the bulk of
+      book 1 on hands-alone playing and introduce real hands-together coordination only entering book
+      2; gating level 1 on hands-together demanded a skill neither method expects that early.
+      *Proof: `curriculum.test.ts`'s validator pass is unchanged (39 tests green); the two dashboard
+      tests that seed a level-1 assessment (`useDashboard.test.ts`, `DashboardScreen.test.tsx`) updated
+      to the new piece id and still assert the same met/unmet split.*
 - [ ] 5.47 `app/progress`: a teacher/parent output — a printable practice sheet or assignment view.
       Export is JSON/CSV of raw logs, which is a backup format, not something anyone reads.
       *Proof: a week's practice renders as a printable summary (categories, minutes, pieces, what was
