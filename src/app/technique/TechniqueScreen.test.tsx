@@ -89,22 +89,21 @@ describe('TechniqueScreen', () => {
     expect(screen.getByTestId('technique-history').children).toHaveLength(1)
   })
 
-  it('surfaces every engraved note\'s recommended fingering to the learner (REQ-3.7.1)', () => {
+  it('hands the engraving a fingering-carrying score and drops the old interleaved string (roadmap 5.22, REQ-3.7.1)', () => {
     const neverResolves = (): Promise<never> => new Promise(() => {})
     render(<TechniqueScreen connectMidi={neverResolves} />)
 
     const drill = techniqueLibrary(1)[0]
     if (drill === undefined) throw new Error('expected at least one level-1 drill')
     const score = techniqueScore(drill, drill.targetBpm)
-    const expectedFingerings = score.notes
-      .filter((n) => n.fingering !== undefined)
-      .map((n) => n.fingering)
+    expect(score.notes.some((n) => n.fingering !== undefined)).toBe(true)
 
-    expect(expectedFingerings.length).toBeGreaterThan(0)
-    const fingeringText = screen.getByTestId('technique-fingering').textContent ?? ''
-    for (const finger of expectedFingerings) {
-      expect(fingeringText).toContain(String(finger))
-    }
+    // OSMD is mocked out in this environment (see the module comment above) —
+    // proving it receives the same, fingering-carrying score is this test's
+    // job; `musicxmlwriter.test.ts` proves `<fingering>` reaches the XML, and
+    // e2e proves OSMD actually draws it above/below the notehead.
+    expect(screen.getByTestId('mock-score-viewer')).toHaveAttribute('data-score-id', score.id)
+    expect(screen.queryByTestId('technique-fingering')).not.toBeInTheDocument()
   })
 
   it('running a drill end to end adds a point to its tempo history (REQ-3.7.3)', async () => {
