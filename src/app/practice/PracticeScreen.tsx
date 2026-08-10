@@ -41,6 +41,7 @@ import { createDefaultAudioOutput } from './createDefaultAudioOutput.ts'
 import { HandMuteControl } from './HandMuteControl.tsx'
 import { LoopRangeControl } from './LoopRangeControl.tsx'
 import { MetronomeControl } from './MetronomeControl.tsx'
+import { MicInputControl } from './MicInputControl.tsx'
 import { MidiDeviceStatus } from './MidiDeviceStatus.tsx'
 import { createPlayableInput, type PlayableMidiInput } from './playableInput.ts'
 import { PracticeKeyboard } from './PracticeKeyboard.tsx'
@@ -54,6 +55,7 @@ import { TransportControls } from './TransportControls.tsx'
 import { useAssessment } from './useAssessment.ts'
 import { usePracticeLog } from './usePracticeLog.ts'
 import { useMidiConnection, type ConnectMidi } from './useMidiConnection.ts'
+import { useMicInput, type ConnectMic } from './useMicInput.ts'
 import { useNoteFeedback } from './useNoteFeedback.ts'
 import { usePracticeEngine, type PracticeEngine } from './usePracticeEngine.ts'
 import { useRecorder } from './useRecorder.ts'
@@ -76,6 +78,7 @@ export type PracticeScreenProps = {
   readonly audioOutput?: AudioOutput
   readonly midiInput?: MidiInput
   readonly connectMidi?: ConnectMidi
+  readonly connectMic?: ConnectMic
   readonly frameDriver?: FrameDriver
   /** Text to place under each measure of the engraving, keyed by 1-based
    *  measure number — forwarded verbatim to `ScoreViewer` (roadmap 3.18a).
@@ -123,6 +126,13 @@ export function PracticeScreen(props: PracticeScreenProps) {
         : {},
   )
 
+  // The microphone fallback (roadmap 5.7 / B.1, REQ-3.3.7) — opt-in, unlike
+  // MIDI: requesting the mic holds the browser's recording indicator lit, so
+  // it only connects once the learner explicitly asks via the toggle below.
+  // On iPadOS (no Web MIDI in any browser shell, see B.7) this is not a
+  // fallback, it is the only way to play at all.
+  const mic = useMicInput(props.connectMic !== undefined ? { connect: props.connectMic } : {})
+
   // The input everything downstream actually reads (roadmap 5.4, REQ-3.3.7).
   // NOT `midi.input`: that is `undefined` wherever Web MIDI is absent — Safari,
   // Firefox, every browser on iPadOS — and `useRecorder` builds no fan-out from
@@ -132,16 +142,25 @@ export function PracticeScreen(props: PracticeScreenProps) {
   // present, forwards the device when there is one, and lets the on-screen
   // keyboard below emit through the same seam. See `playableInput.ts`.
   //
+  // `mic.input` takes priority over `midi.input` while the mic toggle is on
+  // (roadmap 5.7): the learner turned it on to use it, and a struck MIDI
+  // note arriving mid-session should not silently steal the active input.
+  // While the mic is enabled but still connecting (or errored), the device is
+  // `undefined` rather than falling back to `midi.input` — an explicit "use
+  // the microphone" choice degrading silently back to hardware is exactly
+  // the failure roadmap 5.6 exists to stop.
+  const activeDevice = mic.enabled ? mic.input : midi.input
+
   // Held in state and rebuilt only when the device changes (the pattern
   // `useRecorder` uses for its own fan-out, and for the same reason): every
   // consumer's subscription must stay pinned to one object across plain
   // re-renders, which a `useMemo` React may discard cannot promise.
   const [playableInput, setPlayableInput] = useState<PlayableMidiInput | undefined>(undefined)
   useEffect(() => {
-    const next = createPlayableInput(midi.input, clock)
+    const next = createPlayableInput(activeDevice, clock)
     setPlayableInput(next)
     return () => next.dispose()
-  }, [midi.input, clock])
+  }, [activeDevice, clock])
 
   // Shown by default exactly when it is the learner's only way to play, and
   // hidden by default when a keyboard is plugged in — but `undefined` until
@@ -154,8 +173,13 @@ export function PracticeScreen(props: PracticeScreenProps) {
   // that would have been left with no way to play at all. This is the same
   // predicate `MidiDeviceStatus` prints from, so the status line and the
   // keyboard can never disagree about whether a keyboard is attached.
+  //
+  // A connected microphone counts too (roadmap 5.7): it is a real way to
+  // play, not the on-screen keyboard, so it hides the on-screen keyboard by
+  // default and enables Record the same way a MIDI keyboard does.
   const deviceAttached =
-    midi.input !== undefined && midi.devices.some((device) => device.id === midi.selectedDeviceId)
+    (midi.input !== undefined && midi.devices.some((device) => device.id === midi.selectedDeviceId)) ||
+    (mic.enabled && mic.input !== undefined)
   const showKeyboard = showKeyboardChoice ?? !deviceAttached
   // Latched keys stay down until pressed again, which is the only way a
   // single-pointer device can hold a chord — see `OnScreenKeyboard`.
@@ -470,6 +494,12 @@ export function PracticeScreen(props: PracticeScreenProps) {
             devices={midi.devices}
             selectedDeviceId={midi.selectedDeviceId}
             connectionError={midi.connectionError}
+          />
+          <MicInputControl
+            enabled={mic.enabled}
+            connected={mic.input !== undefined}
+            error={mic.error}
+            onToggle={(next) => (next ? mic.enable() : mic.disable())}
           />
           <dl className="note-feedback" role="status" aria-live="polite" aria-label="Note feedback">
             <dt>Accuracy</dt>

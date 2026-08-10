@@ -108,6 +108,7 @@
 .practice-controls .status-group {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--space-4);
   margin-left: auto;
 }
@@ -129,6 +130,20 @@
 }
 .midi-status[data-state="connected"]::before { background: var(--fb-correct); }
 .midi-status[data-state="connected"] { color: var(--text-1); }
+
+/* Microphone-fallback toggle (roadmap 5.7): a preference checkbox plus a
+   status line that only appears once switched on. */
+.mic-input-control { display: flex; flex-direction: column; gap: var(--space-1); }
+.mic-input-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+.mic-input-status { margin: 0; font-size: var(--text-sm); color: var(--text-2); }
+.mic-input-status[data-state="connected"] { color: var(--fb-correct-ink); }
+.mic-input-status[data-state="error"] { color: var(--fb-wrong-ink); }
 
 /* Input-capability banner (roadmap 5.6): names a platform limit, not an error. */
 .input-capability-banner {

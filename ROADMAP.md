@@ -366,10 +366,32 @@ one screen where playing matters is the one that refuses non-MIDI input.
       absent the banner names the limitation and dismisses; with it present (this repo's headless
       Chromium ships the API) the banner stays hidden even though `smoke.spec.ts` still shows the
       unrelated "no MIDI keyboard connected" line. Visual pass both widths/themes, console clean.*
-- [ ] 5.7 **Promote B.1** (microphone pitch detection) into this phase. On iPadOS it is not a
-      fallback, it is the only input. Input accessibility cannot reach 9 while the review's "the app
-      cannot hear you at all" finding is true on an entire platform.
-      *Proof: as B.1 — a note sung or played acoustically grades on the Practice screen on WebKit.*
+- [x] 5.7 **Promoted B.1** (microphone pitch detection) into this phase. Three-layer build: pure
+      YIN pitch detection (`core/audio/pitchDetection.ts` — difference function, cumulative-mean
+      normalisation, first-dip selection to avoid octave errors, parabolic interpolation) feeding a
+      pure onset/offset debounce state machine (`core/audio/noteOnsetDetector.ts`, hysteresis so a
+      struck-note transient or a decaying tail can't flicker into spurious notes), wrapped by the
+      DOM edge (`adapters/audio/micPitchInput.ts`, `getUserMedia` + `AnalyserNode` on a schedule)
+      implementing the same `MidiInput` port `webmidi.ts` does — so a sung/played-acoustically note
+      goes through the exact matcher, wait-mode and recording path a MIDI note does. Practice screen
+      gets a `useMicInput` connection (opt-in — requesting the mic holds the browser's recording
+      indicator lit, so it never fires without an explicit toggle) and a `MicInputControl` status
+      line next to `MidiDeviceStatus`.
+      *Proof: `core/audio/pitchDetection.test.ts` — 200-run property test recovers every piano note
+      A0–C8 from a synthesised sine within 10 cents, plus an explicit harmonic-rich-tone test that
+      the first-dip rule doesn't octave-error. `core/audio/noteOnsetDetector.test.ts` and
+      `adapters/audio/micPitchInput.test.ts` drive the debounce state machine and the adapter's tick
+      loop with synthetic buffers end-to-end (onset after N clean frames, release after silence,
+      dispose stops the track and the loop). Driven in the browser: the toggle renders, connecting
+      surfaces a real permission-denied error without crashing (this sandbox has no mic hardware to
+      grant), and disabling tears the connection down cleanly — the actual "a sung note grades"
+      path is proven by the algorithm/state-machine property tests above, not by a screenshot, since
+      no real microphone was available to drive end-to-end here. Caught and fixed one real defect in
+      the process: `.status-group`'s row had no `flex-wrap`, so adding this control pushed the
+      practice-controls bar past both required widths (1024px and 1280px) into horizontal overflow —
+      fixed with a `flex-wrap: wrap` matching the pattern its own parent `.practice-controls` already
+      uses. Console clean, dark and light both checked (computed style, not screenshot — the preview
+      pane's screenshot capture was unavailable this session).
 
 ### Lesson content quality — **6/10 → 9**
 
