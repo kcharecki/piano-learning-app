@@ -493,10 +493,17 @@ it trains reading the word "half". Two further problems in that same screenshot:
 opens on whole and half **rests** (Faber puts the quarter rest last, at unit 10), and "complexity 1 =
 whole and half notes" inverts the order Faber and Alfred agree on, **quarter → half → whole**.
 
-- [ ] 5.19 `app/rhythm`: engrave the pattern. The MusicXML writer from 2.20 already exists; this is
-      the same fix applied to the second screen that needs it.
-      *Proof: e2e — the drill renders a real OSMD svg past the 50-element discriminator, and the words
-      "half" and "whole" appear nowhere in the pattern region.*
+- [x] 5.19 `app/rhythm`: engrave the pattern — reused `core/generator/rhythm.ts`'s existing
+      `rhythmToScore` (already built for silent transport playback) and `@app/sightreading/ExerciseScore.tsx`
+      (already reused by Technique) rather than duplicating the MusicXML-writer wiring a third time.
+      Deleted `PatternPreview.tsx`, the text stand-in ("Bar 1: half, half…"), following the exact
+      precedent 2.20 set when `NoteListPreview` was deleted for sight reading.
+      *Proof: `e2e/rhythm.spec.ts` — after Start, `score-container` holds a real OSMD svg (83 elements,
+      well past the 50-element discriminator), the pattern region's text contains neither "half" nor
+      "whole", and `[data-note-id]` count (real engraved notes) exactly equals matched+missed —
+      cross-checking the engraving against the same grade the tapping run produced. Driven live: Rhythm
+      screen, Start, real notation renders, Tap still works, console clean, both themes, both widths
+      (1280px and 768px, no horizontal scroll).*
 - [ ] 5.20 `core/generator/rhythm`: reorder complexity — level 1 is quarters and halves with **no rests**;
       rests enter after note values are secure, quarter rest first.
       *Proof: a property test over 500 generated level-1 patterns finds zero rests and no note longer

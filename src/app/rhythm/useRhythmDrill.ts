@@ -63,6 +63,7 @@ import type { Hand } from '@core/notation/score.ts'
 import type { AudioOutput, Clock, MidiInput, Rng } from '@core/ports/index.ts'
 import { makeTempoMap, type TempoMap } from '@core/timing/tempo.ts'
 import { millis, type Millis } from '@core/shared/units.ts'
+import type { Score } from '@core/notation/score.ts'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 export type RhythmUiPhase = 'idle' | 'tapping' | 'graded'
@@ -85,6 +86,8 @@ export type UseRhythmDrill = {
   readonly phase: RhythmUiPhase
   /** The pattern being tapped, or the last one graded. */
   readonly pattern: RhythmPattern | undefined
+  /** The same pattern, engraved — one pitch, real durations and rests (roadmap 5.19). */
+  readonly score: Score | undefined
   readonly grade: TapGrade | undefined
   /** How many taps have been registered in the current run. */
   readonly tapCount: number
@@ -289,6 +292,7 @@ export function useRhythmDrill(options: UseRhythmDrillOptions): UseRhythmDrill {
   return {
     phase,
     pattern,
+    score,
     grade,
     tapCount,
     position: engine.position,

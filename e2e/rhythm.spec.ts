@@ -56,8 +56,15 @@ test('the Rhythm nav destination renders the real drill, taps a pattern imperfec
 
   await page.getByRole('button', { name: 'Start' }).click()
   await expect(page.getByTestId('rhythm-tapping-status')).toBeVisible()
-  // Real, generated notation-as-text — a pattern actually exists to tap.
-  await expect(page.getByTestId('pattern-bar-0')).toBeVisible()
+  // The pattern is engraved for real (roadmap 5.19) — a real OSMD render is
+  // well past the 50-element discriminator this suite uses (see
+  // round6.spec.ts); the old text stand-in ("Bar 1: half, half…") is gone.
+  const scoreContainer = page.getByTestId('score-container')
+  await expect(scoreContainer.locator('svg')).toBeVisible()
+  expect(await scoreContainer.locator('svg *').count()).toBeGreaterThan(50)
+  const patternRegionText = (await scoreContainer.innerText()).toLowerCase()
+  expect(patternRegionText).not.toContain('half')
+  expect(patternRegionText).not.toContain('whole')
 
   const tapButton = page.getByRole('button', { name: 'Tap' })
   await expect(tapButton).toBeEnabled()
@@ -100,8 +107,12 @@ test('the Rhythm nav destination renders the real drill, taps a pattern imperfec
   expect(accuracy).toBeLessThan(1)
   // Every real (non-rest) onset the generator drew is accounted for as
   // either matched or missed — true for every draw, unlike a bare
-  // `matched > 0`, which an unlucky all-rest pattern could fail.
-  const realOnsetCount = await page.locator('[data-testid="pattern-onset"][data-rest="false"]').count()
+  // `matched > 0`, which an unlucky all-rest pattern could fail. Read off the
+  // engraving, not the model: `rhythmToScore` emits one real `Score` note per
+  // non-rest onset and none for a rest, and the engraver stamps `data-note-id`
+  // only on real, mapped notes (roadmap 4.8a) — so this count is exactly the
+  // real-onset count `gradeTapping` graded against.
+  const realOnsetCount = await scoreContainer.locator('[data-note-id]').count()
   expect(matched + missed).toBe(realOnsetCount)
 
   expect(errors).toEqual([])

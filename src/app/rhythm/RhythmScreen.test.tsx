@@ -1,16 +1,26 @@
 /**
  * Screen-level composition (roadmap 2.13): the hook, the complexity stepper,
- * the pattern preview and the tap controls are wired together correctly, and
- * starting a run through the UI actually begins tapping. Per-hook behaviour
- * is covered by `useRhythmDrill.test.ts`.
+ * the engraved pattern (roadmap 5.19) and the tap controls are wired together
+ * correctly, and starting a run through the UI actually begins tapping.
+ * Per-hook behaviour is covered by `useRhythmDrill.test.ts`.
  */
 import { seededRng } from '@core/ports/rng.ts'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FakeClock, FakeMidiInput, RecordingAudioOutput } from '@test/fakes.ts'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { RhythmScreen } from './RhythmScreen.tsx'
+
+// The pattern is engraved for real now (roadmap 5.19), and OSMD cannot run in
+// happy-dom — see SightReadingScreen.test.tsx's identical mock. What belongs
+// to this file is that the screen hands a score to the viewer; that OSMD then
+// draws it is e2e's job.
+vi.mock('@app/score/ScoreViewer.tsx', () => ({
+  ScoreViewer: ({ score }: { readonly score: { readonly id: string } }) => (
+    <div data-testid="mock-score-viewer" data-score-id={score.id} />
+  ),
+}))
 
 afterEach(cleanup)
 
@@ -52,7 +62,7 @@ describe('RhythmScreen', () => {
     expect(screen.getByTestId('rhythm-tapping-status')).toBeInTheDocument()
     const tapButton = screen.getByRole('button', { name: 'Tap' })
     expect(tapButton).toBeEnabled()
-    expect(screen.getByTestId('pattern-bar-0')).toBeInTheDocument()
+    expect(screen.getByTestId('mock-score-viewer')).toBeInTheDocument()
 
     await user.click(tapButton)
 
