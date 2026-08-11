@@ -212,7 +212,13 @@ The M3 gaps that are unbuilt features rather than defects. Each states its proof
 - [x] 4.9a `app/repertoire`: seed an empty repertoire library from `GRADED_PIECES`
 - [x] 4.9b `app/lessons`: the lesson screen — the only consumer the authored curriculum, the demo score registry and `core/curriculum/model.ts` will ever have.
 - [x] 4.9c `app/drills`: every `theory-quiz` exercise in the authored curriculum opened the same note-naming deck regardless of its title — gave `FlashcardScreen` an `initialKind` prop routed from `params.drillKind`.
-- [ ] 4.10 M4 acceptance pass — full §9 acceptance criteria review
+- [ ] 4.10 M4 acceptance pass — full §9 acceptance criteria review — run 2026-08-11, does NOT pass:
+      REQ-3.8.2's practice-history/best-assessment-result never reach a repertoire piece (nothing
+      in `src/app` calls `recordSession` — driven proof in `e2e/m4-acceptance-repertoire-practice-history.spec.ts`,
+      `test.fail()`). 20 of 21 other REQ/roadmap criteria held up under driven proof. Two unrelated
+      e2e specs (`repertoire.spec.ts`, `progress-persistence.spec.ts`) were found broken by test
+      staleness from other sessions' merged work, not app regressions — re-verified independently,
+      both hold. Full detail, per-criterion table and proposed follow-up tasks: `docs/m4-acceptance-2026-08-11.md`.
 
 ## Phase 5 — Milestone M5: teachable product
 
