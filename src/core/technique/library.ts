@@ -212,10 +212,23 @@ function ascendingScaleRun(
  */
 function scaleUpAndDown(tonic: SpelledPitch, type: ScaleType, octaves: number, hand: Hand): Run {
   const up = ascendingScaleRun(tonic, type, octaves, hand)
-  const down =
-    type === 'melodicMinor' ? ascendingScaleRun(tonic, 'naturalMinor', octaves, hand) : up
-  const downNotes = [...down.notes].slice(0, -1).reverse()
-  const downFingers = [...down.fingers].slice(0, -1).reverse()
+  // Pitches descend as natural minor (the classical convention — see
+  // `melodicMinorDescending`'s doc comment); FINGERS mirror the ascent,
+  // never natural minor's own. Roadmap 5.35 gave melodic minor ascending its
+  // own right-hand fingering in C#/F# minor (scales.ts's
+  // `MELODIC_MINOR_RIGHT_HANDS`), the first case where ascending and
+  // descending fingerings genuinely differ — reusing natural minor's fingers
+  // for the descent put a different pattern's closing finger right next to
+  // the ascent's, and in those two keys the two disagreed at the turn (both
+  // landed finger 2), a repeated finger across the top note. Mirroring the
+  // ascent's own fingers instead keeps every run self-consistent by
+  // construction, and is a no-op everywhere else: natural minor and
+  // melodic-minor-ascending share one fingering table in the other ten keys.
+  const downNotes =
+    type === 'melodicMinor'
+      ? [...ascendingScaleRun(tonic, 'naturalMinor', octaves, hand).notes].slice(0, -1).reverse()
+      : [...up.notes].slice(0, -1).reverse()
+  const downFingers = [...up.fingers].slice(0, -1).reverse()
   return { notes: [...up.notes, ...downNotes], fingers: [...up.fingers, ...downFingers] }
 }
 

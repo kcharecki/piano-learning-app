@@ -599,13 +599,16 @@ const MINOR_FINGERINGS: readonly Fingering[] = [
  *    forced onto degrees 3 and 7: 2 3 1 2 3 4 1 2.
  *  - **F# minor** (pitch class 6): degree 6 is D (2, white) naturally and D#
  *    (3, black) ascending, and again the right thumb was on it. F# G# A B C# D#
- *    E# leaves A, B and E# (which sounds F), and the hand takes B and E#:
+ *    E# leaves three white keys, A, B and E# (which sounds F) — either A or B
+ *    could take the first thumb; B and E# is chosen (see below), giving
  *    2 3 4 1 2 3 1 2.
  *
  * Both replacements are the **parallel major's** right hand, Db major's and F#
  * major's, which is not a coincidence: melodic minor ascending and the parallel
  * major differ only at degree 3, and no major fingering puts a thumb on degree 3
- * except Db's and Ab's, whose minor degree 3 (E and Cb) is white too.
+ * except Db's and Ab's, whose minor degree 3 (E and Cb) is white too. F#'s A-vs-B
+ * choice is exactly that fork resolved in the parallel major's favour, for one
+ * fingering shape between the two exception keys rather than two.
  *
  * The left hand needs no exception anywhere — no left thumb in the table is on
  * degree 6 — and the other ten keys keep their {@link MINOR_FINGERINGS} row
