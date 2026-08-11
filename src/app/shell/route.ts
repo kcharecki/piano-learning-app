@@ -33,6 +33,7 @@ export const SCREEN_IDS = [
   'theory',
   'repertoire',
   'progress',
+  'settings',
 ] as const
 
 export type ScreenId = (typeof SCREEN_IDS)[number]

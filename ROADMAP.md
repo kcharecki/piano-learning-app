@@ -162,9 +162,27 @@ The M3 gaps that are unbuilt features rather than defects. Each states its proof
       walk. The derivation must reproduce `MAJOR_FINGERINGS` in a real, exported test first.
       *Proof: the four properties above, plus named both-hand examples for A/E natural minor,
       A harmonic minor, C chromatic, C♯ and F♯ minor, and one per derived family.*
-- [ ] 3.17 `app/shell`: the chord/scale reference "available at all times" (REQ-3.5.4) — today it is
+- [x] 3.17 `app/shell`: the chord/scale reference "available at all times" (REQ-3.5.4) — today it is
       a destination you leave your place for; `Shell` renders exactly one screen.
-      *Proof: open it from the practice screen without losing the loaded score.*
+      *Proof: open it from the practice screen without losing the loaded score.* Shipped as the
+      non-modal overlay side panel resolved in `docs/parallel-round-10.md` Q2: new
+      `src/app/reference/ReferencePanel.tsx` wraps the existing, unedited `ChordScaleReference`;
+      `Shell.tsx` gets a persistent `.reference-toggle` (fixed at every width, `aria-expanded`/
+      `aria-controls`) and renders the panel as a sibling after `app-main`. Mounts nothing until
+      first open, then hides via `hidden` rather than unmounting; no focus trap/`aria-modal`; Escape
+      and the scrim (≤1024px only, z-tier matches `.nav-scrim` so the toggle buttons stay clickable
+      through it) return focus to the toggle; mutually exclusive with the nav drawer. *Proof done:*
+      `e2e/reference-panel.spec.ts` drives Practice with a loop range, running transport and
+      metronome, one matched note, then opens the panel and in one continuous run confirms the
+      transport keeps advancing, the panel's own Play works, Shift+Tab reaches and toggles the
+      transport's Pause with the panel still open, Escape closes it and returns focus with loop
+      range/matched-note count/position all unchanged, and reopening restores the selected scale —
+      plus a second spec proving the ≤1024px drawer/nav-drawer mutual exclusion and 44px touch
+      target. Visual pass (`Practice --click Reference`) console-clean at both widths, both themes.
+      2 real bugs found and fixed during the drive: focus-on-open raced the first-open mount (fixed
+      by keying the focus effect on `hasOpenedOnce` too), and the scrim's z-index sat above the
+      persistent toggle buttons, intercepting their clicks (fixed to match `.nav-scrim`'s own tier,
+      below `--z-nav`). Deleted nothing.
 - [x] 3.18 `app/score`: gate applied analysis to theory level 4+ (REQ-3.5.5)
 - [x] 3.18a `app/score`: put the numerals ON the engraving (REQ-3.5.5's second half). 7829b8d had
       built the whole path — `buildMeasureLabels`, `measureLabels`, `setMeasureLabels` — and wired it
@@ -705,12 +723,27 @@ three hardcoded hexes duplicated out of the token file (`useNoteFeedback.ts:136-
       proving the font swap changed what actually painted, not merely that `font-family` was declared.
       Visual pass (`visual-pass.mjs Flashcards`, both widths, both themes) shows a correctly engraved
       treble/bass clef seated on the staff lines with the right baseline, console clean in all four.*
-- [ ] 5.27 `app`: confirm the ≤1024px responsive drawer **by hand in a real browser at tablet width**.
+- [x] 5.27 `app`: confirm the ≤1024px responsive drawer **by hand in a real browser at tablet width**.
       The review could not verify it — the automation pane does not composite frames, so the nav's
       `translateX(-100%)` transition sits frozen at t=0. That is an environment artefact, not a defect,
       and it is the one claim in the review that is unchecked. Folds into **B.6**.
       *Proof: at 768×1024, the drawer opens and closes on tap, the scrim dismisses it, no control is
       under 44px, and the page does not scroll horizontally — screenshotted, not asserted from CSS.*
+      The interactive Browser pane would not composite here either, so verified via Playwright (a real
+      compositing Chromium) instead, per the task's own fallback instruction — `e2e/responsive-drawers.spec.ts`,
+      covering both drawers this app now has (nav, and 3.17's new reference drawer). **The drawer was
+      genuinely broken and is now fixed**: `.app-nav` and `.app-topbar` shared the same `--z-nav` tier,
+      and `.app-nav` painted later in the DOM, so the OPEN nav drawer visually covered its own
+      `.nav-toggle` hamburger — a second tap on the same icon that opened it hit the drawer's own
+      "Today" button instead of closing anything, and only the scrim or a nav item's own
+      navigate-and-close could dismiss it. Fixed in `src/design-system/css/responsive.css` by giving
+      `.app-topbar` a z-index one tier above `.app-nav` (`calc(var(--z-nav) + 1)`), documented in place.
+      Fixing that then covered the reference toggle in turn (same tier collision), fixed by raising
+      `.reference-toggle` to the panel's own `--z-dialog` tier in `feature-reference-panel.css`. First
+      screenshot attempt also caught a genuinely mid-transition frame (proof the composite-frame problem
+      is real) — fixed by waiting out the 200ms `--dur-2` transition before each capture; real settled
+      screenshots are in `visual-pass/5-27-responsive-drawers/`. Full existing e2e suite (101 specs)
+      re-run clean after both CSS fixes — no regression.
 
 ### Ear training — **4/10 → 9**
 
@@ -855,6 +888,29 @@ both fingering columns**, and minor scales are required from RCM Preparatory B o
       entirely for the 10 modal/exotic types) and **3.17** (reference is a destination you leave your
       place for). Referenced, not restated; the aspect cannot reach 9 without them, because "you
       cannot look up D♭ diminished seventh" is what a reference is *for*.
+      **Re-verified 2026-08-11, once 3.17 landed — still not shippable, one real gap found.** Driven
+      live against the running app (`node scripts/_verify-538.mjs`-style Playwright drive, not
+      inspection): opened the reference from Practice without leaving; looked up any chord including
+      sevenths and diminished sevenths (`ChordLookup`'s `CHORD_QUALITIES` covers all 13, confirmed live
+      with D♭ diminished seventh → symbol "Dbdim7"); looked up any scale, all 16 `SCALE_TYPES` including
+      the modes/pentatonics/blues/whole-tone (3.15's fix); heard both (Play buttons, confirmed wired);
+      saw the SCALE on staff (`ScaleStaff`, confirmed rendered). **The gap: a chord — neither a looked-up
+      one in `ChordLookup` nor a diatonic one in `ChordScaleReference`'s own list — is EVER shown on
+      staff, anywhere.** `grep`-confirmed no chord-staff component exists in `src/app/theory/**` or
+      `src/core/theory/**`; live-confirmed 0 staff/score elements inside `.chord-lookup` or
+      `.diatonic-chords` with a diminished seventh chord selected (screenshot on file from this
+      session). REQ-3.5.3/3.5.4's "see it on staff and keyboard" is met for scales, not chords — every
+      chord is keyboard + audio only. **Leaving unticked**; the gap is 5.50 below.
+- [ ] 5.50 `app/theory`: engrave a chord on staff, not just the keyboard diagram — the gap 5.38's
+      2026-08-11 re-verification found. Both `ChordScaleReference`'s diatonic chord rows and
+      `ChordLookup`'s looked-up chord need a small staff rendering of the chord's own notes (reuse
+      `ScaleStaff`'s pattern of building a real `Score`/`Measure` and handing it to the existing
+      `ExerciseScore`/`ScoreViewer` — a chord is a single simultaneity, a strict subset of what that
+      path already engraves for a scale's run of single notes). Owned by whichever session next touches
+      `src/app/theory/**` (not this shell/onboarding/reference-panel session — out of file boundary).
+      *Proof: look up D♭ diminished seventh in `ChordLookup`, see it as a real four-note chord on a
+      grand staff (not a keyboard diagram substituting for one); select a diatonic chord row in
+      `ChordScaleReference` and see the same; both widths, both themes, console clean.*
 
 ### First-run experience — **2/10 → 9**
 
@@ -865,12 +921,46 @@ the app.
 - [x] 5.39 `app/shell`: the default destination is **Today**, not Practice — `/` now parses to Today's
       own route (landed with 5.42). *Proof: `e2e/default-destination.spec.ts` wipes IndexedDB, reloads,
       asserts Today (not Practice) is active at `/today` — a fresh profile the test itself creates.*
-- [ ] 5.40 `app/onboarding`: a first-run flow — a few questions (experience, goal, practice minutes), a
+- [x] 5.40 `app/onboarding`: a first-run flow — a few questions (experience, goal, practice minutes), a
       MIDI/input check that tells the truth about this browser (5.6), starting track levels set from
       the answers, and a first session ready to start. Skippable, and re-runnable from settings.
       *Proof: e2e from an empty IndexedDB — complete onboarding, assert the chosen levels are what the
       dashboard shows after a reload, and that Today's plan is non-empty and matches the chosen
-      minutes.*
+      minutes.* Shipped as a dismissible callout on Today (`src/app/onboarding/OnboardingGateway.tsx`)
+      that expands into the full flow (`OnboardingFlow.tsx`), plus a new Settings destination
+      (`SettingsScreen.tsx`, `route.ts`'s `settings` screen id) that re-runs it unconditionally — **not**
+      a hard gate blocking every destination, a deliberate deviation from the literal "complete
+      onboarding" reading; see the design note below. Reuses `isWebMidiSupported` (5.6) unchanged. On
+      Finish: `setTrackLevel` on the existing `useLevelStore` for all three tracks (no second
+      persistence path), and a real `SessionRunSnapshot` built with the same `planSession`/
+      `sessionCandidates` `SessionPlanScreen` itself uses, written directly to `useSessionRun.ts`'s own
+      exported `SESSION_RUN_COLLECTION`/`SESSION_RUN_KEY` — using that existing persisted contract, not
+      inventing one, because `src/app/session/**` is outside this task's file boundary. *Proof done:*
+      `e2e/onboarding.spec.ts`, two specs — completing onboarding (experience → level 2, 60 min) then
+      reloading: dashboard shows level 2 on all three tracks, and the raw IndexedDB `todaySessionRun`
+      record (read directly, not off a UI readout) has `totalMinutes: 60` and a non-empty item list,
+      with Today itself showing "Item 1 of N" on that same reload; a second spec proves Skip changes
+      nothing and persists (banner never returns after reload), and Settings re-runs the flow and
+      writes new levels. Full existing e2e suite (101 specs, ~60 of which `goto('/')` against an empty
+      IndexedDB) re-run clean with the banner present — see the design note for why that mattered.
+
+      **Design note — banner, not a gate.** The roadmap text ("complete onboarding" before reaching the
+      dashboard) reads like a hard gate blocking `renderScreen('today', …)` until completed. Rejected on
+      concrete evidence: this app's e2e suite is ~60 spec files, nearly all of which land on Today
+      against a Playwright-fresh (i.e. empty) IndexedDB with no onboarding interaction at all — a gate
+      would have intercepted nearly every one of them, most owned by other live parallel sessions this
+      round. `OnboardingGateway` is instead purely additive (a sibling rendered before `renderScreen`'s
+      own output, alongside `InputCapabilityBanner`), confirmed safe by re-running the full existing
+      suite clean. If a harder gate is wanted later, the two questions worth asking first: is the
+      collision with ~60 fresh-IndexedDB specs still real (some may since have been rewritten to seed
+      onboarding-complete), and does the product actually want first-run to block every destination
+      including a direct deep link.
+
+      **Simplifications stated plainly, not left silent:** the experience answer sets all three tracks
+      (playing/sight-reading/theory) to the same level (1/2/3) — no per-track granularity in the
+      questions; the goal answer is captured but does not yet bias the session mix (`DEFAULT_MIX` is
+      used as-is) — both are reasonable defaults for "a few questions", not full placement testing, but
+      are named here rather than assumed obvious.
 - [x] 5.41 `app`: honest first-run empty states on every screen that can be reached with no data —
       what this screen is for, and the one action that starts it. Today's dashboard renders zeros
       correctly (proved in 4.7); the other screens were not checked for this.

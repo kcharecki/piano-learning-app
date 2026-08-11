@@ -56,7 +56,15 @@
     border-bottom: var(--border-w) solid var(--border-1);
     position: sticky;
     top: 0;
-    z-index: var(--z-nav);
+    /* One tier ABOVE .app-nav (both z-nav otherwise): .app-topbar and
+       .app-nav each establish their own stacking context (both positioned
+       with an explicit z-index), and .app-nav comes later in Shell.tsx's
+       DOM, so equal z-index let the open drawer paint over the topbar and
+       swallow taps meant for .nav-toggle — the hamburger became unusable to
+       CLOSE the drawer the instant it opened (roadmap 5.27's finding: only
+       the scrim or a nav item's own navigate-and-close could dismiss it,
+       never a second tap on the same icon that opened it). */
+    z-index: calc(var(--z-nav) + 1);
   }
   .app-topbar .screen-title { font-size: var(--text-lg); font-weight: var(--weight-semibold); margin: 0; }
   .nav-scrim {

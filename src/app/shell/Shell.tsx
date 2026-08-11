@@ -20,6 +20,9 @@ import { InputCapabilityBanner } from '@app/shell/InputCapabilityBanner.tsx'
 import { NavGroups, type NavGroup, type NavItem } from '@app/shell/NavGroups.tsx'
 import type { Route, ScreenId } from '@app/shell/route.ts'
 import { useRoute } from '@app/shell/routing.ts'
+import { ReferencePanel } from '@app/reference/ReferencePanel.tsx'
+import { OnboardingGateway } from '@app/onboarding/OnboardingGateway.tsx'
+import { SettingsScreen } from '@app/onboarding/SettingsScreen.tsx'
 import { ScoreScreen } from '@app/score/ScoreScreen.tsx'
 import { DashboardScreen } from '@app/dashboard/DashboardScreen.tsx'
 import { FlashcardScreen } from '@app/drills/FlashcardScreen.tsx'
@@ -36,7 +39,7 @@ import { TheoryScreen } from '@app/theory/TheoryScreen.tsx'
 import type { Exercise } from '@core/curriculum/types.ts'
 import { ALL_THEORY_KINDS, type TheoryQuizKind } from '@core/drills/theory.ts'
 import { techniqueDrillById } from '@core/technique/library.ts'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 // Typed against `ScreenId` (imported from `route.ts`, the router's single
 // source of truth for what a "screen" is) rather than deriving it from this
@@ -55,6 +58,7 @@ const NAV_ITEMS: readonly NavItem[] = [
   { id: 'theory', label: 'Theory' },
   { id: 'repertoire', label: 'Repertoire' },
   { id: 'progress', label: 'Progress' },
+  { id: 'settings', label: 'Settings' },
 ]
 
 export type { ScreenId }
@@ -97,7 +101,7 @@ const NAV_GROUPS: readonly NavGroup[] = [
       navItem('theory'),
     ],
   },
-  { label: 'Progress', items: [navItem('progress')] },
+  { label: 'Progress', items: [navItem('progress'), navItem('settings')] },
 ]
 
 /**
@@ -266,6 +270,7 @@ function renderScreen(
   screen: ScreenId,
   open: (exercise: Exercise) => void,
   goToPractice: () => void,
+  goToToday: () => void,
   technique: OpenedTechnique | undefined,
   deck: OpenedDeck | undefined,
   theoryDrill: OpenedTheoryDrill | undefined,
@@ -332,6 +337,8 @@ function renderScreen(
       return <RepertoireScreen onOpenInPractice={goToPractice} />
     case 'progress':
       return <DashboardScreen />
+    case 'settings':
+      return <SettingsScreen onGoToToday={goToToday} />
   }
 }
 
@@ -343,6 +350,11 @@ export function Shell() {
   // reproduce exactly the same shell state a click would have.
   const { route, navigate } = useRoute()
   const [navOpen, setNavOpen] = useState(false)
+  // Roadmap 3.17: the reference panel's own open/closed flag — ephemeral
+  // chrome, deliberately not derived from `route` (see ReferencePanel.tsx's
+  // module doc on why this must never enter history).
+  const [referenceOpen, setReferenceOpen] = useState(false)
+  const referenceToggleRef = useRef<HTMLButtonElement>(null)
 
   const screen = route.screen
   const technique = techniqueFromRoute(route)
@@ -363,6 +375,34 @@ export function Shell() {
     setNavOpen(false)
   }
 
+  // Roadmap 3.17: the nav drawer and the reference drawer are mutually
+  // exclusive at <=1024px (their scrims must never stack) — opening either
+  // one closes the other. At wider viewports this toggling is harmless (the
+  // nav is a static sidebar there, not a drawer, and `navOpen` only matters
+  // for the drawer's own CSS state).
+  function toggleNav(): void {
+    setNavOpen((v) => {
+      const next = !v
+      if (next) setReferenceOpen(false)
+      return next
+    })
+  }
+
+  function toggleReference(): void {
+    setReferenceOpen((v) => {
+      const next = !v
+      if (next) setNavOpen(false)
+      return next
+    })
+  }
+
+  // Escape/scrim close AND the return-focus-to-toggle behaviour the proof
+  // action requires — ReferencePanel itself never touches the toggle button.
+  function closeReference(): void {
+    setReferenceOpen(false)
+    referenceToggleRef.current?.focus()
+  }
+
   const activeLabel = NAV_ITEMS.find((item) => item.id === screen)?.label ?? ''
 
   return (
@@ -373,7 +413,7 @@ export function Shell() {
           className="nav-toggle btn-icon"
           aria-label="Open navigation"
           aria-expanded={navOpen}
-          onClick={() => setNavOpen((v) => !v)}
+          onClick={toggleNav}
         >
           ☰
         </button>
@@ -383,10 +423,38 @@ export function Shell() {
       <nav className="app-nav" aria-label="Main" data-open={navOpen}>
         <NavGroups primary={NAV_PRIMARY} groups={NAV_GROUPS} activeScreen={screen} onNavigate={goTo} />
       </nav>
+      {/* Roadmap 3.17: persistent at every width — see feature-reference-panel.css
+          for why this cannot live inside .app-topbar (hidden above 1024px). */}
+      <button
+        type="button"
+        ref={referenceToggleRef}
+        className="reference-toggle"
+        aria-expanded={referenceOpen}
+        aria-controls="reference-panel"
+        onClick={toggleReference}
+      >
+        Reference
+      </button>
       <main className="app-main">
         <InputCapabilityBanner />
-        {renderScreen(screen, open, () => goTo('practice'), technique, deck, theoryDrill)}
+        {/* Roadmap 5.40: purely additive, only ever on Today, only until
+            completed/skipped — see OnboardingGateway.tsx's module doc for why
+            this is a callout rather than a hard gate. */}
+        <OnboardingGateway show={screen === 'today'} />
+        {renderScreen(
+          screen,
+          open,
+          () => goTo('practice'),
+          () => goTo('today'),
+          technique,
+          deck,
+          theoryDrill,
+        )}
       </main>
+      {/* Sibling AFTER app-main, never a wrapper around it and never a layout
+          column (module doc + parallel-round-10.md Q2) — position:fixed, so
+          app-main's own box is untouched by this element's presence. */}
+      <ReferencePanel open={referenceOpen} onClose={closeReference} />
     </div>
   )
 }
