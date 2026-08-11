@@ -85,6 +85,15 @@ export const ScoreViewer = forwardRef<ScoreViewerHandle, ScoreViewerProps>(funct
       cancelled = true
       engraverRef.current = undefined
       engraver.destroy()
+      // `destroy()` calls OSMD's own `clear()`, which does not empty the
+      // container synchronously. React reuses this DOM node when the score
+      // changes in place (switching between two lessons that both carry a
+      // staff diagram, for instance), so without this the next `load()`
+      // appends its engraving ALONGSIDE the previous one and the learner sees
+      // both scores stacked for a frame before OSMD catches up. Measured at
+      // under 60ms, but visible, and it made a lesson-diagram e2e flaky by
+      // resolving one container to two `<svg>` elements.
+      container.replaceChildren()
     }
   }, [musicXml, score, createEngraver])
 

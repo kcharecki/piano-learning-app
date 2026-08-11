@@ -101,7 +101,12 @@ test('the six new level 4-5 harmony lessons open in the app, each with its own s
     const diagram = page.locator('.lesson-body-diagram-staff[role="img"], .lesson-body-diagram-staff [role="img"]')
     await expect(diagram.first()).toBeVisible()
     await expect(diagram.first()).toHaveAccessibleName(new RegExp(`^${diagramCaptionStart}`))
-    await expect(diagram.first().locator('svg')).toBeVisible({ timeout: 10_000 })
+    // Exactly one engraving, not merely a visible one: React reuses the
+    // container when switching between two diagrammed lessons, and OSMD's
+    // clear() is not synchronous, so a stale engraving left behind by the
+    // previous lesson would stack a second <svg> in the same container.
+    await expect(diagram.first().locator('svg')).toHaveCount(1, { timeout: 10_000 })
+    await expect(diagram.first().locator('svg')).toBeVisible()
 
     // Every one of these lessons carries a theory-quiz exercise (the six
     // REQ-3.5.1 topics' own quiz — see curriculum.test.ts for the id-level
@@ -121,7 +126,12 @@ test('the six new level 4-5 harmony lessons open in the app, each with its own s
     await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible()
     const diagram = page.locator('.lesson-body-diagram-staff[role="img"], .lesson-body-diagram-staff [role="img"]')
     await expect(diagram.first()).toBeVisible()
-    await expect(diagram.first().locator('svg')).toBeVisible({ timeout: 10_000 })
+    // Exactly one engraving, not merely a visible one: React reuses the
+    // container when switching between two diagrammed lessons, and OSMD's
+    // clear() is not synchronous, so a stale engraving left behind by the
+    // previous lesson would stack a second <svg> in the same container.
+    await expect(diagram.first().locator('svg')).toHaveCount(1, { timeout: 10_000 })
+    await expect(diagram.first().locator('svg')).toBeVisible()
     await expect(page.getByRole('button', { name: /^Open Quiz:/ })).toBeVisible()
   }
 
