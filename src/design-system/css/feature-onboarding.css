@@ -2,3 +2,55 @@
    Single-writer by construction: exactly one parallel session owns this file, so
    a round of concurrent worktrees never conflicts inside domain.css. Folded back
    into domain.css by the integrator once the feature settles. */
+
+/* The Today-screen callout (roadmap 5.40) — reuses .card's own look so it
+   reads as a normal piece of chrome, not an ad-hoc banner. */
+.onboarding-banner {
+  background: var(--bg-2);
+  border: var(--border-w) solid var(--border-1);
+  border-radius: var(--radius-2);
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+.onboarding-banner p { margin: 0; flex: 1 1 20rem; }
+.onboarding-banner-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+
+/* The full flow — used both expanded from the banner and standalone on the
+   Settings destination. */
+.onboarding-flow {
+  background: var(--bg-2);
+  border: var(--border-w) solid var(--border-1);
+  border-radius: var(--radius-2);
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.onboarding-flow fieldset {
+  border: var(--border-w) solid var(--border-1);
+  border-radius: var(--radius-2);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.onboarding-flow legend {
+  padding: 0 var(--space-2);
+  font-weight: var(--weight-semibold);
+  color: var(--text-1);
+}
+.onboarding-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-h);
+  cursor: pointer;
+}
+.onboarding-actions { display: flex; gap: var(--space-3); }
+
+.settings-screen { max-width: 40rem; }
