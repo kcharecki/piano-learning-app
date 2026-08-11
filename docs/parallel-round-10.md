@@ -154,3 +154,54 @@ time, so the implementing session needs no out-of-scope edit to the barrel.
   but the doc's warning is recorded here rather than silently overridden. If the merges turn out
   noisy, the process change this round earns is a lower ceiling, enforced in
   `worktrees.mjs` rather than in prose.
+
+---
+
+# Round 2 — interrupted by an API session limit, 2026-08-11 16:10
+
+Three of four round-2 sessions terminated mid-task on `You've hit your session limit`. This
+records exactly where each one stopped so the round resumes without re-deriving anything. It is
+a resume note, not a retro; the round's retro is written when the round finishes.
+
+**Master is clean, green and pushed** (`b0af5b6`, `npm run verify` green, 176 files / 3689
+tests). Nothing in this interruption touched master. Round 1's work is all merged and pushed.
+
+## State of each round-2 session
+
+| Branch | Worktree | Commits ahead | Uncommitted | Where it stopped |
+|---|---|---|---|---|
+| `task/3.17-shell` | `agent-a9ddbd934af5b01b9` | 0 | none | No files written yet — was still reading. Nothing lost. |
+| `task/5.31-copy` | `agent-a3416bbede26f0065` | 0 | `DashboardScreen.tsx`, new `src/app/srs/` | Had built the shared SRS component and was starting to wire the first of four screens to it. |
+| `task/m4-recordsession` | `agent-a41f7413e448cffce` | 0 | 2 files | Furthest along: reported 63 tests passing (14 in `usePracticeLog.test.ts`, 8 new) and was about to run typecheck and lint. |
+| (5.10 lesson quality) | `agent-a4fc97f97288b251f` | — | none | Never renamed its branch off `master` and wrote nothing — it was auditing lesson content in the running app. Nothing lost. |
+
+**No work is at risk.** Worktrees with changes are not auto-removed, and the two that hold
+uncommitted work are listed above by exact path. Nothing was committed with `--no-verify` and
+nothing half-finished reached master.
+
+## Resuming
+
+Two of the four can simply be re-dispatched from scratch — `task/3.17-shell` and the 5.10
+lesson-quality audit wrote nothing, so re-running costs only the tokens already spent, not
+correctness.
+
+The other two should be **continued, not restarted**, because their uncommitted work is real:
+- `task/m4-recordsession` needs typecheck, lint, the e2e proof (delete the `test.fail()` in
+  `e2e/m4-acceptance-repertoire-practice-history.spec.ts` and make it pass for real), and a
+  commit. It is close to done.
+- `task/5.31-copy` needs the remaining three screens wired to its new shared SRS component
+  (`FlashcardScreen.tsx`, `EarTrainingScreen.tsx`, `TheoryDrillPanel.tsx`), then all of 5.41.
+
+Task claims from `worktrees.mjs` are still held for 3.17, 5.38, 5.40, 5.27, 5.31, 5.41, 5.10,
+M4.1 and `main-checkout`. Leave them claimed while the branches exist; release only what is
+abandoned.
+
+## Worth carrying into the round's retro
+
+Four sessions of the twelve-way round's size were dispatched with no regard for how much API
+budget remained. The twelve-way round succeeded partly because it ran early in the session
+window. **Round size should be chosen against remaining budget, not only against conflict
+surface** — a round that dies three-quarters of the way through costs the same tokens as one
+that finishes and delivers nothing. Cheap mitigation for next time: have each session commit
+its work-in-progress at natural checkpoints rather than only at the end, so an interruption
+loses minutes rather than an hour.
