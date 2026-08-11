@@ -32,6 +32,7 @@ const TRACK_LABELS: Readonly<Record<Track, string>> = {
 /** Display name per `ActivityKind`. `Record<ActivityKind, string>` makes this
  * exhaustive: a new `ActivityKind` with no entry here fails the build. */
 const ACTIVITY_KIND_LABELS: Readonly<Record<ActivityKind, string>> = {
+  warmup: 'Warm-up',
   technique: 'Technique',
   sightreading: 'Sight reading',
   repertoire: 'Repertoire',

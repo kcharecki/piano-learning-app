@@ -77,10 +77,13 @@ describe('useSessionPlan', () => {
     act(() => result.current.setMixShare('lesson', 0))
     act(() => result.current.setMixShare('theory-ear', 0))
 
-    // sight-reading is the only segment left with any share and it always
-    // has a candidate, so it absorbs the entire budget (technique never has
-    // candidates; lesson has none by default with no score loaded).
-    expect(result.current.plan?.bySegment['sight-reading']).toBe(30)
+    // sight-reading is the only mixable segment left with any share and it
+    // always has a candidate, so it absorbs the entire REMAINING budget
+    // (technique never has candidates; lesson has none by default with no
+    // score loaded) — warm-up (roadmap 5.45) reserves its flat 5 minutes off
+    // the top first, unaffected by the mix, so the remainder is 30 - 5 = 25.
+    expect(result.current.plan?.bySegment['sight-reading']).toBe(25)
+    expect(result.current.plan?.bySegment.warmup).toBe(5)
   })
 
   it('surfaces planSession errors as readable text instead of swallowing them', () => {
@@ -130,8 +133,9 @@ describe('useSessionPlan', () => {
       })
     })
 
-    // Every segment has candidates since roadmap 4.4a, so the lesson segment
-    // gets REQ-3.1.4's plain 40% of the 30-minute default budget.
-    expect(result.current.plan?.bySegment.lesson).toBe(12)
+    // Every mixable segment has candidates since roadmap 4.4a, so the lesson
+    // segment gets REQ-3.1.4's plain 40% of the REMAINING budget after
+    // warm-up's flat 5-minute reservation (roadmap 5.45): 40% of (30 - 5).
+    expect(result.current.plan?.bySegment.lesson).toBe(10)
   })
 })

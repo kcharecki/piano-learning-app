@@ -3,6 +3,7 @@ import { makeScore } from '@core/notation/score.ts'
 import type { LoadedScore } from '@app/state/scoreStore.ts'
 import { techniqueDrillById } from '@core/technique/library.ts'
 import type { DrillKind } from '@app/drills/useFlashcardDrill.ts'
+import { WARMUP_EXERCISE } from '@content/curriculum/warmups.ts'
 import { sessionCandidates } from './candidates.ts'
 
 function loadedScore(sourceName: string): LoadedScore {
@@ -14,6 +15,17 @@ function loadedScore(sourceName: string): LoadedScore {
 }
 
 describe('sessionCandidates', () => {
+  it('always offers exactly the one fixed warm-up exercise, unconditionally (roadmap 5.45)', () => {
+    const withNothingLoaded = sessionCandidates({ sightReadingLevel: 1, loadedScore: undefined })
+    const withScoreLoaded = sessionCandidates({
+      sightReadingLevel: 4,
+      loadedScore: loadedScore('Twinkle Twinkle'),
+      techniqueLevel: 3,
+    })
+    expect(withNothingLoaded.warmup).toEqual([WARMUP_EXERCISE])
+    expect(withScoreLoaded.warmup).toEqual([WARMUP_EXERCISE])
+  })
+
   it('offers the level\'s real technique drills, each carrying the id the screen opens', () => {
     // Before roadmap 4.4a this segment was deliberately empty, because no
     // screen could open a technique exercise. Now it must carry the drill id

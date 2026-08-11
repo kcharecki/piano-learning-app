@@ -9,6 +9,14 @@
  *
  * Each `Exercise.params` is exactly what the shell needs to open the real
  * destination — never an invented drill the app cannot run:
+ *  - `warmup`: the one fixed `WARMUP_EXERCISE` from
+ *    `@content/curriculum/warmups.ts` (roadmap 5.45). This is the wiring
+ *    point that module's own comment describes: `@core/curriculum/session.ts`
+ *    cannot import `src/content` (the architecture boundary runs one way
+ *    only — core is pure, content depends on core, never the reverse), so
+ *    the warm-up content is turned into a candidate HERE, exactly like every
+ *    other segment, and `session.ts` only ever sees an already-built
+ *    `Exercise` it knows nothing about the origin of.
  *  - `technique`: one `Exercise` per drill at the playing-track level, each
  *    carrying `params.drillId`. `Shell.tsx` resolves that id through
  *    `techniqueDrillById` and hands the drill's id AND its level to
@@ -42,6 +50,7 @@ import type { SessionSegmentKind } from '@core/curriculum/session.ts'
 import type { LoadedScore } from '@app/state/scoreStore.ts'
 import { techniqueLibrary } from '@core/technique/library.ts'
 import { MAX_LEVEL as SIGHT_READING_MAX_LEVEL } from '@core/sightreading/adaptive.ts'
+import { WARMUP_EXERCISE } from '@content/curriculum/warmups.ts'
 
 /** Moderate estimate for one flashcard-deck sitting — large enough that a
  * short segment reasonably shows just one pass, small enough that a longer
@@ -151,11 +160,25 @@ export type SessionCandidatesInput = {
   readonly techniqueLevel?: number
 }
 
+/**
+ * The one candidate for the warm-up segment (roadmap 5.45) — always offered,
+ * unconditionally: unlike every other segment it needs no app state (no
+ * level, no loaded score) to decide what to show, because the routine is
+ * fixed. `SessionPlanScreen.tsx` opens it as a real checklist, not by
+ * routing through `Shell.tsx`'s `destinationFor` the way the other kinds do
+ * — see `warmups.ts`'s comment on why `Exercise.kind` is `'technique'` here
+ * but is not what decides how this item opens.
+ */
+function warmupCandidates(): readonly Exercise[] {
+  return [WARMUP_EXERCISE]
+}
+
 /** Builds `planSession`'s `candidates` option from what the app can offer today. */
 export function sessionCandidates(
   input: SessionCandidatesInput,
 ): Record<SessionSegmentKind, readonly Exercise[]> {
   return {
+    warmup: warmupCandidates(),
     technique: techniqueCandidates(input.techniqueLevel ?? MIN_LEVEL),
     'sight-reading': sightReadingCandidates(input.sightReadingLevel),
     lesson: lessonCandidates(input.loadedScore),

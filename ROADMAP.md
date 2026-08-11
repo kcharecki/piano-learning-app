@@ -708,17 +708,24 @@ source gives an evidence-based split — these are conventions, and worth saying
 that **the plan doesn't run**: each item is an "Open" button that navigates away, with no timer, no
 next item, no completion state, no sense of being 3 of 5 through today.
 
-- [ ] 5.44 `app/session`: make the plan runnable — a timer per segment driven by the injected `Clock`,
-      an explicit next-item step, completion state per item, and a visible "3 of 5". The plan is
-      currently a list of links to elsewhere.
-      *Proof: e2e — start a 15-minute plan, complete two items, reload, and assert the session resumes
-      at item 3 with the first two marked done and their minutes in the `practiceLog` (5.14).*
-- [ ] 5.45 `core/curriculum/session` + `content`: add the **warm-up** segment. Every source puts
-      warm-up first, and Juilliard's guide starts it *away from the keys* — jaw, shoulders, posture,
-      stretch — before any note. The app declares a `warmup` category, schedules nothing into it and
-      writes it never (5.14).
-      *Proof: `planSession` emits a warm-up segment at every budget, it is first, it opens something
-      real, and completing it writes a `warmup` row the Progress screen shows non-zero.*
+- [x] 5.44 `app/session`: make the plan runnable — a timer per segment, an explicit next-item step,
+      completion state per item, a visible "3 of 5" (was links to elsewhere). New `useSessionRun.ts`
+      persists a run record (own `Store` slice, independent of `persistence.ts`); `SessionPlanScreen.tsx`
+      renders "Item N of TOTAL", a done/current/upcoming list, live elapsed, "Complete" stops/starts
+      `usePracticeLog` (StrictMode-safe, mirrors `useLessons.ts`). Mix behind `<details>`, demoted.
+      *Proof: `e2e/session-run-resume.spec.ts` — real 15-min plan, completes warm-up (5.45) + 1 item, 2
+      positive-duration `practiceLog` rows in IndexedDB, reloads, resumes at item 3 with 1-2 done, no
+      phantom entries minted. Visual pass clean, both widths/themes.*
+- [x] 5.45 `core/curriculum/session` + `content`: add the **warm-up** segment, away *from the keys* —
+      jaw, shoulders, posture, stretch — first. `planSession` reserves flat `WARMUP_MINUTES` (5) off
+      the top, splits the remainder across the four mixable segments as before; cannot rescue an
+      unfillable plan. New `content/curriculum/warmups.ts` (the one file allowed there): a 5-step
+      checklist + `WARMUP_EXERCISE`, wired in by `candidates.ts` (`session.ts` never imports content).
+      `WarmupChecklist.tsx` is what it opens, inline in the running view. Re-adds `'warmup'` to
+      `ActivityKind`. **Follow-up (not owned here):** `DashboardScreen.tsx` needs `warmup: 'Warm-up',` in `ACTIVITY_KIND_LABELS`, else `typecheck` errors there.
+      *Proof: `session.test.ts` — first/present every budget (property test), clamps, declines cleanly.
+      `warmups.test.ts` stays off-keyboard. Driven: completing it logs a real `warmup` entry; given 35s
+      elapsed, Progress's weekly total reads "1 min" non-zero (number correct, label pending follow-up).*
 - [x] 5.46 `content/curriculum`: recalibrated level 1's playing exit criterion (`l1-exit-assessment`)
       off the hands-together `demo-lh-root-rh-melody-simple-piece` and onto the hands-separate
       `demo-five-finger-c-major-hands-separately` (RH bars 1-3, LH bars 4-6, genuinely hands-alone).

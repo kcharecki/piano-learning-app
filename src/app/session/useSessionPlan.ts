@@ -16,8 +16,8 @@ import {
   DEFAULT_MIX,
   SESSION_LENGTHS,
   planSession,
+  type MixableSegmentKind,
   type PlannedSession,
-  type SessionSegmentKind,
 } from '@core/curriculum/session.ts'
 import { isOk } from '@core/shared/result.ts'
 import { sessionCandidates } from './candidates.ts'
@@ -36,9 +36,10 @@ export type UseSessionPlanResult = {
   readonly budgetMinutes: number
   /** Sets the budget to any positive number — 15/30/60 or a learner-typed value (REQ-3.1.4). */
   readonly setBudgetMinutes: (minutes: number) => void
-  readonly mix: Readonly<Record<SessionSegmentKind, number>>
+  /** Warm-up (roadmap 5.45) has no mix share — see `session.ts`'s module doc — so this only ever has the four mixable keys. */
+  readonly mix: Readonly<Record<MixableSegmentKind, number>>
   /** Adjusts one segment's share; the others keep theirs (`planSession` normalises). */
-  readonly setMixShare: (segment: SessionSegmentKind, share: number) => void
+  readonly setMixShare: (segment: MixableSegmentKind, share: number) => void
   readonly resetMix: () => void
   readonly plan: PlannedSession | undefined
   /** Set exactly when `plan` is undefined — `planSession`'s own error message, never swallowed. */
@@ -50,7 +51,7 @@ export function useSessionPlan(): UseSessionPlanResult {
   const sightReadingLevel = useSightReadingStore((s) => s.level)
 
   const [budgetMinutes, setBudgetMinutesRaw] = useState<number>(DEFAULT_BUDGET_MINUTES)
-  const [mix, setMix] = useState<Readonly<Record<SessionSegmentKind, number>>>(DEFAULT_MIX)
+  const [mix, setMix] = useState<Readonly<Record<MixableSegmentKind, number>>>(DEFAULT_MIX)
 
   // Clamp only the upper bound — non-positive/non-finite values are left as
   // given so planSession's own validation still rejects them with a readable
@@ -59,7 +60,7 @@ export function useSessionPlan(): UseSessionPlanResult {
     setBudgetMinutesRaw(Math.min(MAX_BUDGET_MINUTES, Math.floor(minutes)))
   }
 
-  const setMixShare = (segment: SessionSegmentKind, share: number): void => {
+  const setMixShare = (segment: MixableSegmentKind, share: number): void => {
     setMix((current) => ({ ...current, [segment]: share }))
   }
   const resetMix = (): void => setMix(DEFAULT_MIX)

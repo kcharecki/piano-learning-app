@@ -31,11 +31,18 @@
 import type { Clock, DateSource } from '@core/ports/index.ts'
 import { invariant } from '@core/shared/invariant.ts'
 
+/**
+ * `'warmup'` was deleted by roadmap 5.14 because nothing wrote it yet (the
+ * real warm-up SEGMENT feature was out of scope there — see that task's
+ * commit body). Roadmap 5.45 re-adds it: `@app/session/SessionPlanScreen.tsx`
+ * now writes it when a learner completes the warm-up segment's checklist.
+ */
 export type ActivityKind =
-  'technique' | 'sightreading' | 'repertoire' | 'lesson' | 'theory' | 'eartraining'
+  'warmup' | 'technique' | 'sightreading' | 'repertoire' | 'lesson' | 'theory' | 'eartraining'
 
 /** Every `ActivityKind`, in a stable display order. */
 export const ACTIVITY_KINDS: readonly ActivityKind[] = [
+  'warmup',
   'technique',
   'sightreading',
   'repertoire',
