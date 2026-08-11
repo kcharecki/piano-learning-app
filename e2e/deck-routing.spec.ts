@@ -80,7 +80,11 @@ test('opening the planned "Interval flashcards" item opens the interval deck, no
   // regardless of which deck the plan named — the picker would show
   // 'staff-to-key' and the on-screen keyboard would render instead of the
   // interval prompt.
-  await expect(page.getByLabel('Drill')).toHaveValue('interval-on-staff')
+  // `exact: true` (roadmap 5.43): the shell nav now groups its Drills
+  // destinations under a `role="group"` labelled "Drills", which a
+  // non-exact `getByLabel('Drill')` also matches as a substring — see
+  // `e2e/routing.spec.ts`'s module comment for the same disambiguation.
+  await expect(page.getByLabel('Drill', { exact: true })).toHaveValue('interval-on-staff')
 
   // The interval deck's own prompt — two unlabelled noteheads on one staff —
   // proves the screen really opened that deck, not just that the select's

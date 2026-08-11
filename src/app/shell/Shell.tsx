@@ -1,17 +1,25 @@
 /**
- * App shell (roadmap 1.17, REQ-4.6): a left nav and a main area. A single-user
- * app with this handful of destinations doesn't need a router library —
- * `useState` is the boring, maintainable choice. (The count used to be written
- * out here as "six" and had been wrong for several sessions; a number that
- * has to be maintained by hand is not worth the sentence.)
+ * App shell (roadmap 1.17, REQ-4.6): a grouped nav (5.43) and a main area,
+ * navigated by a hand-rolled URL router (5.42, `@app/shell/routing.ts` +
+ * `@app/shell/route.ts`) instead of bare `useState`. The route IS the
+ * source of navigation truth now: `screen`/`technique`/`deck`/`theoryDrill`
+ * below are all derived from it, not separately tracked state, so a
+ * `popstate` (Back/Forward) or a direct reload lands on exactly what the
+ * URL names. (The nav item count used to be written out here as "six" and
+ * had been wrong for several sessions; a number that has to be maintained
+ * by hand is not worth the sentence — it isn't written out at all now.)
  *
  * Every destination here renders a real screen; there are no placeholders
- * left. "Today" (roadmap 4.7a) is the planned practice session, and it is the
- * one destination that navigates to others — `destinationFor` maps a planned
+ * left. "Today" (roadmap 4.7a) is the planned practice session AND the
+ * default landing destination (roadmap 5.39) — it is also the one
+ * destination that navigates to others — `destinationFor` maps a planned
  * exercise to the screen that runs it, which is why the nav state lives here
  * rather than inside that screen.
  */
 import { InputCapabilityBanner } from '@app/shell/InputCapabilityBanner.tsx'
+import { NavGroups, type NavGroup, type NavItem } from '@app/shell/NavGroups.tsx'
+import type { Route, ScreenId } from '@app/shell/route.ts'
+import { useRoute } from '@app/shell/routing.ts'
 import { ScoreScreen } from '@app/score/ScoreScreen.tsx'
 import { DashboardScreen } from '@app/dashboard/DashboardScreen.tsx'
 import { FlashcardScreen } from '@app/drills/FlashcardScreen.tsx'
@@ -30,7 +38,11 @@ import { ALL_THEORY_KINDS, type TheoryQuizKind } from '@core/drills/theory.ts'
 import { techniqueDrillById } from '@core/technique/library.ts'
 import { useState } from 'react'
 
-const NAV_ITEMS = [
+// Typed against `ScreenId` (imported from `route.ts`, the router's single
+// source of truth for what a "screen" is) rather than deriving it from this
+// array, as it used to — a typo'd id here is now a compile error instead of
+// silently widening the union.
+const NAV_ITEMS: readonly NavItem[] = [
   { id: 'today', label: 'Today' },
   { id: 'lessons', label: 'Lessons' },
   { id: 'practice', label: 'Practice' },
@@ -43,9 +55,50 @@ const NAV_ITEMS = [
   { id: 'theory', label: 'Theory' },
   { id: 'repertoire', label: 'Repertoire' },
   { id: 'progress', label: 'Progress' },
-] as const
+]
 
-export type ScreenId = (typeof NAV_ITEMS)[number]['id']
+export type { ScreenId }
+
+/**
+ * The grouped structure of `NAV_ITEMS` (roadmap 5.43): Today stands alone as
+ * the entry point; everything else falls into Practice / Learn / Drills /
+ * Progress — the structure the app already has but 12 flat buttons hid.
+ * Built by id lookup against `NAV_ITEMS` rather than duplicating labels, so
+ * the two can never disagree.
+ */
+function navItem(id: ScreenId): NavItem {
+  const item = NAV_ITEMS.find((n) => n.id === id)
+  // Programmer error only — every id passed here is a literal below, drawn
+  // from NAV_ITEMS itself.
+  if (item === undefined) throw new Error(`no NAV_ITEMS entry for "${id}"`)
+  return item
+}
+
+const NAV_PRIMARY: NavItem = navItem('today')
+
+const NAV_GROUPS: readonly NavGroup[] = [
+  {
+    label: 'Practice',
+    items: [
+      navItem('practice'),
+      navItem('sight-reading'),
+      navItem('repertoire'),
+      navItem('metronome'),
+    ],
+  },
+  { label: 'Learn', items: [navItem('lessons')] },
+  {
+    label: 'Drills',
+    items: [
+      navItem('flashcards'),
+      navItem('ear-training'),
+      navItem('rhythm'),
+      navItem('technique'),
+      navItem('theory'),
+    ],
+  },
+  { label: 'Progress', items: [navItem('progress')] },
+]
 
 /**
  * Where a planned session item sends the learner (roadmap 4.7a). The plan is
@@ -147,6 +200,68 @@ function openedTheoryDrillOf(exercise: Exercise): OpenedTheoryDrill | undefined 
     : { kind: kind as TheoryQuizKind, level }
 }
 
+/**
+ * `Route` -> the shell's opened-drill state (roadmap 5.42): the inverse of
+ * `routeFor` below. Used both for the route the app boots/reloads on and for
+ * a `popstate` (Back/Forward) — the id embedded in the URL is re-validated
+ * against the same library lookups `openedTechniqueOf`/`DECK_KINDS`/
+ * `THEORY_KINDS` already use, so a stale or hand-typed URL degrades to "no
+ * deep-link param" instead of crashing.
+ */
+function techniqueFromRoute(route: Route): OpenedTechnique | undefined {
+  const id = route.params?.id
+  if (route.screen !== 'technique' || id === undefined) return undefined
+  const drill = techniqueDrillById(id)
+  return drill === undefined
+    ? undefined
+    : { drillId: drill.id, level: route.params?.level ?? drill.level }
+}
+
+function deckFromRoute(route: Route): OpenedDeck | undefined {
+  const id = route.params?.id
+  if (route.screen !== 'flashcards' || id === undefined || !DECK_KINDS.has(id)) return undefined
+  const level = route.params?.level
+  return level === undefined ? { kind: id as DrillKind } : { kind: id as DrillKind, level }
+}
+
+function theoryDrillFromRoute(route: Route): OpenedTheoryDrill | undefined {
+  const id = route.params?.id
+  if (route.screen !== 'theory' || id === undefined || !THEORY_KINDS.has(id)) return undefined
+  const level = route.params?.level
+  return level === undefined
+    ? { kind: id as TheoryQuizKind }
+    : { kind: id as TheoryQuizKind, level }
+}
+
+/**
+ * A destination screen plus the shell's opened-drill state -> the `Route`
+ * that reaches it (the inverse of the three functions above). Only the one
+ * matching `screen` ever contributes params — `open()` below computes all
+ * three from a single exercise, but only the one the exercise actually
+ * routes to is relevant.
+ */
+function routeFor(
+  screen: ScreenId,
+  technique: OpenedTechnique | undefined,
+  deck: OpenedDeck | undefined,
+  theoryDrill: OpenedTheoryDrill | undefined,
+): Route {
+  if (screen === 'technique' && technique !== undefined) {
+    return { screen, params: { id: technique.drillId, level: technique.level } }
+  }
+  if (screen === 'flashcards' && deck !== undefined) {
+    return deck.level === undefined
+      ? { screen, params: { id: deck.kind } }
+      : { screen, params: { id: deck.kind, level: deck.level } }
+  }
+  if (screen === 'theory' && theoryDrill !== undefined) {
+    return theoryDrill.level === undefined
+      ? { screen, params: { id: theoryDrill.kind } }
+      : { screen, params: { id: theoryDrill.kind, level: theoryDrill.level } }
+  }
+  return { screen }
+}
+
 function renderScreen(
   screen: ScreenId,
   open: (exercise: Exercise) => void,
@@ -221,23 +336,30 @@ function renderScreen(
 }
 
 export function Shell() {
-  const [screen, setScreen] = useState<ScreenId>('practice')
-  const [technique, setTechnique] = useState<OpenedTechnique | undefined>(undefined)
-  const [deck, setDeck] = useState<OpenedDeck | undefined>(undefined)
-  const [theoryDrill, setTheoryDrill] = useState<OpenedTheoryDrill | undefined>(undefined)
+  // The route is the single source of navigation truth (roadmap 5.42):
+  // `screen`/`technique`/`deck`/`theoryDrill` are all derived from it below,
+  // not separately tracked — so a direct reload, a deep link, or a browser
+  // Back/Forward (both drive `route` via `useRoute`'s popstate listener)
+  // reproduce exactly the same shell state a click would have.
+  const { route, navigate } = useRoute()
   const [navOpen, setNavOpen] = useState(false)
 
+  const screen = route.screen
+  const technique = techniqueFromRoute(route)
+  const deck = deckFromRoute(route)
+  const theoryDrill = theoryDrillFromRoute(route)
+
   function open(exercise: Exercise): void {
-    if (exercise.kind === 'technique') setTechnique(openedTechniqueOf(exercise))
-    if (exercise.kind === 'theory-quiz') {
-      setDeck(openedDeckOf(exercise))
-      setTheoryDrill(openedTheoryDrillOf(exercise))
-    }
-    setScreen(destinationFor(exercise))
+    const nextScreen = destinationFor(exercise)
+    const nextTechnique = exercise.kind === 'technique' ? openedTechniqueOf(exercise) : undefined
+    const nextDeck = exercise.kind === 'theory-quiz' ? openedDeckOf(exercise) : undefined
+    const nextTheoryDrill =
+      exercise.kind === 'theory-quiz' ? openedTheoryDrillOf(exercise) : undefined
+    navigate(routeFor(nextScreen, nextTechnique, nextDeck, nextTheoryDrill))
   }
 
   function goTo(id: ScreenId): void {
-    setScreen(id)
+    navigate({ screen: id })
     setNavOpen(false)
   }
 
@@ -259,19 +381,7 @@ export function Shell() {
       </div>
       {navOpen && <div className="nav-scrim" onClick={() => setNavOpen(false)} />}
       <nav className="app-nav" aria-label="Main" data-open={navOpen}>
-        <ul>
-          {NAV_ITEMS.map((item) => (
-            <li key={item.id}>
-              <button
-                type="button"
-                aria-current={screen === item.id ? 'page' : undefined}
-                onClick={() => goTo(item.id)}
-              >
-                {item.label}
-              </button>
-            </li>
-          ))}
-        </ul>
+        <NavGroups primary={NAV_PRIMARY} groups={NAV_GROUPS} activeScreen={screen} onNavigate={goTo} />
       </nav>
       <main className="app-main">
         <InputCapabilityBanner />

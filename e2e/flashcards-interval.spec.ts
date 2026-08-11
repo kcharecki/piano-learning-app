@@ -31,7 +31,10 @@ test('the interval flashcard drill renders two unlabelled noteheads and grades a
     .click()
 
   await expect(page.getByRole('heading', { name: 'Flashcards' })).toBeVisible()
-  await page.getByLabel('Drill').selectOption('interval-on-staff')
+  // `exact: true` (roadmap 5.43): the shell nav now groups its Drills
+  // destinations under a `role="group"` labelled "Drills", which a
+  // non-exact `getByLabel('Drill')` also matches as a substring.
+  await page.getByLabel('Drill', { exact: true }).selectOption('interval-on-staff')
 
   // Two noteheads on ONE staff, computed — and unlabelled, which is the whole
   // point of a reading drill: a letter name anywhere in the SVG hands the

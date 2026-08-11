@@ -52,7 +52,7 @@ test('adding a graded piece and opening it in Practice loads and plays that piec
   test.setTimeout(45_000)
   const errors = collectErrors(page)
 
-  await page.goto('/')
+  await page.goto('/practice')
 
   // The default landing score — proves the piece below is a real switch, not
   // a no-op that happened to already show the right thing.
