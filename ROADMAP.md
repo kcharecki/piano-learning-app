@@ -797,10 +797,17 @@ next item, no completion state, no sense of being 3 of 5 through today.
       hands-together only in book 2 — level 1 was demanding a skill neither method teaches yet.
       *Proof: `curriculum.test.ts` unchanged and green; the two dashboard tests seeding a level-1
       assessment updated to the new piece id, same met/unmet split.*
-- [ ] 5.47 `app/progress`: a teacher/parent output — a printable practice sheet or assignment view.
+- [x] 5.47 `app/progress`: a teacher/parent output — a printable practice sheet or assignment view.
       Export is JSON/CSV of raw logs, which is a backup format, not something anyone reads.
       *Proof: a week's practice renders as a printable summary (categories, minutes, pieces, what was
-      assessed) and prints to one page in a browser.*
+      assessed) and prints to one page in a browser.* DONE: `PracticeSheet` (`src/app/progress/`),
+      toggled from the Progress screen, reduces `useProgressStore` (via `usePracticeSheet`) into
+      by-category minutes/sessions, per-item sessions/minutes/last-practiced, and any repertoire
+      assessments in the trailing 7 days, with an honest "no practice recorded" empty state and an
+      explicit caveat on what the accuracy % does/does not cover (pitch+timing only, no tone,
+      posture). `e2e/practice-sheet-print.spec.ts` seeds a genuine week into IndexedDB, reloads,
+      asserts the real numbers on screen, then measures the printed PDF's own page count via
+      `page.pdf()` — exactly 1 page for both a populated and an empty week.
 
 ### Overall honesty — **the review's #14**
 

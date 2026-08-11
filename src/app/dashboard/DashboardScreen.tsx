@@ -7,7 +7,9 @@
  * hook reports there is nothing to show yet.
  */
 import { ExportPanel } from '@app/progress/ExportPanel.tsx'
-import { ACTIVITY_KINDS, type ActivityKind } from '@core/progress/log.ts'
+import { PracticeSheet } from '@app/progress/PracticeSheet.tsx'
+import { ACTIVITY_KIND_LABELS } from '@app/progress/activityKindLabels.ts'
+import { ACTIVITY_KINDS } from '@core/progress/log.ts'
 import { MIN_LEVEL, MAX_LEVEL, type Track } from '@core/curriculum/types.ts'
 import { canAdvance, type ProgressEvidence } from '@core/progress/levels.ts'
 import { levelAt } from '@core/curriculum/model.ts'
@@ -27,17 +29,6 @@ const TRACK_LABELS: Readonly<Record<Track, string>> = {
   playing: 'Playing',
   'sight-reading': 'Sight-reading',
   theory: 'Theory',
-}
-
-/** Display name per `ActivityKind`. `Record<ActivityKind, string>` makes this
- * exhaustive: a new `ActivityKind` with no entry here fails the build. */
-const ACTIVITY_KIND_LABELS: Readonly<Record<ActivityKind, string>> = {
-  technique: 'Technique',
-  sightreading: 'Sight reading',
-  repertoire: 'Repertoire',
-  lesson: 'Lesson',
-  theory: 'Theory',
-  eartraining: 'Ear training',
 }
 
 function round(value: number): number {
@@ -277,6 +268,10 @@ export function DashboardScreen(props: DashboardScreenProps) {
           </>
         )}
       </section>
+
+      {/* roadmap 5.47: a printable summary a teacher or parent can actually
+          read, distinct from the raw JSON/CSV backup below. */}
+      <PracticeSheet {...props} />
 
       {/* REQ-3.10.4: the learner owns this data locally, which means being able
           to take it out and put it back (roadmap 4.6a). */}
