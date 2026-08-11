@@ -148,19 +148,11 @@ export function TechniqueScreen(props: TechniqueScreenProps) {
 
       {drill.score !== undefined && (
         <section aria-label="Drill score">
+          {/* REQ-3.7.1 (roadmap 5.22): `writeMusicXml` now emits each note's
+              `fingering` as a `<technical><fingering>` notation, and OSMD
+              renders it natively above/below its own notehead, per hand —
+              no separate text readout needed. */}
           <ExerciseScore score={drill.score} />
-          {/* REQ-3.7.1: recommended fingerings shown alongside the engraving.
-              `writeMusicXml` (frozen, owned elsewhere) drops the `fingering`
-              notation, so the engraving itself carries no finger numbers yet
-              — surface the sequence as text so the requirement is visibly
-              met without touching that file. */}
-          <p data-testid="technique-fingering">
-            Fingering:{' '}
-            {drill.score.notes
-              .filter((n) => n.fingering !== undefined)
-              .map((n) => n.fingering)
-              .join(' - ')}
-          </p>
         </section>
       )}
       {/* Directly under the engraving, same placement and reasoning as

@@ -88,6 +88,36 @@ describe('writeMusicXml: round-trips every fixture', () => {
   })
 })
 
+// ===================================================================== fingering
+
+describe('writeMusicXml: fingering (roadmap 5.22, REQ-3.7.1)', () => {
+  it('writes fingering above the right hand and below the left, and round-trips it', () => {
+    const score = makeScore({
+      id: 'fingering',
+      measures: [{}],
+      notes: [
+        { midi: 60, startTick: 0, durationTicks: 480, hand: 'right', fingering: 1 },
+        { midi: 48, startTick: 0, durationTicks: 480, hand: 'left', fingering: 5 },
+      ],
+    })
+    const xml = writeMusicXml(score)
+    expect(xml).toContain('<technical><fingering placement="above">1</fingering></technical>')
+    expect(xml).toContain('<technical><fingering placement="below">5</fingering></technical>')
+
+    const reparsed = assertRoundTrips(score)
+    expect(reparsed.notes.map((n) => n.fingering)).toEqual(score.notes.map((n) => n.fingering))
+  })
+
+  it('writes no <notations> at all for a note with neither a tie nor a fingering', () => {
+    const score = makeScore({
+      id: 'no-notations',
+      measures: [{}],
+      notes: [{ midi: 60, startTick: 0, durationTicks: 480, hand: 'right' }],
+    })
+    expect(writeMusicXml(score)).not.toContain('<notations>')
+  })
+})
+
 // ================================================================== meta / escaping
 
 describe('writeMusicXml: title, composer and escaping', () => {

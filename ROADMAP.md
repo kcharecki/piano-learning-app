@@ -482,11 +482,18 @@ presentation destroys it — that fingering is rendered as **58 numbers on one l
 interleaved and unlabelled**. Fingering numbers belong above the noteheads, which is where every
 printed edition puts them and which OSMD renders natively.
 
-- [ ] 5.22 `app/technique` + `adapters/osmd`: put fingering numbers on the staff, above their own
-      noteheads, per hand. Delete the interleaved string.
-      *Proof: the rendered SVG carries a fingering glyph positioned within the notehead's bounding box
-      for the first 8 notes of the C major two-octave drill, and the numbers read `1 2 3 1 2 3 4 1` in
-      the right hand — read off the engraving, not off the model.*
+- [x] 5.22 `app/technique` + `core/notation`: put fingering numbers on the staff, above their own
+      noteheads, per hand. Deleted the interleaved string. The gap was the writer, not OSMD or the
+      adapter: `ScoreNote.fingering` was already correct end to end (`techniqueScore` →
+      `makeScore`), and OSMD's `RenderFingerings`/`FingeringPositionFromXML` default to exactly what
+      this needed — `writeMusicXml` (`musicxmlwriter.ts`) just never emitted the
+      `<technical><fingering>` notation. Now writes it with an explicit `placement` (`above` for the
+      right hand, `below` for the left), so OSMD's own above/below heuristic is never in play.
+      *Proof: `e2e/technique-fingering.spec.ts` drives the real C major two-octave drill, reads the
+      first 8 right-hand fingering glyphs off the rendered SVG (not the model) matched to their OWN
+      notehead by nearest x, and asserts each reads `1 2 3 1 2 3 4 1`, is horizontally centred on
+      that notehead (±4px) and sits above it; the left hand gets the same per-note check, below.
+      Visual pass both widths/themes, console clean, screenshotted.*
 - [ ] 5.23 `app/technique`: say what MIDI cannot see. Wrist height and collapse, forearm alignment,
       finger curl, *which* finger was actually used, shoulder tension, bench height, posture — the
       Taubman/Golandsky literature names dropped wrists and isolated finger motion as direct causes of

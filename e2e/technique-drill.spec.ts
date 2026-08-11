@@ -44,10 +44,9 @@ import { makeTempoMap, tickToMs } from '../src/core/timing/tempo.ts'
  * `scale-c-major-2oct-hands-together` ("C major scale, 2 octaves, hands
  * together") is picked directly.
  *
- * `useTechniqueDrill`'s own module comment already flags a real, currently-open
- * gap: `@core/technique/library.ts`'s drills store no `fingering` in the
- * MusicXML this screen hands to `ScoreViewer` (`writeMusicXml` drops it) — not
- * this test's concern, and not repeated here.
+ * Fingering itself — every note's finger number, engraved above/below its own
+ * notehead per hand — is proved separately (roadmap 5.22, `e2e/technique-
+ * fingering.spec.ts`), not repeated here.
  *
  * The gap this test used to surface — `TechniqueAttempt`s only living in the
  * in-memory `useTechniqueStore`, never `COLLECTIONS.techniqueHistory` — is now

@@ -31,17 +31,13 @@
  * reduces the matcher to an accuracy figure, reduces the onsets to an
  * evenness figure via `evennessOf`, and stores the result.
  *
- * ## Contract ambiguity flagged for the reviewer
+ * ## Fingering reaches the engraving (roadmap 5.22)
  *
- * `writeMusicXml` (`@core/notation/musicxmlwriter.ts`) does not emit a
- * `<technical><fingering>` notation for any note — grepping the file for
- * "fingering" turns up nothing. Every note `techniqueScore` produces DOES
- * carry `ScoreNote.fingering` (REQ-3.7.1), but the MusicXML this hook hands to
- * `ScoreViewer` cannot currently show it engraved: the writer silently drops
- * the field. That is a real, currently-open gap in a dependency this module
- * is not allowed to touch, so it is called out here rather than glossed over.
- * The test suite therefore asserts fingerings at the `Score` level (what this
- * hook actually guarantees), not on rendered engraving output.
+ * Every note `techniqueScore` produces carries `ScoreNote.fingering`
+ * (REQ-3.7.1); `writeMusicXml` (`@core/notation/musicxmlwriter.ts`) writes it
+ * as a `<technical><fingering>` notation, placed above the staff for the
+ * right hand and below for the left, and OSMD draws it natively above/below
+ * its own notehead — no separate text readout on the screen needed.
  */
 import { createBrowserClock } from '@app/practice/clock.ts'
 import { createPlayableInput, type PlayableMidiInput } from '@app/practice/playableInput.ts'

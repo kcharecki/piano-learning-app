@@ -167,10 +167,22 @@ function noteXml(
   for (let i = 0; i < dots; i++) parts.push('<dot/>')
   if (accidental !== undefined) parts.push(`<accidental>${accidental}</accidental>`)
   parts.push(`<staff>${staff}</staff>`)
-  const tied: string[] = []
-  if (note.tiedFrom) tied.push('<tied type="stop"/>')
-  if (note.tiedTo) tied.push('<tied type="start"/>')
-  if (tied.length > 0) parts.push(`<notations>${tied.join('')}</notations>`)
+  const notations: string[] = []
+  if (note.tiedFrom) notations.push('<tied type="stop"/>')
+  if (note.tiedTo) notations.push('<tied type="start"/>')
+  // REQ-3.7.1 (roadmap 5.22): a fingering rides on the SAME `<notations>` a
+  // tie already uses — printed editions place RH numbers above the staff and
+  // LH below it, and OSMD's `FingeringPositionFromXML` (default true) honors
+  // this attribute directly rather than falling back to its own above/below
+  // heuristic, which is what makes "above their own noteheads, per hand" a
+  // property of the XML, not a hope about the renderer's guess.
+  if (note.fingering !== undefined) {
+    const placement = note.hand === 'left' ? 'below' : 'above'
+    notations.push(
+      `<technical><fingering placement="${placement}">${note.fingering}</fingering></technical>`,
+    )
+  }
+  if (notations.length > 0) parts.push(`<notations>${notations.join('')}</notations>`)
   parts.push('</note>')
   return parts.join('')
 }
