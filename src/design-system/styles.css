@@ -9,4 +9,13 @@
 @import "css/base.css";
 @import "css/primitives.css";
 @import "css/domain.css";
+/* Feature stylesheets — one per concurrent worktree session, so a parallel round
+   never has two sessions appending to domain.css. Folded back in once settled. */
+@import "css/feature-nav-groups.css";
+@import "css/feature-ear-reveal.css";
+@import "css/feature-lesson-diagrams.css";
+@import "css/feature-practice-sections.css";
+@import "css/feature-print-sheet.css";
+@import "css/feature-music-font.css";
+@import "css/feature-session-run.css";
 @import "css/responsive.css";

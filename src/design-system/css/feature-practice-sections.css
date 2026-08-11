@@ -1,0 +1,4 @@
+/* Feature stylesheet — practice-sections.
+   Single-writer by construction: exactly one parallel session owns this file, so
+   a round of concurrent worktrees never conflicts inside domain.css. Rules that
+   outlive their feature's round get folded back into domain.css by the integrator. */
