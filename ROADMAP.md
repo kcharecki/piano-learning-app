@@ -553,11 +553,31 @@ three hardcoded hexes duplicated out of the token file (`useNoteFeedback.ts:136-
       `textContent`); confirmed live — `document.querySelector('[aria-label="C4"]')` finds the key.
       All four rewritten e2e specs pass unchanged in behaviour. Console clean, no visual change (the
       change is accessibility-tree only).*
-- [ ] 5.26 `app/flashcards`: clef glyphs are Unicode `U+1D11E`/`U+1D122` rendered in `system-ui` with
-      no bundled music font, so they depend entirely on OS font fallback. Bundle a music font (Bravura
-      is SIL OFL) and use it for musical glyphs.
-      *Proof: the font is bundled and self-hosted (no network fetch), and the clef renders with a
-      non-zero advance width in a browser with system music fonts unavailable.*
+- [x] 5.26 `app/flashcards`: clef glyphs are Unicode `U+1D11E`/`U+1D122` rendered in `system-ui` with
+      no bundled music font, so they depend entirely on OS font fallback. Bundled Bravura (SIL OFL
+      1.1) — `src/design-system/fonts/bravura/Bravura.woff2`, 323,528 bytes, fetched from the official
+      `steinbergmedia/bravura` GitHub release (`bravura-1.481`) since neither `opensheetmusicdisplay`
+      nor `vexflow` ship an actual font file in `node_modules` (only the string "Bravura" as a
+      fallback name, plus their own JS glyph-path data for canvas engraving). Verified with `fontTools`
+      that plain `Bravura` (not `BravuraText`) already covers every codepoint this app uses as text —
+      no SMuFL remapping needed. Not subset (would need a new build-time dependency, out of this
+      task's scope); shipped unsubsetted, size stated above. `feature-music-font.css` declares the
+      `@font-face` and a `.music-glyph` class; `StaffNote.tsx`'s clef and accidental `<text>` nodes
+      (the only glyph-as-text usages in the file this task owns) now carry it. Found 2 more instances
+      of the same defect outside this task's owned files — `KeySignatureAnswerPad.tsx` and
+      `NoteNameAnswerPad.tsx` also render `♯`/`♭`/`\u{1D12A}`/`\u{1D12B}` as plain button-label text —
+      reported, not fixed (out of scope: `src/app/drills/**` other than `StaffNote.tsx` was explicitly
+      not owned by this session).
+      *Proof: self-hosted confirmed live — the running app fires a real network request for
+      `http://localhost:5307/src/design-system/fonts/bravura/Bravura.woff2` (same origin as the page,
+      captured via Playwright's request log), never a third-party host. `e2e/music-font.spec.ts` drives
+      the actual Flashcards screen (no fixture), confirms `document.fonts.check('34px Bravura')` is
+      true, reads the real clef glyph's live `getBBox()` (width 24px, height 137px — non-zero on both
+      axes) and compares it against a control element rendered with the pre-fix `system-ui` fallback
+      stack in the same fontless Chromium (18px × 46px) — bundled rendered area is ~3.7x the control's,
+      proving the font swap changed what actually painted, not merely that `font-family` was declared.
+      Visual pass (`visual-pass.mjs Flashcards`, both widths, both themes) shows a correctly engraved
+      treble/bass clef seated on the staff lines with the right baseline, console clean in all four.*
 - [ ] 5.27 `app`: confirm the ≤1024px responsive drawer **by hand in a real browser at tablet width**.
       The review could not verify it — the automation pane does not composite frames, so the nav's
       `translateX(-100%)` transition sits frozen at t=0. That is an environment artefact, not a defect,

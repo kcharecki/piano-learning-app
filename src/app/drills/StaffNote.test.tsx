@@ -41,6 +41,24 @@ describe('StaffNote', () => {
     expect(note).toBeInTheDocument()
     expect(note.textContent).not.toMatch(/[A-G]/)
   })
+
+  // roadmap 5.26 — the clef glyph must be wired to the bundled-font class, not
+  // left to render in whatever the OS happens to fall back to. This only
+  // proves the wiring; feature-music-font.css and the e2e spec prove the font
+  // itself is present, self-hosted, and actually changes the rendered glyph.
+  it('renders the clef glyph with the bundled music-font class (roadmap 5.26)', () => {
+    render(<StaffNote midi={midi(60)} clef="treble" />)
+
+    expect(screen.getByTestId('clef-glyph')).toHaveClass('music-glyph')
+  })
+
+  it('renders an accidental glyph with the bundled music-font class', () => {
+    render(<StaffNote midi={midi(66)} clef="treble" />) // F#4 — has an accidental
+
+    const note = screen.getByTestId('staff-note')
+    const accidental = note.querySelector('text.music-glyph:not([data-testid="clef-glyph"])')
+    expect(accidental).not.toBeNull()
+  })
 })
 
 describe('StaffNote — an interval card (two noteheads, one staff)', () => {

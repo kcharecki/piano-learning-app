@@ -65,7 +65,14 @@ function isIntervalProps(
 function StaffLines({ width, clef }: { readonly width: number; readonly clef: Clef }) {
   return (
     <>
-      <text x="10" y={y(4) + 14} fontSize="34" aria-hidden="true">
+      <text
+        className="music-glyph"
+        data-testid="clef-glyph"
+        x="10"
+        y={y(4) + 14}
+        fontSize="34"
+        aria-hidden="true"
+      >
         {CLEF_GLYPH[clef]}
       </text>
       {[0, 2, 4, 6, 8].map((line) => (
@@ -90,7 +97,7 @@ function Notehead({
   return (
     <g data-testid={testId} data-step={step}>
       {accidental !== undefined && (
-        <text x={x - 22} y={y(step) + 6} fontSize="20" aria-hidden="true">
+        <text className="music-glyph" x={x - 22} y={y(step) + 6} fontSize="20" aria-hidden="true">
           {accidental}
         </text>
       )}
@@ -142,7 +149,13 @@ function SingleStaffNote({ midi, clef }: { readonly midi: Midi; readonly clef: C
         />
       ))}
       {accidental !== undefined && (
-        <text x={SINGLE_NOTE_X - 22} y={y(step) + 6} fontSize="20" aria-hidden="true">
+        <text
+          className="music-glyph"
+          x={SINGLE_NOTE_X - 22}
+          y={y(step) + 6}
+          fontSize="20"
+          aria-hidden="true"
+        >
           {accidental}
         </text>
       )}
