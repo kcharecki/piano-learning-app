@@ -1,0 +1,4 @@
+/* Feature stylesheet — the shell-level chord/scale reference panel (roadmap 3.17).
+   Single-writer by construction, like its sibling feature-*.css files. Created and
+   imported on master ahead of the implementing session so that session never has to
+   touch the barrel, which every parallel session is forbidden to edit. */

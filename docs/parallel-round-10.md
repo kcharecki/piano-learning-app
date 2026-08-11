@@ -95,9 +95,50 @@ roadmap block sits adjacent to 3.15a's, which a session is editing right now.
 dockable split pane, cheap-navigation-plus-restored-state, peek popover), and the choice is
 constrained by three things at once: the Practice screen must not unmount (it holds the loaded
 score, the matcher and the transport), two live `AudioContext`s would collide, and a second
-OpenSheetMusicDisplay engraving is not free. A decision was commissioned with all of that
-context. **Resolution goes here when it returns; if it does not settle the question, this task
-stays parked and the user decides.**
+OpenSheetMusicDisplay engraving is not free. **RESOLVED 2026-08-11** — a non-modal Shell-level overlay side panel.
+
+`src/app/reference/ReferencePanel.tsx` (new) wraps the existing `ChordScaleReference` — which is
+already fully controlled — in an `<aside id="reference-panel" role="complementary">` with a
+heading and a close button, owning the `root`/`scaleType` state itself. `Shell.tsx` gets a
+persistent topbar toggle (`aria-expanded`, `aria-controls`) and renders the panel as a **sibling
+after `app-main`**, never as a wrapper around it and never as a layout column.
+
+Why that shape rather than the two obvious alternatives:
+
+- **Not a modal.** The use case is glancing at a fingering *while the transport is running and
+  hands are on the keys*. `aria-modal` plus a focus trap means the learner cannot reach pause
+  without closing first, which is "available instead of your work", not "available at all times".
+- **Not cheap-navigation-with-restored-state.** Restoring Practice losslessly means serialising
+  the loaded score, matcher run state, transport position, loop range, recording buffer and a
+  gesture-gated `AudioContext` — a large change inside a screen file the implementer may not
+  edit — and even done perfectly the learner still cannot see the reference and the score at the
+  same time, which is the whole point of a reference.
+- **Not a split pane.** Narrowing `app-main` resizes the Practice OSMD engraving on every open,
+  close and divider drag. The overlay is `position: fixed`, so `app-main`'s box never changes and
+  the practice engraving never re-engraves.
+
+Specified behaviours the implementer must hold to: mount nothing until first open, then
+**hide on close rather than unmount**, so the selected root/scale and the panel's own OSMD
+engraving survive; never change the type, position or keys of the routed screen's JSX when
+toggling, so React keeps the screen instance alive; panel state is ephemeral chrome and stays
+**out of the router and out of history**, so Back never toggles it mid-practice; focus moves to
+the close button on open, there is no focus trap, Tab continues out into the page so the
+transport stays reachable, and Escape or the scrim closes and returns focus to the toggle; at
+≤1024px it becomes a right-edge drawer with a scrim, mutually exclusive with the nav drawer so
+the two scrims never stack. Two live `AudioContext`s are fine — browsers mix them, panel
+playback is a few seconds and self-cancels on re-press or selection change, so no cancellation
+plumbing into a hidden component.
+
+*Proof action:* on Practice, load a score, set a loop range, start the transport with the
+metronome and match a note. Open the panel and, in one continuous run, confirm the metronome is
+still audible on the same measure; the panel's own Play sounds over it; Tab reaches the
+transport's pause and toggles it with the panel still open; Escape closes, focus lands on the
+toggle, and loop range, transport position and matched-note state are all unchanged; reopening
+shows the previous selection with no re-engrave flash of the practice score at any point. Repeat
+at 1024px against the drawer nav, both themes, console clean.
+
+`src/design-system/css/feature-reference-panel.css` was created and imported on master ahead of
+time, so the implementing session needs no out-of-scope edit to the barrel.
 
 ### Q3 — for the user, not resolvable here
 
