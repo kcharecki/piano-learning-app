@@ -2,3 +2,70 @@
    Single-writer by construction, like its sibling feature-*.css files. Created and
    imported on master ahead of the implementing session so that session never has to
    touch the barrel, which every parallel session is forbidden to edit. */
+
+/* Persistent toggle (Shell.tsx): fixed at every viewport width, deliberately
+   NOT nested inside .app-topbar — that element is `display:none` above
+   1024px (see domain.css/responsive.css), and a persistent control cannot
+   live inside chrome that itself disappears.
+   z-index matches the panel's own tier (--z-dialog), one above .app-topbar
+   at <=1024px (roadmap 5.27's fix, responsive.css): the toggle sits inside
+   the topbar's own vertical band at that width, and it must "always be
+   available" — never covered by the topbar, the nav drawer, or either
+   scrim, all of which sit at or below --z-nav. */
+.reference-toggle {
+  position: fixed;
+  top: var(--space-3);
+  right: var(--space-3);
+  z-index: var(--z-dialog);
+}
+
+/* The panel itself: position:fixed so app-main's box never changes size on
+   open/close (the whole point of the resolved mechanism — a layout column
+   would resize app-main and re-engrave any OSMD score inside it). Sits above
+   the nav (z-nav) and its own scrim, below nothing — it is the topmost
+   piece of chrome the learner can summon. */
+#reference-panel {
+  position: fixed;
+  inset: 0 0 0 auto;
+  width: min(28rem, 92vw);
+  overflow-y: auto;
+  background: var(--bg-1);
+  border-left: var(--border-w) solid var(--border-1);
+  box-shadow: var(--elev-3);
+  z-index: var(--z-dialog);
+  padding: var(--space-4);
+}
+#reference-panel[hidden] { display: none; }
+
+.reference-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+  position: sticky;
+  top: calc(-1 * var(--space-4));
+  background: var(--bg-1);
+  padding-top: var(--space-1);
+}
+.reference-panel-header h2 { margin: 0; font-size: var(--text-lg); }
+
+/* Scrim: only ever shown at <=1024px, and only mutually exclusive with the
+   nav drawer at that width — Shell.tsx enforces the "opening one closes the
+   other" half; this only ever paints the pixels. z-index matches
+   .nav-scrim's own tier exactly (calc(--z-nav - 1), domain.css/
+   responsive.css): BELOW the persistent toggle buttons (--z-nav), so both
+   .nav-toggle and .reference-toggle stay clickable through it, same as the
+   nav drawer's own scrim already lets its toggle stay clickable through it. */
+.reference-panel-scrim { display: none; }
+
+@media (max-width: 1024px) {
+  #reference-panel { width: min(24rem, 85vw); }
+  .reference-panel-scrim:not([hidden]) {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, .5);
+    z-index: calc(var(--z-nav) - 1);
+  }
+}
