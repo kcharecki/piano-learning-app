@@ -22,6 +22,9 @@
   :root {
     --control-h: 44px;        /* every control clears touch min */
     --control-pad-x: 16px;
+    /* The drawer's origin, the topbar's own height and the sticky transport
+       offset all have to agree; they were three separate hardcoded 56px. */
+    --topbar-h: 56px;
   }
   input[type="range"]::-webkit-slider-thumb { width: 28px; height: 28px; margin-top: -11px; }
   input[type="range"]::-moz-range-thumb { width: 24px; height: 24px; }
@@ -37,8 +40,17 @@
   .app-layout { display: block; }
   .app-nav {
     position: fixed;
-    inset: 0 auto 0 0;
-    height: 100vh;
+    /* Starts BELOW the topbar, not at the viewport top. The topbar deliberately
+       paints one tier above this drawer (see its own comment), so anything the
+       drawer renders in the first 56px is covered by it and swallows the tap:
+       with `inset: 0 …` the drawer's first item — Today, the app's own primary
+       destination — spanned y 12-56 and `elementFromPoint` at its centre
+       returned `.app-topbar`. Exactly one of the thirteen nav items was
+       affected, and it was the one that matters most. Raising the drawer above
+       the topbar instead would re-break the hamburger, which is the bug the
+       z-order was arranged to fix in the first place. */
+    inset: var(--topbar-h) auto 0 0;
+    height: calc(100vh - var(--topbar-h));
     width: min(20rem, 80vw);
     transform: translateX(-100%);
     transition: transform var(--dur-2) var(--ease-out);
@@ -50,7 +62,7 @@
     display: flex;
     align-items: center;
     gap: var(--space-3);
-    min-height: 56px;
+    min-height: var(--topbar-h);
     padding: 0 var(--space-3);
     background: var(--bg-1);
     border-bottom: var(--border-w) solid var(--border-1);
@@ -76,7 +88,7 @@
   }
   .app-main { max-width: none; padding-top: var(--space-4); }
   /* transport sits below the topbar */
-  .practice-controls { top: 56px; }
+  .practice-controls { top: var(--topbar-h); }
 }
 
 @media (max-width: 768px) {
