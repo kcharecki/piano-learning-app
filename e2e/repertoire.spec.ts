@@ -154,7 +154,10 @@ test('a loaded score joins the repertoire, and a maintained piece appears in the
   await expect(due.getByText('Nothing due for review.')).toBeVisible()
 
   // REQ-3.8.3: the level is assigned manually on the way in.
-  await screen.getByLabel('Level').selectOption('3')
+  // `exact: true` because roadmap 5.3 added a "Below my level (playing level N)"
+  // filter checkbox whose accessible name also contains "Level", which makes a
+  // substring match resolve to two elements under Playwright's strict mode.
+  await screen.getByLabel('Level', { exact: true }).selectOption('3')
   await screen.getByRole('button', { name: 'Add loaded score' }).click()
 
   await expect(library.getByText(FIXTURE_TITLE, { exact: true })).toBeVisible()

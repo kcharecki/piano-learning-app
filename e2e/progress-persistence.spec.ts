@@ -1,4 +1,5 @@
 import { expect, test, type ConsoleMessage, type Page } from '@playwright/test'
+import { seedPlayingLevel } from './seedLevel.ts'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
@@ -63,6 +64,13 @@ test('an assessment result and a practice-log entry survive a reload, read strai
   const errors = collectErrors(page)
 
   await page.goto('/')
+  // Roadmap 5.17 gated Assessment behind the `playing` track reaching level 3
+  // and moved it inside the collapsed "More tools" disclosure, so a fresh
+  // level-1 profile never renders the button this spec waits for. Seed the
+  // level first and open the disclosure below, the same two steps
+  // `assessment.spec.ts` takes.
+  await seedPlayingLevel(page, 3)
+  await page.reload()
   await page
     .getByRole('navigation', { name: /main/i })
     .getByRole('button', { name: 'Practice', exact: true })
@@ -84,6 +92,7 @@ test('an assessment result and a practice-log entry survive a reload, read strai
   // the run finalises at 0% when the transport plays off the end. A finished
   // run is a finished run — what is being proved here is that its RESULT is
   // stored, not what the result says.
+  await page.getByText('More tools').click()
   await page
     .getByRole('group', { name: 'Assessment' })
     .getByRole('button', { name: /assessment/i })
