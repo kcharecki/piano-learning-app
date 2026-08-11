@@ -283,7 +283,8 @@ export const LEVEL_2_LESSONS: readonly Lesson[] = [
       'gentler departure from it, a different colour of "away from the tonic".\n\n' +
       'For now, just listen for IV: play I, then IV, then back to I, and notice that it sounds like ' +
       'a step away without the same pull to resolve that V has. Combining IV with V into a full ' +
-      'progression comes later.',
+      'progression comes later.\n\n' +
+      '[diagram:staff-i-iv-chords]',
     demoScoreId: demo('demo-i-iv-i-c-major'),
     exercises: [
       // 'build-cadence' at level 2, not 'build-chord' at level 1. The first

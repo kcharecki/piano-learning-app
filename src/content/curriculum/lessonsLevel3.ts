@@ -153,7 +153,8 @@ export const LEVEL_3_LESSONS: readonly Lesson[] = [
       'each step counter-clockwise adds one flat. G, one step from C, has one sharp; F, one step the ' +
       'other way, has one flat — the pattern you have already been building scale by scale.\n\n' +
       'The circle is worth learning as a picture, not just a list: once you can place a key on it, ' +
-      'you instantly know its neighbours, which are the keys a piece is most likely to modulate into.',
+      'you instantly know its neighbours, which are the keys a piece is most likely to modulate into.\n\n' +
+      '[diagram:staff-circle-of-fifths-ascending]',
     demoScoreId: demo('demo-circle-of-fifths-c-g-f'),
     exercises: [
       // Finding 1: `buildKeySignatureDeck`'s default level-1 deck only holds
@@ -204,7 +205,8 @@ export const LEVEL_3_LESSONS: readonly Lesson[] = [
       '(G-C-E). The notes are identical either way — only which one is lowest changes.\n\n' +
       'Inversions matter for two practical reasons: they let a chord progression move between chords ' +
       'with minimal hand movement, and they change which note the ear hears as the "bass", subtly ' +
-      'changing how settled or unsettled the chord feels even though its spelling is unchanged.',
+      'changing how settled or unsettled the chord feels even though its spelling is unchanged.\n\n' +
+      '[diagram:staff-triad-inversions]',
     demoScoreId: demo('demo-c-major-triad-blocked'),
     exercises: [
       // No flashcard deck tests triad inversions, but `TheoryDrillPanel`'s
@@ -239,7 +241,8 @@ export const LEVEL_3_LESSONS: readonly Lesson[] = [
       'the octave that closes the pattern, you now have every interval size covered.\n\n' +
       'Play through all seven interval sizes in order, from a second up to an octave, from the same ' +
       'starting note — hearing them as one continuous, widening sequence makes the whole interval ' +
-      'system feel like one idea rather than seven separate facts to memorise.',
+      'system feel like one idea rather than seven separate facts to memorise.\n\n' +
+      '[diagram:staff-intervals-sixth-seventh-octave]',
     demoScoreId: demo('demo-c-major-scale-one-octave-rh'),
     exercises: [
       // Finding 1: `INTERVAL_NUMBERS_BY_LEVEL` only reaches `[2,3,4,5,6,7,8]`

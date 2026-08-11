@@ -37,6 +37,8 @@ import { techniqueDrillById } from '@core/technique/library.ts'
 import { LEVEL_1_LESSONS } from '@content/curriculum/lessonsLevel1.ts'
 import { LEVEL_2_LESSONS } from '@content/curriculum/lessonsLevel2.ts'
 import { LEVEL_3_LESSONS } from '@content/curriculum/lessonsLevel3.ts'
+import { LEVEL_4_LESSONS } from '@content/curriculum/lessonsLevel4.ts'
+import { LEVEL_5_LESSONS } from '@content/curriculum/lessonsLevel5.ts'
 
 // ---------------------------------------------------------------------------
 // units — grouped from the authored lessons, not typed out a second time
@@ -261,12 +263,77 @@ const LEVEL_3: CurriculumLevel = {
 }
 
 // ---------------------------------------------------------------------------
+// level 4 — Intermediate (roadmap 3.24, REQ-3.5.1: seventh chords, cadences,
+// the common progressions — see lessonsLevel4.ts)
+// ---------------------------------------------------------------------------
+
+const LEVEL_4_UNIT_SPECS: readonly UnitSpec[] = [
+  {
+    id: 'l4-u1-sevenths-cadences-progressions',
+    title: 'Seventh Chords, Cadences and Common Progressions',
+  },
+]
+
+const LEVEL_4_EXIT_CRITERIA: readonly ExitCriterion[] = [
+  {
+    id: 'l4-exit-theory',
+    track: 'theory',
+    description:
+      'Retain seventh-chord, cadence-type and common-progression facts at 75% or better on review.',
+    check: { kind: 'theory-quiz', minRetention: 0.75 },
+  },
+]
+
+const LEVEL_4: CurriculumLevel = {
+  number: 4,
+  title: 'Level 4 — Intermediate',
+  units: buildUnits(4, LEVEL_4_UNIT_SPECS, LEVEL_4_LESSONS),
+  exitCriteria: LEVEL_4_EXIT_CRITERIA,
+}
+
+// ---------------------------------------------------------------------------
+// level 5 — Early Advanced (roadmap 3.24, REQ-3.5.1: minor scale forms,
+// secondary dominants, modulation to closely related keys — see
+// lessonsLevel5.ts)
+// ---------------------------------------------------------------------------
+
+const LEVEL_5_UNIT_SPECS: readonly UnitSpec[] = [
+  {
+    id: 'l5-u1-minor-forms-secondary-modulation',
+    title: 'Minor Scale Forms, Secondary Dominants and Modulation',
+  },
+]
+
+const LEVEL_5_EXIT_CRITERIA: readonly ExitCriterion[] = [
+  {
+    id: 'l5-exit-theory',
+    track: 'theory',
+    description:
+      'Retain minor-scale-form, secondary-dominant and modulation facts at 75% or better on review.',
+    check: { kind: 'theory-quiz', minRetention: 0.75 },
+  },
+]
+
+const LEVEL_5: CurriculumLevel = {
+  number: 5,
+  title: 'Level 5 — Early Advanced',
+  units: buildUnits(5, LEVEL_5_UNIT_SPECS, LEVEL_5_LESSONS),
+  exitCriteria: LEVEL_5_EXIT_CRITERIA,
+}
+
+// ---------------------------------------------------------------------------
 // the curriculum
 // ---------------------------------------------------------------------------
 
 const AUTHORED: Curriculum = {
-  levels: [LEVEL_1, LEVEL_2, LEVEL_3],
-  lessons: [...LEVEL_1_LESSONS, ...LEVEL_2_LESSONS, ...LEVEL_3_LESSONS],
+  levels: [LEVEL_1, LEVEL_2, LEVEL_3, LEVEL_4, LEVEL_5],
+  lessons: [
+    ...LEVEL_1_LESSONS,
+    ...LEVEL_2_LESSONS,
+    ...LEVEL_3_LESSONS,
+    ...LEVEL_4_LESSONS,
+    ...LEVEL_5_LESSONS,
+  ],
 }
 
 /**

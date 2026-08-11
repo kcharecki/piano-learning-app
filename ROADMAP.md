@@ -162,17 +162,33 @@ The M3 gaps that are unbuilt features rather than defects. Each states its proof
       plus `e2e/screens.spec.ts` driving the real screen.* Its visual pass also fixed two defects:
       every retention stat printed its label twice ("Cards 0 CARDS"), and a ≤1024px
       `.keyboard-diagram { width: 100% }` override drew the 5-key pad against ~700px of empty frame.
-- [ ] 3.24 `content`: the six REQ-3.5.1 topics with no authored lesson at any level — seventh
+- [x] 3.24 `content`: the six REQ-3.5.1 topics with no authored lesson at any level — seventh
       chords, cadences, the common progressions (I–IV–V–I, ii–V–I, I–vi–IV–V), minor scale forms,
       secondary dominants, and modulation to closely related keys. They live at levels 4–5, which
       do not exist. Diatonic harmony and roman numerals are named only in passing. This is the
       single largest gap between the app and REQ-3.5.1, and it is authoring, not code.
       *Proof: each topic has a lesson that validates, opens in the app, and carries a diagram and a
-      quiz that tests that topic.*
-- [ ] 3.25 `app/lessons`: staff and rhythm diagrams (REQ-3.5.2) — `LessonBody` can render only
+      quiz that tests that topic.* New `lessonsLevel4.ts`/`lessonsLevel5.ts` (3 lessons each) plus
+      two new `CurriculumLevel`s in `curriculum.ts`; every quiz opens a real `TheoryQuizKind`/
+      `FlashcardKind` deck at a level whose pool genuinely contains what its title names (see each
+      exercise's own comment). No demo score exists for any of the six topics specifically
+      (`src/content/scores/demoScores.ts` is another task's file) — each lesson points at the
+      closest on-topic existing demo instead, named as a gap in its own comment. `curriculum.test.ts`
+      pins all six lesson ids, their diagram kind and their quiz presence; driven live via
+      `e2e/lesson-staff-rhythm-diagrams.spec.ts` (both new tests green) and a 4-config visual pass
+      (console clean).
+- [x] 3.25 `app/lessons`: staff and rhythm diagrams (REQ-3.5.2) — `LessonBody` can render only
       `KeyboardDiagram`, so the 7 level-1 lessons about staff notation and rhythm are structurally
       incapable of having one, and 11 of 19 theory lessons have no diagram.
-      *Proof: a staff-notation lesson renders a real staff diagram inline.*
+      *Proof: a staff-notation lesson renders a real staff diagram inline.* `LessonDiagram` widened
+      to a `kind`-discriminated union (`keyboard` | `staff` | `rhythm`); `staff`/`rhythm` diagrams
+      carry a real `Score` (new `diagramScores.ts`) engraved through the same read-only
+      `ExerciseScore` + `createOsmdEngraver({ presentation: 'reference' })` pipeline
+      `ScaleStaff.tsx` already uses — no third rendering path. Closed the class, not just the 7
+      named instances: all 11 of 19 undiagrammed theory lessons across levels 1–3 now carry a
+      staff or rhythm diagram, plus the 6 new level 4–5 lessons from 3.24. Driven live: e2e proof
+      shows a real engraved `<svg>` inline on `l1-staff-and-clefs`, and a visual pass (both widths,
+      both themes, console clean) on that lesson and on the new `l4-seventh-chords` lesson.
 
 ## Phase 4 — Milestone M4: progression
 

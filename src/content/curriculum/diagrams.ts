@@ -1,19 +1,59 @@
 /**
- * Keyboard diagrams referenced from lesson markdown (REQ-3.1.3) — a lesson
- * writes `[diagram:<id>]` on its own line and the (not-yet-built) lesson
- * screen — roadmap 3.7/4.9's follow-on task — resolves that id through
- * `lessonDiagramById` and renders it with `@app/theory/KeyboardDiagram.tsx`.
+ * Diagrams referenced from lesson markdown (REQ-3.1.3, REQ-3.5.2) — a lesson
+ * writes `[diagram:<id>]` on its own line and `LessonBody.tsx` resolves that
+ * id through `lessonDiagramById` and renders it.
  *
- * Every field here is exactly what `KeyboardDiagramProps` needs except
- * `labels`/`ariaLabel`, which the lesson screen fills in itself (`caption`
- * doubles as the accessible name). Only keyboard diagrams are authored —
- * there is no other diagram-rendering component in the app yet.
+ * Three kinds, discriminated by `kind` (roadmap 3.25 widened this from
+ * keyboard-only, a structural fix, not just more content: seven level-1
+ * lessons about staff notation and rhythm — and four more theory lessons
+ * across levels 2-3 — were previously *incapable* of carrying a diagram at
+ * all, because `LessonDiagram` had no shape a staff or rhythm picture could
+ * fit into):
+ *
+ *  - `'keyboard'` — a piano-keyboard picture, rendered by
+ *    `@app/theory/KeyboardDiagram.tsx`. Every field here is exactly what
+ *    `KeyboardDiagramProps` needs except `labels`/`ariaLabel`, which the
+ *    lesson screen fills in itself (`caption` doubles as the accessible
+ *    name).
+ *  - `'staff'` / `'rhythm'` — a short, real engraved `Score` (built in the
+ *    sibling `diagramScores.ts`, split out on file-size grounds), rendered
+ *    read-only through the same OSMD pipeline `@app/theory/ScaleStaff.tsx`
+ *    already uses for the theory reference screen — no cursor, no title, no
+ *    tempo mark (see `ScorePresentation` in `@app/score/osmdEngraver.ts`).
+ *    `'staff'` is for pitch/structure content (clefs, intervals, chords on
+ *    the page); `'rhythm'` is for note-value/metre content, following the
+ *    same "single repeated pitch so only the rhythm changes" convention
+ *    `src/content/scores/demoScores.ts` uses for its own rhythm demos. The
+ *    two kinds share a shape today (both just carry a `Score`) but are kept
+ *    distinct so a future rhythm-specific presentation (e.g. suppressing
+ *    noteheads' pitch significance) has somewhere to attach without another
+ *    type-widening pass.
  *
  * `curriculum.test.ts` asserts both directions: every `[diagram:...]`
  * reference in every lesson resolves to an entry here, and every entry here
  * is referenced by at least one lesson — an unreferenced diagram is dead
  * content, a dangling reference renders nothing.
  */
+import type { Score } from '@core/notation/score.ts'
+import {
+  AUTHENTIC_CADENCE_STAFF,
+  BASS_STAFF_LINES,
+  CIRCLE_OF_FIFTHS_ASCENDING,
+  FOUR_FOUR_RHYTHM,
+  GRAND_STAFF_MIDDLE_C,
+  I_IV_CHORDS_STAFF,
+  INTERVALS_SIXTH_SEVENTH_OCTAVE,
+  MINOR_SCALE_FORMS_STAFF,
+  MODULATION_STAFF,
+  NOTE_VALUES_RHYTHM,
+  PROGRESSION_I_IV_V_I_STAFF,
+  SECONDARY_DOMINANT_STAFF,
+  SEVENTH_CHORD_STAFF,
+  STEPS_VS_SKIPS_STAFF,
+  THREE_FOUR_RHYTHM,
+  TREBLE_STAFF_LINES,
+  TRIAD_INVERSIONS_STAFF,
+} from './diagramScores.ts'
 
 /** Pitch classes, 0 = C .. 11 = B, named for readability below. */
 const C = 0
@@ -26,7 +66,8 @@ const G = 7
 const A = 9
 const B = 11
 
-export type LessonDiagram = {
+export type KeyboardLessonDiagram = {
+  readonly kind: 'keyboard'
   /** Referenced from lesson markdown as `[diagram:<id>]`. Kebab-case, unique. */
   readonly id: string
   /** Rendered as the diagram's caption and its accessible name. */
@@ -40,8 +81,25 @@ export type LessonDiagram = {
   readonly rootPitchClass?: number
 }
 
+export type StaffLessonDiagram = {
+  readonly kind: 'staff'
+  readonly id: string
+  readonly caption: string
+  readonly score: Score
+}
+
+export type RhythmLessonDiagram = {
+  readonly kind: 'rhythm'
+  readonly id: string
+  readonly caption: string
+  readonly score: Score
+}
+
+export type LessonDiagram = KeyboardLessonDiagram | StaffLessonDiagram | RhythmLessonDiagram
+
 export const LESSON_DIAGRAMS: readonly LessonDiagram[] = [
   {
+    kind: 'keyboard',
     id: 'finding-middle-c',
     caption:
       'Middle C sits just to the left of the group of two black keys nearest the centre of the keyboard.',
@@ -51,6 +109,7 @@ export const LESSON_DIAGRAMS: readonly LessonDiagram[] = [
     rootPitchClass: C,
   },
   {
+    kind: 'keyboard',
     id: 'black-key-groups',
     caption:
       'Black keys form repeating groups of two and three — use them to find any white key by touch, without counting from the end of the keyboard.',
@@ -59,6 +118,7 @@ export const LESSON_DIAGRAMS: readonly LessonDiagram[] = [
     highlightedPitchClasses: [CSharp, 3],
   },
   {
+    kind: 'keyboard',
     id: 'c-position-right-hand',
     caption: 'Right hand C position: thumb (1) on middle C, fingers 2-5 resting on D, E, F and G.',
     low: 60, // C4
@@ -67,6 +127,7 @@ export const LESSON_DIAGRAMS: readonly LessonDiagram[] = [
     rootPitchClass: C,
   },
   {
+    kind: 'keyboard',
     id: 'c-position-left-hand',
     caption: 'Left hand C position: pinky (5) on F below middle C, thumb (1) on middle C.',
     low: 53, // F3
@@ -75,6 +136,7 @@ export const LESSON_DIAGRAMS: readonly LessonDiagram[] = [
     rootPitchClass: C,
   },
   {
+    kind: 'keyboard',
     id: 'c-major-scale',
     caption: 'The C major scale: every white key from C to C, with no sharps or flats.',
     low: 60,
@@ -83,6 +145,7 @@ export const LESSON_DIAGRAMS: readonly LessonDiagram[] = [
     rootPitchClass: C,
   },
   {
+    kind: 'keyboard',
     id: 'g-major-scale',
     caption:
       'The G major scale: one sharp, F#, keeps the same whole-step/half-step pattern as C major, just starting on G.',
@@ -92,6 +155,7 @@ export const LESSON_DIAGRAMS: readonly LessonDiagram[] = [
     rootPitchClass: G,
   },
   {
+    kind: 'keyboard',
     id: 'f-major-scale',
     caption:
       'The F major scale: one flat, Bb, keeps the same whole-step/half-step pattern as C major, just starting on F.',
@@ -101,6 +165,7 @@ export const LESSON_DIAGRAMS: readonly LessonDiagram[] = [
     rootPitchClass: F,
   },
   {
+    kind: 'keyboard',
     id: 'interval-second',
     caption: 'A second: two adjacent letter names, C up to D — a step.',
     low: 60,
@@ -108,6 +173,7 @@ export const LESSON_DIAGRAMS: readonly LessonDiagram[] = [
     highlightedPitchClasses: [C, D],
   },
   {
+    kind: 'keyboard',
     id: 'interval-third',
     caption: 'A third: skip one letter name, C up to E — a skip.',
     low: 60,
@@ -115,6 +181,7 @@ export const LESSON_DIAGRAMS: readonly LessonDiagram[] = [
     highlightedPitchClasses: [C, E],
   },
   {
+    kind: 'keyboard',
     id: 'interval-fourth',
     caption: 'A fourth: C up to F, spanning four letter names.',
     low: 60,
@@ -122,6 +189,7 @@ export const LESSON_DIAGRAMS: readonly LessonDiagram[] = [
     highlightedPitchClasses: [C, F],
   },
   {
+    kind: 'keyboard',
     id: 'interval-fifth',
     caption: 'A fifth: C up to G, spanning five letter names.',
     low: 60,
@@ -129,6 +197,7 @@ export const LESSON_DIAGRAMS: readonly LessonDiagram[] = [
     highlightedPitchClasses: [C, G],
   },
   {
+    kind: 'keyboard',
     id: 'c-major-triad',
     caption: 'The C major triad: root C, third E, fifth G.',
     low: 60,
@@ -137,6 +206,7 @@ export const LESSON_DIAGRAMS: readonly LessonDiagram[] = [
     rootPitchClass: C,
   },
   {
+    kind: 'keyboard',
     id: 'g-major-triad',
     caption:
       'The G major triad — the dominant (V) chord in the key of C — built from G, B and D.',
@@ -146,6 +216,7 @@ export const LESSON_DIAGRAMS: readonly LessonDiagram[] = [
     rootPitchClass: G,
   },
   {
+    kind: 'keyboard',
     id: 'a-minor-triad',
     caption:
       'The A minor triad: A, C and E — the same three white keys as the C major triad, just starting on A.',
@@ -155,12 +226,130 @@ export const LESSON_DIAGRAMS: readonly LessonDiagram[] = [
     rootPitchClass: A,
   },
   {
+    kind: 'keyboard',
     id: 'd-major-scale',
     caption: 'The D major scale: two sharps, F# and C#.',
     low: 62, // D4
     high: 74, // D5
     highlightedPitchClasses: [D, E, FSharp, G, A, B, CSharp],
     rootPitchClass: D,
+  },
+
+  // -- staff/rhythm diagrams for the level 1-3 gap topics (roadmap 3.25) ----
+  {
+    kind: 'staff',
+    id: 'staff-grand-staff-middle-c',
+    caption:
+      'Middle C sits on its own short ledger line between the treble staff above and the bass staff below — one note, shared by both clefs.',
+    score: GRAND_STAFF_MIDDLE_C,
+  },
+  {
+    kind: 'staff',
+    id: 'staff-treble-lines',
+    caption: "The treble staff's five lines, bottom to top, spell E-G-B-D-F.",
+    score: TREBLE_STAFF_LINES,
+  },
+  {
+    kind: 'staff',
+    id: 'staff-bass-lines',
+    caption: "The bass staff's five lines, bottom to top, spell G-B-D-F-A.",
+    score: BASS_STAFF_LINES,
+  },
+  {
+    kind: 'staff',
+    id: 'staff-steps-vs-skips',
+    caption:
+      'A step (C to D, adjacent letter names) followed by a skip (C to E, one letter name apart).',
+    score: STEPS_VS_SKIPS_STAFF,
+  },
+  {
+    kind: 'rhythm',
+    id: 'rhythm-note-values',
+    caption:
+      'The same four beats, subdivided three ways: one whole note, two half notes, four quarter notes.',
+    score: NOTE_VALUES_RHYTHM,
+  },
+  {
+    kind: 'rhythm',
+    id: 'rhythm-4-4-time',
+    caption: 'One measure of 4/4 time: four quarter-note beats.',
+    score: FOUR_FOUR_RHYTHM,
+  },
+  {
+    kind: 'rhythm',
+    id: 'rhythm-3-4-time',
+    caption:
+      'One measure of 3/4 time: a left-hand root on beat 1 under right-hand notes on beats 2 and 3 — the "oom-pah-pah" waltz feel.',
+    score: THREE_FOUR_RHYTHM,
+  },
+  {
+    kind: 'staff',
+    id: 'staff-i-iv-chords',
+    caption:
+      'The tonic (I) and subdominant (IV) chords in C major, each as a blocked triad over its own root.',
+    score: I_IV_CHORDS_STAFF,
+  },
+  {
+    kind: 'staff',
+    id: 'staff-circle-of-fifths-ascending',
+    caption:
+      'Ascending by fifths from C: C major (no sharps), G major (one sharp), D major (two sharps) — each step adds one sharp.',
+    score: CIRCLE_OF_FIFTHS_ASCENDING,
+  },
+  {
+    kind: 'staff',
+    id: 'staff-triad-inversions',
+    caption:
+      'The C major triad in root position (C-E-G), first inversion (E-G-C) and second inversion (G-C-E).',
+    score: TRIAD_INVERSIONS_STAFF,
+  },
+  {
+    kind: 'staff',
+    id: 'staff-intervals-sixth-seventh-octave',
+    caption: 'From C: a sixth (C to A), a seventh (C to B) and an octave (C to the next C).',
+    score: INTERVALS_SIXTH_SEVENTH_OCTAVE,
+  },
+
+  // -- staff diagrams for the six new level 4-5 topics (roadmap 3.24) -------
+  {
+    kind: 'staff',
+    id: 'staff-seventh-chord',
+    caption:
+      'The G major triad, then G dominant seventh — a seventh chord is a triad with one more third stacked on top.',
+    score: SEVENTH_CHORD_STAFF,
+  },
+  {
+    kind: 'staff',
+    id: 'staff-authentic-cadence',
+    caption: 'A perfect authentic cadence in C major: root-position V resolving to root-position I.',
+    score: AUTHENTIC_CADENCE_STAFF,
+  },
+  {
+    kind: 'staff',
+    id: 'staff-i-iv-v-i-progression',
+    caption: 'The I-IV-V-I progression in C major, blocked chords over left-hand roots.',
+    score: PROGRESSION_I_IV_V_I_STAFF,
+  },
+  {
+    kind: 'staff',
+    id: 'staff-minor-scale-forms',
+    caption:
+      'A natural minor, A harmonic minor and A melodic minor (ascending), one octave each — the three forms differ only in the 6th and 7th degrees.',
+    score: MINOR_SCALE_FORMS_STAFF,
+  },
+  {
+    kind: 'staff',
+    id: 'staff-secondary-dominant',
+    caption:
+      'D major (the dominant of G) resolving to G major (the dominant of C) — a secondary dominant tonicising the dominant.',
+    score: SECONDARY_DOMINANT_STAFF,
+  },
+  {
+    kind: 'staff',
+    id: 'staff-modulation-c-to-g',
+    caption:
+      'Modulating from C major to its dominant key, G major: the G major chord (V in C) becomes the new I once the key signature gains its sharp.',
+    score: MODULATION_STAFF,
   },
 ]
 
