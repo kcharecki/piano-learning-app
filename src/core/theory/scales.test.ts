@@ -1234,6 +1234,97 @@ describe('scaleFingering — the minor forms', () => {
 })
 
 // ---------------------------------------------------------------------------
+// fingering — the major table, exhaustive (MINOR-10 review finding)
+// ---------------------------------------------------------------------------
+
+/**
+ * Every (tonic, hand) major fingering, as a flat list — 21 spellings x 2
+ * hands, the same shape as `MINOR_ROWS` above (minus the per-form dimension:
+ * major has only one table). MINOR-10 review finding: the four properties
+ * below were enforced exhaustively for the minor forms (`MINOR_ROWS`) but
+ * only loosely for major — a single combined "step between 1 and 3" check
+ * (`'never jumps by more than a thumb-under between consecutive notes'`
+ * above) — even though it is the same table family the roadmap's own
+ * fingering post-mortem (3.16) warns a mutant can hide in.
+ */
+const MAJOR_ROWS: readonly Row[] = tonicsWith(SIMPLE_ALTERS).flatMap((tonic): Row[] => {
+  const fingering = scaleFingering(tonic, 'major')
+  if (fingering === null) return []
+  const notes = scaleNotes(tonic, 'major')
+  const label = `${spelling(tonic)} major`
+  return [
+    { label, hand: 'RH', fingers: fingering.rightHand, notes },
+    { label, hand: 'LH', fingers: fingering.leftHand, notes },
+  ]
+})
+
+describe('scaleFingering — the major table, exhaustive (MINOR-10 review finding)', () => {
+  it('covers all twelve pitch classes, both hands, none refused', () => {
+    expect(MAJOR_ROWS).toHaveLength(21 * 2)
+    for (const row of MAJOR_ROWS) {
+      expect({ label: row.label, hand: row.hand, length: row.fingers.length }).toEqual({
+        label: row.label,
+        hand: row.hand,
+        length: row.notes.length,
+      })
+    }
+  })
+
+  it('never repeats a finger on consecutive degrees', () => {
+    const offenders = MAJOR_ROWS.flatMap((row) =>
+      row.fingers.flatMap((finger, i) =>
+        i > 0 && at(row.fingers, i - 1) === finger ? [`${row.label} ${row.hand} at ${i}`] : [],
+      ),
+    )
+    expect(offenders).toEqual([])
+  })
+
+  it('never asks for a 1-to-5 or 5-to-1 transition', () => {
+    // The thumb cannot pass under the fifth finger, nor the fifth cross it.
+    const offenders = MAJOR_ROWS.flatMap((row) =>
+      row.fingers.flatMap((finger, i) => {
+        if (i === 0) return []
+        const pair = new Set([at(row.fingers, i - 1), finger])
+        return pair.has(1) && pair.has(5) ? [`${row.label} ${row.hand} at ${i}`] : []
+      }),
+    )
+    expect(offenders).toEqual([])
+  })
+
+  it('steps the right hand up by one and the left hand down by one within a group', () => {
+    // Between thumb landings a hand walks one finger per note: the right hand
+    // ascends until the thumb comes under, the left descends until it reaches
+    // the thumb and the next finger crosses over.
+    const offenders: string[] = []
+    for (const row of MAJOR_ROWS) {
+      for (let i = 1; i < row.fingers.length; i++) {
+        const previous = at(row.fingers, i - 1)
+        const finger = at(row.fingers, i)
+        const stepping = row.hand === 'RH' ? finger !== 1 : previous !== 1
+        const wanted = row.hand === 'RH' ? previous + 1 : previous - 1
+        if (stepping && finger !== wanted) {
+          offenders.push(`${row.label} ${row.hand}: ${previous} -> ${finger} at ${i}`)
+        }
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+
+  it('puts three or four notes in every group between thumb landings', () => {
+    const offenders: string[] = []
+    for (const row of MAJOR_ROWS) {
+      const landings = thumbLandings(row.fingers)
+      expect(landings.length).toBeGreaterThanOrEqual(2)
+      for (let i = 1; i < landings.length; i++) {
+        const size = at(landings, i) - at(landings, i - 1)
+        if (size !== 3 && size !== 4) offenders.push(`${row.label} ${row.hand}: group of ${size}`)
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
 // properties
 // ---------------------------------------------------------------------------
 

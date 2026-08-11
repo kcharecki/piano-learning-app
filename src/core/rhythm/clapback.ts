@@ -241,9 +241,9 @@ function betterMatch(scaled: MatchResult, raw: MatchResult): MatchResult {
 
 /**
  * Grade a clap-back attempt: `taps` (wall-clock-relative, ms, as recorded by
- * the drill against the SAME anchor its silent count-in playback uses)
- * against `pattern`'s own onsets (rests excluded — nothing to tap for a
- * rest), tempo-scale robust and level-scaled — see the module doc.
+ * the drill against the SAME anchor its silent playback uses) against
+ * `pattern`'s own onsets (rests excluded — nothing to tap for a rest),
+ * tempo-scale robust and level-scaled — see the module doc.
  */
 export function gradeClapback(
   pattern: RhythmPattern,

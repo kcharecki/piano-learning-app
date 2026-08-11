@@ -147,6 +147,32 @@ describe('generateMelodicDictation / generateRhythmicDictation — REQ-3.6.1 phr
     }
   })
 
+  // MINOR-9 review finding: `noteBoundsForLevel`'s window is `2,3,5,6,7`
+  // (min) / `3,4,6,7,8` (max) for levels 1-5 — levels 1, 3 and 5 were pinned
+  // above, but 2 and 4 (the only levels where the step to the NEXT one is not
+  // +1) had no test at all. See `noteBoundsForLevel`'s own doc for why the
+  // ladder is uneven by design (a quantization artefact of a genuinely linear
+  // interpolation, not a bug) rather than forced into equal steps.
+  it('level 2 dictation is 3-4 notes, over 200 generated items, both kinds (property)', () => {
+    for (const generate of [generateMelodicDictation, generateRhythmicDictation]) {
+      for (let seed = 0; seed < 200; seed++) {
+        const item = generate(2, {}, seededRng(seed))
+        expect(item.prompt.notes.length).toBeGreaterThanOrEqual(3)
+        expect(item.prompt.notes.length).toBeLessThanOrEqual(4)
+      }
+    }
+  })
+
+  it('level 4 dictation is 6-7 notes, over 200 generated items, both kinds (property)', () => {
+    for (const generate of [generateMelodicDictation, generateRhythmicDictation]) {
+      for (let seed = 0; seed < 200; seed++) {
+        const item = generate(4, {}, seededRng(seed))
+        expect(item.prompt.notes.length).toBeGreaterThanOrEqual(6)
+        expect(item.prompt.notes.length).toBeLessThanOrEqual(7)
+      }
+    }
+  })
+
   // Review finding: measured over 2000 rhythmic draws, 436 left the item with
   // declared trailing measures containing no onset at all — `score.measures`
   // was never trimmed to match the (possibly truncated, possibly
