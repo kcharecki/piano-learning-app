@@ -108,6 +108,20 @@ describe('generateChordQualityItem', () => {
     )
   })
 
+  // roadmap 5.28: forcing root position makes the root the prompt's own
+  // lowest note, the one unambiguous way to check `contextTonicMidi` against
+  // an inversion-independent value (an inverted chord's root is not its
+  // lowest sounding note — see this module's own doc on grading by quality).
+  it('carries the chord root as its tonal-context tonic, at root position (property)', () => {
+    fc.assert(
+      fc.property(levelArb, seedArb, (level, seed) => {
+        const item = generateChordQualityItem(level, { allowInversions: false }, seededRng(seed))
+        const lowMidi = Math.min(...item.prompt.notes.map((n) => n.midi))
+        expect(item.contextTonicMidi).toBe(lowMidi)
+      }),
+    )
+  })
+
   it('property: any other quality grades wrong, reporting both sides', () => {
     fc.assert(
       fc.property(levelArb, seedArb, (level, seed) => {
@@ -237,6 +251,17 @@ describe('generateScaleModeItem', () => {
         const item = generateScaleModeItem(level, {}, seededRng(seed))
         const grade = gradeScaleModeAnswer(item, item.answerKey as ScaleType)
         expect(grade).toEqual({ correct: true, expected: item.answerKey, given: item.answerKey })
+      }),
+    )
+  })
+
+  // roadmap 5.28: the scale is rendered tonic to tonic ascending (this
+  // module's own doc), so the prompt's first note IS the tonic.
+  it('carries the scale tonic as its tonal-context tonic (property)', () => {
+    fc.assert(
+      fc.property(levelArb, seedArb, (level, seed) => {
+        const item = generateScaleModeItem(level, {}, seededRng(seed))
+        expect(item.contextTonicMidi).toBe(item.prompt.notes[0]?.midi)
       }),
     )
   })

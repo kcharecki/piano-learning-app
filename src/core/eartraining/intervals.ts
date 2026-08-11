@@ -180,7 +180,11 @@ export function generateIntervalItem(level: number, opts: IntervalItemOptions, r
         ],
       })
 
-  return { id, kind, prompt, answerKey, level }
+  // The lower note anchors the tonal context (roadmap 5.28) — an interval
+  // item has no real key, so the lower note itself is the most honest thing
+  // to call "the tonic" here: it is the note the learner's ear settles on
+  // before the interval moves away from it.
+  return { id, kind, prompt, answerKey, level, contextTonicMidi: lowMidi }
 }
 
 // ---------------------------------------------------------------------------

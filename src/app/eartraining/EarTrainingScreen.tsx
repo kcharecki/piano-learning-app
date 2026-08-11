@@ -14,6 +14,7 @@
  * `item.kind === 'rhythmic-dictation'` — so its instructions say "any key"
  * rather than naming particular notes.
  */
+import { useState } from 'react'
 import { defaultParamsForLevel } from '@core/generator/melody.ts'
 import { chordQualitiesForLevel, scaleTypesForLevel } from '@core/eartraining/chords.ts'
 import type { DictationGrade } from '@core/eartraining/dictation.ts'
@@ -96,7 +97,12 @@ function describeExpected(kind: EarItemKind, expected: string): string {
 }
 
 export function EarTrainingScreen(props: EarTrainingScreenProps) {
-  const drill = useEarTraining(props)
+  // Roadmap 5.28: tonal context defaults ON (a tonic drone before every
+  // item) — this is the learner's own opt-out, kept as screen-local state so
+  // toggling it never regenerates or re-grades the current item, only
+  // changes what the NEXT `start()`/`replay()` schedules.
+  const [tonalContext, setTonalContext] = useState(true)
+  const drill = useEarTraining({ ...props, tonalContext })
   const kind = drill.kind
   const level = drill.levels[kind]
   // The pad must offer the vocabulary of the item actually on screen, not the
@@ -151,6 +157,14 @@ export function EarTrainingScreen(props: EarTrainingScreenProps) {
         <button type="button" onClick={drill.replay} disabled={drill.item === undefined}>
           Replay
         </button>
+        <label>
+          <input
+            type="checkbox"
+            checked={tonalContext}
+            onChange={(e) => setTonalContext(e.target.checked)}
+          />
+          Play tonal context before each item
+        </label>
       </div>
 
       {drill.item === undefined ? (

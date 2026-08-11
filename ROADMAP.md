@@ -554,10 +554,12 @@ fundamental process a listener carries out. ABRSM's aural tests contain **no int
 test at any grade**. Feedback is "Correct" — a learner who guesses right learns exactly as much as one
 who guesses wrong.
 
-- [ ] 5.28 `app/eartraining` + `core/eartraining`: establish tonal context before every item — a tonic
-      drone or I–V–I in the item's key, then the item. This costs almost nothing and changes which
-      skill is being trained. Keep context-free mode available, since functional hearing degrades on
-      non-tonal material and interval skill is complementary, not obsolete.
+- [x] 5.28 `app/eartraining` + `core/eartraining`: a tonic+fifth drone plays before every item that has
+      a real tonic to anchor on — the item's own root/lower note for interval/chord/scale items, the
+      generated `Key`'s tonic for melodic dictation; rhythmic dictation gets none (rhythm has no scale,
+      `dictation.ts`'s own doc). A screen-local checkbox ("Play tonal context before each item",
+      defaulted on) is the context-free override. Driven in the browser: interval and melodic-dictation
+      drills play, grade and toggle correctly; console clean both widths/themes. Full history: git log.
       *Proof: the recorded `AudioOutput` calls carry the key chord's pitches at the right timestamps
       BEFORE the item's first note (the 3.13 pattern — assert the calls, not the projection), and the
       drill still grades the same answers.*

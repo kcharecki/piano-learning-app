@@ -4,7 +4,7 @@ import { seededRng } from '@core/ports/rng.ts'
 import { midi as asMidi, ticks as asTicks } from '@core/shared/units.ts'
 import { makeScore } from '@core/notation/score.ts'
 import { keyFromFifths } from '@core/theory/keys.ts'
-import { pitchClass, spelledPitchClass } from '@core/theory/pitch.ts'
+import { pitchClass, spelledPitchClass, toMidi } from '@core/theory/pitch.ts'
 import type { EarItem } from '@core/eartraining/item.ts'
 import {
   gradeDictation,
@@ -78,6 +78,15 @@ describe('generateMelodicDictation', () => {
     if (lastNote === undefined) throw new Error('expected at least one note')
     expect(pitchClass(lastNote.midi)).toBe(spelledPitchClass(key.tonic))
   })
+
+  // roadmap 5.28: melodic dictation is generated IN a real Key — the one
+  // drill here that gets to use the actual tonic instead of a stand-in.
+  it('carries the key tonic as its tonal-context tonic', () => {
+    const key = keyFromFifths(3, 'major')
+    const range = { low: asMidi(57), high: asMidi(81) }
+    const item = generateMelodicDictation(1, { key, range }, seededRng(11))
+    expect(item.contextTonicMidi).toBe(toMidi(key.tonic))
+  })
 })
 
 describe('generateMelodicDictation / generateRhythmicDictation — REQ-3.6.1 phrase length', () => {
@@ -150,6 +159,14 @@ describe('generateRhythmicDictation', () => {
         }
       }),
     )
+  })
+
+  // roadmap 5.28: `opts.key` is already documented as meaningless here
+  // ("rhythm has no scale") — a tonal-context drone before pure rhythm would
+  // be noise, not context, so this drill never sets a tonic.
+  it('carries no tonal-context tonic — rhythm has no scale', () => {
+    const item = generateRhythmicDictation(1, {}, seededRng(7))
+    expect(item.contextTonicMidi).toBeUndefined()
   })
 })
 
