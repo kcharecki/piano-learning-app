@@ -9,24 +9,24 @@ import { expect, test, type ConsoleMessage, type Page } from '@playwright/test'
  * imperfectly), let it finish, grade — through the shell's own nav button,
  * not a direct mount.
  *
- * ## Why tapping every 1000ms is a real, deterministic proof
+ * ## Why tapping every 500ms is a real, deterministic proof
  *
  * `RhythmScreen` starts at complexity 1 and a fixed 4 bars, and never offers
  * a way to change either before Start is pressed here — so this always runs
  * `generateRhythm({ bars: 4, timeSignature: 4/4, complexity: 1, ... })`.
- * Complexity 1's floor duration is a half note (`MIN_DURATION_BY_COMPLEXITY`,
- * `core/generator/rhythm.ts`), and complexity 1 never qualifies for a dotted
- * split (that needs complexity >= 3) or a ternary one (4/4 is not compound)
- * — so every bar's own onset(s) are EITHER one whole note (2000ms) or two
- * half notes (1000ms apart), always starting on a multiple of 1000ms from
- * the top of the piece. Tapping at every 1000ms mark across all 4 bars (0,
- * 1000, …, 7000) therefore always lands ON every position the generator
- * could possibly have put a real onset — whether or not that spot is
- * actually a note or a rest is left to chance (REQ real, not stubbed,
- * grading), which is exactly what proves this isn't a fixed 0/1 stub: a
- * whole-note bar's "half" mark (1000ms into it) can never be a real onset,
- * so it always grades as an extra tap, and a real onset can only be missing
- * from the matched count if the generator happened to draw a rest there.
+ * Complexity 1's floor is a quarter note and its ceiling is a half note
+ * (`MIN_DURATION_BY_COMPLEXITY`/`MAX_DURATION_BY_COMPLEXITY`,
+ * `core/generator/rhythm.ts`, roadmap 5.20), and complexity 1 never qualifies
+ * for a dotted split (needs complexity >= 3) or a ternary one (4/4 is not
+ * compound) — so every bar's own onset(s) are some mix of quarter (500ms) and
+ * half (1000ms) notes, always starting on a multiple of 500ms from the top of
+ * the piece, and complexity 1 never emits a rest at all — every onset is a
+ * real, tappable note. Tapping at every 500ms mark across all 4 bars (0, 500,
+ * …, 7500) therefore always lands ON every position the generator could
+ * possibly have started a note, so no real onset can ever go missed by this
+ * schedule: a mark that turns out to be mid-note (the second half of a half
+ * note, not a new onset) simply grades as an extra tap instead, which is
+ * exactly what proves this isn't a fixed 0/1 stub.
  */
 
 /** Console/page errors, collected from the moment the page is created. */
@@ -62,12 +62,16 @@ test('the Rhythm nav destination renders the real drill, taps a pattern imperfec
   const tapButton = page.getByRole('button', { name: 'Tap' })
   await expect(tapButton).toBeEnabled()
 
-  // Tap at 0ms and every 1000ms mark through 7000ms — every position a
-  // complexity-1, 4-bar, 4/4 pattern could possibly have a real onset on —
-  // PLUS one deliberate off-grid tap at 250ms, which can never land near a
-  // real onset (the nearest possible one is 750ms away, far outside
-  // `TAPPING_DEFAULTS.toleranceMs` of 150ms) and so is always graded extra.
-  const scheduleMs = [0, 250, 1000, 2000, 3000, 4000, 5000, 6000, 7000]
+  // Tap at 0ms and every 500ms mark through 7500ms — every position a
+  // complexity-1, 4-bar, 4/4 pattern could possibly have a real onset on
+  // (roadmap 5.20's quarter-note floor) — PLUS one deliberate off-grid tap
+  // at 250ms, which is exactly 250ms from its nearest possible onset (0 or
+  // 500) either way, outside `TAPPING_DEFAULTS.toleranceMs` of 150ms, and so
+  // is always graded extra.
+  const scheduleMs = [
+    0, 250, 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000, 5500, 6000, 6500, 7000,
+    7500,
+  ]
   // Anchor the schedule to wall clock, not to the previous tap's nominal
   // offset: `tapButton.click()` round-trips real time, and the gap between
   // the Start click (which anchors the transport) and the first tap here

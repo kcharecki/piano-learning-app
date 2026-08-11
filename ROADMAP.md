@@ -456,10 +456,20 @@ whole and half notes" inverts the order Faber and Alfred agree on, **quarter →
       the same fix applied to the second screen that needs it.
       *Proof: e2e — the drill renders a real OSMD svg past the 50-element discriminator, and the words
       "half" and "whole" appear nowhere in the pattern region.*
-- [ ] 5.20 `core/generator/rhythm`: reorder complexity — level 1 is quarters and halves with **no rests**;
-      rests enter after note values are secure, quarter rest first.
-      *Proof: a property test over 500 generated level-1 patterns finds zero rests and no note longer
-      than a half; and the first rest to appear as complexity rises is a quarter rest.*
+- [x] 5.20 `core/generator/rhythm`: reorder complexity — level 1 is quarters and halves with **no rests**;
+      rests enter after note values are secure, quarter rest first. Gave complexity 1 a `QUARTER`
+      floor (was `HALF`) plus a new `HALF` ceiling (`mergePulses`'s optional-merge pass otherwise
+      folds a whole bar into one whole note), and made `REST_PROBABILITY` complexity-keyed (0 at
+      complexity 1, unchanged 0.25 elsewhere) instead of one flat constant — complexity 2 inherits
+      `QUARTER` as its existing floor, so it is automatically also the first complexity whose rests
+      can't be shorter than a quarter, with no second table to keep in sync.
+      *Proof: `rhythm.test.ts` — 500-run property confirms zero rests and quarter-to-half-only notes
+      at complexity 1, plus two mutant checks (broken floor, broken ceiling) and two complexity-2
+      rest-ordering tests. Browser: `visual-pass.mjs Rhythm --click Start` on real generated content
+      reads "Bar 1: quarter, quarter, half" / "Bar 2: quarter, quarter, quarter, quarter" / etc. —
+      quarters and halves only, no rests, no wholes. `e2e/rhythm.spec.ts` updated for the new
+      quarter-note grid (was hardcoded to the old half-note-only assumption) and passes against the
+      real dev server. Console clean, `npm run verify` green.*
 - [ ] 5.21 Rhythm also needs **3.21** (clap/tap-back — the Rhythm screen shows the pattern for the
       whole run and silences the audio deliberately, so it is rhythm *sight-reading*; "hear a phrase
       and clap it back" has never been built). Referenced, not restated.

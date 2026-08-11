@@ -13,6 +13,7 @@ import {
   bpm as asBpm,
   midi as asMidi,
   HALF,
+  QUARTER,
   millis,
   ticks,
   type Ticks,
@@ -25,7 +26,7 @@ import {
 } from '@core/notation/score.ts'
 
 // A representative spread of simple and compound metres, all with a bar at
-// least a half note long — the floor `complexity: 1` promises to respect.
+// least a quarter note long — the floor `complexity: 1` promises to respect.
 // (`3/8`, at 720 ticks, is deliberately excluded: no metre needs to be able
 // to hold a note it structurally cannot.)
 const METRES: readonly TimeSignature[] = [
@@ -105,7 +106,11 @@ describe('generateRhythm', () => {
     )
   })
 
-  it('complexity 1 never emits anything shorter than a half note', () => {
+  // Roadmap 5.20: Faber/Alfred both teach note values quarter -> half -> whole,
+  // so complexity 1 (the very first thing a learner sees) must sit strictly
+  // between those two bounds, and rests — a separate, later skill — must not
+  // appear at all yet. 500 runs, matching the roadmap task's own proof action.
+  it('complexity 1 is quarter/half notes only, never a rest', () => {
     fc.assert(
       fc.property(
         fc.record({
@@ -118,17 +123,19 @@ describe('generateRhythm', () => {
         (partial, seed) => {
           const pattern = generateRhythm({ ...partial, complexity: 1 }, seededRng(seed))
           for (const o of pattern.onsets) {
-            expect(o.durationTicks).toBeGreaterThanOrEqual(HALF)
+            expect(o.durationTicks).toBeGreaterThanOrEqual(QUARTER)
+            expect(o.durationTicks).toBeLessThanOrEqual(HALF)
+            expect(o.isRest).toBe(false)
           }
         },
       ),
-      { numRuns: 200 },
+      { numRuns: 500 },
     )
   })
 
   it('a broken floor would fail the complexity-1 property (mutant check)', () => {
-    // Same generation, but manually cut the first onset of a 4/4 bar in half —
-    // exactly the bug class the property above exists to catch.
+    // Same generation, but manually cut the first onset of a 4/4 bar in
+    // quarters — exactly the bug class the property above exists to catch.
     const pattern = generateRhythm(
       {
         bars: 1,
@@ -142,7 +149,69 @@ describe('generateRhythm', () => {
     const first = pattern.onsets[0]
     if (first === undefined) throw new Error('expected at least one onset')
     const broken = { ...first, durationTicks: ticks(first.durationTicks / 4) }
-    expect(broken.durationTicks).toBeLessThan(HALF)
+    expect(broken.durationTicks).toBeLessThan(QUARTER)
+  })
+
+  it('a broken ceiling would fail the complexity-1 property (mutant check)', () => {
+    // Same generation, but manually double the first onset — the "still
+    // merging into whole notes" bug the ceiling above exists to catch.
+    const pattern = generateRhythm(
+      {
+        bars: 1,
+        timeSignature: { beats: 4, beatType: 4 },
+        complexity: 1,
+        allowRests: false,
+        allowTies: false,
+      },
+      seededRng(1),
+    )
+    const first = pattern.onsets[0]
+    if (first === undefined) throw new Error('expected at least one onset')
+    const broken = { ...first, durationTicks: ticks(first.durationTicks * 2) }
+    expect(broken.durationTicks).toBeGreaterThan(HALF)
+  })
+
+  // Faber/Alfred introduce the quarter rest before the half or whole rest —
+  // complexity 2 is the first complexity with any rests at all (complexity 1
+  // has none, proven above), so it must never produce one shorter than a
+  // quarter, and it must actually produce quarter ones, not skip straight to
+  // half+ (both halves matter: a table that only ever emitted half rests
+  // would pass a ">= QUARTER" check while still getting the ordering wrong).
+  it('complexity 2 never emits a rest shorter than a quarter note', () => {
+    fc.assert(
+      fc.property(
+        fc.record({ bars: fc.integer({ min: 1, max: 4 }), timeSignature: metreArb }),
+        fc.integer(),
+        (partial, seed) => {
+          const pattern = generateRhythm(
+            { ...partial, complexity: 2, allowRests: true, allowTies: false },
+            seededRng(seed),
+          )
+          for (const o of pattern.onsets) {
+            if (o.isRest) expect(o.durationTicks).toBeGreaterThanOrEqual(QUARTER)
+          }
+        },
+      ),
+      { numRuns: 300 },
+    )
+  })
+
+  it('complexity 2 actually produces quarter rests (not just half+)', () => {
+    let sawQuarterRest = false
+    for (let seed = 0; seed < 300 && !sawQuarterRest; seed++) {
+      const pattern = generateRhythm(
+        {
+          bars: 4,
+          timeSignature: { beats: 4, beatType: 4 },
+          complexity: 2,
+          allowRests: true,
+          allowTies: false,
+        },
+        seededRng(seed),
+      )
+      sawQuarterRest = pattern.onsets.some((o) => o.isRest && o.durationTicks === QUARTER)
+    }
+    expect(sawQuarterRest).toBe(true)
   })
 
   it('emits no rests when allowRests is false', () => {

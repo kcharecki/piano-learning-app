@@ -108,11 +108,22 @@ export type TapGrade = {
 export const TAPPING_DEFAULTS = { toleranceMs: 150 } as const
 
 const MIN_DURATION_BY_COMPLEXITY: Record<1 | 2 | 3 | 4 | 5, Ticks> = {
-  1: HALF,
+  1: QUARTER,
   2: QUARTER,
   3: EIGHTH,
   4: EIGHTH,
   5: SIXTEENTH,
+}
+
+/**
+ * Ceiling on a single note's length, where one is named (roadmap 5.20). Only
+ * complexity 1 has one: Faber/Alfred both teach quarter -> half -> whole, so
+ * the lowest complexity must never reach a whole note — without a ceiling,
+ * `mergePulses`'s optional-merge pass (below) will happily fold a whole bar
+ * into one chunk. Complexities 2+ are unconstrained above, as before.
+ */
+const MAX_DURATION_BY_COMPLEXITY: Partial<Record<1 | 2 | 3 | 4 | 5, Ticks>> = {
+  1: HALF,
 }
 
 /** Chance a chunk that has already met the floor merges with its neighbour anyway. */
@@ -136,7 +147,22 @@ const SUBDIVIDE_CHANCE: Record<1 | 2 | 3 | 4 | 5, number> = {
 /** Chance two adjacent equal-length notes tie into a syncopated figure (complexity 4+). */
 const SYNCOPATION_CHANCE: Record<4 | 5, number> = { 4: 0.15, 5: 0.3 }
 
-const REST_PROBABILITY = 0.25
+/**
+ * Chance a leaf is a rest, once `allowRests` is set. Complexity 1 is 0
+ * (roadmap 5.20: note values come first, "rests enter after note values are
+ * secure") — every other complexity keeps the flat 0.25 this replaced.
+ * Because `MIN_DURATION_BY_COMPLEXITY[2]` is `QUARTER`, complexity 2 is also
+ * where the *shortest* rest a learner can meet is guaranteed to be a quarter
+ * rest, not an eighth or sixteenth — matching Faber/Alfred's quarter-rest-
+ * first ordering without a second table to keep in sync.
+ */
+const REST_PROBABILITY: Record<1 | 2 | 3 | 4 | 5, number> = {
+  1: 0,
+  2: 0.25,
+  3: 0.25,
+  4: 0.25,
+  5: 0.25,
+}
 
 type Chunk = { readonly ticks: number; readonly pulses: number }
 type DraftOnset = { tick: number; durationTicks: number; isRest: boolean }
@@ -204,6 +230,7 @@ function mergePulses(
   pulseTicks: number,
   pulseCount: number,
   minDuration: number,
+  maxDuration: number,
   complexity: 1 | 2 | 3 | 4 | 5,
   rng: Rng,
 ): Chunk[] {
@@ -218,7 +245,16 @@ function mergePulses(
       curPulses += 1
       i += 1
     }
-    while (i < pulseCount && rng.next() < OPTIONAL_MERGE_CHANCE[complexity]) {
+    // Lookahead (`curTicks + pulseTicks`, not just `curTicks`), because a
+    // single pulse can already sit close to `maxDuration` (a compound metre's
+    // dotted-quarter pulse against complexity 1's half-note ceiling) — a
+    // plain "am I under the ceiling yet" check would let one more whole
+    // pulse merge in and overshoot it.
+    while (
+      i < pulseCount &&
+      curTicks + pulseTicks <= maxDuration &&
+      rng.next() < OPTIONAL_MERGE_CHANCE[complexity]
+    ) {
       curTicks += pulseTicks
       curPulses += 1
       i += 1
@@ -243,10 +279,11 @@ function emitLeaf(
   tick: number,
   duration: number,
   allowRests: boolean,
+  complexity: 1 | 2 | 3 | 4 | 5,
   rng: Rng,
   out: DraftOnset[],
 ): void {
-  const isRest = allowRests && rng.next() < REST_PROBABILITY
+  const isRest = allowRests && rng.next() < REST_PROBABILITY[complexity]
   out.push({ tick, durationTicks: duration, isRest })
 }
 
@@ -309,7 +346,7 @@ function subdivide(
 
   const canSplit = canBinary || canTernary || canDotted
   if (!canSplit || rng.next() >= SUBDIVIDE_CHANCE[complexity]) {
-    emitLeaf(tick, duration, allowRests, rng, out)
+    emitLeaf(tick, duration, allowRests, complexity, rng, out)
     return
   }
 
@@ -355,8 +392,8 @@ function subdivide(
       subdivide(tick + k * third, third, 1, ...args)
     }
   } else {
-    emitLeaf(tick, main, allowRests, rng, out)
-    emitLeaf(tick + main, remainder, allowRests, rng, out)
+    emitLeaf(tick, main, allowRests, complexity, rng, out)
+    emitLeaf(tick + main, remainder, allowRests, complexity, rng, out)
   }
 }
 
@@ -410,12 +447,13 @@ export function generateRhythm(params: RhythmParams, rng: Rng): RhythmPattern {
   // Clamped so a metre shorter than the complexity's usual floor (e.g. 2/8 at
   // complexity 1) still produces something, rather than an impossible request.
   const minDuration = Math.min(MIN_DURATION_BY_COMPLEXITY[complexity], barTicks)
+  const maxDuration = MAX_DURATION_BY_COMPLEXITY[complexity] ?? Number.POSITIVE_INFINITY
 
   const onsets: RhythmOnset[] = []
   let barStart = 0
   for (let b = 0; b < bars; b++) {
     const barOnsets: DraftOnset[] = []
-    const chunks = mergePulses(pulseTicks, pulseCount, minDuration, complexity, rng)
+    const chunks = mergePulses(pulseTicks, pulseCount, minDuration, maxDuration, complexity, rng)
     let tick = barStart
     for (const chunk of chunks) {
       subdivide(
