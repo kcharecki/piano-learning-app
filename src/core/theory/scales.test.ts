@@ -917,10 +917,20 @@ describe('scaleFingering', () => {
   })
 
   it('returns null where no standard fingering is defined', () => {
+    const covered: readonly ScaleType[] = [
+      'major',
+      'ionian',
+      'naturalMinor',
+      'harmonicMinor',
+      'melodicMinor',
+    ]
     for (const type of SCALE_TYPES) {
-      if (type === 'major' || type === 'ionian') continue
+      if (covered.includes(type)) continue
       expect(scaleFingering(p('C4'), type)).toBeNull()
     }
+    // aeolian sounds a natural minor but is asked for as a mode, and the modes
+    // are out of scope: it must not quietly borrow the minor table.
+    expect(scaleFingering(p('A4'), 'aeolian')).toBeNull()
   })
 
   it('gives one finger per note of the one-octave scale, all within 1..5', () => {
@@ -967,6 +977,257 @@ describe('scaleFingering', () => {
           expect(step).toBeGreaterThanOrEqual(1)
           expect(step).toBeLessThanOrEqual(3)
         }
+      }
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// fingering — the minor forms
+// ---------------------------------------------------------------------------
+
+/** The three forms that share one table (melodic overrides two right hands). */
+const MINOR_FORMS: readonly ScaleType[] = ['naturalMinor', 'harmonicMinor', 'melodicMinor']
+
+/** The five pitch classes a thumb cannot reach between the other fingers. */
+const BLACK_KEYS = new Set([1, 3, 6, 8, 10])
+
+type Row = {
+  readonly label: string
+  readonly hand: 'RH' | 'LH'
+  readonly fingers: readonly number[]
+  readonly notes: readonly SpelledPitch[]
+}
+
+/**
+ * Every (tonic, minor form, hand) that has a fingering, as a flat list — 21
+ * spellings covering all 12 pitch classes, times three forms, times two hands.
+ * The domain is finite and small, so the properties below are exhaustive loops
+ * rather than `fast-check` samples: a generator could only ever re-draw rows
+ * that are all listed here anyway.
+ */
+const MINOR_ROWS: readonly Row[] = tonicsWith(SIMPLE_ALTERS).flatMap((tonic) =>
+  MINOR_FORMS.flatMap((type): Row[] => {
+    const fingering = scaleFingering(tonic, type)
+    if (fingering === null) return []
+    const notes = scaleNotes(tonic, type)
+    const label = `${spelling(tonic)} ${type}`
+    return [
+      { label, hand: 'RH', fingers: fingering.rightHand, notes },
+      { label, hand: 'LH', fingers: fingering.leftHand, notes },
+    ]
+  }),
+)
+
+/** The indices where the hand lands on its thumb. */
+const thumbLandings = (fingers: readonly number[]): number[] =>
+  fingers.flatMap((finger, i) => (finger === 1 ? [i] : []))
+
+describe('scaleFingering — the minor forms', () => {
+  it('covers all twelve pitch classes in all three forms', () => {
+    // 21 spellings x 3 forms x 2 hands, none refused.
+    expect(MINOR_ROWS).toHaveLength(21 * 3 * 2)
+    for (const row of MINOR_ROWS) {
+      expect({ label: row.label, hand: row.hand, length: row.fingers.length }).toEqual({
+        label: row.label,
+        hand: row.hand,
+        length: row.notes.length,
+      })
+    }
+  })
+
+  it('gives A minor the C-major pattern, and never the thumb on the raised 7th', () => {
+    // A natural minor is A B C D E F G — every key white, so the hand is the
+    // one it uses for C major. A harmonic minor raises the 7th to G#, the only
+    // black key in the scale, and it falls to RH 4 / LH 2, never a thumb.
+    const expected = { rightHand: [1, 2, 3, 1, 2, 3, 4, 5], leftHand: [5, 4, 3, 2, 1, 3, 2, 1] }
+    expect(scaleFingering(p('A4'), 'naturalMinor')).toEqual(expected)
+    expect(scaleFingering(p('A4'), 'harmonicMinor')).toEqual(expected)
+    expect(spellings(scaleNotes(p('A4'), 'harmonicMinor'))).toEqual([
+      'A',
+      'B',
+      'C',
+      'D',
+      'E',
+      'F',
+      'G#',
+      'A',
+    ])
+    expect(at(expected.rightHand, 6)).toBe(4)
+    expect(at(expected.leftHand, 6)).toBe(2)
+  })
+
+  it('encodes the black-key tonics exactly', () => {
+    // Eb minor is Eb F Gb Ab Bb Cb Db: only F and Cb (which sounds B natural)
+    // are white, so both thumbs are forced onto degrees 2 and 6.
+    expect(scaleFingering(p('Eb4'), 'harmonicMinor')).toEqual({
+      rightHand: [3, 1, 2, 3, 4, 1, 2, 3],
+      leftHand: [2, 1, 4, 3, 2, 1, 3, 2],
+    })
+    // Ab minor is Ab Bb Cb Db Eb Fb Gb: only Cb and Fb, degrees 3 and 6.
+    expect(scaleFingering(p('Ab4'), 'naturalMinor')).toEqual({
+      rightHand: [3, 4, 1, 2, 3, 1, 2, 3],
+      leftHand: [3, 2, 1, 3, 2, 1, 4, 3],
+    })
+    // Bb minor keeps Bb major's numbers — the same two white keys, C and F.
+    expect(scaleFingering(p('Bb4'), 'naturalMinor')?.rightHand).toEqual(
+      scaleFingering(p('Bb4'), 'major')?.rightHand,
+    )
+    expect(scaleFingering(p('Bb4'), 'naturalMinor')?.leftHand).toEqual([2, 1, 3, 2, 1, 4, 3, 2])
+  })
+
+  it('lands the left thumb on B# and E#, which are white keys', () => {
+    // The pitch-class-not-spelling case in the left hand: C# harmonic minor's
+    // 7th is B# (sounds C) and F# harmonic minor's is E# (sounds F), and the
+    // left thumb sits on both. Spelling-based key colour would call them black.
+    for (const [key, seventh] of [
+      ['C#4', 'B#'],
+      ['F#4', 'E#'],
+    ] as const) {
+      const fingering = scaleFingering(p(key), 'harmonicMinor')
+      const notes = spellings(scaleNotes(p(key), 'harmonicMinor'))
+      expect(at(notes, 6)).toBe(seventh)
+      expect(fingering?.leftHand[6]).toBe(1)
+    }
+  })
+
+  it('gives harmonic minor exactly the natural minor fingering, in all twelve keys', () => {
+    // The structural claim the shared table rests on: the raised 7th is never a
+    // thumb note, so it costs nothing. If someone gives harmonic minor its own
+    // table later, this fails and they have to justify it.
+    for (const tonic of tonicsWith(SIMPLE_ALTERS)) {
+      expect({ key: spelling(tonic), f: scaleFingering(tonic, 'harmonicMinor') }).toEqual({
+        key: spelling(tonic),
+        f: scaleFingering(tonic, 'naturalMinor'),
+      })
+    }
+  })
+
+  it('changes for melodic minor in exactly C# and F# minor, right hand only', () => {
+    const changed = tonicsWith([0 as Alter]).flatMap((tonic) => {
+      const melodic = scaleFingering(tonic, 'melodicMinor')
+      const natural = scaleFingering(tonic, 'naturalMinor')
+      return JSON.stringify(melodic) === JSON.stringify(natural) ? [] : [spelling(tonic)]
+    })
+    // Of the seven naturals, none: the exceptions are C# and F#, both black.
+    expect(changed).toEqual([])
+    const exceptions = tonicsWith(SIMPLE_ALTERS).filter(
+      (tonic) =>
+        JSON.stringify(scaleFingering(tonic, 'melodicMinor')) !==
+        JSON.stringify(scaleFingering(tonic, 'naturalMinor')),
+    )
+    expect(exceptions.map(spelling).sort()).toEqual(['C#', 'Db', 'F#', 'Gb'])
+    // C# melodic ascending is C# D# E F# G# A# B#: the raised 6th A# is black
+    // and the natural-minor right thumb was on it, so the thumbs move to E and
+    // B#. The left hand, whose thumbs were already E and B, does not move.
+    expect(scaleFingering(p('C#4'), 'melodicMinor')).toEqual({
+      rightHand: [2, 3, 1, 2, 3, 4, 1, 2],
+      leftHand: [3, 2, 1, 4, 3, 2, 1, 3],
+    })
+    expect(scaleFingering(p('C#4'), 'naturalMinor')?.rightHand).toEqual([3, 4, 1, 2, 3, 1, 2, 3])
+    // F# melodic ascending is F# G# A B C# D# E#: the raised 6th D# is black and
+    // took the right thumb too, which moves to B and E#.
+    expect(scaleFingering(p('F#4'), 'melodicMinor')).toEqual({
+      rightHand: [2, 3, 4, 1, 2, 3, 1, 2],
+      leftHand: [4, 3, 2, 1, 3, 2, 1, 4],
+    })
+    expect(scaleFingering(p('F#4'), 'naturalMinor')?.rightHand).toEqual([3, 4, 1, 2, 3, 1, 2, 3])
+  })
+
+  it('leaves the other ten keys melodic-minor fingering untouched', () => {
+    for (const tonic of tonicsWith(SIMPLE_ALTERS)) {
+      if (spelledPitchClass(tonic) === 1 || spelledPitchClass(tonic) === 6) continue
+      expect({ key: spelling(tonic), f: scaleFingering(tonic, 'melodicMinor') }).toEqual({
+        key: spelling(tonic),
+        f: scaleFingering(tonic, 'naturalMinor'),
+      })
+    }
+    // and even in the two exceptions, only the right hand moves.
+    for (const key of ['C#4', 'F#4']) {
+      expect(scaleFingering(p(key), 'melodicMinor')?.leftHand).toEqual(
+        scaleFingering(p(key), 'naturalMinor')?.leftHand,
+      )
+    }
+  })
+
+  it('never puts either thumb on a black key, in any minor key or form', () => {
+    // The real oracle for the whole table, and the one 3.16's derivation could
+    // not hold. Key colour comes from the pitch class of the built note, never
+    // from its spelling: Cb, Fb, B# and E# are all white keys under a thumb here.
+    const offenders: string[] = []
+    for (const row of MINOR_ROWS) {
+      row.notes.forEach((note, i) => {
+        if (at(row.fingers, i) === 1 && BLACK_KEYS.has(spelledPitchClass(note))) {
+          offenders.push(`${row.label} ${row.hand} thumb on ${spelling(note)}`)
+        }
+      })
+    }
+    expect(offenders).toEqual([])
+  })
+
+  it('never repeats a finger on consecutive degrees', () => {
+    const offenders = MINOR_ROWS.flatMap((row) =>
+      row.fingers.flatMap((finger, i) =>
+        i > 0 && at(row.fingers, i - 1) === finger ? [`${row.label} ${row.hand} at ${i}`] : [],
+      ),
+    )
+    expect(offenders).toEqual([])
+  })
+
+  it('never asks for a 1-to-5 or 5-to-1 transition', () => {
+    // The thumb cannot pass under the fifth finger, nor the fifth cross it.
+    const offenders = MINOR_ROWS.flatMap((row) =>
+      row.fingers.flatMap((finger, i) => {
+        if (i === 0) return []
+        const pair = new Set([at(row.fingers, i - 1), finger])
+        return pair.has(1) && pair.has(5) ? [`${row.label} ${row.hand} at ${i}`] : []
+      }),
+    )
+    expect(offenders).toEqual([])
+  })
+
+  it('steps the right hand up by one and the left hand down by one within a group', () => {
+    // Between thumb landings a hand walks one finger per note: the right hand
+    // ascends until the thumb comes under, the left descends until it reaches
+    // the thumb and the next finger crosses over.
+    const offenders: string[] = []
+    for (const row of MINOR_ROWS) {
+      for (let i = 1; i < row.fingers.length; i++) {
+        const previous = at(row.fingers, i - 1)
+        const finger = at(row.fingers, i)
+        const stepping = row.hand === 'RH' ? finger !== 1 : previous !== 1
+        const wanted = row.hand === 'RH' ? previous + 1 : previous - 1
+        if (stepping && finger !== wanted) {
+          offenders.push(`${row.label} ${row.hand}: ${previous} -> ${finger} at ${i}`)
+        }
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+
+  it('puts three or four notes in every group between thumb landings', () => {
+    const offenders: string[] = []
+    for (const row of MINOR_ROWS) {
+      const landings = thumbLandings(row.fingers)
+      expect(landings.length).toBeGreaterThanOrEqual(2)
+      for (let i = 1; i < landings.length; i++) {
+        const size = at(landings, i) - at(landings, i - 1)
+        if (size !== 3 && size !== 4) offenders.push(`${row.label} ${row.hand}: group of ${size}`)
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+
+  it('shares a fingering between enharmonic minor keys', () => {
+    for (const [a, b] of [
+      ['C#4', 'Db4'],
+      ['D#4', 'Eb4'],
+      ['G#4', 'Ab4'],
+      ['A#4', 'Bb4'],
+      ['Cb4', 'B3'],
+    ] as const) {
+      for (const type of MINOR_FORMS) {
+        expect(scaleFingering(p(a), type)).toEqual(scaleFingering(p(b), type))
       }
     }
   })
