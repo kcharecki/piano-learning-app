@@ -101,9 +101,20 @@ The M3 gaps that are unbuilt features rather than defects. Each states its proof
       tests), plus 11 new tests on the extracted module itself. Driven live at
       `http://localhost:5302`: Theory → Chord & scale reference, Play buttons on the scale and on
       chord rows in both components still sound, console clean at both widths/both themes.*
-- [ ] 3.16 `core/theory`: fingering for the minor forms (REQ-3.5.4) — `scaleFingering` returns
-      `null` unless the type is major/ionian, and the circle's whole inner ring lands the user on
-      `naturalMinor`, i.e. half the advertised flow reaches a fingering-less reference.
+- [x] 3.16 `core/theory`: fingering for the minor forms (REQ-3.5.4) — **closed 2026-08-11 by
+      5.35 + 5.37, not by a fresh attempt at the 16-type derivation this entry warns about.**
+      Nothing was left to build: 5.35 shipped the minor tables and 5.37 labelled the eleven types
+      that have no standard fingering in any graded syllabus, which between them account for all
+      16 `SCALE_TYPES`. Verified against the merged code rather than inferred from the two task
+      boxes — `scaleFingering` returns a real `Fingering` for all 12 tonics of each of major,
+      ionian, naturalMinor, harmonicMinor and melodicMinor (5 × 12 = 60 covered pairs), and every
+      one of the remaining 11 types is in `NO_STANDARD_FINGERING_TYPES`, so the set of types that
+      are neither covered nor labelled is **empty**. The four anatomical properties this entry
+      demanded be written FIRST were written first, by 5.35, and an adversarial review this
+      session extended all four to the major table as well, which had been carrying the weaker
+      "step between 1 and 3" check the original post-mortem was written about.
+      The historical record below is kept deliberately: it is the most expensive lesson in this
+      file and the reason the task closed this way instead of by deriving 16 types again.
       **Re-scoped by roadmap 5.37**: the mode half of this task (dorian/phrygian/lydian/
       mixolydian/aeolian/locrian, plus chromatic/pentatonics/blues/whole tone) is deliberately NOT
       shipped — RCM's 2022 chart has zero hits for any of them, so the reference now says so
