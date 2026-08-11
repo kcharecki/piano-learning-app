@@ -12,6 +12,9 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   createOsmdEngraver,
   DEFAULT_NOTE_COLOR,
+  FEEDBACK_CORRECT_COLOR,
+  FEEDBACK_MISSED_COLOR,
+  FEEDBACK_WRONG_COLOR,
   HIDDEN_NOTE_COLOR,
   type OsmdLike,
   type ScoreEngraverWithMeasureLabels,
@@ -1746,5 +1749,196 @@ describe('createOsmdEngraver: setMeasureLabels (roadmap 3.18a)', () => {
     await engraver.load(container, '<score/>', score)
 
     expect(() => engraver.setMeasureLabels(new Map([[1, 'I']]))).not.toThrow()
+  })
+})
+
+// Roadmap 5.24: colour alone (NoteheadColor/StemColor) is the worst possible
+// signal pair for red-green colour vision deficiency — correct (#1c7c3c) vs
+// wrong (#c22f2c) is exactly that pair. `setNoteColor` now also classifies
+// the exact colour it is handed against `FEEDBACK_CORRECT_COLOR`/
+// `FEEDBACK_WRONG_COLOR`/`FEEDBACK_MISSED_COLOR` and stamps the matching
+// `.note-correct`/`.note-wrong`/`.note-missed` shape class (domain.css) onto
+// the notehead's own rendered element — the same element `noteIdAt`/
+// `stampNoteIds` already resolve, via `getNoteheadSVGs()[vfnoteIndex]`
+// falling back to `getSVGGElement()`.
+describe('createOsmdEngraver: feedback shape classes (roadmap 5.24)', () => {
+  it('setNoteColor with the correct/wrong/missed feedback colours stamps the matching class on the notehead, on the fast SVG path with zero renders', async () => {
+    const score = twoMeasureScore()
+    const [m0note, m1noteA, m1noteB] = score.notes
+    if (m0note === undefined || m1noteA === undefined || m1noteB === undefined) {
+      throw new Error('setup')
+    }
+    const engravedM0 = note(60)
+    const engravedM1a = note(62)
+    const engravedM1b = note(65)
+    const gnote = makeGNoteWithElements()
+    const fakeOsmd = makeFakeOsmd(
+      [measureOf(containerOf(engravedM0)), measureOf(containerOf(engravedM1a, engravedM1b))],
+      gnote.GNote,
+    )
+    const scheduler = makeFakeScheduler()
+    const engraver = await load(score, fakeOsmd, scheduler.scheduleRender)
+
+    engraver.setNoteColor(m0note.id, FEEDBACK_CORRECT_COLOR)
+    engraver.setNoteColor(m1noteA.id, FEEDBACK_WRONG_COLOR)
+    engraver.setNoteColor(m1noteB.id, FEEDBACK_MISSED_COLOR)
+
+    expect(scheduler.scheduleRender).not.toHaveBeenCalled()
+    expect(gnote.elementFor(engravedM0).classList.contains('note-correct')).toBe(true)
+    expect(gnote.elementFor(engravedM1a).classList.contains('note-wrong')).toBe(true)
+    expect(gnote.elementFor(engravedM1b).classList.contains('note-missed')).toBe(true)
+    // Each element carries exactly its own class, never another's.
+    expect(gnote.elementFor(engravedM0).classList.contains('note-wrong')).toBe(false)
+    expect(gnote.elementFor(engravedM0).classList.contains('note-missed')).toBe(false)
+  })
+
+  it('a colour that is not one of the three feedback colours applies no feedback class', async () => {
+    const score = singleNoteScore()
+    const [c60] = score.notes
+    if (c60 === undefined) throw new Error('setup')
+    const engravedNote = note(60)
+    const gnote = makeGNoteWithElements()
+    const fakeOsmd = makeFakeOsmd([measureOf(containerOf(engravedNote))], gnote.GNote)
+    const engraver = await load(score, fakeOsmd)
+
+    // An arbitrary highlight colour, as click-to-select (roadmap 4.8a) uses.
+    engraver.setNoteColor(c60.id, 'red')
+
+    const el = gnote.elementFor(engravedNote)
+    expect(el.classList.contains('note-correct')).toBe(false)
+    expect(el.classList.contains('note-wrong')).toBe(false)
+    expect(el.classList.contains('note-missed')).toBe(false)
+  })
+
+  it('re-colouring to a different verdict swaps the class rather than accumulating both', async () => {
+    const score = singleNoteScore()
+    const [c60] = score.notes
+    if (c60 === undefined) throw new Error('setup')
+    const engravedNote = note(60)
+    const gnote = makeGNoteWithElements()
+    const fakeOsmd = makeFakeOsmd([measureOf(containerOf(engravedNote))], gnote.GNote)
+    const engraver = await load(score, fakeOsmd)
+
+    engraver.setNoteColor(c60.id, FEEDBACK_CORRECT_COLOR)
+    const el = gnote.elementFor(engravedNote)
+    expect(el.classList.contains('note-correct')).toBe(true)
+
+    engraver.setNoteColor(c60.id, FEEDBACK_WRONG_COLOR)
+
+    expect(el.classList.contains('note-correct')).toBe(false)
+    expect(el.classList.contains('note-wrong')).toBe(true)
+  })
+
+  it('clearNoteColors strips the feedback class along with the colour', async () => {
+    const score = singleNoteScore()
+    const [c60] = score.notes
+    if (c60 === undefined) throw new Error('setup')
+    const engravedNote = note(60)
+    const gnote = makeGNoteWithElements()
+    const fakeOsmd = makeFakeOsmd([measureOf(containerOf(engravedNote))], gnote.GNote)
+    const engraver = await load(score, fakeOsmd)
+
+    engraver.setNoteColor(c60.id, FEEDBACK_WRONG_COLOR)
+    const el = gnote.elementFor(engravedNote)
+    expect(el.classList.contains('note-wrong')).toBe(true)
+
+    engraver.clearNoteColors()
+
+    expect(el.classList.contains('note-wrong')).toBe(false)
+  })
+
+  it('hiding a coloured note strips its feedback class (occluded, not judged); revealing restores it', async () => {
+    const score = singleNoteScore()
+    const [c60] = score.notes
+    if (c60 === undefined) throw new Error('setup')
+    const engravedNote = note(60)
+    const gnote = makeGNoteWithElements()
+    const fakeOsmd = makeFakeOsmd([measureOf(containerOf(engravedNote))], gnote.GNote)
+    const engraver = await load(score, fakeOsmd)
+    const el = gnote.elementFor(engravedNote)
+
+    engraver.setNoteColor(c60.id, FEEDBACK_MISSED_COLOR)
+    expect(el.classList.contains('note-missed')).toBe(true)
+
+    engraver.setNoteHidden(c60.id, true)
+    expect(el.classList.contains('note-missed')).toBe(false)
+
+    engraver.setNoteHidden(c60.id, false)
+    expect(el.classList.contains('note-missed')).toBe(true)
+  })
+
+  it('is re-applied after a full re-render — survives the SVG tree being wiped, e.g. by autoResize (roadmap 2.32 durability, restated for the class)', async () => {
+    const score = singleNoteScore()
+    const [c60] = score.notes
+    if (c60 === undefined) throw new Error('setup')
+    const engravedNote = note(60)
+    const gnote = makeGNoteWithElements()
+    const fakeOsmd = makeFakeOsmd([measureOf(containerOf(engravedNote))], gnote.GNote)
+    const engraver = await load(score, fakeOsmd)
+    const el = gnote.elementFor(engravedNote)
+
+    engraver.setNoteColor(c60.id, FEEDBACK_WRONG_COLOR)
+    expect(el.classList.contains('note-wrong')).toBe(true)
+
+    // Simulate what a real `osmd.render()` does on OSMD's own initiative
+    // (autoResize): the SVG tree is discarded and rebuilt, so a class set
+    // directly on the old element is gone — this fake's `render()` does not
+    // touch the DOM itself, so the wipe is done by hand, same technique as
+    // the identical `setMeasureLabels` durability test above.
+    el.classList.remove('note-wrong')
+    expect(el.classList.contains('note-wrong')).toBe(false)
+
+    // `load()` rebound `fakeOsmd.render` to the wrapper that also reapplies
+    // feedback classes — calling it directly models OSMD calling its own
+    // `render()` on a resize, which this file never controls.
+    fakeOsmd.render()
+
+    expect(el.classList.contains('note-wrong')).toBe(true)
+  })
+
+  it('a full re-render does not reapply a class for an id that was cleared before it', async () => {
+    const score = singleNoteScore()
+    const [c60] = score.notes
+    if (c60 === undefined) throw new Error('setup')
+    const engravedNote = note(60)
+    const gnote = makeGNoteWithElements()
+    const fakeOsmd = makeFakeOsmd([measureOf(containerOf(engravedNote))], gnote.GNote)
+    const engraver = await load(score, fakeOsmd)
+    const el = gnote.elementFor(engravedNote)
+
+    engraver.setNoteColor(c60.id, FEEDBACK_CORRECT_COLOR)
+    engraver.clearNoteColors()
+    expect(el.classList.contains('note-correct')).toBe(false)
+
+    fakeOsmd.render()
+
+    expect(el.classList.contains('note-correct')).toBe(false)
+  })
+
+  it('falls back to a render and still carries the class once GNote is unavailable at colouring time', async () => {
+    const score = singleNoteScore()
+    const [c60] = score.notes
+    if (c60 === undefined) throw new Error('setup')
+    const engravedNote = note(60)
+    const gnote = makeGNoteWithElements()
+    // Gated rather than permanently missing: GNote resolves nothing at the
+    // exact moment `setNoteColor` calls `paint()` (forcing 'needs-render'),
+    // then becomes resolvable before the coalesced render fires — the same
+    // shape as the existing 'needs-render fallback' tests above, without
+    // reassigning `OsmdLike.rules`, which is `readonly`.
+    let gNoteReady = false
+    const gatedGNote: FakeGNote = (n) => (gNoteReady ? gnote.GNote(n) : undefined)
+    const fakeOsmd = makeFakeOsmd([measureOf(containerOf(engravedNote))], gatedGNote)
+    const scheduler = makeFakeScheduler()
+    const engraver = await load(score, fakeOsmd, scheduler.scheduleRender)
+
+    engraver.setNoteColor(c60.id, FEEDBACK_CORRECT_COLOR)
+    expect(scheduler.scheduleRender).toHaveBeenCalledTimes(1)
+
+    gNoteReady = true
+    scheduler.flush()
+
+    expect(fakeOsmd.renderCount).toBe(1)
+    expect(gnote.elementFor(engravedNote).classList.contains('note-correct')).toBe(true)
   })
 })

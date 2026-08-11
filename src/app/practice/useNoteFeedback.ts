@@ -132,6 +132,19 @@ export type NoteFeedback = {
  * in src/design-system/tokens/colors.css — the notation frame is a paper
  * surface, so feedback notes use the paper-ink ramp, not the bright shell
  * variants meant for the dark background around it.
+ *
+ * Also kept in step with `osmdEngraver.ts`'s `FEEDBACK_CORRECT_COLOR` /
+ * `FEEDBACK_WRONG_COLOR` / `FEEDBACK_MISSED_COLOR` (roadmap 5.24): that file
+ * compares the colour it is handed here against those exact values to decide
+ * which `.note-correct` / `.note-wrong` / `.note-missed` shape class to put
+ * on the rendered notehead, since the colour is literally all `setNoteColor`
+ * receives (see that constant's own doc comment for why a verdict cannot be
+ * threaded through as a fourth thing to keep in sync). These three stay
+ * literal hex — not an import of that file's constants — because
+ * `e2e/note-colour.spec.ts` proves `WRONG_PITCH_COLOR` end to end by
+ * scraping this exact `const WRONG_PITCH_COLOR = '#...'` text out of this
+ * file's source (see that spec's own comment); replacing it with an import
+ * would silently blind that regression test rather than fail it.
  */
 const CORRECT_COLOR = '#1c7c3c'
 const WRONG_PITCH_COLOR = '#c22f2c'
