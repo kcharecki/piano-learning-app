@@ -360,20 +360,23 @@ describe('DashboardScreen — exit criteria checklist and Advance control (roadm
   })
 
   it('shows a per-track honest empty state, with no Advance control, for a track whose level has no authored content', () => {
+    // Roadmap 3.24 authored levels 4-5 for THEORY only, so the uncovered case
+    // is now a playing track placed there by override — theory at 5 has real
+    // criteria and would no longer exercise this state at all.
     useLevelStore.setState({
       levelState: {
-        levels: { playing: 1, 'sight-reading': 1, theory: 5 },
-        overridden: { playing: false, 'sight-reading': false, theory: true },
+        levels: { playing: 5, 'sight-reading': 1, theory: 1 },
+        overridden: { playing: true, 'sight-reading': false, theory: false },
       },
     })
 
     render(<DashboardScreen date={new FakeDateSource(NOW)} utcOffsetMinutes={0} />)
 
-    expect(screen.getByTestId('dashboard-criteria-empty-theory')).toBeTruthy()
-    expect(screen.queryByTestId('dashboard-advance-theory')).toBeNull()
+    expect(screen.getByTestId('dashboard-criteria-empty-playing')).toBeTruthy()
+    expect(screen.queryByTestId('dashboard-advance-playing')).toBeNull()
     // The other tracks still get a real checklist.
-    expect(screen.queryByTestId('dashboard-criteria-empty-playing')).toBeNull()
-    expect(screen.getByTestId('dashboard-advance-playing')).toBeTruthy()
+    expect(screen.queryByTestId('dashboard-criteria-empty-theory')).toBeNull()
+    expect(screen.getByTestId('dashboard-advance-theory')).toBeTruthy()
   })
 
   it('disables Advance on an overridden track even when every criterion is met, and states why', () => {

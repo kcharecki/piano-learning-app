@@ -445,10 +445,11 @@ describe('useDashboard — technique tempo trend', () => {
 
 describe('useDashboard — level store (roadmap 2.36)', () => {
   it('reports the real curriculum level and overridden flag per track from useLevelStore', () => {
-    // Every track placed at level 4 or 5 — outside the shipped curriculum's
-    // levels 1-3 (roadmap 4.9) — so this test's own criteria assertion below
-    // is unaffected by exit-criteria content; the exit-criteria/curriculumAvailable
-    // behaviour itself is covered by the dedicated describe block below.
+    // Playing and sight-reading sit at 4/5, which roadmap 3.24 authored for
+    // THEORY only — so those two tracks have no exit criteria there, while
+    // theory at 4 does. That split is the point: this test is about level and
+    // overridden being reported verbatim per track, and it must not depend on
+    // every track happening to be uncovered.
     const levelState: LevelState = {
       levels: { playing: 4, 'sight-reading': 5, theory: 4 },
       overridden: { playing: true, 'sight-reading': false, theory: true },
@@ -463,8 +464,12 @@ describe('useDashboard — level store (roadmap 2.36)', () => {
       const row = data.levels.find((l) => l.track === track)
       expect(row?.level).toBe(levelState.levels[track])
       expect(row?.overridden).toBe(levelState.overridden[track])
-      expect(row?.criteria).toEqual([])
     }
+    expect(data.levels.find((l) => l.track === 'playing')?.criteria).toEqual([])
+    expect(data.levels.find((l) => l.track === 'sight-reading')?.criteria).toEqual([])
+    expect(
+      data.levels.find((l) => l.track === 'theory')?.criteria.length,
+    ).toBeGreaterThan(0)
     expect(data.curriculumAvailable).toBe(false)
   })
 
@@ -683,22 +688,26 @@ describe('useDashboard — exit criteria evidence assembly (roadmap 2.36 second 
   })
 
   it('reports curriculumAvailable false when a manual override places a track at a level the content does not cover', () => {
+    // Levels 4-5 exist (roadmap 3.24) but author theory content only, so a
+    // PLAYING track placed at 5 is the uncovered case now. Asserting through
+    // a level that merely does not exist would no longer reach this branch:
+    // `levelAt` resolves for every level MAX_LEVEL permits.
     useLevelStore.setState({
       levelState: {
-        levels: { playing: 1, 'sight-reading': 1, theory: 5 },
-        overridden: { playing: false, 'sight-reading': false, theory: true },
+        levels: { playing: 5, 'sight-reading': 1, theory: 1 },
+        overridden: { playing: true, 'sight-reading': false, theory: false },
       },
     })
 
     const { result } = setup()
     const data = result.current
 
-    const theoryRow = data.levels.find((l) => l.track === 'theory')
-    expect(theoryRow?.criteria).toEqual([])
+    const playingRow = data.levels.find((l) => l.track === 'playing')
+    expect(playingRow?.criteria).toEqual([])
     expect(data.curriculumAvailable).toBe(false)
     // The other two tracks are still covered — curriculumAvailable is a
     // whole-dashboard AND across tracks, not per-track.
-    const playingRow = data.levels.find((l) => l.track === 'playing')
-    expect(playingRow?.criteria.length).toBeGreaterThan(0)
+    const theoryRow = data.levels.find((l) => l.track === 'theory')
+    expect(theoryRow?.criteria.length).toBeGreaterThan(0)
   })
 })

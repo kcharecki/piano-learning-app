@@ -31,16 +31,21 @@
  * unchanged) keeps feeding the sight-reading section's own trend display.
  *
  * **Exit criteria (roadmap 2.36's second half, REQ-2.2, REQ-3.10.2)**:
- * `@content/curriculum/curriculum.ts` now ships levels 1-3 with real
- * `exitCriteria`, so `levels[].criteria` is populated by calling
- * `trackProgress` for whichever `CurriculumLevel` matches a track's current
- * `levelState` number (via `levelAt`) — never for any other level, because
- * `trackProgress`'s own `invariant` requires `level.number === state.levels[track]`.
- * A track whose current level is not authored (e.g. a manual override past
- * level 3) gets `criteria: []` for that track, and `curriculumAvailable`
- * (now "true when the authored curriculum covers every track's current
- * level") goes `false` — the screen still renders honestly instead of
- * crashing on the invariant or fabricating criteria.
+ * `@content/curriculum/curriculum.ts` ships levels 1-3 covering all three
+ * tracks, plus levels 4-5 (roadmap 3.24) carrying **theory content only**, so
+ * `levels[].criteria` is populated by calling `trackProgress` for whichever
+ * `CurriculumLevel` matches a track's current `levelState` number (via
+ * `levelAt`) — never for any other level, because `trackProgress`'s own
+ * `invariant` requires `level.number === state.levels[track]`.
+ * A track the authored curriculum does not cover at its current level — a
+ * missing level, or a level like 4/5 that exists but authors nothing for this
+ * track — gets `criteria: []`, and `curriculumAvailable` ("true when the
+ * authored curriculum covers every track's current level") goes `false`, so
+ * the screen renders its honest per-track empty state instead of crashing on
+ * the invariant or fabricating criteria. That test is on the criteria, not on
+ * `levelAt`: once 3.24 authored 4 and 5, `levelAt` resolved for every level
+ * `MAX_LEVEL` allows, and a `level === undefined` test would have pinned this
+ * flag to a constant `true`.
  *
  * The `ProgressEvidence` passed to `trackProgress` is assembled entirely
  * from values this hook already computes elsewhere in the same memo —
@@ -344,9 +349,16 @@ export function useDashboard(options: UseDashboardOptions = {}): DashboardData {
     const levels: readonly DashboardTrackLevel[] = TRACKS.map((track) => {
       const levelNumber = levelState.levels[track]
       const level = levelAt(CURRICULUM, levelNumber)
-      if (level === undefined) curriculumAvailable = false
       const criteria =
         level === undefined ? [] : trackProgress(levelState, level, track, evidence)
+      // A level that exists is not the same as a level that covers THIS track.
+      // Roadmap 3.24 added levels 4-5 carrying theory content only, so
+      // `levelAt` now resolves for every level MAX_LEVEL allows and the old
+      // `level === undefined` test could never fire again — it made this flag
+      // a constant `true`, and with it the screen's honest per-track empty
+      // state. The condition that actually matters is whether the authored
+      // curriculum produced any criterion for this track at this level.
+      if (criteria.length === 0) curriculumAvailable = false
       return {
         track,
         level: levelNumber,
