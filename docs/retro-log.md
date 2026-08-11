@@ -365,3 +365,36 @@ Baseline metrics:
   first-run 2/10, rhythm drill 2/10, practice usability 3/10, IA 3/10, input access 3/10
 - verify at session start: exit 1 (9 unhandled OSMD errors, WIP 3.14)
 - next re-review of the 17 aspects due: within ~5 sessions
+
+---
+
+## 2026-08-11 — interim note: ROADMAP.md line budget raised 800 → 1500
+
+`scripts/check-docs-budget.mjs`'s own header says a budget failure means "archive or
+compress", never "raise the number without a reason in docs/retro-log.md". This is that
+reason, recorded before the round's full retro rather than after, because the change was
+made mid-round.
+
+**What happened.** A twelve-session parallel round took `ROADMAP.md` from 794 to 929 lines
+in a single day — twelve sessions each ticking their own task and recording its proof. The
+gate went red at 800 partway through integration, while ten branches were still unmerged.
+Archiving at that moment would have rewritten large blocks of the same file every one of
+those branches was about to touch, turning a round with two real merge conflicts into one
+with twelve.
+
+**Decision (the user's, explicitly).** Raise the ROADMAP budget to 1500 rather than archive
+under time pressure. `CLAUDE.md` (160) and `docs/PROCESS.md` (160) are unchanged and should
+stay tight: those two are read in full at the start of every session, whereas `ROADMAP.md`
+is triaged from — the cost profile is genuinely different, which the single shared rule was
+not distinguishing.
+
+**What this does not license.** The budget was introduced because this file had reached 1685
+lines of proof prose re-read every session, at roughly 54k tokens. That failure mode is still
+real and 1500 is still a ceiling, not a target. The archive pass moving completed Phase 3–5
+entries into `docs/roadmap-archive-2026-08-08.md` remains worth doing; it is now a deliberate
+piece of work to schedule between rounds rather than something a gate forces mid-merge.
+
+**Review by 2026-09-11 (or 4 sessions).** If `ROADMAP.md` is climbing toward 1500 on proof
+prose rather than on open tasks, the answer is the archive pass, not another raise. Consider
+also measuring the budget in *open* task lines rather than total lines, which is the number
+that actually costs a session anything.
