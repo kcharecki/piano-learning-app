@@ -102,6 +102,23 @@ const MIN_WAIT_MODE_LEVEL = 2
  */
 const MIN_ADVANCED_TOOLS_LEVEL = 3
 
+/**
+ * Roadmap 5.18 — the design plan for what 5.17 left behind. What the screen
+ * shows: a pinned, sticky transport/tempo/status strip above the score (1.21,
+ * unchanged), the score and its on-screen keyboard as the main content, and
+ * everything else gathered into two named, collapsible `<details>` sections
+ * instead of five flat top-level siblings. What is primary: Play, inside that
+ * sticky strip — nothing below the score competes with it for weight any
+ * more, because nothing below the score is a top-level sibling of it any
+ * more either. What is behind disclosure: Loop range, hand mute, metronome,
+ * wait mode and record/replay — every control 5.17 kept unconditionally
+ * visible at level 1 — move from five flat top-level groups into ONE new
+ * `.practice-setup` section (see its own comment below for why it defaults
+ * OPEN rather than closed); Assessment, tempo ramp, read ahead and the
+ * annotation editors keep 5.17's pre-existing "More tools" section,
+ * untouched. Net demotion: five flat groups collapse into one.
+ */
+
 export type PracticeScreenProps = {
   /** Injection seams for tests; each defaults to the real browser adapter. */
   readonly clock?: Clock
@@ -551,6 +568,24 @@ export function PracticeScreen(props: PracticeScreenProps) {
           />
         </div>
       </div>
+      {/* Roadmap 5.48 (REQ-3.3.2's own new clause): `matcher.ts`'s own module
+          comment says it plainly — "Only onsets are judged. `durationTicks`
+          is never read" — so a note released the instant it is struck scores
+          the same as one held for its full written value, and this screen's
+          bare accuracy percentage implies otherwise unless something says so.
+          One click, not a permanent block of prose fighting 5.18's own
+          decluttering above: closed by default, placed directly under the
+          sticky strip rather than three disclosures deep inside "Practice
+          setup" or "More tools" — the first thing below Play, reachable
+          without opening anything else first. */}
+      <details className="practice-accuracy-caveat">
+        <summary>What this screen doesn&apos;t check</summary>
+        <p>
+          Accuracy here checks which notes you played and when — not how long you held
+          them, and not your hand position, wrist, or posture. Treat it as a supplement
+          to practicing with a teacher, not a replacement.
+        </p>
+      </details>
       {loaded.musicXml !== undefined && (
         <ScoreViewer
           ref={scoreViewerRef}
@@ -598,42 +633,80 @@ export function PracticeScreen(props: PracticeScreenProps) {
         // with the rest would make assessment unreachable on exactly the
         // browsers roadmap 5.4 exists for.
       />
-      {/* `LoopRangeControl` has no `disabled` prop of its own (owned by another
-          agent) — a native `<fieldset disabled>` disables every form control
-          inside it, which is the only lever available without touching that
-          file. */}
-      <fieldset disabled={assessmentRunning}>
-        <LoopRangeControl
-          score={loaded.score}
-          loop={settings.loop}
-          onChange={setLoop}
-          tempoScale={settings.tempoScale}
-        />
-      </fieldset>
-      <HandMuteControl
-        activeHands={settings.activeHands}
-        onChange={setActiveHands}
-        disabled={assessmentRunning}
-      />
-      <MetronomeControl
-        enabled={settings.metronomeEnabled}
-        onToggle={setMetronomeEnabled}
-        subdivision={subdivision}
-        onSubdivisionChange={setSubdivision}
-        disabled={assessmentRunning}
-      />
-      {/* Roadmap 5.17: wait mode is the one tier between the level-1 basics
-          above and "More tools" below — REQ-3.3.3 ties it to hands-together,
-          which the curriculum introduces before assessment/ramp/read-ahead/
-          annotations become relevant (see `MIN_WAIT_MODE_LEVEL`'s comment). */}
-      {showWaitMode && (
-        <WaitModeControl
-          enabled={waitModeEnabled}
-          onToggle={setWaitModeEnabled}
-          wait={engine.wait}
-          disabled={assessmentRunning}
-        />
-      )}
+      {/* Roadmap 5.18: Loop range, hand mute, metronome, wait mode and
+          record/replay were five flat top-level siblings — every control 5.17
+          kept unconditionally visible at level 1, none of them Play, all of
+          them at Play's own visual weight. One collapsible section, titled
+          for what it is. Defaults OPEN, unlike "More tools" below: these are
+          the controls a level-1 learner is TOLD are theirs from the first
+          session (5.17's own record of what that level sees), so hiding them
+          behind an extra click by default would be a second, un-asked-for
+          disclosure stacked on top of 5.17's level gate — and a dozen existing
+          e2e specs outside this task's file boundary (`assessment-locked`,
+          `dashboard-assessment`, `metronome`, `metronome-drills`,
+          `note-colour`, `qwerty-note-input`, `record-replay`, `repertoire`,
+          `smoke`) already reach Loop range/Metronome/Record directly, with no
+          "open this section first" step, and this task owns none of them to
+          fix. It is still a REAL, working disclosure — `open` only seeds the
+          initial state; the learner can close it, and closing it is exactly
+          what the 5.18 proof's "under 2000px with all sections closed"
+          measures. */}
+      <details className="practice-setup" open>
+        <summary>Practice setup</summary>
+        <div className="practice-setup-body">
+          {/* `LoopRangeControl` has no `disabled` prop of its own (owned by
+              another agent) — a native `<fieldset disabled>` disables every
+              form control inside it, which is the only lever available
+              without touching that file. */}
+          <fieldset disabled={assessmentRunning}>
+            <LoopRangeControl
+              score={loaded.score}
+              loop={settings.loop}
+              onChange={setLoop}
+              tempoScale={settings.tempoScale}
+            />
+          </fieldset>
+          <HandMuteControl
+            activeHands={settings.activeHands}
+            onChange={setActiveHands}
+            disabled={assessmentRunning}
+          />
+          <MetronomeControl
+            enabled={settings.metronomeEnabled}
+            onToggle={setMetronomeEnabled}
+            subdivision={subdivision}
+            onSubdivisionChange={setSubdivision}
+            disabled={assessmentRunning}
+          />
+          {/* Roadmap 5.17: wait mode is the one tier between the level-1
+              basics above and "More tools" below — REQ-3.3.3 ties it to
+              hands-together, which the curriculum introduces before
+              assessment/ramp/read-ahead/annotations become relevant (see
+              `MIN_WAIT_MODE_LEVEL`'s comment). */}
+          {showWaitMode && (
+            <WaitModeControl
+              enabled={waitModeEnabled}
+              onToggle={setWaitModeEnabled}
+              wait={engine.wait}
+              disabled={assessmentRunning}
+            />
+          )}
+          <RecordPanel
+            phase={recorder.phase}
+            recording={recorder.recording}
+            // Roadmap 5.4: a recording no longer needs hardware — on-screen
+            // notes go through the same input. Still false when there is
+            // neither a device nor a visible keyboard, because then nothing
+            // can be played and an enabled Record button would capture an
+            // empty take.
+            canRecord={deviceAttached || showKeyboard}
+            onStartRecording={recorder.startRecording}
+            onStopRecording={recorder.stopRecording}
+            onStartReplay={recorder.startReplay}
+            onStopReplay={recorder.stopReplay}
+          />
+        </div>
+      </details>
       {/* Roadmap 5.17: absent below `MIN_ADVANCED_TOOLS_LEVEL` — not merely
           collapsed — per docs/ux-pedagogy-review-2026-08-06.md's finding that
           these four sit at the same visual weight as Play for a learner who
@@ -697,19 +770,6 @@ export function PracticeScreen(props: PracticeScreenProps) {
           </div>
         </details>
       )}
-      <RecordPanel
-        phase={recorder.phase}
-        recording={recorder.recording}
-        // Roadmap 5.4: a recording no longer needs hardware — on-screen notes
-        // go through the same input. Still false when there is neither a
-        // device nor a visible keyboard, because then nothing can be played
-        // and an enabled Record button would capture an empty take.
-        canRecord={deviceAttached || showKeyboard}
-        onStartRecording={recorder.startRecording}
-        onStopRecording={recorder.stopRecording}
-        onStartReplay={recorder.startReplay}
-        onStopReplay={recorder.stopReplay}
-      />
     </div>
   )
 }

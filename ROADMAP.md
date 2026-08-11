@@ -455,11 +455,16 @@ rule, not the exception.
       `read-ahead`, `notehead-select`, `round6`'s measure-note test) updated to seed a qualifying level
       first — real regressions this task would otherwise have introduced into the existing suite, all
       now green.*
-- [ ] 5.18 `app/practice`: give the remaining controls a hierarchy — primary transport pinned, related
-      groups collapsed into sections rather than one flat column.
-      *Proof: measured in a browser at 1280px — the number of controls visible without scrolling is
-      ≤ 10, the page's practice column is under 2000px tall with all sections closed, and Play is
-      within the first viewport at every scroll position (1.21's sticky guarantee still holds).*
+- [x] 5.18 `app/practice`: give the remaining controls a hierarchy — primary transport pinned, related
+      groups collapsed into sections rather than one flat column. Loop range, hand mute, metronome,
+      wait mode and record/replay (5.17's ungated level-1 groups) move into one new collapsible
+      "Practice setup" `<details>`, styled like "More tools" (previously unstyled) via new rules in
+      `feature-practice-sections.css`. Defaults OPEN unlike "More tools" (5.17 promises these with no
+      extra click, and nine e2e specs outside this boundary reach them directly — all re-run green,
+      untouched); still real and closable, which the proof exercises.
+      *Proof: Playwright, 1280px, level 3, the real bundled piece — 6 controls visible without
+      scrolling (≤10), 874.5px practice column with both closed (<2000px), Play visible after
+      scrolling 2000px (1.21 holds). `visual-pass.mjs` clean both widths/themes; 270 `vitest` green.*
 
 ### Rhythm drill — **2/10 → 9**
 
@@ -734,14 +739,16 @@ next item, no completion state, no sense of being 3 of 5 through today.
 
 ### Overall honesty — **the review's #14**
 
-- [ ] 5.48 `app` + `docs`: say once, visibly, what the app does not assess. `matcher.ts` judges
+- [x] 5.48 `app` + `docs`: say once, visibly, what the app does not assess. `matcher.ts` judges
       **onsets only** — its own comment says `durationTicks` is never read, so a note released early
       or held over still counts as written. That is exactly the hole reviewers name in Skoove and
       Yousician, and the app currently implies otherwise by reporting a bare accuracy percentage.
       Combined with 5.23's technique blind spot: supplement, not replacement, stated on screen.
-      *Proof: the statement is reachable in the running app from the Practice screen in one click, an
-      e2e asserts its text, and `requirements.md` records the same limitation so the next acceptance
-      pass does not rediscover it.*
+      Re-verified onsets-only against `matcher.ts` first — its comment still says it plainly. A
+      closed-by-default `<details>` sits under the sticky strip, above the score, not buried in
+      5.18's disclosures. REQ-3.3.2 in `requirements.md` states it too.
+      *Proof: one click from Practice; `e2e/practice-accuracy-caveat.spec.ts` (new) drives the click
+      and asserts the revealed text; matching `PracticeScreen.test.tsx` block; REQ-3.3.2 records it.*
 - [ ] 5.49 M5 acceptance pass — re-run the 2026-08-06 review's method (drive all 12 destinations as a
       beginner, measure contrast from the live CSSOM, verify pedagogy claims against the same primary
       sources) and re-score all 17 aspects. Any aspect still under 9 gets its own task here rather
