@@ -824,11 +824,33 @@ the app.
       *Proof: e2e from an empty IndexedDB — complete onboarding, assert the chosen levels are what the
       dashboard shows after a reload, and that Today's plan is non-empty and matches the chosen
       minutes.*
-- [ ] 5.41 `app`: honest first-run empty states on every screen that can be reached with no data —
+- [x] 5.41 `app`: honest first-run empty states on every screen that can be reached with no data —
       what this screen is for, and the one action that starts it. Today's dashboard renders zeros
       correctly (proved in 4.7); the other screens were not checked for this.
-      *Proof: each of the 12 destinations, visited with an empty store, renders a named starting
-      action; asserted by one e2e that walks all 12 rather than 12 specs.*
+      **12 checked, 0 had no honest empty state.** Visited every one of the 12 nav destinations
+      (`app/shell/Shell.tsx`'s full `NAV_PRIMARY`/`NAV_GROUPS` list) against a genuinely wiped
+      IndexedDB and wrote down what each one actually rendered before changing anything: Today
+      already builds and shows a real session plan with a working "Start session"; Lessons/Practice/
+      Sight reading/Rhythm/Metronome are content- or generator-driven, not user-data-driven, so
+      "empty" does not apply and each already opens on a real, playable state; Flashcards/Ear
+      training/Theory generate their first card/item on load and already say "Nothing recorded yet."
+      under the SRS summary (5.31, this same round); Technique already says "No clean run yet at this
+      drill."; Repertoire already says "No pieces in your library yet — add the score you have loaded
+      above." and correctly disables "Add loaded score" with a stated reason ("Load a score first...")
+      until one is; Progress was already proved in 4.7. Spot-checked the five that looked most likely
+      to hide an inert control — Repertoire's disabled "Add loaded score", Today's "Start session",
+      Rhythm's "Start", Sight reading's "Start exercise", Repertoire's catalogue "Add" — by actually
+      clicking them against a fresh profile: all five did real work (a piece added, a session item
+      opened, a rhythm prompt generated, a sight-reading countdown started). Added nothing new to any
+      screen; this item is the survey plus the regression guard below.
+      *Proof: `e2e/empty-state-starting-actions.spec.ts` (new) wipes IndexedDB, reloads, then walks
+      all 12 destinations in one test — Progress first (its "Theory retention" section reads the same
+      store the Theory destination writes to, so it has to be read before Theory touches it) — and at
+      each one asserts the real starting action is enabled, clicks it, and asserts a genuine output
+      (a status appearing, a button's enabled state flipping, a message disappearing), never mere
+      presence. Confirmed the guard actually guards by deliberately breaking one assertion and
+      watching the test fail, then reverting. Passed 3/3 parallel runs, console clean throughout
+      (0 console/page errors across the whole walk).*
 
 ### Information architecture — **3/10 → 9**
 
