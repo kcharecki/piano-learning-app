@@ -51,6 +51,7 @@ import {
 import {
   buildScale,
   degreeName,
+  NO_STANDARD_FINGERING_TYPES,
   noteAtDegree,
   scaleFingering,
   scaleName,
@@ -258,6 +259,17 @@ function ScaleTable({ root, type }: { readonly root: SpelledPitch; readonly type
           const label = isTonicRepeat ? 'octave' : degreeName(type, i + 1)
           const rightFinger = fingering?.rightHand[i]
           const leftFinger = fingering?.leftHand[i]
+          if (fingering === null && NO_STANDARD_FINGERING_TYPES.has(type)) {
+            return (
+              <tr key={i} data-testid={`scale-degree-${i + 1}`}>
+                <td>{label}</td>
+                <td>{pitchName(note)}</td>
+                <td className="fingering" colSpan={2}>
+                  no standard fingering — modes are not in the graded syllabi
+                </td>
+              </tr>
+            )
+          }
           return (
             <tr key={i} data-testid={`scale-degree-${i + 1}`}>
               <td>{label}</td>

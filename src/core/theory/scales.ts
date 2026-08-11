@@ -558,3 +558,28 @@ export function scaleFingering(tonic: SpelledPitch, type: ScaleType): Fingering 
   if (type !== 'major' && type !== 'ionian') return null
   return at(MAJOR_FINGERINGS, spelledPitchClass(tonic))
 }
+
+/**
+ * Types with no standard fingering in the graded syllabi, ever (roadmap 5.37)
+ * — not merely lacking a table here yet. RCM's 2022 technical requirements
+ * chart returns zero hits for any of these at any level; they appear only in
+ * ABRSM's Jazz syllabus. Deliberately EXCLUDES `naturalMinor`/`harmonicMinor`/
+ * `melodicMinor`: those lack a table today too (`scaleFingering` still
+ * returns null for them — roadmap 5.35 is what ships one), but minor scales
+ * ARE required from RCM Preparatory B onward, so a caller must not tell a
+ * learner they are "not in the graded syllabi" — that claim is true only for
+ * the types below.
+ */
+export const NO_STANDARD_FINGERING_TYPES: ReadonlySet<ScaleType> = new Set([
+  'dorian',
+  'phrygian',
+  'lydian',
+  'mixolydian',
+  'aeolian',
+  'locrian',
+  'chromatic',
+  'majorPentatonic',
+  'minorPentatonic',
+  'blues',
+  'wholeTone',
+])

@@ -600,7 +600,7 @@ describe('useDashboard — exit criteria evidence assembly (roadmap 2.36 second 
       assessments: [
         storedAssessment(
           'a1',
-          'demo-lh-root-rh-melody-simple-piece',
+          'demo-five-finger-c-major-hands-separately',
           'Simple piece',
           NOW - 1_000,
           0.9, // >= the 0.75 threshold: MET
@@ -654,7 +654,7 @@ describe('useDashboard — exit criteria evidence assembly (roadmap 2.36 second 
     // Mirrors exactly what the hook itself derives from the state seeded
     // above (see useDashboard.ts's inline comments for each reduction).
     const expectedEvidence: ProgressEvidence = {
-      assessments: { 'demo-lh-root-rh-melody-simple-piece': 0.9 },
+      assessments: { 'demo-five-finger-c-major-hands-separately': 0.9 },
       bestAssessmentAccuracy: 0.9,
       sightReadingLevel: 1,
       sightReadingAccuracy: (0.9 + 0.85 + 0.8) / 3,

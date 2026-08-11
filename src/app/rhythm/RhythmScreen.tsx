@@ -9,9 +9,9 @@
 import { MidiDeviceStatus } from '@app/practice/MidiDeviceStatus.tsx'
 import type { ConnectMidi } from '@app/practice/useMidiConnection.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
+import { ExerciseScore } from '@app/sightreading/ExerciseScore.tsx'
 import type { AudioOutput, Clock, MidiInput, Rng } from '@core/ports/index.ts'
 import { useState } from 'react'
-import { PatternPreview } from './PatternPreview.tsx'
 import { useRhythmDrill } from './useRhythmDrill.ts'
 
 export type RhythmScreenProps = {
@@ -89,7 +89,7 @@ export function RhythmScreen(props: RhythmScreenProps) {
         </button>
       )}
 
-      {drill.pattern !== undefined && <PatternPreview pattern={drill.pattern} />}
+      {drill.score !== undefined && <ExerciseScore score={drill.score} />}
 
       {drill.phase === 'tapping' && (
         <section aria-label="Tapping">

@@ -339,7 +339,7 @@ describe('DashboardScreen — exit criteria checklist and Advance control (roadm
       assessments: [
         storedAssessment(
           'a1',
-          'demo-lh-root-rh-melody-simple-piece',
+          'demo-five-finger-c-major-hands-separately',
           'Simple piece',
           NOW - 1_000,
           0.9,

@@ -109,11 +109,23 @@ const LEVEL_1_EXIT_CRITERIA: readonly ExitCriterion[] = [
   {
     id: 'l1-exit-assessment',
     track: 'playing',
-    description: 'Play a simple hands-together piece at 75% note and rhythm accuracy or better.',
-    // 75%, not a stricter figure: this is the FIRST assessment a learner ever
-    // takes, on a beginner piece — the bar exists to confirm hands-together
-    // coordination is present at all, not to gatekeep polish.
-    check: { kind: 'assessment', minAccuracy: 0.75, pieceId: 'demo-lh-root-rh-melody-simple-piece' },
+    description:
+      'Play a simple hands-separate piece (each hand alone) at 75% note and rhythm accuracy or better.',
+    // Hands-SEPARATE, not hands-together (roadmap 5.46): Faber's My First
+    // Piano Adventure and Alfred's Basic Piano Library both spend the bulk of
+    // their first book on hands-alone playing and introduce genuine
+    // hands-together coordination only entering the second book — gating
+    // LEVEL 1 on a hands-together piece stalls a beginner at the first wall,
+    // demanding a skill neither method expects this early. `l2-exit-assessment`
+    // below already carries the hands-together gate, which is where both
+    // methods put it. 75% stays the same: this is still the FIRST assessment
+    // a learner ever takes, and the bar exists to confirm the notes and
+    // rhythm are secure, not to gatekeep polish.
+    check: {
+      kind: 'assessment',
+      minAccuracy: 0.75,
+      pieceId: 'demo-five-finger-c-major-hands-separately',
+    },
   },
   techniqueCriterion(
     'l1-exit-technique',
