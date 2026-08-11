@@ -20,30 +20,28 @@
  *
  * ## Playback and audio discipline
  *
- * `playChordTones` and the lazy-`AudioOutput` / panic-on-change wiring below
- * are a deliberate line-for-line mirror of `ChordScaleReference`'s own (see
- * that file's module comment for the full rationale: the single shared
- * `AudioContext`, built lazily inside a user gesture because of the browser
- * autoplay policy, and the `allNotesOff()` panic both at the top of every
- * play and in a cleanup effect keyed on the looked-up chord, so a still-
- * ringing chord never survives a picker change or unmount). It is duplicated
- * rather than imported from `ChordScaleReference.tsx`. Note: the helpers
- * duplicated below (`playChordTones`, the duration/velocity constants,
- * `ROOT_OPTIONS`, `noteLabel`, the lazy-audio getter) do not themselves
- * depend on either component, so a real circular import is not actually
- * forced here — they could be hoisted into a third leaf module both
- * components import. That extraction is out of scope for this file (it
- * would touch `ChordScaleReference.tsx` and add a new module neither of this
- * change's owned files), so it is left as a known follow-up rather than done
- * silently; the duplication cost is real (see e.g. `CHORD_DURATION_MS`
- * existing in both files) but is not a defect this component can fix alone.
+ * `playChordTones`, the lazy-`AudioOutput` accessor, `ROOT_OPTIONS` and
+ * `noteLabel` come from `./chordScaleAudio.ts` (roadmap 3.15a) — a leaf
+ * module this file and `ChordScaleReference.tsx` both import, so this file no
+ * longer carries its own copy (see that module's own comment for the full
+ * playback rationale: the single shared `AudioContext`, built lazily inside a
+ * user gesture because of the browser autoplay policy, and the
+ * `allNotesOff()` panic at the top of every play).
+ *
+ * The panic-on-change cleanup effect below is NOT hoisted alongside them: it
+ * is gated by `ringingRef` (see the comment on that ref) so that this
+ * component only ever cancels a performance *it* started, unlike
+ * `ChordScaleReference`'s own unconditional cleanup effect — the two are not
+ * actually identical, so unifying them would change one or the other's
+ * behaviour. `chordScaleAudio.ts`'s `stopRingingAudio` hoists only the one
+ * line that genuinely is shared between the two effects (resolve the existing
+ * output and cancel it).
  */
 import { useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
-import { createDefaultAudioOutput } from '@app/practice/createDefaultAudioOutput.ts'
 import type { AudioOutput } from '@core/ports/audio.ts'
 import { at } from '@core/shared/invariant.ts'
-import { midi, millis } from '@core/shared/units.ts'
+import { midi } from '@core/shared/units.ts'
 import {
   buildChord,
   CHORD_QUALITIES,
@@ -54,7 +52,14 @@ import {
   INVERSIONS,
   isTriad,
 } from '@core/theory/chords.ts'
-import { fromMidi, pitchName, type SpelledPitch, spelledPitchClass, toMidi } from '@core/theory/pitch.ts'
+import { pitchName, type SpelledPitch, spelledPitchClass } from '@core/theory/pitch.ts'
+import {
+  noteLabel,
+  playChordTones,
+  ROOT_OPTIONS,
+  stopRingingAudio,
+  useSharedAudioOutput,
+} from './chordScaleAudio.ts'
 import { KeyboardDiagram } from './KeyboardDiagram.tsx'
 
 export type ChordLookupProps = {
@@ -63,48 +68,6 @@ export type ChordLookupProps = {
   /** Optional audio seam for tests; defaults to the same shared output
    *  ChordScaleReference already uses. */
   readonly audioOutput?: AudioOutput
-}
-
-/** How long a played chord rings, in ms. Mirrors `ChordScaleReference`'s `CHORD_DURATION_MS`. */
-const CHORD_DURATION_MS = 800
-/** Neither soft nor pinned to max — an audible, unremarkable press. */
-const PLAY_VELOCITY = 80
-
-/**
- * Play a chord as a simultaneity — every tone at the exact same instant. See
- * this file's module comment for why this duplicates rather than imports
- * `ChordScaleReference.tsx`'s identical `playChordTones`.
- */
-function playChordTones(audioOutput: AudioOutput, tones: readonly SpelledPitch[]): void {
-  audioOutput.allNotesOff()
-  const base = audioOutput.now()
-  const onMs = millis(base)
-  const offMs = millis(base + CHORD_DURATION_MS)
-  for (const tone of tones) {
-    const noteMidi = toMidi(tone)
-    audioOutput.noteOn(noteMidi, PLAY_VELOCITY, onMs)
-    audioOutput.noteOff(noteMidi, offMs)
-  }
-}
-
-/** Pitch classes that are conventionally written flat rather than sharp (Bb, Eb, Ab, Db). */
-const FLAT_PITCH_CLASSES: ReadonlySet<number> = new Set([1, 3, 8, 10])
-
-/**
- * Twelve pitch classes for the root picker, each spelled the way a learner
- * actually writes it — sharp for C#/F#/G#, flat for Db/Eb/Ab/Bb. Mirrors
- * `ChordScaleReference`'s own `ROOT_OPTIONS` (see that file for the
- * writable-key rationale); duplicated for the same circular-import reason as
- * `playChordTones` above.
- */
-const ROOT_OPTIONS: readonly SpelledPitch[] = Array.from({ length: 12 }, (_, pc) =>
-  fromMidi(midi(pc + 60), FLAT_PITCH_CLASSES.has(pc)),
-)
-
-/** `'C#'`, `'Bb'` — a root option's name with no octave. */
-function noteLabel(p: SpelledPitch): string {
-  const sign = p.alter < 0 ? 'b'.repeat(-p.alter) : '#'.repeat(p.alter)
-  return `${p.letter}${sign}`
 }
 
 /**
@@ -158,8 +121,8 @@ export function ChordLookup({ initialRoot, audioOutput }: ChordLookupProps): JSX
   const [inversion, setInversion] = useState<Inversion>(0)
 
   // Lazy by design, same discipline as ChordScaleReference: see this file's
-  // module comment and ChordScaleReference.tsx's own comment on why.
-  const audioRef = useRef<AudioOutput | undefined>(undefined)
+  // module comment and `chordScaleAudio.ts`'s own comment on why.
+  const { audioRef, getAudioOutput } = useSharedAudioOutput(audioOutput)
   // Whether *this* component has actually played a chord on the shared
   // output since the last panic. ChordScaleReference renders this component
   // against the same shared AudioContext (Chrome caps them at ~6/document),
@@ -170,13 +133,6 @@ export function ChordLookup({ initialRoot, audioOutput }: ChordLookupProps): JSX
   // was mid-playing). Gating the panic on "did *I* start something" fixes
   // that without changing ChordScaleReference's own panic discipline.
   const ringingRef = useRef(false)
-  function getAudioOutput(): AudioOutput {
-    if (audioOutput !== undefined) return audioOutput
-    if (audioRef.current === undefined) {
-      audioRef.current = createDefaultAudioOutput()
-    }
-    return audioRef.current
-  }
 
   // Cancel whatever this lookup started ringing when the looked-up chord
   // changes or this component unmounts — the other half of the panic
@@ -189,11 +145,10 @@ export function ChordLookup({ initialRoot, audioOutput }: ChordLookupProps): JSX
   useEffect(() => {
     return () => {
       if (!ringingRef.current) return
-      const existing = audioOutput ?? audioRef.current
-      existing?.allNotesOff()
+      stopRingingAudio(audioOutput, audioRef)
       ringingRef.current = false
     }
-  }, [root, quality, inversion, audioOutput])
+  }, [root, quality, inversion, audioOutput, audioRef])
 
   // A third inversion only exists on a seventh chord (chordMidi/buildChord
   // would throw for a triad) — INVERSIONS is filtered per the current
