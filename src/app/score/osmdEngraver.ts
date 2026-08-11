@@ -189,6 +189,47 @@ export const DEFAULT_NOTE_COLOR = SCORE_INK
  * step with `--paper` in src/design-system/tokens/colors.css.
  */
 export const HIDDEN_NOTE_COLOR = '#f8f5ec'
+
+/**
+ * Shape/stroke cue that makes a note's feedback state legible without colour
+ * (roadmap 5.24 — "Color is NEVER the only signal", `colors.css`'s own header
+ * comment). These three names are exactly the selectors `.notation-frame
+ * .note-correct` / `.note-wrong` / `.note-missed` implement in
+ * `src/design-system/css/domain.css`; nothing upstream of `paint()` needs to
+ * know a class is involved at all, only the colour it was already writing.
+ */
+const FEEDBACK_CLASSES = ['note-correct', 'note-wrong', 'note-missed'] as const
+type FeedbackClass = (typeof FEEDBACK_CLASSES)[number]
+
+/**
+ * The three colours `useNoteFeedback.ts`'s `colorForVerdict` hands
+ * `setNoteColor` for a `correct` / `wrongPitch` / `missed` verdict — kept in
+ * exact sync with that file's own `CORRECT_COLOR`/`WRONG_PITCH_COLOR`/
+ * `MISSED_COLOR` constants, and with `--fb-correct-ink`/`--fb-wrong-ink`/
+ * `--fb-missed-ink` in src/design-system/tokens/colors.css, the same
+ * hardcode-with-sync-comment contract `SCORE_INK` above already has with
+ * `--paper-fg`: OSMD wants a concrete hex, never a CSS variable.
+ *
+ * This pair (colour in, class out) is deliberately a plain value comparison,
+ * not a verdict passed down from `useNoteFeedback.ts` — the call this file
+ * actually receives is `setNoteColor(noteId, color)` (see `engraver.ts`),
+ * routed there through `ScoreViewerHandle.setNoteColor` in `ScoreViewer.tsx`
+ * (owned by a different session this round), which forwards exactly two
+ * arguments. A verdict-typed third parameter has nowhere to travel without
+ * editing that file, so classifying the COLOUR itself is the only channel
+ * available inside this round's file boundary — and it is sufficient, since
+ * `colorForVerdict` already gives each verdict its own exact colour.
+ */
+export const FEEDBACK_CORRECT_COLOR = '#1c7c3c'
+export const FEEDBACK_WRONG_COLOR = '#c22f2c'
+export const FEEDBACK_MISSED_COLOR = '#666e78'
+
+const FEEDBACK_CLASS_BY_COLOR: ReadonlyMap<string, FeedbackClass> = new Map([
+  [FEEDBACK_CORRECT_COLOR, 'note-correct'],
+  [FEEDBACK_WRONG_COLOR, 'note-wrong'],
+  [FEEDBACK_MISSED_COLOR, 'note-missed'],
+])
+
 /**
  * Marks the `<g>` this file owns inside OSMD's SVG so a later call can find
  * and clear it rather than accumulate a new group on every `setMeasureLabels`
@@ -376,6 +417,72 @@ function stampNoteIds(osmd: OsmdLike, noteById: ReadonlyMap<string, EngravedNote
       // working exactly as before.
       const el = graphicalNote?.getNoteheadSVGs()[graphicalNote.vfnoteIndex] ?? graphicalNote?.getSVGGElement()
       el?.setAttribute('data-note-id', id)
+    } catch {
+      // Best-effort — see doc comment above.
+    }
+  }
+}
+
+/**
+ * This note's own notehead SVG element when resolvable — `getNoteheadSVGs()`
+ * indexed by `vfnoteIndex`, required for a CHORD, where every member shares
+ * one `getSVGGElement()` group (see the `OsmdGraphicalNote` doc comment) —
+ * falling back to that shared group otherwise. The exact access path
+ * `stampNoteIds` above already uses to place `data-note-id`; factored out
+ * here so `applyFeedbackClass` targets the identical element a click would
+ * resolve back to the same note.
+ */
+function resolveNoteheadElement(graphicalNote: OsmdGraphicalNote): Element | undefined {
+  return graphicalNote.getNoteheadSVGs()[graphicalNote.vfnoteIndex] ?? graphicalNote.getSVGGElement()
+}
+
+/**
+ * Replaces whichever of `FEEDBACK_CLASSES` the notehead element currently
+ * carries with `className` (or none, for `undefined`) — always a full
+ * remove-then-add rather than a toggle, so a note that changes verdict
+ * (e.g. correct, then cleared, then missed on a later pass) never ends up
+ * wearing two classes at once. Can throw (DOM access via `resolveNoteheadElement`
+ * or `classList`) — deliberately left to the caller's own `try`, exactly like
+ * `graphicalNote.setColor` itself, so a failure here falls back to
+ * `'needs-render'` the same way a `setColor` failure already does.
+ */
+function applyFeedbackClass(graphicalNote: OsmdGraphicalNote, className: FeedbackClass | undefined): void {
+  const el = resolveNoteheadElement(graphicalNote)
+  if (el === undefined) return
+  for (const cls of FEEDBACK_CLASSES) el.classList.remove(cls)
+  if (className !== undefined) el.classList.add(className)
+}
+
+/**
+ * Re-stamps every currently-fed-back note's class after a full re-engrave —
+ * the same durability requirement as `stampNoteIds`/`applyMeasureLabels`
+ * above, and for the identical reason: the class lives only on the SVG
+ * element, which `render()` discards and rebuilds from scratch, and unlike
+ * colour there is no OSMD model property a class could be written onto that
+ * `render()` would redraw from on its own (see the module comment's
+ * "Rendering" section for why colour alone needs no equivalent here).
+ *
+ * Iterates `coloredIds` only — the notes that currently have ANY requested
+ * colour, typically a small fraction of the score — not every mapped note,
+ * so a resize on a long piece costs O(notes currently showing feedback), not
+ * O(score size). Best-effort and never throws, same contract as its siblings.
+ */
+function reapplyFeedbackClasses(
+  osmdInstance: OsmdLike,
+  noteById: ReadonlyMap<string, EngravedNote>,
+  coloredIds: ReadonlySet<string>,
+  hiddenIds: ReadonlySet<string>,
+  desiredColor: ReadonlyMap<string, string>,
+): void {
+  for (const id of coloredIds) {
+    const note = noteById.get(id)
+    if (note === undefined) continue
+    const color = hiddenIds.has(id) ? HIDDEN_NOTE_COLOR : (desiredColor.get(id) ?? DEFAULT_NOTE_COLOR)
+    const feedbackClass = FEEDBACK_CLASS_BY_COLOR.get(color)
+    if (feedbackClass === undefined) continue
+    try {
+      const graphicalNote = osmdInstance.rules.GNote(note)
+      if (graphicalNote !== undefined) applyFeedbackClass(graphicalNote, feedbackClass)
     } catch {
       // Best-effort — see doc comment above.
     }
@@ -654,6 +761,7 @@ export function createOsmdEngraver(opts?: OsmdEngraverOptions): ScoreEngraverWit
     const color = hiddenIds.has(noteId)
       ? HIDDEN_NOTE_COLOR
       : (desiredColor.get(noteId) ?? DEFAULT_NOTE_COLOR)
+    const feedbackClass = FEEDBACK_CLASS_BY_COLOR.get(color)
     const changed = note.NoteheadColor !== color || note.ParentVoiceEntry.StemColor !== color
     note.NoteheadColor = color
     note.ParentVoiceEntry.StemColor = color
@@ -662,11 +770,15 @@ export function createOsmdEngraver(opts?: OsmdEngraverOptions): ScoreEngraverWit
       const graphicalNote = osmd?.rules.GNote(note)
       if (graphicalNote !== undefined) {
         graphicalNote.setColor(color, { applyToNoteheads: true, applyToStem: true })
+        // Shape, not hue, carries the signal (roadmap 5.24) — same no-re-render
+        // SVG mutation `setColor` above already is, targeting the same element.
+        applyFeedbackClass(graphicalNote, feedbackClass)
         return 'painted'
       }
     } catch {
-      // GNote/setColor threw — the model write above still stands, and the
-      // caller falls back to a full render to make it visible.
+      // GNote/setColor/the class write threw — the model write above still
+      // stands, and the caller falls back to a full render to make it
+      // visible (which re-applies the class too — see reapplyFeedbackClasses).
     }
     return 'needs-render'
   }
@@ -694,6 +806,9 @@ export function createOsmdEngraver(opts?: OsmdEngraverOptions): ScoreEngraverWit
         // write that would make this survive on its own, the way note colour
         // does.
         applyMeasureLabels(instance, container, measureLabels)
+        // Same durability requirement, same reason — see
+        // `reapplyFeedbackClasses`'s doc comment (roadmap 5.24).
+        reapplyFeedbackClasses(instance, noteById, coloredIds, hiddenIds, desiredColor)
       }
       await instance.load(musicXml)
       instance.render()

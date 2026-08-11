@@ -181,11 +181,11 @@
 /* Per-note feedback: apply fill/stroke to the notehead group AND
    attach a marker glyph above it (color never alone). Classes go
    on OSMD note groups via its API. */
-.notation-frame .note-correct  { fill: var(--fb-correct-ink) !important;  stroke: var(--fb-correct-ink) !important; }
-.notation-frame .note-wrong    { fill: var(--fb-wrong-ink) !important;    stroke: var(--fb-wrong-ink) !important; }
+.notation-frame .note-correct, .notation-frame .note-correct path { fill: var(--fb-correct-ink) !important;  stroke: var(--fb-correct-ink) !important; stroke-dasharray: none !important; }
+.notation-frame .note-wrong, .notation-frame .note-wrong path     { fill: none !important; stroke: var(--fb-wrong-ink) !important; stroke-width: 1.5px !important; stroke-dasharray: 1 1 !important; }
 .notation-frame .note-late     { fill: var(--fb-late-ink) !important;     stroke: var(--fb-late-ink) !important; }
 .notation-frame .note-early    { fill: var(--fb-early-ink) !important;    stroke: var(--fb-early-ink) !important; }
-.notation-frame .note-missed   { fill: none !important;                   stroke: var(--fb-missed-ink) !important; stroke-dasharray: 2 2; }
+.notation-frame .note-missed, .notation-frame .note-missed path   { fill: none !important; stroke: var(--fb-missed-ink) !important; stroke-width: 1.5px !important; stroke-dasharray: 2 2 !important; }
 .notation-frame .note-extra    { fill: var(--fb-extra-ink) !important;    stroke: var(--fb-extra-ink) !important; }
 /* HTML overlay markers positioned above noteheads (glyph cue) */
 .note-marker {

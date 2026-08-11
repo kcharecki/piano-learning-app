@@ -592,14 +592,16 @@ NEVER the only signal"* — `domain.css` implements `.note-missed { stroke-dasha
 three hardcoded hexes duplicated out of the token file (`useNoteFeedback.ts:136-138`). So correct
 (#1c7c3c) vs wrong (#c22f2c) is distinguished **by hue alone** — the worst pair for red-green CVD.
 
-- [ ] 5.24 `adapters/osmd`: apply `.note-correct` / `.note-wrong` / `.note-missed` to the rendered
-      noteheads so shape carries the signal, and read the three colours from the design tokens instead
-      of the duplicated hexes. The CSS is already written; it just needs to be reached. Must not
-      regress 2.32's fast path (`GraphicalNote.setColor` without re-render) or the resize-safety of
-      the model-property writes.
-      *Proof: e2e — after a wrong note, the SVG element carries `class="note-wrong"` AND the dashed
-      stroke computes non-empty under a simulated greyscale (assert `stroke-dasharray`, not colour);
-      `perf-large-score.spec.ts` still records zero long tasks.*
+- [x] 5.24 `adapters/osmd`: `paint()` classifies the colour `setNoteColor` gets against `FEEDBACK_CORRECT_COLOR`/`WRONG`/`MISSED` and stamps the matching
+      `.note-correct`/`.note-wrong`/`.note-missed` class on the notehead, on the no-re-render fast path; `reapplyFeedbackClasses` restamps after every
+      OSMD-triggered re-render (autoResize), since a class has no model-level survival. 3 states colour a note; `extra` colours none, needs no class — 3
+      reported, 3 confirmed. 2 more `domain.css` defects found and fixed: the class landed on `<g class="vf-notehead">`, but the child `<path>` OSMD
+      paints has its OWN `stroke="none"`/`dasharray="none"`, blocking inheritance — even `.note-missed` (never exercised before) was inert; added a
+      `path` descendant selector plus explicit `stroke-width` (was an invisible inherited 0.3px). `.note-wrong` redesigned hollow+dotted, not
+      filled+scalloped, which read as noise at real notehead size (verified live). `useNoteFeedback.ts`'s colours stay literal hex, not imported —
+      `note-colour.spec.ts` (out of scope) scrapes `WRONG_PITCH_COLOR` verbatim; `osmdEngraver.ts` exports the same 3 under its own names, synced by comment.
+      *Proof: `e2e/note-shape.spec.ts` (new) — under greyscale, a wrong note carries `class="note-wrong"` and non-empty `stroke-dasharray`;
+      `note-colour.spec.ts`/`perf-large-score.spec.ts` (0 long tasks) unchanged, green. 8 new `osmdEngraver.test.ts` cases.*
 - [x] 5.25 `app`: `OnScreenKeyboard` keys were labelled `"Key 48"`, `"Key 49"` — MIDI numbers read out
       loud. The default (sharp) spelling from `core/theory/pitch.ts`'s `midiToName` now backs the
       `aria-label`; the key stays visually unlabelled (a real piano prints nothing either, and the
