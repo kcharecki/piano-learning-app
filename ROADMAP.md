@@ -645,19 +645,18 @@ fingering, mode-aware degree names (C Dorian correctly shows *subtonic* B♭), d
 are half-finished features, and one of them is a real teaching blocker: **minor scales show `—` in
 both fingering columns**, and minor scales are required from RCM Preparatory B onward.
 
-- [ ] 5.35 `core/theory`: ship **minor** scale fingerings as a lookup table — narrower and much safer
-      than 3.16's full 16-type derivation, which was attempted and reverted. The review's research
-      makes this cheap: **harmonic minor uses the natural minor fingering**, structurally, because the
-      raised 7th is never a thumb note (RH 4 / LH 2); only *melodic* minor ascending is a genuine
-      exception, and only where the raised 6th would put the thumb on a black key (C♯ and F♯ minor).
-      Ship a table, not a rule — ABRSM's own position is that fingering is not prescriptive.
-      **Key colour must come from pitch class, never spelling**: E♯, B♯, C♭ and F♭ appear in standard
-      fingerings on white keys, several under the thumb (F♯ major RH thumb on E♯; A♭ harmonic minor RH
-      thumb on C♭ and F♭). Test `pitchClass ∈ {1,3,6,8,10}`.
-      *Proof: 3.16's four properties (no repeated finger on consecutive degrees; no 1↔5 transition; RH
-      thumb landings ascend by exactly one group, LH descend; every group is 3 or 4 notes) hold over
-      all 12 tonics × 3 minor forms × both hands, plus named rows for A natural, A harmonic, and the
-      C♯/F♯ melodic exceptions; and the reference screen shows real numbers where it shows `—` today.*
+- [x] 5.35 `core/theory`: shipped **minor** scale fingerings as a lookup table (`MINOR_FINGERINGS`,
+      shared by natural/harmonic; `MELODIC_MINOR_RIGHT_HANDS` overrides exactly C♯/F♯ minor's right
+      hand) — narrower and safer than 3.16's reverted full 16-type derivation. Adversarial re-review
+      confirmed every row against relative-major rotation and found one real defect one layer down:
+      `technique/library.ts`'s multi-octave descent reused natural minor's OWN fingering rather than
+      the ascent's, repeating a finger at the top in exactly C♯/F♯ melodic minor (latent — no shipped
+      drill reached it); fixed to mirror the ascent's fingers, pitches unchanged. 3.16's four
+      properties hold over all 12 tonics × 3 forms × both hands (exhaustive, not sampled), plus a
+      score-level property test over every shipped scale drill. Driven in the browser: A harmonic
+      minor reads RH 1 2 3 1 2 3 4 5 / LH 5 4 3 2 1 3 2 1 (leading tone never a thumb), Db melodic
+      minor reads the C♯ exception, Ab natural minor reads its forced two-white-key fingering —
+      real numbers where the reference showed `—`. Full history: git log.
 - [ ] 5.36 `app/theory`: **Major** and **Ionian** are separate dropdown entries, as are **Natural
       minor** and **Aeolian**. They are the same scales, and a beginner reads two entries as two
       things. Merge, with the alternative name shown as a subtitle.
