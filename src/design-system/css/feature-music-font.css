@@ -1,4 +1,32 @@
-/* Feature stylesheet — music-font.
+/* Feature stylesheet — music-font (roadmap 5.26).
    Single-writer by construction: exactly one parallel session owns this file, so
    a round of concurrent worktrees never conflicts inside domain.css. Rules that
-   outlive their feature's round get folded back into domain.css by the integrator. */
+   outlive their feature's round get folded back into domain.css by the integrator.
+
+   Bundles Bravura (SIL OFL 1.1, Steinberg Media Technologies GmbH) so the
+   clef/accidental glyphs drawn as plain Unicode text in StaffNote.tsx do not
+   depend on an OS-installed music font. Self-hosted: the woff2 lives at
+   ../fonts/bravura/Bravura.woff2, resolved and bundled by Vite's CSS asset
+   pipeline (no network fetch at runtime). Licence text ships alongside the
+   font file (../fonts/bravura/OFL.txt) and is recorded in LICENSE.md.
+
+   Bravura's cmap covers the exact Unicode Musical Symbols codepoints this app
+   already uses as plain text (U+1D11E treble clef, U+1D122 bass clef, U+266D
+   flat, U+266F sharp, U+1D12A double sharp, U+1D12B double flat) — verified
+   with fontTools before committing the asset, so no SMuFL private-use-area
+   remapping is needed; the existing glyph choices in StaffNote.tsx just work
+   once this family is in the stack. */
+@font-face {
+  font-family: 'Bravura';
+  src: url('../fonts/bravura/Bravura.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: block; /* a swapped-in glyph after layout would shift the staff */
+}
+
+/* Applied to the clef and accidental <text> nodes in StaffNote.tsx. Falls back
+   to the system stack only if the bundled font somehow fails to parse/load —
+   normal operation always resolves to the bundled family. */
+.music-glyph {
+  font-family: 'Bravura', var(--font-ui);
+}
