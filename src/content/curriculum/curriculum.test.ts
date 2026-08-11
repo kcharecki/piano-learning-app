@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest'
 import { lessonsForLevel, lessonsForTrack, nextLesson, validateCurriculum } from '@core/curriculum/model.ts'
 import type { Exercise, Lesson } from '@core/curriculum/types.ts'
+import { validateScore } from '@core/notation/score.ts'
 import { PIANO_HIGHEST_MIDI, PIANO_LOWEST_MIDI } from '@core/shared/units.ts'
 import { CURRICULUM } from '@content/curriculum/curriculum.ts'
 import { LESSON_DIAGRAMS, lessonDiagramById } from '@content/curriculum/diagrams.ts'
@@ -58,6 +59,54 @@ describe('CURRICULUM content bars (REQ-3.1.2, REQ-5.2)', () => {
   })
 })
 
+describe('REQ-3.5.1 harmony topics at levels 4-5 (roadmap 3.24)', () => {
+  // The six topics requirements.md §3.5.1 named with no authored lesson at
+  // any level before this: seventh chords, cadences, the common
+  // progressions, the minor scale forms, secondary dominants, and
+  // modulation to closely related keys.
+  const TOPIC_LESSON_IDS = [
+    'l4-seventh-chords',
+    'l4-cadences',
+    'l4-common-progressions',
+    'l5-minor-scale-forms',
+    'l5-secondary-dominants',
+    'l5-modulation-closely-related-keys',
+  ]
+
+  it('every topic has exactly one lesson, each carrying a diagram and a theory-quiz exercise', () => {
+    for (const id of TOPIC_LESSON_IDS) {
+      const lesson = CURRICULUM.lessons.find((l) => l.id === id)
+      expect(lesson, `lesson ${id} exists`).toBeDefined()
+      if (lesson === undefined) continue
+      expect(diagramRefsIn(lesson).length, `lesson ${id} references at least one diagram`).toBeGreaterThan(0)
+      const quiz = lesson.exercises.find((e) => e.kind === 'theory-quiz')
+      expect(quiz, `lesson ${id} has a theory-quiz exercise`).toBeDefined()
+    }
+  })
+
+  it("every topic's diagram is a staff diagram, not keyboard-only (roadmap 3.25's own point)", () => {
+    for (const id of TOPIC_LESSON_IDS) {
+      const lesson = CURRICULUM.lessons.find((l) => l.id === id)
+      if (lesson === undefined) continue
+      for (const ref of diagramRefsIn(lesson)) {
+        const diagram = lessonDiagramById(ref)
+        expect(diagram?.kind, `lesson ${id} diagram '${ref}' kind`).toBe('staff')
+      }
+    }
+  })
+
+  it('levels 4 and 5 both exist and carry these lessons', () => {
+    const level4 = lessonsForLevel(CURRICULUM, 4)
+    const level5 = lessonsForLevel(CURRICULUM, 5)
+    expect(level4.map((l) => l.id)).toEqual(['l4-seventh-chords', 'l4-cadences', 'l4-common-progressions'])
+    expect(level5.map((l) => l.id)).toEqual([
+      'l5-minor-scale-forms',
+      'l5-secondary-dominants',
+      'l5-modulation-closely-related-keys',
+    ])
+  })
+})
+
 describe('CURRICULUM id references all resolve', () => {
   it('every demoScoreId resolves through demoScoreById (REQ-3.1.3)', () => {
     for (const lesson of CURRICULUM.lessons) {
@@ -84,8 +133,11 @@ describe('CURRICULUM id references all resolve', () => {
     }
   })
 
-  it('every LessonDiagram is renderable by KeyboardDiagram (in range, low is a white key, valid pitch classes)', () => {
-    for (const diagram of LESSON_DIAGRAMS) {
+  it('every keyboard LessonDiagram is renderable by KeyboardDiagram (in range, low is a white key, valid pitch classes)', () => {
+    // Scoped to kind === 'keyboard' (roadmap 3.25 widened LessonDiagram to a
+    // discriminated union): a 'staff'/'rhythm' diagram carries a `Score`, not
+    // a MIDI range, and is checked below instead.
+    for (const diagram of LESSON_DIAGRAMS.filter((d) => d.kind === 'keyboard')) {
       expect(diagram.low, `diagram ${diagram.id} low >= PIANO_LOWEST_MIDI`).toBeGreaterThanOrEqual(
         PIANO_LOWEST_MIDI,
       )
@@ -114,6 +166,21 @@ describe('CURRICULUM id references all resolve', () => {
         ).toBe(true)
       }
     }
+  })
+
+  it("every staff/rhythm LessonDiagram carries a valid, non-empty Score (roadmap 3.25)", () => {
+    const scoreDiagrams = LESSON_DIAGRAMS.filter((d) => d.kind === 'staff' || d.kind === 'rhythm')
+    expect(scoreDiagrams.length, 'at least one staff/rhythm diagram is registered').toBeGreaterThan(0)
+    for (const diagram of scoreDiagrams) {
+      const check = validateScore(diagram.score)
+      expect(check.ok, `diagram ${diagram.id} score: ${check.ok ? '' : check.error}`).toBe(true)
+      expect(diagram.score.notes.length, `diagram ${diagram.id} score has notes`).toBeGreaterThan(0)
+    }
+  })
+
+  it('every diagram id is unique across all three kinds', () => {
+    const ids = LESSON_DIAGRAMS.map((d) => d.id)
+    expect(new Set(ids).size).toBe(ids.length)
   })
 
   it('every [diagram:...] reference in every lesson resolves to a registry entry', () => {
@@ -495,18 +562,16 @@ describe('curriculum model navigation over real content', () => {
     expect(theoryLessons.every((lesson) => lesson.track === 'theory')).toBe(true)
   })
 
-  it('nextLesson walks from the first lesson of level 1 to the last lesson of level 3', () => {
-    const level1Lessons = lessonsForLevel(CURRICULUM, 1)
-    const level2Lessons = lessonsForLevel(CURRICULUM, 2)
-    const level3Lessons = lessonsForLevel(CURRICULUM, 3)
-    const first = level1Lessons[0]
-    const last = level3Lessons[level3Lessons.length - 1]
-    const lastOfLevel1 = level1Lessons[level1Lessons.length - 1]
-    const firstOfLevel2 = level2Lessons[0]
+  it('nextLesson walks from the first lesson of level 1 all the way to the last lesson of level 5', () => {
+    // Levels 4-5 (roadmap 3.24) moved "the last lesson" from level 3's to
+    // level 5's — this walks the FULL ladder, not just levels 1-3, and
+    // checks every level boundary along the way, not only the first one.
+    const levelLessons = [1, 2, 3, 4, 5].map((n) => lessonsForLevel(CURRICULUM, n))
+    const first = levelLessons[0]?.[0]
+    const lastLevelLessons = levelLessons[levelLessons.length - 1]
+    const last = lastLevelLessons?.[lastLevelLessons.length - 1]
     expect(first).toBeDefined()
     expect(last).toBeDefined()
-    expect(lastOfLevel1).toBeDefined()
-    expect(firstOfLevel2).toBeDefined()
     if (first === undefined || last === undefined) return
 
     const visited: string[] = [first.id]
@@ -517,10 +582,15 @@ describe('curriculum model navigation over real content', () => {
       if (current !== undefined) visited.push(current.id)
       guard += 1
     }
-
     expect(current?.id).toBe(last.id)
-    if (lastOfLevel1 !== undefined) expect(visited).toContain(lastOfLevel1.id)
-    if (firstOfLevel2 !== undefined) expect(visited).toContain(firstOfLevel2.id)
+
+    // Every level's first and last lesson was actually visited along the way.
+    for (const lessons of levelLessons) {
+      const firstOfLevel = lessons[0]
+      const lastOfLevel = lessons[lessons.length - 1]
+      if (firstOfLevel !== undefined) expect(visited).toContain(firstOfLevel.id)
+      if (lastOfLevel !== undefined) expect(visited).toContain(lastOfLevel.id)
+    }
     expect(nextLesson(CURRICULUM, last.id)).toBeUndefined()
   })
 })

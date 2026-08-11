@@ -176,7 +176,8 @@ export const LEVEL_1_LESSONS: readonly Lesson[] = [
       'treble clef (𝄞) for the higher, usually right-hand, notes, and a bass clef (𝄢) for the ' +
       'lower, usually left-hand, notes.\n\n' +
       'Middle C sits exactly between the two staves, on a short "ledger line" of its own — one ' +
-      'note shared by both clefs, which is why it is such a useful landmark for beginning readers.',
+      'note shared by both clefs, which is why it is such a useful landmark for beginning readers.\n\n' +
+      '[diagram:staff-grand-staff-middle-c]',
     demoScoreId: demo('demo-middle-c-position-rh'),
     exercises: [
       // The note-name deck's level-1 range (MIDI 56-64) includes 4 black
@@ -199,7 +200,8 @@ export const LEVEL_1_LESSONS: readonly Lesson[] = [
       'lines) or simply by counting up and down from middle C, which sits just below the staff on ' +
       'its own ledger line.\n\n' +
       'Naming notes quickly by sight, without counting every time, is what makes reading music at ' +
-      'a normal tempo possible — it is worth drilling on its own before combining it with rhythm.',
+      'a normal tempo possible — it is worth drilling on its own before combining it with rhythm.\n\n' +
+      '[diagram:staff-treble-lines]',
     demoScoreId: demo('demo-middle-c-position-rh'),
     exercises: [
       // `buildNoteNameDeck` takes no clef parameter (finding 2): the treble
@@ -221,7 +223,8 @@ export const LEVEL_1_LESSONS: readonly Lesson[] = [
       'which is why the same position on the page reads as a different pitch in each clef, a common ' +
       'early confusion worth naming explicitly.\n\n' +
       'As with the treble clef, middle C sits just above the bass staff on its own ledger line, ' +
-      'the same shared landmark between the two clefs.',
+      'the same shared landmark between the two clefs.\n\n' +
+      '[diagram:staff-bass-lines]',
     demoScoreId: demo('demo-middle-c-position-lh'),
     exercises: [
       // Same fix, same reason as l1-note-names-treble-ex1 above (finding 2).
@@ -242,7 +245,8 @@ export const LEVEL_1_LESSONS: readonly Lesson[] = [
       'a half note is the same hollow oval with a stem; a quarter note fills the oval in solid.\n\n' +
       'Clap or tap each value while counting steadily out loud — "1-2-3-4" for a whole note, ' +
       '"1-2" for a half note — before trying it at the keyboard, so the rhythm is secure before ' +
-      'the pitches are added on top.',
+      'the pitches are added on top.\n\n' +
+      '[diagram:rhythm-note-values]',
     demoScoreId: demo('demo-rhythm-reading-4-4'),
     exercises: [
       // No deck tests note duration (whole/half/quarter) — a gap topic (see
@@ -270,7 +274,8 @@ export const LEVEL_1_LESSONS: readonly Lesson[] = [
       'beat. 4/4 — four beats per measure, a quarter note gets one beat — is by far the most ' +
       'common time signature, sometimes written as a large "C" for "common time".\n\n' +
       'Counting "1-2-3-4" steadily while a piece plays, and feeling where beat 1 falls at the ' +
-      'start of each measure, is the foundation every later rhythm skill builds on.',
+      'start of each measure, is the foundation every later rhythm skill builds on.\n\n' +
+      '[diagram:rhythm-4-4-time]',
     demoScoreId: demo('demo-rhythm-reading-4-4'),
     exercises: [
       // No deck tests time signatures — a gap topic (see module comment).
@@ -294,7 +299,8 @@ export const LEVEL_1_LESSONS: readonly Lesson[] = [
       'is the classic "waltz" feel: a strong beat 1 followed by two lighter beats, often written ' +
       'as a left-hand root note on beat 1 under right-hand notes on beats 2 and 3 (an "oom-pah-pah" pattern).\n\n' +
       'Comparing 3/4 directly against 4/4 — clapping one, then switching to the other — makes the ' +
-      'difference in feel obvious in a way that reading definitions alone does not.',
+      'difference in feel obvious in a way that reading definitions alone does not.\n\n' +
+      '[diagram:rhythm-3-4-time]',
     demoScoreId: demo('demo-waltz-rhythm-3-4'),
     exercises: [
       // No deck tests time signatures — a gap topic (see module comment).
@@ -319,7 +325,8 @@ export const LEVEL_1_LESSONS: readonly Lesson[] = [
       'line) — adjacent letter names, like C to D. A skip jumps over one letter name, landing on ' +
       'the next line-to-line or space-to-space position, like C to E.\n\n' +
       'Recognising steps and skips by the shape they make on the page, rather than working out ' +
-      'each note name individually, is what lets a reader track a melody\'s shape at speed.',
+      'each note name individually, is what lets a reader track a melody\'s shape at speed.\n\n' +
+      '[diagram:staff-steps-vs-skips]',
     demoScoreId: demo('demo-steps-vs-skips'),
     exercises: [
       theoryQuizEx(

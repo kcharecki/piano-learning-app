@@ -1,14 +1,26 @@
 /**
- * `LessonBody`'s own contract (roadmap 4.9b, REQ-3.1.3): a paragraph renders
- * as a paragraph, a `[diagram:...]` reference renders the real
- * `KeyboardDiagram` with the registry entry's caption as its accessible
- * name, and an unknown diagram id renders a visible marker instead of
- * nothing.
+ * `LessonBody`'s own contract (roadmap 4.9b/3.25, REQ-3.1.3/REQ-3.5.2): a
+ * paragraph renders as a paragraph, a `[diagram:...]` reference renders the
+ * real diagram for its `kind` — `KeyboardDiagram` for `'keyboard'`, the real
+ * `ExerciseScore`/`ScoreViewer` pipeline for `'staff'`/`'rhythm'` — with the
+ * registry entry's caption as its accessible name, and an unknown diagram id
+ * renders a visible marker instead of nothing.
+ *
+ * OSMD cannot run in this test environment (no canvas to measure text) —
+ * `ScoreViewer` is mocked exactly as `ScaleStaff.test.tsx` mocks it (see that
+ * file's module doc): this file only proves `LessonBody` HANDS a staff/rhythm
+ * diagram's real `Score` to the viewer; that OSMD then draws it is e2e's job.
  */
 import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LESSON_DIAGRAMS } from '@content/curriculum/diagrams.ts'
 import { LessonBody } from './LessonBody.tsx'
+
+vi.mock('@app/score/ScoreViewer.tsx', () => ({
+  ScoreViewer: ({ score }: { readonly score: { readonly id: string; readonly meta: { readonly title: string } } }) => (
+    <div data-testid="mock-score-viewer" data-score-id={score.id} data-title={score.meta.title} />
+  ),
+}))
 
 afterEach(cleanup)
 
@@ -72,5 +84,30 @@ describe('LessonBody', () => {
       screen.getByText('See [diagram:finding-middle-c] below for the picture.'),
     ).toBeInTheDocument()
     expect(screen.queryByTestId('keyboard-diagram')).not.toBeInTheDocument()
+  })
+
+  it("renders a 'staff' diagram through the real ExerciseScore/ScoreViewer pipeline, captioned as its accessible name", () => {
+    const diagram = LESSON_DIAGRAMS.find((d) => d.kind === 'staff')
+    if (diagram === undefined) throw new Error('expected at least one registered staff diagram')
+
+    render(<LessonBody explanation={`[diagram:${diagram.id}]`} />)
+
+    const viewer = screen.getByTestId('mock-score-viewer')
+    expect(viewer).toHaveAttribute('data-score-id', diagram.score.id)
+    expect(screen.getByRole('img', { name: diagram.caption })).toBeInTheDocument()
+    expect(screen.getByText(diagram.caption)).toBeInTheDocument()
+    expect(screen.queryByTestId('keyboard-diagram')).not.toBeInTheDocument()
+  })
+
+  it("renders a 'rhythm' diagram through the same pipeline, with its own CSS hook", () => {
+    const diagram = LESSON_DIAGRAMS.find((d) => d.kind === 'rhythm')
+    if (diagram === undefined) throw new Error('expected at least one registered rhythm diagram')
+
+    const { container } = render(<LessonBody explanation={`[diagram:${diagram.id}]`} />)
+
+    const viewer = screen.getByTestId('mock-score-viewer')
+    expect(viewer).toHaveAttribute('data-score-id', diagram.score.id)
+    expect(screen.getByRole('img', { name: diagram.caption })).toBeInTheDocument()
+    expect(container.querySelector('.lesson-body-diagram-rhythm')).not.toBeNull()
   })
 })

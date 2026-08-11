@@ -2,3 +2,21 @@
    Single-writer by construction: exactly one parallel session owns this file, so
    a round of concurrent worktrees never conflicts inside domain.css. Rules that
    outlive their feature's round get folded back into domain.css by the integrator. */
+
+/* `.lesson-body .notation-frame` already gets vertical spacing from
+   domain.css; this file only adds what is specific to a DIAGRAM (a short
+   reference figure, not a full playable score): a caption, and a width cap
+   so a one- or two-bar staff/rhythm diagram doesn't stretch to the full
+   44rem lesson-body column the way a real multi-bar demonstration should. */
+.lesson-body-diagram {
+  margin: var(--space-4) 0;
+}
+.lesson-body-diagram figcaption {
+  margin-top: var(--space-2);
+  color: var(--text-2);
+  font-size: var(--text-sm);
+}
+.lesson-body-diagram-staff .notation-frame,
+.lesson-body-diagram-rhythm .notation-frame {
+  max-width: 28rem;
+}
