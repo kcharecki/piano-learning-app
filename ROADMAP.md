@@ -667,9 +667,9 @@ The app opens on Practice (`Shell.tsx:185`) showing Twinkle, with 30 controls be
 onboarding, no first-run state, and no "start here". The front door is the most intimidating screen in
 the app.
 
-- [ ] 5.39 `app/shell`: the default destination is **Today**, not Practice.
-      *Proof: a cold boot with an empty IndexedDB lands on Today; asserted in e2e against a fresh
-      profile, not a warm one.*
+- [x] 5.39 `app/shell`: the default destination is **Today**, not Practice — `/` now parses to Today's
+      own route (landed with 5.42). *Proof: `e2e/default-destination.spec.ts` wipes IndexedDB, reloads,
+      asserts Today (not Practice) is active at `/today` — a fresh profile the test itself creates.*
 - [ ] 5.40 `app/onboarding`: a first-run flow — a few questions (experience, goal, practice minutes), a
       MIDI/input check that tells the truth about this browser (5.6), starting track levels set from
       the answers, and a first session ready to start. Skippable, and re-runnable from settings.
@@ -688,17 +688,24 @@ the app.
 there are no deep links, a refresh returns you to Practice, and **the browser Back button exits the
 app**.
 
-- [ ] 5.42 `app/shell`: real routing — a URL per destination, deep links into a lesson/piece/drill,
-      Back and Forward doing what they say, and a refresh returning you where you were. This also
-      makes every future e2e able to start where it means to instead of clicking through.
-      *Proof: e2e — navigate Practice → Lessons → a named lesson, assert the URL changed at each step,
-      press browser Back twice and land back on Practice with the same score loaded, then reload the
-      lesson URL directly and get that lesson.*
-- [ ] 5.43 `app/shell`: group the nav — Practice / Learn / Drills / Progress — so a learner can see
-      that Flashcards, Ear training, Rhythm, Technique and Theory are all drills, and that Today is the
-      entry point. 12 equal buttons hide the structure the app already has.
-      *Proof: the nav renders labelled groups with correct landmark roles, Today is visually primary,
-      and the keyboard tab order follows the visual order.*
+- [x] 5.42 `app/shell`: real routing — a hand-rolled History-API router (`route.ts`: pure path↔`Route`,
+      unit + property tested; `routing.ts`: impure History wiring). A URL per destination; deep links
+      carry identity for technique/flashcard-deck/theory-quiz (id+level), round-tripped via the URL, not
+      `useState`. Scope note: `LessonsScreen`/`useLessons.ts` (not owned here) keep the selected lesson
+      in a private `useState` with nothing to seed externally, so the lesson BODY isn't deep-linkable
+      without adding `initialLessonId`/`onSelectLesson` there — flagged, not guessed at.
+      *Proof: `e2e/routing.spec.ts` — URL changes at every step Practice → Lessons → a lesson's quiz,
+      Back twice lands on Practice with the same score, Forward replays the deck/level, the deep-link
+      URL reloads the same place; a second deep-link kind survives reload; an unknown path falls back
+      to Today.*
+- [x] 5.43 `app/shell`: group the nav — Practice / Learn / Drills / Progress — so Flashcards, Ear
+      training, Rhythm, Technique and Theory read as drills, and Today as the entry point.
+      `NavGroups.tsx` renders Today standalone (accent-coloured, heavier) then four `role="group"`
+      landmarks in `<nav aria-label="Main">`. Found in the same pass: the new "Drills" group's name
+      collided with two specs' non-exact `getByLabel('Drill')` — fixed with `{ exact: true }`, matching
+      five specs already using it for the same label.
+      *Proof: `NavGroups.test.tsx` + `e2e/nav-groups.spec.ts` — labelled landmarks hold the right
+      destinations, Today reads distinctly, and `Tab` visits Today then each group in visual order.*
 
 ### Curriculum & session planning — **6/10 → 9**
 

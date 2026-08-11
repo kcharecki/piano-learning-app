@@ -22,11 +22,11 @@ test('the app boots with no console errors and renders the shell', async ({ page
 
   await page.goto('/')
 
+  // Which screen is the default landing destination is asserted elsewhere
+  // (roadmap 5.39/5.42 — Today is now the default, reached via its own URL);
+  // this only proves the shell itself renders with its nav intact.
   await expect(page.getByRole('navigation', { name: /main/i })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Practice', exact: true })).toHaveAttribute(
-    'aria-current',
-    'page',
-  )
+  await expect(page.getByRole('button', { name: 'Practice', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Sight reading' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Theory' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Progress' })).toBeVisible()
@@ -53,7 +53,7 @@ test('the Practice nav destination actually renders the practice screen — scor
 })
 
 test('the bundled sample score loads and OSMD renders real notation', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('/practice')
 
   await expect(page.getByRole('heading', { name: 'Twinkle, Twinkle, Little Star' })).toBeVisible()
 
@@ -73,7 +73,7 @@ test('the bundled sample score loads and OSMD renders real notation', async ({ p
 })
 
 test('pressing play advances the position readout, and pause stops it', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('/practice')
 
   const transport = page.getByRole('group', { name: 'Transport' })
   const position = transport.getByLabel('Position')
@@ -103,7 +103,7 @@ test('pressing play advances the position readout, and pause stops it', async ({
 })
 
 test('setting a loop range and enabling looping is reflected in the UI', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('/practice')
 
   const loopRange = page.getByRole('group', { name: 'Loop range' })
   await loopRange.getByLabel('From measure').fill('2')
@@ -127,7 +127,7 @@ test('looping bars 3-4 does not report the bars before the loop as missed on eve
   // repetition, and the accuracy readout collapsed.
   test.setTimeout(45_000)
 
-  await page.goto('/')
+  await page.goto('/practice')
 
   const loopRange = page.getByRole('group', { name: 'Loop range' })
   await loopRange.getByLabel('From measure').fill('3')
@@ -171,7 +171,7 @@ test('the app stays usable with no MIDI keyboard connected', async ({ page }) =>
   // there is nothing to grant permission to and nothing to fake.
   const errors = collectErrors(page)
 
-  await page.goto('/')
+  await page.goto('/practice')
 
   await expect(page.getByText(/no midi keyboard connected/i)).toBeVisible()
   await expect(page.getByRole('group', { name: 'Transport' })).toBeVisible()

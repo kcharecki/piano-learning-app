@@ -1,13 +1,18 @@
 /**
- * Shell navigation (roadmap 1.17, 2.12, REQ-4.6): five destinations —
- * Practice, Sight reading and Flashcards are real screens; Theory and
- * Progress are still honest placeholders. `ScoreScreen` pulls in the
- * OSMD-backed viewer, so it is mocked here — this file only asserts on
- * navigation wiring. Sight reading and Flashcards are cheap enough to render
- * for real (no OSMD, no audio/MIDI access started until a user acts), so
- * this is also the regression test for roadmap 1.18's own lesson: a screen
- * built and tested in isolation but never mounted by the shell is
- * unreachable. See `e2e/smoke.spec.ts` for the real-browser proof.
+ * Shell navigation (roadmap 1.17, 2.12, 5.39, 5.42, REQ-4.6): every
+ * destination is a real screen, reached through the router (`route.ts` +
+ * `routing.ts`) rather than bare `useState`, and Today — not Practice — is
+ * the default (roadmap 5.39). `ScoreScreen` pulls in the OSMD-backed
+ * viewer, so it is mocked here — this file only asserts on navigation
+ * wiring. Sight reading and Flashcards are cheap enough to render for real
+ * (no OSMD, no audio/MIDI access started until a user acts), so this is
+ * also the regression test for roadmap 1.18's own lesson: a screen built and
+ * tested in isolation but never mounted by the shell is unreachable. Full
+ * routing behaviour (URL changes, Back/Forward, reload) is proved end to
+ * end in `e2e/routing.spec.ts`, not here — happy-dom's `window.history` is
+ * real enough for `routing.test.ts`'s unit coverage but a Playwright-driven
+ * proof is what the roadmap item's proof action actually asks for. See
+ * `e2e/smoke.spec.ts` for the real-browser boot proof.
  */
 import { useSightReadingStore } from '@app/state/sightReadingStore.ts'
 import { useFlashcardStore } from '@app/state/flashcardStore.ts'
@@ -48,8 +53,23 @@ afterEach(() => {
 })
 
 describe('Shell', () => {
-  it('shows Practice as the active, live screen by default', () => {
+  // Roadmap 5.39: the front door is Today, not the densest screen in the
+  // app. This also doubles as the routing proof (5.42) at the unit level —
+  // happy-dom's default `location.pathname` is `/`, exactly the "cold boot,
+  // nothing in the URL" case the e2e default-destination spec drives for
+  // real; `parseRoute('/')` resolving to Today is what makes this true.
+  it('shows Today as the active, live screen by default', () => {
     render(<Shell />)
+    expect(screen.getByRole('button', { name: 'Today' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('heading', { name: "Today's session" })).toBeInTheDocument()
+  })
+
+  it('reaches the real practice screen through its nav item', async () => {
+    const user = userEvent.setup()
+    render(<Shell />)
+
+    await user.click(screen.getByRole('button', { name: 'Practice' }))
+
     expect(screen.getByRole('button', { name: 'Practice' })).toHaveAttribute('aria-current', 'page')
     expect(screen.getByTestId('mock-score-screen')).toBeInTheDocument()
   })
