@@ -48,6 +48,7 @@ import {
   type MidiConnection,
 } from '@app/practice/useMidiConnection.ts'
 import { usePracticeEngine, type PositionDisplay } from '@app/practice/usePracticeEngine.ts'
+import { usePracticeLog } from '@app/practice/usePracticeLog.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { createBrowserRng } from '@app/sightreading/rng.ts'
 import { silentAudioOutput } from '@app/sightreading/silentAudioOutput.ts'
@@ -60,7 +61,7 @@ import {
   type TimeSignature,
 } from '@core/generator/rhythm.ts'
 import type { Hand } from '@core/notation/score.ts'
-import type { AudioOutput, Clock, MidiInput, Rng } from '@core/ports/index.ts'
+import type { AudioOutput, Clock, DateSource, MidiInput, Rng } from '@core/ports/index.ts'
 import { makeTempoMap, type TempoMap } from '@core/timing/tempo.ts'
 import { millis, type Millis } from '@core/shared/units.ts'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -110,6 +111,12 @@ const ACTIVE_HANDS: readonly Hand[] = ['right']
 
 export function useRhythmDrill(options: UseRhythmDrillOptions): UseRhythmDrill {
   const [clock] = useState<Clock>(() => options.clock ?? createBrowserClock())
+  // No `date` option on this hook — this seam exists solely to give
+  // `usePracticeLog` a wall-clock epoch for `PracticeEntry.startedAt`.
+  const [date] = useState<DateSource>(() => ({ epochMillis: () => Date.now() }))
+  const practiceLog = usePracticeLog({ clock, date })
+  const practiceLogRef = useRef(practiceLog)
+  practiceLogRef.current = practiceLog
   const [rng] = useState<Rng>(() => options.rng ?? createBrowserRng())
   const [audioOutput, setAudioOutput] = useState<AudioOutput | undefined>(options.audioOutput)
   const audioOutputRef = useRef<AudioOutput | undefined>(options.audioOutput)
@@ -198,6 +205,7 @@ export function useRhythmDrill(options: UseRhythmDrillOptions): UseRhythmDrill {
     const result = gradeTapping(currentPattern, tapsRef.current, tempo)
     setGrade(result)
     setPhase('graded')
+    practiceLogRef.current.stop({ accuracy: result.accuracy })
   }, [engine.phase])
 
   function start(): void {
@@ -221,6 +229,7 @@ export function useRhythmDrill(options: UseRhythmDrillOptions): UseRhythmDrill {
     hasPlayedRef.current = false
     setGrade(undefined)
     setTapCount(0)
+    practiceLogRef.current.start('technique', `Rhythm — complexity ${options.complexity}`)
 
     // Play whatever transport already exists BEFORE the score below changes:
     // `usePracticeEngine`'s own rebuild effect carries a RUNNING previous

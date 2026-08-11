@@ -49,6 +49,7 @@ import {
   type MidiConnection,
 } from '@app/practice/useMidiConnection.ts'
 import { createBrowserClock } from '@app/practice/clock.ts'
+import { usePracticeLog } from '@app/practice/usePracticeLog.ts'
 import {
   buildDeck,
   gradeAnswer,
@@ -177,6 +178,9 @@ export function useFlashcardDrill(options: UseFlashcardDrillOptions): UseFlashca
 
   const [clock] = useState<Clock>(() => options.clock ?? createBrowserClock())
   const [date] = useState<DateSource>(() => options.date ?? { epochMillis: () => Date.now() })
+  const practiceLog = usePracticeLog({ clock, date })
+  const practiceLogRef = useRef(practiceLog)
+  practiceLogRef.current = practiceLog
   const [rng] = useState<Rng>(() => options.rng ?? createBrowserRng())
   const midi = useMidiConnection(
     options.midiInput !== undefined
@@ -204,6 +208,37 @@ export function useFlashcardDrill(options: UseFlashcardDrillOptions): UseFlashca
     setLastGrade(undefined)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a deck change (level/kind) should reset the current card
   }, [deck])
+
+  // REQ-3.9.5 (roadmap 5.14): flashcards have no `ActivityKind` of their own
+  // — they log as `'theory'`, the same bucket the theory drill panel uses,
+  // since staff/interval/note-name recognition is theory-adjacent recall
+  // practice. One entry per deck (kind+level), closed and reopened whenever
+  // the deck itself changes; the unmount safety net in `usePracticeLog`
+  // closes the final one.
+  //
+  // The actual start() is deferred by a macrotask, and the pending call
+  // cancelled in cleanup: React 18 StrictMode intentionally double-invokes a
+  // fresh effect's mount (run -> synchronous simulated cleanup -> run again)
+  // to surface non-idempotent effects, and a `PracticeTimer` session is NOT
+  // idempotent — an un-deferred start()/stop() pair here would let that
+  // synthetic first cleanup close a real, stored, near-zero-duration
+  // "session" nobody actually had. `setTimeout(..., 0)` never fires within
+  // that synchronous double-invoke pass, so StrictMode's simulated cleanup
+  // only ever cancels the pending timer; only the genuine mount's timer
+  // survives to actually call start(). A real deck change or unmount later
+  // is unaffected: `stop()` in the cleanup below closes whatever really is
+  // running, `clearTimeout` is a no-op once the deferred call has long since
+  // fired.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      practiceLogRef.current.stop()
+      practiceLogRef.current.start('theory', `Flashcards — ${kind} — level ${options.level}`)
+    }, 0)
+    return () => {
+      clearTimeout(timer)
+      practiceLogRef.current.stop()
+    }
+  }, [kind, options.level])
 
   function commitAnswer(card: DrillCard, result: GradeResult, dateNow: number): void {
     const existing = cardsById[card.id] ?? newCard(card.id, dateNow)

@@ -80,12 +80,14 @@
  * multiple-choice kind's adaptation bit-for-bit unchanged.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createBrowserClock } from '@app/practice/clock.ts'
 import { createDefaultAudioOutput } from '@app/practice/createDefaultAudioOutput.ts'
 import {
   useMidiConnection,
   type ConnectMidi,
   type MidiConnection,
 } from '@app/practice/useMidiConnection.ts'
+import { usePracticeLog } from '@app/practice/usePracticeLog.ts'
 import { useEarTrainingStore } from '@app/state/earTrainingStore.ts'
 import type { EarGrade, EarItem, EarItemKind } from '@core/eartraining/item.ts'
 import { generateIntervalItem, gradeIntervalAnswer } from '@core/eartraining/intervals.ts'
@@ -351,6 +353,13 @@ export function useEarTraining(options: UseEarTrainingOptions = {}): UseEarTrain
 
   const [date] = useState<DateSource>(() => options.date ?? { epochMillis: () => Date.now() })
   const [rng] = useState<Rng>(() => options.rng ?? seededRng(Date.now()))
+  // No `clock` option exists on this hook (see the module doc: nothing here
+  // measures elapsed time) — this one is purely to satisfy `usePracticeLog`'s
+  // `PracticeTimer` constructor and is never exposed.
+  const [logClock] = useState(() => createBrowserClock())
+  const practiceLog = usePracticeLog({ clock: logClock, date })
+  const practiceLogRef = useRef(practiceLog)
+  practiceLogRef.current = practiceLog
   const audioRef = useRef<AudioOutput | undefined>(options.audioOutput)
   const midi = useMidiConnection(
     options.midiInput !== undefined
@@ -392,6 +401,7 @@ export function useEarTraining(options: UseEarTrainingOptions = {}): UseEarTrain
     setPhase('idle')
     setDictationNotesBoth([])
     firstPressMsRef.current = undefined
+    practiceLogRef.current.stop()
   }, [kind])
 
   // See the module comment: real playback runs on the AudioOutput's own
@@ -427,6 +437,7 @@ export function useEarTraining(options: UseEarTrainingOptions = {}): UseEarTrain
     setGrade(undefined)
     setDictationNotesBoth([])
     firstPressMsRef.current = undefined
+    practiceLogRef.current.start('eartraining', `Ear training — ${kind}`)
     playItemNow(next)
   }
 
@@ -476,6 +487,7 @@ export function useEarTraining(options: UseEarTrainingOptions = {}): UseEarTrain
     pruneItems(nextSession.cards.map((c) => c.id))
     setGrade(g)
     setPhase('graded')
+    practiceLogRef.current.stop({ accuracy: attempt.accuracy })
   }
 
   // See the module comment: the first press anchors the prompt's own first

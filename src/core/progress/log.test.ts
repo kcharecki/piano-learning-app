@@ -52,7 +52,7 @@ describe('PracticeTimer', () => {
   it('reports elapsed time from the Clock while running, and 0 once stopped', () => {
     const clock = new FakeClock(1_000)
     const timer = new PracticeTimer(clock, clock)
-    timer.start('warmup', '5-finger patterns')
+    timer.start('technique', '5-finger patterns')
     expect(timer.running).toBe(true)
     clock.advance(45_000)
     expect(timer.elapsedMs).toBe(45_000)
@@ -125,15 +125,15 @@ describe('PracticeTimer', () => {
   it('throws on a blank itemName', () => {
     const clock = new FakeClock(0)
     const timer = new PracticeTimer(clock, clock)
-    expect(() => timer.start('warmup', '   ')).toThrow(InvariantError)
+    expect(() => timer.start('technique', '   ')).toThrow(InvariantError)
   })
 
   it('stop() clears the session so a fresh start() is accepted afterwards', () => {
     const clock = new FakeClock(0)
     const timer = new PracticeTimer(clock, clock)
-    timer.start('warmup', 'Scales')
+    timer.start('technique', 'Scales')
     timer.stop()
-    expect(() => timer.start('warmup', 'Scales again')).not.toThrow()
+    expect(() => timer.start('technique', 'Scales again')).not.toThrow()
   })
 })
 
@@ -164,15 +164,14 @@ describe('minutesByKind', () => {
     const from = utc(2026, 1, 1)
     const to = utc(2026, 1, 2)
     const entries = [
-      entry({ kind: 'warmup', startedAt: from + HOUR, endedAt: from + HOUR + 5 * MINUTE }),
-      entry({ kind: 'warmup', startedAt: from + 2 * HOUR, endedAt: from + 2 * HOUR + 5 * MINUTE }),
+      entry({ kind: 'technique', startedAt: from + HOUR, endedAt: from + HOUR + 5 * MINUTE }),
+      entry({ kind: 'technique', startedAt: from + 2 * HOUR, endedAt: from + 2 * HOUR + 5 * MINUTE }),
       entry({ kind: 'theory', startedAt: from + 3 * HOUR, endedAt: from + 3 * HOUR + 15 * MINUTE }),
     ]
     const result = minutesByKind(entries, from, to)
     expect(Object.keys(result).sort()).toEqual([...ACTIVITY_KINDS].sort())
-    expect(result.warmup).toBe(10)
+    expect(result.technique).toBe(10)
     expect(result.theory).toBe(15)
-    expect(result.technique).toBe(0)
     expect(result.sightreading).toBe(0)
     expect(result.repertoire).toBe(0)
     expect(result.lesson).toBe(0)

@@ -32,11 +32,10 @@ import type { Clock, DateSource } from '@core/ports/index.ts'
 import { invariant } from '@core/shared/invariant.ts'
 
 export type ActivityKind =
-  'warmup' | 'technique' | 'sightreading' | 'repertoire' | 'lesson' | 'theory' | 'eartraining'
+  'technique' | 'sightreading' | 'repertoire' | 'lesson' | 'theory' | 'eartraining'
 
 /** Every `ActivityKind`, in a stable display order. */
 export const ACTIVITY_KINDS: readonly ActivityKind[] = [
-  'warmup',
   'technique',
   'sightreading',
   'repertoire',

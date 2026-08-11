@@ -52,6 +52,7 @@ import {
 } from '@app/practice/useMidiConnection.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { useMetronome } from '@app/metronome/useMetronome.ts'
+import { usePracticeLog } from '@app/practice/usePracticeLog.ts'
 import { useTechniqueStore } from '@app/state/techniqueStore.ts'
 import { measureDurationTicks, scoreDurationTicks, type Score, type TimeSignature } from '@core/notation/score.ts'
 import type { AudioOutput, Clock, DateSource, MidiInput } from '@core/ports/index.ts'
@@ -146,6 +147,9 @@ export function useTechniqueDrill(options: UseTechniqueDrillOptions): TechniqueD
 
   const [clock] = useState<Clock>(() => options.clock ?? createBrowserClock())
   const [date] = useState<DateSource>(() => options.date ?? { epochMillis: () => Date.now() })
+  const practiceLog = usePracticeLog({ clock, date })
+  const practiceLogRef = useRef(practiceLog)
+  practiceLogRef.current = practiceLog
 
   const midi = useMidiConnection(
     options.midiInput !== undefined
@@ -262,6 +266,7 @@ export function useTechniqueDrill(options: UseTechniqueDrillOptions): TechniqueD
       anchorMs,
       onsets: [],
     }
+    practiceLogRef.current.start('technique', drill.title)
     setLastAttempt(undefined)
   }
 
@@ -274,7 +279,10 @@ export function useTechniqueDrill(options: UseTechniqueDrillOptions): TechniqueD
     // keyboard connected) has nothing to score: `evennessOf([])` would report
     // a misleadingly perfect 1, and a junk row would consume one of the
     // capped history slots for a silent attempt.
-    if (run.onsets.length === 0) return
+    if (run.onsets.length === 0) {
+      practiceLogRef.current.stop()
+      return
+    }
     // Close every window still open at the end of the drill — a trailing
     // note nobody pressed must count against accuracy, not vanish because no
     // later MIDI event arrived to advance the matcher's clock past it (the
@@ -296,6 +304,7 @@ export function useTechniqueDrill(options: UseTechniqueDrillOptions): TechniqueD
     }
     addAttempt(attempt)
     setLastAttempt(attempt)
+    practiceLogRef.current.stop({ accuracy, tempoBpm: run.bpm })
   }
 
   function press(note: Midi): void {
