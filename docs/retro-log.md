@@ -398,3 +398,118 @@ piece of work to schedule between rounds rather than something a gate forces mid
 prose rather than on open tasks, the answer is the archive pass, not another raise. Consider
 also measuring the budget in *open* task lines rather than total lines, which is the number
 that actually costs a session anything.
+
+---
+
+## 2026-08-11 — tenth session: a twelve-worktree round, and what only integration could find
+
+User instruction was explicit: implement a 33-task backlog, one parallel Sonnet worker per
+task in its own worktree, main session reserved for orchestration and merging. `WORKTREES.md`
+states a practical ceiling of "2–3 parallel sessions worth supervising"; this ran twelve. The
+override was the user's, was recorded in `docs/parallel-round-10.md` before dispatch rather
+than discovered afterwards, and the result argues that ceiling was about *review* bandwidth,
+not about conflicts.
+
+### Evidence
+
+**What the user reported broken since last session:** nothing. The round was feature work.
+
+**Where the cost went:** twelve builder agents, one Fable design decision, one Opus adversarial
+review, one fixer. The main thread did recon, dispatch, thirteen merges, four integration fixes
+and the verification. Merging was not the bottleneck — reading worker reports was.
+
+**What the disjoint-ownership table bought.** Twelve concurrent sessions produced **exactly
+one** textual merge conflict, and it was the one predicted in writing at dispatch time
+(`ActivityKind` regaining `'warmup'` versus roadmap 5.16's exhaustiveness check). Three things
+did that, all set up before any agent started:
+
+- Seven pre-created `feature-*.css` files with barrel imports already on master, so no session
+  ever touched `domain.css` or `styles.css`. Zero CSS conflicts.
+- An explicit per-session file list, with "explicitly NOT yours" naming the neighbours.
+- `docs/agent-brief.md` — the rules digest written once into the repo instead of pasted into
+  twelve prompts.
+
+**What the experience gate caught before commit**, inside the workers: a printed practice sheet
+that measured **3 pages instead of 1** (the `visibility: hidden` print trick leaves hidden
+siblings occupying layout height — invisible on screen, only a generated PDF shows it); sheet
+headings near-invisible because `base.css`'s `h1..h4` colour rule beats inherited paper ink; a
+five-column table overflowing its grid column; a `.note-wrong` shape that read as edge noise at
+true notehead size and was redesigned after screenshots.
+
+**What only integration could find** — the finding that justifies this entry:
+
+1. `curriculumAvailable` became **dead code**. Roadmap 3.24 authored curriculum levels 4–5, so
+   `levelAt` began resolving for every level `MAX_LEVEL` permits and the flag's
+   `level === undefined` test could never fire again. A learner overriding their *playing* track
+   to level 4–5 would have been shown a covered curriculum that authors nothing for that track.
+   No branch could see it: it needs 3.24's content and the dashboard in one tree.
+2. A **stale OSMD engraving** stacked under the new one for under 60ms on every lesson switch.
+   `ScoreViewer`'s cleanup calls OSMD's `clear()`, which does not empty the container
+   synchronously, so the next `load()` appended alongside. Needs two diagrammed lessons to exist
+   (3.24) *and* a switch between them. Found by sampling the live DOM every 60ms.
+3. Two e2e specs already red on master from *earlier* merges (5.3's filter made a `getByLabel`
+   ambiguous; 5.17's gating made another hang its full 90s timeout), plus `App.test.tsx`
+   asserting Practice was the landing screen after 5.39 moved it to Today.
+
+**What the Opus adversarial review caught that a green suite did not.** Three MAJOR findings in
+the brand-new clap-back module, two demonstrated by applying the mutant and watching the suite
+stay green: deleting the tick-to-ms tolerance conversion entirely — the module's central
+"tempo-independent" claim — left 14/14 passing, because every test ran at 120 bpm; swapping the
+matcher's sort from global-nearest-first to first-onset-first also left 14/14 passing. Third:
+the drill's level was local `useState`, never persisted or adapted, so the level-scaled
+tolerance the module doc calls load-bearing was **always row 1** in practice.
+
+The decisive detail: after every fix, `git diff` of `clapback.ts` shows only a doc-comment
+change. The algorithm was right; the tests could not distinguish right from broken. That is the
+same failure the 2026-08-04 fingering post-mortem records, reproduced in a fresh module hours
+after it was written, by a different agent, under a green suite.
+
+### Hypothesis
+
+The weakest part of the process is no longer parallelism or the per-slice gate — both held at
+twelve-way scale. It is that **a slice's tests are written by the same agent that wrote the
+slice, and property tests that pass for behaviour no musician would accept keep shipping.** The
+experience gate proves a feature works; nothing proves its tests would notice if it stopped.
+
+### Change (one, per the rule)
+
+Not a prose rule — prose is what failed. **Adversarial review of correctness-critical code
+becomes a required round step rather than a judgement call**, and it must report, per key test,
+one concrete mutant it kills, verified by applying the mutant rather than asserted. `CLAUDE.md`
+already says Opus review "has repeatedly earned its cost"; this round it found three MAJOR
+issues in one module. The standing instruction is now: any round landing a new module under
+`src/core/**` that does music theory, timing or matching ends with that review before the
+retro.
+
+Recorded here rather than in `PROCESS.md` because the honest next step is automation — a
+Stryker run scoped to new core modules would enforce mechanically what this review did by hand.
+**Review by 2026-09-11 (or 4 sessions):** if the next round's review finds nothing, fold it into
+`PROCESS.md` as standing text; if it finds more surviving mutants, escalate to scoped Stryker in
+`verify:full`.
+
+A second change was made mid-round at the user's direction and is logged separately above: the
+`ROADMAP.md` line budget moved 800 to 1500.
+
+### Metrics
+
+- **user-reported defects since last session:** 0
+- **slices proven / started:** 24 of 33 requested tasks ticked; 13 branches merged, all 13 clean
+  or with the single predicted conflict; 0 branches abandoned
+- **experience-gate findings caught before commit:** 4 inside workers (print pagination, heading
+  contrast, table overflow, notehead shape legibility) + 3 caught only at integration
+  (`curriculumAvailable` dead, stale engraving, three stale specs) + 3 MAJOR from adversarial
+  review = **10**
+- **docs budget:** ROADMAP 947 + CLAUDE 101 + PROCESS 130 = **1178 lines**
+- **suite:** 176 files, 3689 tests, `verify` green; full e2e 94 passed; visual pass over 11
+  destinations at 2 widths and 2 themes, console-clean on integrated master
+- **M4 acceptance:** run, verdict **does not pass**, box deliberately left unticked — one
+  confirmed defect (`recordSession` has zero call sites in `src/app`, so a repertoire piece
+  reads "never practised" forever, and a "maintained" piece is therefore always immediately due)
+- **next re-review of the 17 aspects (5.49):** due once 3.17/5.31/5.40/5.41 land
+
+### Held for the next round, with reasons
+
+3.17 (design decided by a Fable consult this session — a non-modal shell overlay panel, full
+behaviour spec in `docs/parallel-round-10.md`), 5.31, 5.40, 5.41, 5.27, 5.10, 5.38, 5.49, plus
+the M4 `recordSession` defect. Every one was held because it needed files this round owned. That
+constraint is now gone.
