@@ -45,9 +45,12 @@ function percent(fraction: number): string {
 }
 
 export function RhythmClapback(props: RhythmClapbackProps) {
-  const [level, setLevel] = useState<ClapbackLevel>(MIN_LEVEL)
   const [metronomeEnabled, setMetronomeEnabled] = useState(true)
-  const drill = useClapbackDrill({ ...props, level, bars: BARS, metronomeEnabled })
+  // `level` is owned by the hook, not this view — sourced from and persisted to the
+  // ear-training session store, so it survives a remount and adapts on its own
+  // (see `useClapbackDrill.ts`'s module doc, "Level" section, MAJOR-1 review fix).
+  const drill = useClapbackDrill({ ...props, bars: BARS, metronomeEnabled })
+  const level = drill.level
   const busy = drill.phase === 'listening' || drill.phase === 'tapping'
   const tapDisabled = drill.phase !== 'tapping'
 
@@ -64,7 +67,7 @@ export function RhythmClapback(props: RhythmClapbackProps) {
           type="button"
           aria-label="Decrease level"
           disabled={level <= MIN_LEVEL || busy}
-          onClick={() => setLevel((l) => stepLevel(l, -1))}
+          onClick={() => drill.setLevel(stepLevel(level, -1))}
         >
           −
         </button>
@@ -73,7 +76,7 @@ export function RhythmClapback(props: RhythmClapbackProps) {
           type="button"
           aria-label="Increase level"
           disabled={level >= MAX_LEVEL || busy}
-          onClick={() => setLevel((l) => stepLevel(l, 1))}
+          onClick={() => drill.setLevel(stepLevel(level, 1))}
         >
           +
         </button>

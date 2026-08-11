@@ -10,14 +10,23 @@
  * the DOM is the real test, not a substitute for one.
  */
 import { seededRng } from '@core/ports/rng.ts'
+import { emptyEarSession } from '@core/eartraining/session.ts'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FakeClock, FakeMidiInput, RecordingAudioOutput } from '@test/fakes.ts'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
+import { useEarTrainingStore } from '@app/state/earTrainingStore.ts'
 import { RhythmClapback } from './RhythmClapback.tsx'
 
 afterEach(cleanup)
+// `RhythmClapback` now sources its level from the shared ear-training session
+// store (MAJOR-1 review fix, `useClapbackDrill.ts`) — reset it before every
+// test so the "starts at Level 1" assertions below never see another test's
+// leftover level.
+beforeEach(() => {
+  useEarTrainingStore.setState({ session: emptyEarSession(), itemsById: {} })
+})
 
 /** Fixed 2 bars, 120bpm default tempo (`RhythmClapback`'s own `BARS` constant). */
 const RUN_LENGTH_MS = 2 * 2000
@@ -189,6 +198,40 @@ describe('RhythmClapback', () => {
 
     expect(screen.getByRole('button', { name: 'Increase level' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Decrease level' })).toBeDisabled()
+  })
+
+  // MAJOR-1 review fix: the level used to be plain `useState(MIN_LEVEL)` —
+  // reset to Level 1 on every mount, no matter what the learner had reached.
+  // It is now sourced from `useEarTrainingStore` (`useClapbackDrill.ts`'s own
+  // module doc, "Level" section), so a fresh mount of the SAME component
+  // picks the level back up instead of resetting it.
+  it('the level survives an unmount and remount — it no longer resets to Level 1', async () => {
+    const user = userEvent.setup()
+    const clock = new FakeClock()
+    const { unmount } = render(
+      <RhythmClapback
+        clock={clock}
+        midiInput={new FakeMidiInput()}
+        audioOutput={new RecordingAudioOutput(clock)}
+        rng={seededRng(1)}
+      />,
+    )
+    expect(screen.getByTestId('clapback-level')).toHaveTextContent('Level 1')
+    await user.click(screen.getByRole('button', { name: 'Increase level' }))
+    await user.click(screen.getByRole('button', { name: 'Increase level' }))
+    expect(screen.getByTestId('clapback-level')).toHaveTextContent('Level 3')
+
+    unmount()
+    render(
+      <RhythmClapback
+        clock={clock}
+        midiInput={new FakeMidiInput()}
+        audioOutput={new RecordingAudioOutput(clock)}
+        rng={seededRng(1)}
+      />,
+    )
+
+    expect(screen.getByTestId('clapback-level')).toHaveTextContent('Level 3')
   })
 
   it('the metronome checkbox is on by default and only sounds during tapping, never listening', async () => {

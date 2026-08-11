@@ -144,8 +144,28 @@ const LEVEL_5_MIN_NOTES = 7
  * about the count, not just a longer one), which this drill does not
  * currently claim to teach. Levels outside 1-5 clamp to that range, mirroring
  * every other level-indexed lookup in this module.
+ *
+ * The per-level window is `{ min: 2,3,5,6,7 ; max: 3,4,6,7,8 }` for levels
+ * 1-5 — NOT an evenly-stepped ladder: level 2->3 moves by 2 while every other
+ * adjacent pair moves by 1 (review finding, roadmap 3.21 audit). This is a
+ * quantization artefact, not a bug: `steps` is a genuinely linear real-valued
+ * ramp (0, 0.25, 0.5, 0.75, 1), but `MIN_DICTATION_NOTES..LEVEL_5_MIN_NOTES`
+ * and `LEVEL_1_MAX_NOTES..MAX_DICTATION_NOTES` both span a range of 5 over 4
+ * level-steps — 5 does not divide evenly by 4, so rounding a linear ramp to
+ * integers necessarily produces three steps of 1 and one step of 2 SOMEWHERE.
+ * It lands at the same boundary (level 2->3) for both `min` and `max` because
+ * both ranges happen to share the same width (5) and the same `steps`
+ * sequence, so both cross a `Math.round` tie (`x.5`) at exactly `steps ===
+ * 0.5` (level 3). Deliberately left as-is rather than "fixed" to force even
+ * steps: any alternative placement of the doubled step is exactly as
+ * arbitrary and exactly as undocumented as this one, and moving it would
+ * abandon the straightforward linear-interpolation design roadmap 5.34's own
+ * doc argues for, in favour of an ad-hoc redistribution with no better
+ * rationale. Pinned by test at every level, including 2 and 4, precisely so a
+ * change here is a deliberate, reviewed decision, not a silent drift.
  */
 function noteBoundsForLevel(level: number): { readonly min: number; readonly max: number } {
+  invariant(Number.isFinite(level), `noteBoundsForLevel: level must be finite, got ${level}`)
   const clamped = Math.min(5, Math.max(1, Math.round(level)))
   const steps = (clamped - 1) / 4 // 0 at level 1, 1 at level 5
   const min = Math.round(MIN_DICTATION_NOTES + steps * (LEVEL_5_MIN_NOTES - MIN_DICTATION_NOTES))

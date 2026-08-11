@@ -164,6 +164,13 @@ The M3 gaps that are unbuilt features rather than defects. Each states its proof
       spec taps a known count and asserts `matched + extra` equals it against a real generated
       pattern. `npm run typecheck`/scoped `vitest`/`eslint` green; visual pass on all four
       idle/listening/tapping/graded x 1280/1024 x dark/light combinations, console clean.*
+      **Adversarial review (Opus, high effort) found 10 defects post-merge, all fixed**: the level
+      was local state that reset to 1 every mount and never adapted (now sourced from/persisted to
+      the ear-training session store, `useClapbackDrill.ts`); two confirmed surviving mutants in
+      `clapback.ts` (the tick->ms tolerance conversion, and the nearest-neighbour match's sort key)
+      had no test pinning them; an all-rest draw could score 100% for zero taps; plus weaker test
+      coverage than the mutant class warrants in `dictation.ts` and `scales.test.ts`. See
+      `e2e/rhythm-clapback-adaptive-level.spec.ts` for the level surviving a real page reload.
 - [x] 3.22 `core/eartraining`: delete the inert band; give the dashboard an honest ear level
 - [x] 3.26 `core/eartraining`: give an attempt a real accuracy, then a band means something.
 - [x] 3.23 `app/eartraining`: dictation has a tempo reference (REQ-3.6.1) — `gradeDictation` fits a

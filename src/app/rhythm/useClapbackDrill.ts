@@ -41,6 +41,48 @@
  * nothing this hook returns can be handed to `ExerciseScore`/`ScoreViewer` by
  * accident, because there is no `Score` in the return type to hand it. The
  * `Score` this hook builds internally (to drive playback) never leaves it.
+ *
+ * ## Level: sourced from and persisted to the ear-training session (roadmap
+ * 3.21/5.21 review fix, MAJOR-1)
+ *
+ * Earlier this drill's `level` was plain `useState` owned by `RhythmClapback`,
+ * initialised to `MIN_LEVEL` on every mount and never written anywhere —
+ * `gradeClapback`'s own result fed only `practiceLog.stop`, so the level
+ * reset to 1 on every remount and the level-scaled tolerance table in
+ * `core/rhythm/clapback.ts` (`BASE_TOLERANCE_TICKS`) was, in practice, always
+ * row 1. This hook now owns `level` itself, exactly the way
+ * `app/eartraining/useEarTraining.ts` owns `session.levels[kind]`: sourced
+ * from `useEarTrainingStore` at mount, re-adapted with `adaptEarLevel`
+ * (`core/eartraining/session.ts`) whenever a tapping run reaches `'graded'`,
+ * and written back to the same store so it survives a remount exactly like
+ * every other ear-training level does.
+ *
+ * `'rhythmic-dictation'` is the `EarItemKind` bucket this reuses — the
+ * closest existing one, not a new one invented for this drill: both drills
+ * generate a `core/generator/rhythm.ts` pattern at a 1-5 `complexity`/`level`
+ * and grade how well the learner reproduced its onsets from memory, so
+ * sharing one adaptive ladder for "reproduce a rhythm you just heard" is the
+ * more defensible reading of "reuse it" than inventing a second `EarItemKind`
+ * would be — which would also mean editing `core/eartraining/item.ts` and
+ * `session.ts`'s `KIND_SET`, files this task's brief does not own and says
+ * not to touch unless genuinely unavoidable. Only `EarSessionState.levels` is
+ * read/written here, deliberately never `recordEarAttempt` or an SRS `Card`:
+ * a clap-back pattern has no stable, reconstructable id the way a dictation
+ * item's `answerKey`-derived id does (see `dictation.ts`'s own module doc on
+ * why that id has to be stable), so creating a card for one would leave
+ * `nextDueItemId` recommending "due" reviews `useEarTraining.ts` could never
+ * actually replay. The pure band-unanimity ladder function itself
+ * (`adaptEarLevel`) is reused directly instead, fed a recent-attempt window
+ * this hook keeps locally (never merged into `session.attempts`, which stays
+ * exclusively the real ear-training drill's own history) and filtered to the
+ * current level only — mirroring `recordEarAttempt`'s own `kindAttempts`
+ * filter so a level change never lets stale evidence from a level the learner
+ * has since left keep counting.
+ *
+ * `options.level` remains as a test-only escape hatch: when a caller passes
+ * it explicitly, this hook never reads or writes the store at all, so
+ * `useClapbackDrill.test.ts`'s existing level-controlled tests stay exactly
+ * as deterministic as before.
  */
 import { createBrowserClock } from '@app/practice/clock.ts'
 import { createDefaultAudioOutput } from '@app/practice/createDefaultAudioOutput.ts'
@@ -54,9 +96,12 @@ import { usePracticeLog } from '@app/practice/usePracticeLog.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { createBrowserRng } from '@app/sightreading/rng.ts'
 import { silentAudioOutput } from '@app/sightreading/silentAudioOutput.ts'
+import { useEarTrainingStore } from '@app/state/earTrainingStore.ts'
 import { generateRhythm, rhythmToScore, type RhythmPattern, type TimeSignature } from '@core/generator/rhythm.ts'
 import { gradeClapback, type ClapbackGrade, type ClapbackLevel } from '@core/rhythm/clapback.ts'
 import type { Hand } from '@core/notation/score.ts'
+import type { EarItemKind } from '@core/eartraining/item.ts'
+import { EAR_MAX_LEVEL, EAR_MIN_LEVEL, adaptEarLevel, type EarAttempt } from '@core/eartraining/session.ts'
 import type { AudioOutput, Clock, DateSource, MidiInput, Rng } from '@core/ports/index.ts'
 import { makeTempoMap, type TempoMap } from '@core/timing/tempo.ts'
 import { millis, type Millis } from '@core/shared/units.ts'
@@ -65,8 +110,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 export type ClapbackUiPhase = 'idle' | 'listening' | 'tapping' | 'graded'
 
 export type UseClapbackDrillOptions = {
-  readonly level: ClapbackLevel
   readonly bars: number
+  /** Test-only escape hatch: pins the level and skips the ear-training store
+   *  entirely (no read at mount, no write on grade) — see the module doc's
+   *  "Level" section. Production (`RhythmClapback.tsx`) never passes this. */
+  readonly level?: ClapbackLevel
   /** Injection seams for tests; each defaults to the real browser adapter. */
   readonly clock?: Clock
   readonly rng?: Rng
@@ -80,6 +128,8 @@ export type UseClapbackDrillOptions = {
 
 export type UseClapbackDrill = {
   readonly phase: ClapbackUiPhase
+  /** Sourced from and persisted to the ear-training session — see the module doc's "Level" section. */
+  readonly level: ClapbackLevel
   /** The pattern being played/tapped, or the last one graded. Never engraved anywhere. */
   readonly pattern: RhythmPattern | undefined
   readonly grade: ClapbackGrade | undefined
@@ -91,9 +141,53 @@ export type UseClapbackDrill = {
   readonly start: () => void
   /** One tap, from any source. No-op unless phase is 'tapping'. */
   readonly tap: () => void
+  /** A manual override (e.g. the level +/- buttons) — persists exactly like an adapted level. */
+  readonly setLevel: (level: ClapbackLevel) => void
 }
 
 const TIME_SIGNATURE: TimeSignature = { beats: 4, beatType: 4 }
+
+/** The `EarItemKind` bucket this drill's level is sourced from and adapted into — see the module
+ *  doc's "Level" section for why this reuses an existing kind rather than inventing one. */
+const CLAPBACK_LEVEL_KIND: EarItemKind = 'rhythmic-dictation'
+
+/** Clamp+round into the `ClapbackLevel` union — mirrors `dictation.ts`'s own `clampComplexity`,
+ *  needed because `adaptEarLevel`/the store both traffic in a plain `number`. `EAR_MIN_LEVEL`/
+ *  `EAR_MAX_LEVEL` (1/5) are numerically identical to `ClapbackLevel`'s own bounds, which is what
+ *  makes sharing the ladder possible at all. */
+function toClapbackLevel(level: number): ClapbackLevel {
+  return Math.min(EAR_MAX_LEVEL, Math.max(EAR_MIN_LEVEL, Math.round(level))) as ClapbackLevel
+}
+
+/** How many random draws `start()` tries before forcing rests off — see the "regenerate while the
+ *  whole pattern is a rest" review fix (MINOR-4) below. */
+const MAX_REGENERATE_ATTEMPTS = 20
+
+/**
+ * A pattern with at least one real onset, never all-rest. `generateRhythm({ allowRests: true })`
+ * can legitimately draw a pattern whose every onset is a rest (measured, roadmap 3.21 review: 59
+ * of 3000 seeds at level 2, 7 of 3000 at level 3, bars: 1) — ungraded before this fix because
+ * `RhythmClapback.tsx` hardcodes `bars: 2`, which made it unreachable in practice but not
+ * impossible, and `gradeClapback`'s own `accuracy: total === 0 ? 1 : ...` would score a learner
+ * who tapped nothing at all a perfect 100% against it. Retried like
+ * `core/eartraining/dictation.ts`'s own bar-growth retry (same underlying cause: a rest-heavy draw
+ * clearing a floor is a matter of odds, not a guarantee) — but WITHOUT growing `bars`, since a
+ * clap-back pattern's length is deliberately fixed for the level being practised. Forcing rests off
+ * on the final attempt (mirroring `dictation.ts`'s identical fallback) guarantees termination.
+ */
+function generateNonEmptyPattern(bars: number, level: ClapbackLevel, rng: Rng): RhythmPattern {
+  for (let attempt = 0; attempt < MAX_REGENERATE_ATTEMPTS; attempt++) {
+    const candidate = generateRhythm(
+      { bars, timeSignature: TIME_SIGNATURE, complexity: level, allowRests: true, allowTies: true },
+      rng,
+    )
+    if (candidate.onsets.some((o) => !o.isRest)) return candidate
+  }
+  return generateRhythm(
+    { bars, timeSignature: TIME_SIGNATURE, complexity: level, allowRests: false, allowTies: true },
+    rng,
+  )
+}
 
 /** Stable reference across renders — see `useRhythmDrill.ts`'s identical comment on why this matters
  *  (a fresh `['right']` literal would defeat `usePracticeEngine`'s `activeHands` memo every render). */
@@ -108,6 +202,31 @@ export function useClapbackDrill(options: UseClapbackDrillOptions): UseClapbackD
   const [rng] = useState<Rng>(() => options.rng ?? createBrowserRng())
   const [audioOutput, setAudioOutput] = useState<AudioOutput | undefined>(options.audioOutput)
   const audioOutputRef = useRef<AudioOutput | undefined>(options.audioOutput)
+
+  // See the module doc's "Level" section: `options.level`, when passed, pins the level and
+  // opts this hook instance out of the store entirely — used only by tests.
+  const externalLevel = options.level
+  const [level, setLevelState] = useState<ClapbackLevel>(
+    () => externalLevel ?? toClapbackLevel(useEarTrainingStore.getState().session.levels[CLAPBACK_LEVEL_KIND]),
+  )
+  /** Recent clap-back attempts at the CURRENT level only — never written into
+   *  `earTrainingStore`'s own `session.attempts`, which stays exclusively the
+   *  real ear-training drills' history (see the module doc). Reset whenever
+   *  the level moves, mirroring `recordEarAttempt`'s own same-level filter. */
+  const levelAttemptsRef = useRef<EarAttempt[]>([])
+
+  /** A manual override (e.g. the level +/- buttons): sets the level directly, no `adaptEarLevel`
+   *  involved, and persists it exactly like an adapted level so it survives a remount too. */
+  function setLevel(next: ClapbackLevel): void {
+    setLevelState(next)
+    levelAttemptsRef.current = []
+    if (externalLevel !== undefined) return
+    const store = useEarTrainingStore.getState()
+    store.setSession({
+      ...store.session,
+      levels: { ...store.session.levels, [CLAPBACK_LEVEL_KIND]: next },
+    })
+  }
 
   const midi = useMidiConnection(
     options.midiInput !== undefined
@@ -219,12 +338,39 @@ export function useClapbackDrill(options: UseClapbackDrillOptions): UseClapbackD
       const tempoMap = tempoMapRef.current
       if (currentPattern === undefined || tempoMap === undefined) return
       hasPlayedRef.current = false
-      const result = gradeClapback(currentPattern, tapsRef.current, tempoMap, options.level)
+      const result = gradeClapback(currentPattern, tapsRef.current, tempoMap, level)
       setGrade(result)
       setPhase('graded')
       practiceLogRef.current.stop({ accuracy: result.accuracy })
+
+      // MAJOR-1 review fix: re-adapt the level from the graded accuracy — see the
+      // module doc's "Level" section. Skipped entirely when a caller pins the level
+      // (`options.level`, test-only), matching `setLevel`'s identical guard.
+      if (externalLevel === undefined) {
+        const attempt: EarAttempt = {
+          itemId: 'clapback',
+          kind: CLAPBACK_LEVEL_KIND,
+          accuracy: result.accuracy,
+          at: date.epochMillis(),
+          level,
+        }
+        // Only attempts at the level this WAS drawn from count as evidence for the
+        // next decision — mirrors `recordEarAttempt`'s own `kindAttempts` filter.
+        const relevant = [...levelAttemptsRef.current, attempt].filter((a) => a.level === level)
+        levelAttemptsRef.current = relevant
+        const nextLevel = toClapbackLevel(adaptEarLevel(level, relevant))
+        if (nextLevel !== level) {
+          levelAttemptsRef.current = []
+          setLevelState(nextLevel)
+        }
+        const store = useEarTrainingStore.getState()
+        store.setSession({
+          ...store.session,
+          levels: { ...store.session.levels, [CLAPBACK_LEVEL_KIND]: nextLevel },
+        })
+      }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a transport-state transition should re-run this; options.level is read fresh each call
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a transport-state transition should re-run this; level/date/externalLevel are read fresh each call
   }, [engine.phase])
 
   function start(): void {
@@ -233,22 +379,15 @@ export function useClapbackDrill(options: UseClapbackDrillOptions): UseClapbackD
       audioOutputRef.current = createDefaultAudioOutput()
       setAudioOutput(audioOutputRef.current)
     }
-    const generated = generateRhythm(
-      {
-        bars: options.bars,
-        timeSignature: TIME_SIGNATURE,
-        complexity: options.level,
-        allowRests: true,
-        allowTies: true,
-      },
-      rng,
-    )
+    // MINOR-4 review fix: never hand the learner an all-rest pattern — see
+    // `generateNonEmptyPattern`'s own doc.
+    const generated = generateNonEmptyPattern(options.bars, level, rng)
     patternRef.current = generated
     tapsRef.current = []
     hasPlayedRef.current = false
     setGrade(undefined)
     setTapCount(0)
-    practiceLogRef.current.start('eartraining', `Clap back — level ${options.level}`)
+    practiceLogRef.current.start('eartraining', `Clap back — level ${level}`)
 
     // Same "play the OLD transport before the score changes" trick
     // `useRhythmDrill.ts` uses, for the identical reason (see its own long
@@ -304,6 +443,7 @@ export function useClapbackDrill(options: UseClapbackDrillOptions): UseClapbackD
 
   return {
     phase,
+    level,
     pattern,
     grade,
     tapCount,
@@ -311,5 +451,6 @@ export function useClapbackDrill(options: UseClapbackDrillOptions): UseClapbackD
     midi,
     start,
     tap,
+    setLevel,
   }
 }
