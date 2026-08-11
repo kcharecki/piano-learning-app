@@ -204,8 +204,28 @@ describe('ChordScaleReference', () => {
     expect(within(row).getAllByRole('cell')[3]).toHaveTextContent('2')
   })
 
-  it('shows a dash for every fingering cell when the scale type has no defined fingering', () => {
-    render(<Controlled initialType="naturalMinor" />)
+  it('shows real fingering numbers for the minor forms, not dashes (roadmap 5.35)', () => {
+    // C minor takes the C-major pattern: RH 1 2 3 1 2 3 4 5, LH 5 4 3 2 1 3 2 1.
+    render(<Controlled initialType="harmonicMinor" />)
+    const expected = [
+      ['1', '5'],
+      ['2', '4'],
+      ['3', '3'],
+      ['1', '2'],
+      ['2', '1'],
+      ['3', '3'],
+      ['4', '2'],
+    ]
+    for (const [i, [right, left]] of expected.entries()) {
+      const cells = within(screen.getByTestId(`scale-degree-${i + 1}`)).getAllByRole('cell')
+      expect(cells[2]).toHaveTextContent(String(right))
+      expect(cells[3]).toHaveTextContent(String(left))
+    }
+  })
+
+  it('still shows a dash for every fingering cell when the scale type has no defined fingering', () => {
+    // The modes are deliberately out of scope, so the fallback still has to work.
+    render(<Controlled initialType="dorian" />)
     for (let degree = 1; degree <= 7; degree++) {
       const row = screen.getByTestId(`scale-degree-${degree}`)
       const cells = within(row).getAllByRole('cell')

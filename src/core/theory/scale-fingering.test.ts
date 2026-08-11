@@ -64,7 +64,22 @@ describe('scaleFingering over pitch classes', () => {
     }
   })
 
+  it('answers the minor forms over pitch classes too', () => {
+    // G## harmonic minor is as unwritable as G## major — its 7th would need
+    // F###. The hand is on A harmonic minor either way.
+    expect(() => buildScale(p('G##4'), 'harmonicMinor')).toThrow(InvariantError)
+    expect(scaleFingering(p('G##4'), 'harmonicMinor')).toEqual(
+      scaleFingering(p('A4'), 'harmonicMinor'),
+    )
+    expect(scaleFingering(p('G##4'), 'melodicMinor')).toEqual({
+      rightHand: [1, 2, 3, 1, 2, 3, 4, 5],
+      leftHand: [5, 4, 3, 2, 1, 3, 2, 1],
+    })
+  })
+
   it('still returns null for the scale types it has no fingering for', () => {
-    expect(scaleFingering(p('G##4'), 'harmonicMinor')).toBeNull()
+    expect(scaleFingering(p('G##4'), 'dorian')).toBeNull()
+    expect(scaleFingering(p('G##4'), 'aeolian')).toBeNull()
+    expect(scaleFingering(p('G##4'), 'blues')).toBeNull()
   })
 })

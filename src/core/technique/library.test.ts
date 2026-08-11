@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { spelledPitchClass } from '@core/theory/pitch.ts'
+import { spell, spelledPitchClass } from '@core/theory/pitch.ts'
 import { keySignatureForTonic, type Mode } from '@core/theory/keys.ts'
 import { unwrap } from '@core/shared/result.ts'
-import { validateScore } from '@core/notation/score.ts'
+import { at, invariant } from '@core/shared/invariant.ts'
+import { validateScore, type ScoreNote } from '@core/notation/score.ts'
 import {
   techniqueDrillById,
   techniqueLibrary,
@@ -125,6 +126,93 @@ describe('fingering correctness', () => {
       .map((n) => n.fingering)
     // 2-octave arpeggio: 7 notes up, 6 back down (mirrored).
     expect(leftFingers).toEqual([5, 3, 2, 1, 3, 2, 1, 2, 3, 1, 2, 3, 5])
+  })
+})
+
+describe('fingering never repeats, jumps thumb-to-fifth, or lands a thumb on a black key', () => {
+  // Roadmap 5.35 gave melodic minor its own ascending right-hand fingering in
+  // C#/F# minor — the first case where a scale's ascending and descending
+  // fingerings genuinely differ. `scaleUpAndDown` used to build the descent
+  // from a SEPARATE natural-minor run, so in exactly these two keys the
+  // descent's own fingering pattern disagreed with the ascent's at the top
+  // note, landing finger 2 twice in a row across the turn. Neither key is in
+  // the library today (`ALL_DRILLS`'s melodic minors are A/D/E/G/C/F, all of
+  // which share one fingering with natural minor, so the bug was latent), so
+  // this drives synthetic drills directly rather than relying on
+  // `allDrills()` to reach them.
+  const BLACK_PITCH_CLASSES = new Set([1, 3, 6, 8, 10])
+
+  /** Every note here comes from `techniqueScore`, which sets a fingering on
+   * every note it emits (pinned by the 'every fingering ... 1..5' test above)
+   * — undefined here would mean that guarantee broke, not a legitimate gap. */
+  function orderedFingers(notes: readonly ScoreNote[]): readonly number[] {
+    return notes.map((n) => {
+      invariant(n.fingering !== undefined, 'techniqueScore note missing a fingering')
+      return n.fingering
+    })
+  }
+
+  function assertPlayable(notes: readonly ScoreNote[], label: string) {
+    const fingers = orderedFingers(notes)
+    for (let i = 1; i < fingers.length; i++) {
+      const previous = at(fingers, i - 1)
+      const finger = at(fingers, i)
+      expect(finger, `${label}: repeated finger at ${i}`).not.toBe(previous)
+      const pair = new Set([previous, finger])
+      expect(pair.has(1) && pair.has(5), `${label}: thumb/fifth jump at ${i}`).toBe(false)
+    }
+    fingers.forEach((finger, i) => {
+      if (finger === 1) {
+        expect(
+          BLACK_PITCH_CLASSES.has(at(notes, i).midi % 12),
+          `${label}: thumb on a black key at ${i}`,
+        ).toBe(false)
+      }
+    })
+  }
+
+  it('C# and F# melodic minor, both hands, 1-3 octaves', () => {
+    for (const tonic of [spell('C', 1, 4), spell('F', 1, 4)]) {
+      for (const octaves of [1, 2, 3]) {
+        for (const hands of ['left', 'right'] as const) {
+          const drill: TechniqueDrill = {
+            id: 'synthetic-melodic-minor-turnaround',
+            kind: 'scale',
+            title: 'synthetic',
+            level: 5,
+            tonic,
+            scaleType: 'melodicMinor',
+            octaves,
+            hands,
+            targetBpm: 60,
+          }
+          const score = techniqueScore(drill, drill.targetBpm)
+          const ordered = [...score.notes].sort((a, b) => a.startTick - b.startTick)
+          assertPlayable(
+            ordered,
+            `${tonic.letter}${'#'.repeat(tonic.alter)} melodic minor, ${octaves} oct, ${hands}`,
+          )
+        }
+      }
+    }
+  })
+
+  it('holds across every shipped scale drill, both hands', () => {
+    // Scoped to 'scale' drills: chord-inversions and arpeggios legitimately
+    // reposition the hand (thumb-to-pinky included) between chord tones,
+    // which is a different convention this property does not apply to — see
+    // `chordInversionScore`'s and `arpeggioUpAndDown`'s own fingering tables.
+    // `scaleUpAndDown` is the only run-builder this task touched.
+    for (const d of allDrills().filter((d) => d.kind === 'scale')) {
+      const score = techniqueScore(d, d.targetBpm)
+      for (const hand of ['left', 'right'] as const) {
+        const ordered = score.notes
+          .filter((n) => n.hand === hand)
+          .sort((a, b) => a.startTick - b.startTick)
+        if (ordered.length === 0) continue
+        assertPlayable(ordered, `${d.id} ${hand}`)
+      }
+    }
   })
 })
 

@@ -11,17 +11,17 @@
  *
  * ## Fingering, and where this deliberately goes beyond `scaleFingering`
  *
- * `scaleFingering` (scales.ts) only covers the major scale (major/ionian).
- * Harmonic and melodic minor — required by REQ-3.7.1 and used at level 5 —
- * have no entry there, so every note in those drills would otherwise fail the
- * "a note with no fingering is a REQ-3.7.1 failure" bar. This module falls
- * back to the **parallel major's** fingering pattern for any scale type
- * `scaleFingering` does not cover: it is the standard classical-method
- * simplification (most minor scales share their parallel major's white/black
- * key layout closely enough that method books teach the same finger pattern),
- * it is deterministic, and it guarantees every note gets a finger. This is a
- * resolved-but-flagged contract ambiguity — see the module returning this file
- * for the note to the reviewer.
+ * `scaleFingering` (scales.ts) covers the major scale (major/ionian) and the
+ * three minor forms — harmonic and melodic minor, required by REQ-3.7.1 and
+ * used at level 5, now have real entries rather than a stand-in. The modes and
+ * the non-heptatonic scales still have none, so every note in a drill built
+ * from one would fail the "a note with no fingering is a REQ-3.7.1 failure"
+ * bar. This module therefore keeps falling back to the **parallel major's**
+ * pattern for any scale type `scaleFingering` does not cover: it is
+ * deterministic and it guarantees every note gets a finger. No drill in the
+ * library needs that fallback today (the level-5 minors are all keys whose
+ * minor fingering is its parallel major's anyway), but it stays as the total
+ * function the drill builder requires.
  *
  * Multi-octave fingering for scales and arpeggios is derived, not tabulated: a
  * one-octave pattern's first 7 entries repeat once per octave, and only the
@@ -155,8 +155,9 @@ function handTonic(
 }
 
 /**
- * `scaleFingering` only covers major/ionian. Every other scale type used here
- * falls back to the parallel major's pattern — see the module doc comment.
+ * `scaleFingering` covers major/ionian and the three minor forms. Every other
+ * scale type falls back to the parallel major's pattern — see the module doc
+ * comment.
  */
 function fingeringFor(tonic: SpelledPitch, type: ScaleType): Fingering {
   const direct = scaleFingering(tonic, type)
@@ -211,10 +212,23 @@ function ascendingScaleRun(
  */
 function scaleUpAndDown(tonic: SpelledPitch, type: ScaleType, octaves: number, hand: Hand): Run {
   const up = ascendingScaleRun(tonic, type, octaves, hand)
-  const down =
-    type === 'melodicMinor' ? ascendingScaleRun(tonic, 'naturalMinor', octaves, hand) : up
-  const downNotes = [...down.notes].slice(0, -1).reverse()
-  const downFingers = [...down.fingers].slice(0, -1).reverse()
+  // Pitches descend as natural minor (the classical convention — see
+  // `melodicMinorDescending`'s doc comment); FINGERS mirror the ascent,
+  // never natural minor's own. Roadmap 5.35 gave melodic minor ascending its
+  // own right-hand fingering in C#/F# minor (scales.ts's
+  // `MELODIC_MINOR_RIGHT_HANDS`), the first case where ascending and
+  // descending fingerings genuinely differ — reusing natural minor's fingers
+  // for the descent put a different pattern's closing finger right next to
+  // the ascent's, and in those two keys the two disagreed at the turn (both
+  // landed finger 2), a repeated finger across the top note. Mirroring the
+  // ascent's own fingers instead keeps every run self-consistent by
+  // construction, and is a no-op everywhere else: natural minor and
+  // melodic-minor-ascending share one fingering table in the other ten keys.
+  const downNotes =
+    type === 'melodicMinor'
+      ? [...ascendingScaleRun(tonic, 'naturalMinor', octaves, hand).notes].slice(0, -1).reverse()
+      : [...up.notes].slice(0, -1).reverse()
+  const downFingers = [...up.fingers].slice(0, -1).reverse()
   return { notes: [...up.notes, ...downNotes], fingers: [...up.fingers, ...downFingers] }
 }
 

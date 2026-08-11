@@ -538,13 +538,97 @@ const MAJOR_FINGERINGS: readonly Fingering[] = [
 ]
 
 /**
+ * Minor-scale fingerings indexed by the tonic's pitch class, shared by
+ * `naturalMinor` and `harmonicMinor` — and by `melodicMinor` in ten of the
+ * twelve keys (see {@link MELODIC_MINOR_RIGHT_HANDS}).
+ *
+ * Same organising principle as {@link MAJOR_FINGERINGS}: **neither thumb ever
+ * plays a black key**, and the fingers between two thumb landings run 3 or 4 to
+ * a group. That is enough to pin most of the table on its own, because a minor
+ * scale often leaves the hand only two white keys to land on:
+ *
+ *  - **Eb minor** (Eb F Gb Ab Bb Cb Db) has exactly two white keys, F and Cb.
+ *    Cb is written with a flat but sounds B natural, and a thumb cares about the
+ *    key it presses rather than the letter it is written on, so both thumbs are
+ *    *forced* onto degrees 2 and 6. That is the same shape as Eb major's right
+ *    hand (thumb on F and C) but a different left hand: Eb major's left thumb
+ *    takes G and D, which in Eb minor are Gb and Db, both black.
+ *  - **Ab/G# minor** (Ab Bb Cb Db Eb Fb Gb) likewise offers only Cb and Fb — B
+ *    and E under the hand — so both thumbs are forced onto degrees 3 and 6.
+ *    Charts that finger only the *harmonic* form sometimes give the left thumb
+ *    the raised 7th instead (F##, which sounds G), but that fingering cannot be
+ *    played as a natural minor, where the 7th is the black Gb. One table has to
+ *    serve both forms, so this one takes the forced pair.
+ *  - **C# minor** (C# D# E F# G# A B) has three white keys — E, A and B — and
+ *    the hands split them the way E major does with exactly the same keys under
+ *    it: the right thumb takes E and A, the left thumb E and B.
+ *
+ * The raised 7th of the harmonic form never costs a fingering, which is why one
+ * table covers both. No right hand here lands a thumb on degree 7 at all. Two
+ * left hands do — C# and F# minor — and both are safe by pitch class rather than
+ * by spelling: C# harmonic minor's 7th is B# and F# harmonic minor's is E#, and
+ * B# and E# are the white keys C and E.
+ */
+const MINOR_FINGERINGS: readonly Fingering[] = [
+  C_PATTERN, //  0  C — Eb, Ab and Bb are black, but the thumb wanted C and F anyway
+  f([3, 4, 1, 2, 3, 1, 2, 3], [3, 2, 1, 4, 3, 2, 1, 3]), //  1  C# / Db
+  C_PATTERN, //  2  D
+  f([3, 1, 2, 3, 4, 1, 2, 3], [2, 1, 4, 3, 2, 1, 3, 2]), //  3  Eb / D#
+  C_PATTERN, //  4  E
+  f([1, 2, 3, 4, 1, 2, 3, 4], [5, 4, 3, 2, 1, 3, 2, 1]), //  5  F — as F major: thumb on F and C
+  f([3, 4, 1, 2, 3, 1, 2, 3], [4, 3, 2, 1, 3, 2, 1, 4]), //  6  F# / Gb
+  C_PATTERN, //  7  G
+  f([3, 4, 1, 2, 3, 1, 2, 3], [3, 2, 1, 3, 2, 1, 4, 3]), //  8  G# / Ab
+  C_PATTERN, //  9  A
+  f([4, 1, 2, 3, 1, 2, 3, 4], [2, 1, 3, 2, 1, 4, 3, 2]), // 10  Bb / A#
+  f([1, 2, 3, 1, 2, 3, 4, 5], [4, 3, 2, 1, 4, 3, 2, 1]), // 11  B — as B major
+]
+
+/**
+ * The two right hands that melodic minor ascending cannot borrow from
+ * {@link MINOR_FINGERINGS}, by pitch class.
+ *
+ * Melodic minor raises the 6th as well as the 7th, and in exactly two keys the
+ * raised 6th is a black key that the natural and harmonic fingering had given to
+ * the right thumb:
+ *
+ *  - **C# minor** (pitch class 1): degree 6 is A — pitch class 9, white — in the
+ *    natural and harmonic forms and A# (10, black) ascending, and the right
+ *    thumb sat on it. C# melodic minor ascending is C# D# E F# G# A# B#, which
+ *    leaves only two white keys, E and B# (which sounds C), so the thumbs are
+ *    forced onto degrees 3 and 7: 2 3 1 2 3 4 1 2.
+ *  - **F# minor** (pitch class 6): degree 6 is D (2, white) naturally and D#
+ *    (3, black) ascending, and again the right thumb was on it. F# G# A B C# D#
+ *    E# leaves three white keys, A, B and E# (which sounds F) — either A or B
+ *    could take the first thumb; B and E# is chosen (see below), giving
+ *    2 3 4 1 2 3 1 2.
+ *
+ * Both replacements are the **parallel major's** right hand, Db major's and F#
+ * major's, which is not a coincidence: melodic minor ascending and the parallel
+ * major differ only at degree 3, and no major fingering puts a thumb on degree 3
+ * except Db's and Ab's, whose minor degree 3 (E and Cb) is white too. F#'s A-vs-B
+ * choice is exactly that fork resolved in the parallel major's favour, for one
+ * fingering shape between the two exception keys rather than two.
+ *
+ * The left hand needs no exception anywhere — no left thumb in the table is on
+ * degree 6 — and the other ten keys keep their {@link MINOR_FINGERINGS} row
+ * unchanged. Tests pin both facts.
+ */
+const MELODIC_MINOR_RIGHT_HANDS: Readonly<Record<number, readonly number[]>> = {
+  1: [2, 3, 1, 2, 3, 4, 1, 2],
+  6: [2, 3, 4, 1, 2, 3, 1, 2],
+}
+
+/**
  * The standard fingering for one ascending octave, or null when no standard one
  * is defined here.
  *
- * Only the major scale (and `ionian`, which is the same notes) is covered. The
- * minor forms and the modes each have their own conventions that vary between
- * editions — Bb minor is not Bb major with two fingers moved — so rather than
- * invent them this returns null and the caller can fall back to showing none.
+ * The major scale (with `ionian`, the same notes) and the three minor forms are
+ * covered. The modes are not: their conventions vary between editions and a mode
+ * is rarely practised as a scale, so rather than invent them this returns null
+ * and the caller can fall back to showing none. `aeolian` is deliberately
+ * included in that refusal even though it sounds a natural minor — asking for
+ * "aeolian" is asking about a mode, not about the minor scale a pianist drills.
  *
  * The domain is the **pitch class**, not the writable key. A fingering is a fact
  * about which keys are under the hand, so every spelling of a pitch class shares
@@ -555,8 +639,13 @@ const MAJOR_FINGERINGS: readonly Fingering[] = [
  * here has cause to refuse a tonic that only notation objects to.
  */
 export function scaleFingering(tonic: SpelledPitch, type: ScaleType): Fingering | null {
-  if (type !== 'major' && type !== 'ionian') return null
-  return at(MAJOR_FINGERINGS, spelledPitchClass(tonic))
+  const pitchClass = spelledPitchClass(tonic)
+  if (type === 'major' || type === 'ionian') return at(MAJOR_FINGERINGS, pitchClass)
+  if (type !== 'naturalMinor' && type !== 'harmonicMinor' && type !== 'melodicMinor') return null
+  const shared = at(MINOR_FINGERINGS, pitchClass)
+  if (type !== 'melodicMinor') return shared
+  const rightHand = MELODIC_MINOR_RIGHT_HANDS[pitchClass]
+  return rightHand === undefined ? shared : { rightHand, leftHand: shared.leftHand }
 }
 
 /**
