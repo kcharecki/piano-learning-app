@@ -63,6 +63,16 @@ under the repo root, so Node's ancestor walk resolves the main checkout's `node_
    OPEN task (ROADMAP order: Triage → impact) that is (a) unclaimed and (b) parallel-safe
    per rule 5, then `git branch -m task/<id>` and mark the ROADMAP box `[~] (session: t1)`
    on this branch. State what was skipped because of a claim or an overlap.
+   **Race guard (2026-08-11):** an `EnterWorktree`-created path is locked against other
+   sessions of this same tool, but a worktree that already existed (desktop-app "+ New
+   session", or a prior `claude --worktree`) is NOT — a second, differently-launched session
+   can be actively using it with no lock visible to `status` or `git worktree list`. Before
+   any edit, re-run `git status` / `git branch --show-current` once; if the branch name or
+   dirty-file set has moved since you entered, another live session owns this path — do not
+   rename its branch, do not edit, back out (`EnterWorktree` isn't required to leave; just
+   stop touching it) and pick a different worktree. No work is lost either way, since the
+   other session's edits are its own uncommitted state, but racing it wastes both sessions'
+   turns.
 3. Build slices as normal; run the gate with this worktree's port:
    `npm run dev -- --port <port> --strictPort`, `$env:E2E_PORT=<port>` for playwright,
    `node scripts/visual-pass.mjs <dest> --url http://localhost:<port>`.

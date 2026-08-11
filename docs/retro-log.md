@@ -16,6 +16,49 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
+## 2026-08-11 (ninth session) — integrator round: nine branches merged, roadmap archived
+
+- user-reported defects since last session: 0
+- slices proven / started: 0/0 new — this session never shipped its own slice. It picked
+  5.17 in a worktree, hit a live race with another session already occupying that worktree
+  path (see below), backed out with zero edits made, then found `master` itself unclaimed
+  with nine finished task branches waiting, and spent the turn as integrator: merged
+  3.14a, 5.3, 5.14, 5.17, 5.20, 5.22, 5.25, 5.28, 5.37 (the last of which itself carried
+  5.19 and 5.46), resolving two real conflicts (an import list, a ROADMAP section both
+  5.19 and 5.20 had rewritten) and re-verifying `npm run verify` green after every merge.
+  Re-ran e2e proofs for every merge that touched a shared file or had a conflict (12 spec
+  files total, one flaky-under-parallel-load false red confirmed passing in isolation).
+- gate catches before commit: none new — the gate ran on nine already-gated slices, not
+  new work. The one thing it caught was procedural: `ROADMAP.md` crossed its 800-line
+  budget on the first merge (3.14a's expanded proof prose), which `verify` failed on
+  correctly.
+- docs budget (ROADMAP+CLAUDE+PROCESS lines): 793 + 101 + 130 = **1024** — down from a
+  peak of 805+101+130 mid-session; Phases 0-2 (all `[x]`, nothing open) moved to
+  `docs/roadmap-archive-2026-08-08.md` to buy headroom back.
+- cost note: almost the whole turn went to integration, not authorship — nine sequential
+  merge+verify+selective-e2e cycles, plus the worktree-collision investigation and cleanup
+  (removed 10 stale/finished worktree dirs and branches, split into two batches so the user
+  could confirm before any `git worktree remove`, since one is genuinely destructive and the
+  OS denied the non-force form outright on this machine for reasons still unclear).
+- hypothesis: **the worktree claim protocol has a gap for paths not created through
+  `EnterWorktree` itself.** `node scripts/worktrees.mjs status` showed `t-5-3` as
+  `NO claim yet`, branch `wip-t-5-3` — genuinely unclaimed at that instant. `EnterWorktree`
+  let me in with no lock error (unlike a second path, `t1`, which correctly refused: locked
+  by another live process). Between my entry and my first real edit, a second session — not
+  visible to `EnterWorktree`'s own lock, so almost certainly attached some other way (a
+  pre-existing worktree opened directly, not created fresh through this tool) — was already
+  mid-flight in the exact same directory: files changed under me, the branch name changed
+  under me (twice), all while `git status` kept reporting "clean" between polls. No work was
+  lost (I made zero edits before noticing; they committed cleanly and moved on), but this was
+  luck, not protection — a second EnterWorktree session pointed at a non-`EnterWorktree`
+  worktree has no signal that it isn't alone.
+- change: documented the race and a concrete guard (re-check branch/dirty-state immediately
+  after entry, before any edit; back out on any mismatch) in `docs/WORKTREES.md`'s worktree
+  section. No review-by — this is a documented discipline, not a tooling experiment; it
+  would need an actual `EnterWorktree`-side fix (locking paths it didn't create) to become
+  one, which is out of scope for a docs-only change.
+- experiment verdicts due: none this session.
+
 ## 2026-08-11 (eighth session) — microphone pitch-detection fallback, two merges, one triage fix
 
 - user-reported defects since last session: 0
