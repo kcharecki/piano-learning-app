@@ -1,20 +1,39 @@
 /**
  * Melodic and harmonic interval recognition by ear (REQ-3.6.1).
  *
- * Level progression (pinned by tests below). Each level's set is the previous
- * level's set plus its own additions — `intervalsForLevel` is built as a
- * cumulative concatenation, so it is monotonic by construction:
+ * ## Level progression (roadmap 5.30)
  *
- *   1: P5, P8, M3, m3                      — the small, easy, common ones.
- *   2: + M2, m2, P4
- *   3: + M6, m6
- *   4: + M7, m7
- *   5: + the tritone (spelled A4) and the compound (+ octave) of every
- *      interval unlocked through level 4 except the octave itself (compounding
- *      P8 would only give P15, which teaches nothing a plain octave doesn't;
- *      the tritone unlocked in this same level is not itself compounded).
+ * Pinned by the tests below. Each level's set is the previous level's set
+ * plus its own additions — `intervalsForLevel` is built as a cumulative
+ * concatenation, so it is monotonic by construction:
+ *
+ *   1: M3, m3                               — RCM's own Level 1 pair.
+ *   2: + P5                                 — RCM Level 2.
+ *   3: + P4                                 — RCM Level 3.
+ *   4: + P8 (the octave)                    — RCM Level 4.
+ *   5: + M2, m2, M6, m6, M7, m7, the tritone (spelled A4), and the compound
+ *      (+ octave) of every interval unlocked through level 4 except the
+ *      octave itself (compounding P8 would only give P15, which teaches
+ *      nothing a plain octave doesn't) — every interval RCM's later grades
+ *      introduce, folded into one final tier since this drill's own level
+ *      ladder caps at 5 and RCM's source material does not specify a finer
+ *      within-tier order for the rest.
  *
  * Levels above 5 return the level-5 set; there is nothing further to unlock.
+ *
+ * This ordering follows the Royal Conservatory of Music (RCM) syllabus, and
+ * is a DEFENSIBLE CHOICE, not the only reasonable one: Trinity's grade books
+ * introduce every interval from a 2nd through a 6th together at their first
+ * grade, and Musical U's own ear-training curriculum argues for teaching 2nds
+ * before 3rds on the grounds that a 2nd is the smallest, most-heard melodic
+ * step. RCM is picked here because m3/M3 (thirds) are, by ear, the easiest
+ * pair to tell apart AND the interval most learners already have some
+ * association with (a "sad" vs "happy" third) before they ever start
+ * ear training, which is why RCM leads its own syllabus with them rather
+ * than the smaller-but-less-recognisable 2nd. A future session with evidence
+ * that a different ordering measurably teaches faster should feel free to
+ * change this — the tiers exist precisely so that decision lives in one
+ * place.
  *
  * Grading compares semitones, not spelling: an augmented second and a minor
  * third sound identical, and this is an EAR drill, so marking `A2` wrong when
@@ -69,12 +88,18 @@ const M7 = iv(7, 'major')
 const m7 = iv(7, 'minor')
 const TRITONE = iv(4, 'augmented')
 
-const LEVEL_1_INTERVALS: readonly Interval[] = [P5, P8, M3, m3]
-const LEVEL_2_INTERVALS: readonly Interval[] = [...LEVEL_1_INTERVALS, M2, m2, P4]
-const LEVEL_3_INTERVALS: readonly Interval[] = [...LEVEL_2_INTERVALS, M6, m6]
-const LEVEL_4_INTERVALS: readonly Interval[] = [...LEVEL_3_INTERVALS, M7, m7]
+const LEVEL_1_INTERVALS: readonly Interval[] = [M3, m3]
+const LEVEL_2_INTERVALS: readonly Interval[] = [...LEVEL_1_INTERVALS, P5]
+const LEVEL_3_INTERVALS: readonly Interval[] = [...LEVEL_2_INTERVALS, P4]
+const LEVEL_4_INTERVALS: readonly Interval[] = [...LEVEL_3_INTERVALS, P8]
 const LEVEL_5_INTERVALS: readonly Interval[] = [
   ...LEVEL_4_INTERVALS,
+  M2,
+  m2,
+  M6,
+  m6,
+  M7,
+  m7,
   TRITONE,
   ...LEVEL_4_INTERVALS.filter((i) => i.number !== 8).map(compound),
 ]

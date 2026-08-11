@@ -583,42 +583,63 @@ who guesses wrong.
       *Proof: the recorded `AudioOutput` calls carry the key chord's pitches at the right timestamps
       BEFORE the item's first note (the 3.13 pattern — assert the calls, not the projection), and the
       drill still grades the same answers.*
-- [ ] 5.29 `app/eartraining`: reveal the answer. Replay with the answer named, the pitches shown on a
-      staff and on the keyboard, and a reference tune for the interval.
-      *Proof: after a wrong answer the screen names the two pitches (not just "perfect fifth"),
-      renders them, and replays on request — asserted through the DOM and the audio calls.*
-- [ ] 5.30 `core/eartraining/intervals`: stage the interval set by level rather than offering m3, M3,
-      P5 and P8 all at level 1. RCM introduces m3/M3 at Level 1, P5 at 2, P4 at 3, and the octave only
-      at 4. (Sources genuinely disagree on ordering — Trinity introduces 2nd–6th together, Musical U
-      argues 2nds first — so pick RCM and say in the code comment that it is a choice among defensible
-      orderings, not the only one.)
-      *Proof: a test asserts the level-1 answer set is exactly {m3, M3} and that each later level adds
-      rather than replaces; the on-screen answer pad matches the level's set.*
+- [x] 5.29 `app/eartraining`: reveal the answer. New `RevealPanel.tsx` renders after every graded item
+      (correct or wrong, since a correct guess taught as little as a wrong one before this) — the
+      answer named with its REAL sounding pitches ("major third — C3 and E3", not just "a major
+      third"), engraved on a staff (`ExerciseScore` + `createOsmdEngraver({ presentation: 'reference'
+      })`, the same pipeline `ScaleStaff` uses — imported, not edited) and shown on `KeyboardDiagram`
+      (imported, not edited), plus — interval kinds only — a "Play reference interval" control
+      (`useEarTraining.ts`'s new `playIntervalReference`, always middle-C-anchored, register-
+      independent of the draw) and a named mnemonic tune (title only, no melody or lyrics reproduced).
+      The existing Replay control is what "replay with the answer named" reuses; no second Replay
+      button.
+      *Proof: `EarTrainingScreen.test.tsx`'s "a wrong answer reveals the two actual pitches, a staff, a
+      keyboard, and replays on request" asserts the DOM (pitch names, staff, keyboard) and the
+      `RecordingAudioOutput` calls after pressing Replay; `RevealPanel.test.tsx` (11 tests) covers
+      every kind directly; `e2e/eartraining-reveal.spec.ts` drives the real running app end to end
+      (interval and chord-quality kinds), 2/2 green against a real OSMD render. Visual pass
+      (`scripts/visual-pass.mjs "Ear training" --url http://localhost:5303 --click Play --click
+      "major third"`) at both widths, both themes: console clean, reveal fully visible.*
+- [x] 5.30 `core/eartraining/intervals`: staged the interval set by level — level 1 is exactly {M3,
+      m3}; level 2 adds P5; level 3 adds P4; level 4 adds P8 (the octave); level 5 folds in the rest
+      (M2/m2/M6/m6/M7/m7, the tritone, and the compounds of levels 1–4 minus the octave). Follows RCM;
+      the module doc states explicitly this is a defensible choice among several (Trinity's 2nd–6th
+      together, Musical U's 2nds-first), not the only one.
+      *Proof: `intervals.test.ts` asserts the exact level-1 set and that each later level adds rather
+      than replaces (plus the pre-existing monotonic property test, unchanged); `IntervalAnswerButtons.
+      test.tsx` confirms the on-screen pad matches the new staging. `useEarTraining.test.ts` and
+      `EarTrainingScreen.test.tsx` updated throughout for the new level-1 draw (M3 instead of P5).*
 - [ ] 5.31 `app`: the SRS panel exposes Anki's internal vocabulary to a piano beginner — *Cards / Due /
       Young / Mature / Average ease 2.50* — on Ear training, Flashcards and Theory. Nobody learning
       piano knows what a mature card is. Replace with learner-facing language; keep the raw numbers
       behind a details toggle if they are wanted for debugging.
       *Proof: none of "Young", "Mature" or "ease" appears in the default view of any of the three
       screens; the underlying scheduler is untouched (its tests unchanged and still green).*
-- [ ] 5.32 `app/eartraining`: say on screen that the app cannot hear you sing. Vocal reproduction is
-      the response modality in ABRSM Grade 1 aural, Kodály, Dalcroze and Berklee; a multiple-choice
-      button is recognition, not internalisation — you can click an answer you cannot imagine. There
-      is no mic path until 5.7/B.1, so this is structural and should be *stated*, not hidden. (RCM is
-      the partial exception: it accepts keyboard playback as an equivalent response, so a
-      MIDI-answered drill is not unprecedented — say that too.)
-      *Proof: the statement is on the screen and asserted by a test, and it names the singing practice
-      the learner should do away from the app.*
-- [ ] 5.33 Copy bug: *"Not quite — it was perfect fifth, ascending"* is missing an article.
-      *Proof: the string reads "it was a perfect fifth"; a test covers the article for a vowel-initial
-      interval name too ("an augmented fourth").*
-- [ ] 5.34 Ear training also depends on **3.23** (dictation has no tempo reference — a phrase replayed
-      8% slow grades incorrect in 416 of 900 measured cases) and **3.26** (`EarAttempt.correct` is a
-      boolean, so dictation's already-computed `pitchAccuracy`/`rhythmAccuracy` are thrown away at the
-      attempt boundary). Dictation's 2–8 note bound is *correct* and worth keeping — RCM runs 3 notes
-      at Preparatory A to 9 at Level 6 — the refinement is scaling that bound with level rather than
-      using one window for everything.
-      *Proof: level 1 dictation prompts are 2–3 notes and level 5 prompts are 7–8, asserted over 200
-      generated items per level.*
+- [x] 5.32 `app/eartraining`: added a persistent on-screen statement, visible for every drill: "This
+      screen has no microphone — it can't hear you sing, only what you click or play on a keyboard.
+      RCM accepts keyboard playback like the answers here as an equivalent response, but ABRSM,
+      Kodály, Dalcroze and Berklee all grade aural skills by having you sing back what you heard. Get
+      the fuller benefit by singing the interval, chord or phrase back out loud — away from this
+      screen — before you check the answer below."
+      *Proof: `EarTrainingScreen.test.tsx`'s "states on screen that it cannot hear singing, names
+      RCM's keyboard exception, and tells the learner what to do instead" asserts the statement, the
+      named RCM exception, and the named away-from-the-app practice (sing back out loud); a second
+      test confirms it persists across drill selection.*
+- [x] 5.33 Copy bug fixed: `describeExpected` now prepends a phonetic (not orthographic) indefinite
+      article via a new `articleFor` helper — "it was a perfect fifth" / "it was an augmented fourth".
+      Class searched within the owned files: 1 reported, 1 found — `EarTrainingScreen.tsx`'s
+      wrong-answer feedback line is the only place this sentence is built.
+      *Proof: `EarTrainingScreen.test.tsx` asserts "it was a major third" from a real wrong answer
+      driven through the app; a dedicated `articleFor`/`describeExpected` suite covers every quality
+      this drill can produce, plus the "unison"-is-a-consonant-sound exception ("a unison" vs "an
+      octave") directly.*
+- [x] 5.34 `core/eartraining/dictation`: the 2–8 note bound now scales linearly by level via a new
+      `noteBoundsForLevel` — level 1 is 2–3 notes, level 5 is 7–8, levels 2–4 interpolate (3–4, 5–6,
+      6–7) — the outer bracket (`MIN_DICTATION_NOTES`/`MAX_DICTATION_NOTES`, still 2 and 8) is kept
+      exactly as REQ-3.6.1 states it, applied identically to both the melodic and rhythmic generators.
+      *Proof: `dictation.test.ts`'s new property test asserts level 1 is 2–3 notes and level 5 is 7–8,
+      over 200 generated items per level, for both kinds; a second property test pins the level-3
+      midpoint (5–6 notes) to guard against a mutant that scales only one end of the window.*
 
 ### Theory reference — **6/10 → 9**
 

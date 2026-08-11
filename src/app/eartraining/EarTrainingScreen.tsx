@@ -27,6 +27,7 @@ import type { ConnectMidi } from '@app/practice/useMidiConnection.ts'
 import { DictationAnswerPad } from './DictationAnswerPad.tsx'
 import { IntervalAnswerButtons } from './IntervalAnswerButtons.tsx'
 import { QualityAnswerButtons, humanize } from './QualityAnswerButtons.tsx'
+import { RevealPanel } from './RevealPanel.tsx'
 import { useEarTraining } from './useEarTraining.ts'
 
 export type EarTrainingScreenProps = {
@@ -80,18 +81,51 @@ function dictationNoteLabel(n: DictationGrade['notes'][number]): string {
 }
 
 /**
+ * `'a' 'perfect fifth'` / `'an' 'augmented fourth'` — the indefinite article
+ * `describeExpected` prepends to an interval's long name. Phonetic, not
+ * orthographic: English picks the article by the SOUND the following word
+ * starts with, not its spelling, and `intervalLongName`'s own vocabulary
+ * (`@core/theory/intervals.ts`'s `QUALITY_LONG`/`NUMBER_NAMES`) contains
+ * exactly one word where those disagree — "unison" is spelled with a leading
+ * vowel letter but spoken with a leading /j/ ("YOO-ni-sn"), a consonant
+ * sound, so it takes "a" like every consonant-initial word does ("a
+ * unison"). Every other word this drill can ever produce — the quality
+ * words ('perfect', 'major', 'minor', 'augmented', 'diminished', 'doubly
+ * diminished', 'doubly augmented') and 'octave' when a bare number ever
+ * leads — already gets the right answer from a plain vowel-letter check, so
+ * "unison" is the one deliberate override, not a growing exception table.
+ */
+const CONSONANT_SOUNDING_VOWEL_WORDS = new Set(['unison'])
+
+// eslint-disable-next-line react-refresh/only-export-components -- pure formatter, not a component; exported for direct unit test (mirrors `humanize` in QualityAnswerButtons.tsx)
+export function articleFor(phrase: string): 'a' | 'an' {
+  // Strip a trailing comma (a melodic answer reads "unison, ascending") so
+  // the lookup key is the bare word, not "unison,".
+  const firstWord = phrase.trim().split(/\s+/)[0]?.toLowerCase().replace(/[^a-z]/g, '') ?? ''
+  if (CONSONANT_SOUNDING_VOWEL_WORDS.has(firstWord)) return 'a'
+  return /^[aeiou]/.test(firstWord) ? 'an' : 'a'
+}
+
+/**
  * The wrong-answer feedback speaks the answer pads' own vocabulary — the
  * long interval name plus a direction word, or the humanized chord/scale
  * name — never the raw `EarGrade.expected` (an internal id like `-P5` or
  * `halfDiminished7`) a learner cannot map back to any button they saw.
+ *
+ * An interval name always gets its indefinite article prepended (roadmap
+ * 5.33: "it was perfect fifth" read as a copy bug, missing the article every
+ * other noun-phrase answer in English needs) — see `articleFor`'s own doc
+ * for why that article is chosen phonetically rather than by first letter.
  */
-function describeExpected(kind: EarItemKind, expected: string): string {
+// eslint-disable-next-line react-refresh/only-export-components -- pure formatter, not a component; exported for direct unit test (mirrors `humanize` in QualityAnswerButtons.tsx)
+export function describeExpected(kind: EarItemKind, expected: string): string {
   if (kind === 'interval-melodic' || kind === 'interval-harmonic') {
     const descending = expected.startsWith('-')
     const parsed = parseInterval(descending ? expected.slice(1) : expected)
     if (!parsed.ok) return expected
     const name = intervalLongName(parsed.value)
-    return kind === 'interval-melodic' ? `${name}, ${descending ? 'descending' : 'ascending'}` : name
+    const phrase = kind === 'interval-melodic' ? `${name}, ${descending ? 'descending' : 'ascending'}` : name
+    return `${articleFor(phrase)} ${phrase}`
   }
   return humanize(expected)
 }
@@ -122,6 +156,23 @@ export function EarTrainingScreen(props: EarTrainingScreenProps) {
   return (
     <div className="eartraining-screen">
       <h2>Ear Training</h2>
+
+      {/* roadmap 5.32: every answer pad here is multiple-choice or MIDI
+          playback — recognition, not the vocal reproduction ABRSM Grade 1
+          aural, Kodály, Dalcroze and Berklee all actually test, and this
+          drill has no microphone to grade singing even if it wanted to. RCM
+          is the partial exception (it accepts keyboard playback as an
+          equivalent response), so this both names the gap and says which
+          part of it this screen already covers. */}
+      <p className="eartraining-vocal-note">
+        This screen has no microphone — it can't hear you sing, only what you
+        click or play on a keyboard. RCM accepts keyboard playback like the
+        answers here as an equivalent response, but ABRSM, Kodály, Dalcroze
+        and Berklee all grade aural skills by having you sing back what you
+        heard. Get the fuller benefit by singing the interval, chord or
+        phrase back out loud — away from this screen — before you check the
+        answer below.
+      </p>
 
       <MidiDeviceStatus
         connected={drill.midi.input !== undefined}
@@ -259,6 +310,24 @@ export function EarTrainingScreen(props: EarTrainingScreenProps) {
             </ul>
           </div>
         </>
+      )}
+
+      {/* roadmap 5.29: shown for every graded item, correct or not — the
+          defect this feature fixes is that a CORRECT guess taught nothing
+          either, since nothing ever showed what was actually heard. Reuses
+          the existing "Replay" control above (already wired, already
+          tested) for "replay with the answer named": once this is on
+          screen, Replay plays the same item again while the naming/staff/
+          keyboard stay visible. */}
+      {drill.item !== undefined && drill.grade !== undefined && (
+        <RevealPanel
+          key={drill.item.id}
+          kind={kind}
+          item={drill.item}
+          {...(kind === 'interval-melodic' || kind === 'interval-harmonic'
+            ? { onPlayReference: drill.playIntervalReference }
+            : {})}
+        />
       )}
 
       <dl className="eartraining-stats" aria-label="Retention">

@@ -79,20 +79,21 @@ describe('useEarTraining — generating and playing', () => {
 
     expect(result.current.item).toBeDefined()
     expect(result.current.item?.kind).toBe('interval-melodic')
-    // Level 1, rng script all-zero: pool[0] = P5 (7 semitones), root at range.low
-    // (48) — ascending melodic, so 48 sounds before 55. An ear drill that plays
-    // nothing is exactly the defect class this suite exists to catch.
-    expect(audioOutput.playedNotes).toEqual([48, 55])
+    // Level 1 (roadmap 5.30: RCM staging, M3/m3 only), rng script all-zero:
+    // pool[0] = M3 (4 semitones), root at range.low (48) — ascending melodic,
+    // so 48 sounds before 52. An ear drill that plays nothing is exactly the
+    // defect class this suite exists to catch.
+    expect(audioOutput.playedNotes).toEqual([48, 52])
   })
 
   it('replay() plays the same item again, doubling what was sent', () => {
     const { result, audioOutput } = setup()
     act(() => result.current.start())
-    expect(audioOutput.playedNotes).toEqual([48, 55])
+    expect(audioOutput.playedNotes).toEqual([48, 52])
 
     act(() => result.current.replay())
 
-    expect(audioOutput.playedNotes).toEqual([48, 55, 48, 55])
+    expect(audioOutput.playedNotes).toEqual([48, 52, 48, 52])
   })
 
   it('a chord-quality item is also actually sent to the audio output', () => {
@@ -140,7 +141,7 @@ describe('useEarTraining — generating and playing', () => {
     const firstId = result.current.item?.id
     expect(firstId).toBeDefined()
 
-    act(() => result.current.answer({ kind: 'interval-melodic', interval: interval(3, 'minor'), direction: 1 }))
+    act(() => result.current.answer({ kind: 'interval-melodic', interval: P5, direction: 1 }))
     expect(result.current.grade?.correct).toBe(false)
 
     date.advance(2 * 60 * 60 * 1000)
@@ -148,7 +149,7 @@ describe('useEarTraining — generating and playing', () => {
     act(() => result.current.start())
 
     expect(result.current.item?.id).toBe(firstId)
-    expect(audioOutput.playedNotes).toEqual([48, 55])
+    expect(audioOutput.playedNotes).toEqual([48, 52])
   })
 })
 
@@ -156,11 +157,11 @@ describe('useEarTraining — grading', () => {
   it('a correct interval answer grades correct', () => {
     const { result } = setup()
     act(() => result.current.start())
-    expect(result.current.item?.answerKey).toBe('P5')
+    expect(result.current.item?.answerKey).toBe('M3')
 
-    act(() => result.current.answer({ kind: 'interval-melodic', interval: P5, direction: 1 }))
+    act(() => result.current.answer({ kind: 'interval-melodic', interval: M3, direction: 1 }))
 
-    expect(result.current.grade).toEqual({ correct: true, expected: 'P5', given: 'P5' })
+    expect(result.current.grade).toEqual({ correct: true, expected: 'M3', given: 'M3' })
     expect(result.current.phase).toBe('graded')
   })
 
@@ -171,7 +172,7 @@ describe('useEarTraining — grading', () => {
     act(() => result.current.answer({ kind: 'interval-melodic', interval: m3, direction: 1 }))
 
     expect(result.current.grade?.correct).toBe(false)
-    expect(result.current.grade?.expected).toBe('P5')
+    expect(result.current.grade?.expected).toBe('M3')
   })
 
   it('a correct chord-quality answer grades correct', () => {
@@ -218,7 +219,7 @@ describe('useEarTraining — recorded accuracy (roadmap 3.26)', () => {
   it('a correct multiple-choice answer records EarAttempt.accuracy exactly 1, a wrong one exactly 0', () => {
     const { result } = setup()
     act(() => result.current.start())
-    act(() => result.current.answer({ kind: 'interval-melodic', interval: P5, direction: 1 }))
+    act(() => result.current.answer({ kind: 'interval-melodic', interval: M3, direction: 1 }))
 
     expect(useEarTrainingStore.getState().session.attempts[0]?.accuracy).toBe(1)
 
@@ -236,7 +237,7 @@ describe('useEarTraining — level adaptation (REQ-3.6.3)', () => {
 
     for (let i = 0; i < 5; i++) {
       act(() => result.current.start())
-      act(() => result.current.answer({ kind: 'interval-melodic', interval: P5, direction: 1 }))
+      act(() => result.current.answer({ kind: 'interval-melodic', interval: M3, direction: 1 }))
     }
 
     expect(result.current.levels['interval-melodic']).toBe(2)
@@ -247,10 +248,10 @@ describe('useEarTraining — level adaptation (REQ-3.6.3)', () => {
 
     for (let i = 0; i < 4; i++) {
       act(() => result.current.start())
-      act(() => result.current.answer({ kind: 'interval-melodic', interval: P5, direction: 1 }))
+      act(() => result.current.answer({ kind: 'interval-melodic', interval: M3, direction: 1 }))
     }
     act(() => result.current.start())
-    act(() => result.current.answer({ kind: 'interval-melodic', interval: M3, direction: 1 }))
+    act(() => result.current.answer({ kind: 'interval-melodic', interval: m3, direction: 1 }))
 
     expect(result.current.levels['interval-melodic']).toBe(1)
   })
@@ -611,6 +612,70 @@ describe('useEarTraining — dictation answers (roadmap 3.11, REQ-3.6.1/3.6.2)',
     )
 
     expect(result.current.dictationNotes).toHaveLength(0)
+  })
+})
+
+describe('useEarTraining — playIntervalReference (roadmap 5.29)', () => {
+  it('plays the item\'s own interval from a fixed reference root (middle C), regardless of the drawn register', () => {
+    const { result, audioOutput, clock } = setup()
+    act(() => result.current.start())
+    // Level 1, rng script all-zero: pool[0] = M3 (4 semitones), drawn at
+    // register 48-52 (see the "generating and playing" describe block) —
+    // this asserts the reference plays from 60, NOT from that drawn register.
+    expect(result.current.item?.answerKey).toBe('M3')
+    audioOutput.reset()
+    const base = clock.now()
+
+    act(() => result.current.playIntervalReference())
+
+    const noteOns = audioOutput.calls.filter((c) => c.kind === 'noteOn')
+    expect(noteOns.map((c) => c.note)).toEqual([60, 64])
+    expect(noteOns[0]?.at).toBe(base)
+    expect(noteOns[1]!.at).toBeGreaterThan(noteOns[0]!.at)
+  })
+
+  it('is always ascending, even for a descending item', () => {
+    // Level 2, rng script [0, 0.9, 0]: draw 1 (pool pick) -> pool[0] = M3;
+    // draw 2 (direction) -> randomInt(rng,0,1) = floor(0.9*2) = 1 -> descending;
+    // draw 3 (lowMidi) -> range.low (48). See `pickDirection` in intervals.ts.
+    const { result, audioOutput, clock } = setup({ rng: scriptedRng([0, 0.9, 0]) })
+    act(() =>
+      useEarTrainingStore.setState((s) => ({
+        session: { ...s.session, levels: { ...s.session.levels, 'interval-melodic': 2 } },
+      })),
+    )
+    act(() => result.current.start())
+    expect(result.current.item?.answerKey).toBe('-M3') // sanity: this draw is descending
+    audioOutput.reset()
+    const base = clock.now()
+
+    act(() => result.current.playIntervalReference())
+
+    const noteOns = audioOutput.calls.filter((c) => c.kind === 'noteOn')
+    // Ascending regardless of the item's own (descending) direction: the
+    // lower reference pitch (60) plays first, the higher one second.
+    expect(noteOns[0]?.note).toBe(60)
+    expect(noteOns[1]?.note).toBe(64)
+    expect(noteOns[0]?.at).toBe(base)
+    expect(noteOns[1]!.at).toBeGreaterThan(noteOns[0]!.at)
+  })
+
+  it('does nothing for a chord-quality item', () => {
+    const { result, audioOutput } = setup({ kind: 'chord-quality' })
+    act(() => result.current.start())
+    audioOutput.reset()
+
+    act(() => result.current.playIntervalReference())
+
+    expect(audioOutput.calls).toHaveLength(0)
+  })
+
+  it('does nothing with no item loaded yet', () => {
+    const { result, audioOutput } = setup()
+
+    act(() => result.current.playIntervalReference())
+
+    expect(audioOutput.calls).toHaveLength(0)
   })
 })
 
