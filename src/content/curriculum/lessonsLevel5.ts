@@ -55,11 +55,10 @@ export const LEVEL_5_LESSONS: readonly Lesson[] = [
       "Play all three forms of A minor back to back, ascending, and listen for exactly where each " +
       'one departs from natural minor: nowhere, the 7th only, or both the 6th and 7th.\n\n' +
       '[diagram:staff-minor-scale-forms]',
-    // No demo plays a minor scale directly (the closest existing content is
-    // the C major / A minor relative-key triad demo — raised as a gap, not
-    // fixed here, since src/content/scores/demoScores.ts belongs to another
-    // task).
-    demoScoreId: demo('demo-c-major-and-a-minor-triads'),
+    // roadmap 5.10: the prior demo was a chord pair, not a scale at all. Now
+    // plays A natural, harmonic and melodic minor ascending, one octave each,
+    // exactly as the prose describes.
+    demoScoreId: demo('demo-a-minor-three-scale-forms'),
     exercises: [
       // SCALE_TYPES_BY_LEVEL[3] (level 4) is the first tier that includes
       // ALL FOUR scale types this quiz can then draw — melodicMinor only
@@ -90,11 +89,10 @@ export const LEVEL_5_LESSONS: readonly Lesson[] = [
       'the borrowed D major chord adds — it makes the arrival on G sound like a small destination of ' +
       "its own, not just another stop along the way to C.\n\n" +
       '[diagram:staff-secondary-dominant]',
-    // No demo isolates a secondary dominant (a real gap — flagged, not
-    // fixed here). The I-V-I demo is the closest on-topic content: the same
-    // dominant-to-tonic relationship this lesson relocates onto a
-    // non-tonic target.
-    demoScoreId: demo('demo-i-v-i-c-major'),
+    // roadmap 5.10: the prior demo (plain I-V-I) never played the borrowed D
+    // major chord at all. Now plays D major (V/V) resolving to G major (V),
+    // then C major (I), exactly the V/V-V-I the prose names.
+    demoScoreId: demo('demo-secondary-dominant-v-of-v-c-major'),
     exercises: [
       // No quiz kind tests the APPLIED relationship (which chord is being
       // tonicised) directly — `build-chord` tests the actual skill a
@@ -127,12 +125,12 @@ export const LEVEL_5_LESSONS: readonly Lesson[] = [
       'were the new I: that single reinterpreted chord — the same notes, a different function — is a ' +
       "pivot modulation, and it is exactly why closely related keys are the easiest place to start.\n\n" +
       '[diagram:staff-modulation-c-to-g]',
-    // No demo modulates mid-score with a genuine key-signature change on a
-    // progression (a real gap — flagged, not fixed here). The circle-of-
-    // fifths demo is the closest on-topic content: it already plays the
-    // exact neighbouring keys (C, then G, then F) this lesson calls
-    // "closely related".
-    demoScoreId: demo('demo-circle-of-fifths-c-g-f'),
+    // roadmap 5.10: the prior demo (circle-of-fifths) never restated a chord
+    // across the pivot — it played three separate scale runs, no shared
+    // chord reinterpreted. Now plays the actual pivot: C major's own V (G
+    // major) restated as the new key's I once the signature gains its sharp,
+    // then that key's own V (D major), exactly as the prose describes.
+    demoScoreId: demo('demo-modulation-c-major-to-g-major'),
     exercises: [
       // No quiz kind tests modulation directly. `name-key-signature` tests
       // the prerequisite skill this lesson depends on: recognising a

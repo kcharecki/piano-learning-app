@@ -290,7 +290,8 @@ export const LEVEL_3_LESSONS: readonly Lesson[] = [
       'skill as before, just with one more altered note to track from the key signature.\n\n' +
       'As always, name the key signature\'s altered notes silently before playing a single note — the ' +
       'habit that made one-accidental keys manageable scales directly to two.\n\n' +
-      '[diagram:d-major-scale]',
+      '[diagram:d-major-scale]\n' +
+      '[diagram:b-flat-major-scale]',
     demoScoreId: demo('demo-keys-d-major-and-b-flat-major'),
     exercises: [
       sightReadEx('l3-keys-to-two-sharps-flats-ex1', 3, 10),

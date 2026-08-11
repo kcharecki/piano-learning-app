@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { notesInMeasure, validateScore, type ScoreNote } from '@core/notation/score.ts'
-import { TICKS_PER_QUARTER } from '@core/shared/units.ts'
+import { midi, TICKS_PER_QUARTER } from '@core/shared/units.ts'
 import { analyseScore } from '@core/theory/analysis.ts'
+import { buildChord } from '@core/theory/chords.ts'
+import { classifyCadence, romanNumeralFor } from '@core/theory/harmony.ts'
 import { keyFromFifths } from '@core/theory/keys.ts'
+import { spell } from '@core/theory/pitch.ts'
 import { DEMO_SCORES, demoScoreById, type DemoScore } from './demoScores.ts'
 
 const KEBAB_CASE = /^[a-z0-9]+(-[a-z0-9]+)*$/
@@ -34,6 +37,12 @@ const AUTHORED_DEMO_IDS = [
   'demo-i-iv-i-c-major',
   'demo-authentic-cadence-c-major',
   'demo-c-major-and-a-minor-triads',
+  'demo-g-major-to-g-dominant-seventh',
+  'demo-four-cadence-types-c-major',
+  'demo-common-progressions-c-major',
+  'demo-a-minor-three-scale-forms',
+  'demo-secondary-dominant-v-of-v-c-major',
+  'demo-modulation-c-major-to-g-major',
   'demo-hands-together-parallel-motion-c',
   'demo-lh-root-rh-melody-simple-piece',
   'demo-g-major-scale-one-octave-rh',
@@ -117,12 +126,18 @@ describe('DEMO_SCORES registry', () => {
     'demo-i-iv-i-c-major': 0,
     'demo-c-major-and-a-minor-triads': 0,
     'demo-contrary-motion-different-rhythms-c': 0,
+    'demo-g-major-to-g-dominant-seventh': 0,
+    'demo-four-cadence-types-c-major': 0,
+    'demo-common-progressions-c-major': 0,
+    'demo-a-minor-three-scale-forms': 0,
+    'demo-secondary-dominant-v-of-v-c-major': 0,
   }
 
   const MIXED_KEY_DEMO_IDS = [
     'demo-key-signatures-g-and-f',
     'demo-keys-d-major-and-b-flat-major',
     'demo-circle-of-fifths-c-g-f',
+    'demo-modulation-c-major-to-g-major',
   ]
 
   it('every single-key demo carries its documented key signature throughout', () => {
@@ -164,6 +179,11 @@ describe('DEMO_SCORES registry', () => {
   it('demo-circle-of-fifths-c-g-f changes key mid-score: C major, then G major (1 sharp), then F major (1 flat)', () => {
     const demo = requireDemo('demo-circle-of-fifths-c-g-f')
     expect(demo.score.measures.map((m) => m.keyFifths)).toEqual([0, 0, 1, 1, -1, -1])
+  })
+
+  it('demo-modulation-c-major-to-g-major changes key mid-score: C major, then G major (1 sharp) — the pivot (roadmap 5.10)', () => {
+    const demo = requireDemo('demo-modulation-c-major-to-g-major')
+    expect(demo.score.measures.map((m) => m.keyFifths)).toEqual([0, 0, 1, 1])
   })
 
   it('every entry has a unique, non-empty, kebab-case id', () => {
@@ -268,6 +288,94 @@ describe('harmony demonstrations analyse as intended', () => {
     expect(analysis.chords.map((c) => c.numeral?.degree)).toEqual([5, 1])
     expect(analysis.chords.map((c) => c.numeral?.inversion)).toEqual([0, 0])
     expect(analysis.cadences.some((c) => c.type === 'perfect-authentic')).toBe(true)
+  })
+
+  // ---------------------------------------------------------------------------
+  // roadmap 5.10 — the six real demonstrations for the level 4-5 topics that
+  // previously pointed at an existing-but-off-topic demo (see
+  // `harmonyDemoScores.ts`'s own module comment for the full list of what was
+  // closed). Same discipline as the 5.9a tests above: read the demo's own
+  // notes back through the same theory core the lesson teaches from, never
+  // just its title.
+  // ---------------------------------------------------------------------------
+
+  it("demo-g-major-to-g-dominant-seventh reads as V (triad), then V (dominant 7th) — the extra note roadmap 5.10's l4-seventh-chords lesson names", () => {
+    const score = requireDemo('demo-g-major-to-g-dominant-seventh').score
+    const analysis = analyseScore(score, cMajor)
+    expect(analysis.chords.map((c) => c.numeral?.degree)).toEqual([5, 5])
+    expect(analysis.chords.map((c) => c.numeral?.quality)).toEqual(['major', 'dominant7'])
+
+    const rightHandNotesByMeasure = [0, 1].map(
+      (m) => notesInMeasure(score, m).filter((n) => n.hand === 'right').length,
+    )
+    expect(rightHandNotesByMeasure, 'the triad has 3 right-hand notes, the 7th chord 4').toEqual([3, 4])
+  })
+
+  it('demo-four-cadence-types-c-major plays I-V-I-IV-I-V-vi — every degree/quality the four named cadence types need (roadmap 5.10)', () => {
+    const analysis = analyseScore(requireDemo('demo-four-cadence-types-c-major').score, cMajor)
+    expect(analysis.chords.map((c) => c.numeral?.degree)).toEqual([1, 5, 1, 4, 1, 5, 6])
+    expect(analysis.chords.map((c) => c.numeral?.quality)).toEqual([
+      'major',
+      'major',
+      'major',
+      'major',
+      'major',
+      'major',
+      'minor',
+    ])
+  })
+
+  it('demo-four-cadence-types-c-major genuinely contains a perfect authentic, a plagal, a half and a deceptive cadence (roadmap 5.10)', () => {
+    // Proven directly against `classifyCadence` on the same root-position
+    // `Chord` objects `harmonyDemoScores.ts` builds the notes from, rather
+    // than relying on `analyseScore`'s harmonic-run heuristics to surface
+    // every internal pair — see that file's own comment on this demo for why.
+    const cMajorTriad = buildChord(spell('C', 0, 4), 'major', 0)
+    const gMajorTriad = buildChord(spell('G', 0, 4), 'major', 0)
+    const fMajorTriad = buildChord(spell('F', 0, 4), 'major', 0)
+    const aMinorTriad = buildChord(spell('A', 0, 4), 'minor', 0)
+    const TONIC_C5 = midi(72)
+
+    expect(classifyCadence(gMajorTriad, cMajorTriad, cMajor, TONIC_C5)).toBe('perfect-authentic')
+    expect(classifyCadence(fMajorTriad, cMajorTriad, cMajor)).toBe('plagal')
+    expect(classifyCadence(cMajorTriad, gMajorTriad, cMajor)).toBe('half')
+    expect(classifyCadence(gMajorTriad, aMinorTriad, cMajor)).toBe('deceptive')
+  })
+
+  it('demo-common-progressions-c-major plays I-IV-V-I, then ii-V-I, then I-vi-IV-V — all three named progressions (roadmap 5.10)', () => {
+    const analysis = analyseScore(requireDemo('demo-common-progressions-c-major').score, cMajor)
+    expect(analysis.chords.map((c) => c.numeral?.degree)).toEqual([1, 4, 5, 1, 2, 5, 1, 1, 6, 4, 5])
+    expect(analysis.chords.map((c) => c.numeral?.quality)).toEqual([
+      'major',
+      'major',
+      'major',
+      'major',
+      'minor',
+      'major',
+      'major',
+      'major',
+      'minor',
+      'major',
+      'major',
+    ])
+  })
+
+  it('demo-secondary-dominant-v-of-v-c-major reads D major as V/V (the applied dominant), resolving to plain V, then I (roadmap 5.10)', () => {
+    const analysis = analyseScore(requireDemo('demo-secondary-dominant-v-of-v-c-major').score, cMajor)
+    expect(analysis.chords.map((c) => c.numeral?.text)).toEqual(['V/V', 'V', 'I'])
+    expect(analysis.chords[0]?.numeral?.appliedTo, 'D major is applied TO degree 5 (V)').toBe(5)
+    expect(analysis.chords[1]?.numeral?.appliedTo, 'the plain G major V is not itself applied').toBeUndefined()
+  })
+
+  it('demo-modulation-c-major-to-g-major restates the identical G major triad as V in C, then as I in G — the pivot the lesson names (roadmap 5.10)', () => {
+    const gMajorTriad = buildChord(spell('G', 0, 4), 'major', 0)
+    const dMajorTriad = buildChord(spell('D', 0, 4), 'major', 0)
+    const cMajorKey = keyFromFifths(0, 'major')
+    const gMajorKey = keyFromFifths(1, 'major')
+
+    expect(romanNumeralFor(gMajorTriad, cMajorKey)?.degree, 'G major is V in C major').toBe(5)
+    expect(romanNumeralFor(gMajorTriad, gMajorKey)?.degree, 'the SAME chord is I in G major').toBe(1)
+    expect(romanNumeralFor(dMajorTriad, gMajorKey)?.degree, "D major is G major's own V").toBe(5)
   })
 })
 
@@ -414,5 +522,34 @@ describe('non-harmony demonstrations carry the content they claim to', () => {
     const leftBar2Direction = at(leftBar2, leftBar2.length - 1).midi - at(leftBar2, 0).midi
     expect(rightBar2Direction).toBeLessThan(0)
     expect(leftBar2Direction).toBeGreaterThan(0)
+  })
+
+  it('demo-a-minor-three-scale-forms actually sounds three different 6th/7th degrees, not the same scale three times (roadmap 5.10)', () => {
+    const score = requireDemo('demo-a-minor-three-scale-forms').score
+    const BAR8_TICKS = TICKS_PER_QUARTER * 8
+    const naturalRun = score.notes.filter((n) => n.startTick < BAR8_TICKS).map((n) => n.midi % 12)
+    const harmonicRun = score.notes
+      .filter((n) => n.startTick >= BAR8_TICKS && n.startTick < BAR8_TICKS * 2)
+      .map((n) => n.midi % 12)
+    const melodicRun = score.notes.filter((n) => n.startTick >= BAR8_TICKS * 2).map((n) => n.midi % 12)
+
+    // Natural minor: plain F and G, no raised 7th.
+    expect(naturalRun).toContain(5) // F
+    expect(naturalRun).toContain(7) // G
+    expect(naturalRun).not.toContain(8) // G# — the harmonic/melodic raised 7th
+
+    // Harmonic minor: raises the 7th (G#) but keeps the plain 6th (F).
+    expect(harmonicRun).toContain(5) // F
+    expect(harmonicRun).toContain(8) // G#
+    expect(harmonicRun).not.toContain(6) // F# — only melodic minor raises the 6th
+
+    // Melodic minor ascending: raises BOTH the 6th (F#) and 7th (G#).
+    expect(melodicRun).toContain(6) // F#
+    expect(melodicRun).toContain(8) // G#
+    expect(melodicRun).not.toContain(5) // F natural
+
+    expect(naturalRun.length).toBe(8)
+    expect(harmonicRun.length).toBe(8)
+    expect(melodicRun.length).toBe(8)
   })
 })
