@@ -1,0 +1,41 @@
+/**
+ * Roadmap 5.23 — the two safety surfaces on the Technique screen: a standing
+ * "what MIDI cannot see" statement (always visible, not a card that begs to
+ * be dismissed) and a periodic posture-check prompt (visually louder, since
+ * it is asking for an action). Scoped to this screen and imported directly
+ * by `TechniqueScreen.tsx` — this feature does not own any shared
+ * stylesheet, so it ships its own file built only from design tokens
+ * (`src/design-system/tokens/*`), the same custom properties every other
+ * screen's styling reads from.
+ */
+
+.technique-safety-note {
+  margin: 0 0 var(--space-3) 0;
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--border-2);
+  background: var(--bg-1);
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.technique-posture-prompt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-3) 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--warn);
+  border-radius: var(--radius-2);
+  background: var(--bg-2);
+}
+
+.technique-posture-prompt p {
+  margin: 0;
+  flex: 1;
+  min-width: 220px;
+  color: var(--text-1);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}

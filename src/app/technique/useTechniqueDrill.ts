@@ -38,6 +38,14 @@
  * as a `<technical><fingering>` notation, placed above the staff for the
  * right hand and below for the left, and OSMD draws it natively above/below
  * its own notehead — no separate text readout on the screen needed.
+ *
+ * ## What MIDI cannot see (roadmap 5.23)
+ *
+ * Everything this hook scores comes from note-on/note-off events: pitch and
+ * timing only. A clean, rising tempo history is not a technique validation —
+ * see `posturePromptSchedule.ts` for the periodic human-check schedule this
+ * hook drives from `clock`, and `TechniqueScreen.tsx` for the standing
+ * on-screen statement.
  */
 import { createBrowserClock } from '@app/practice/clock.ts'
 import { createPlayableInput, type PlayableMidiInput } from '@app/practice/playableInput.ts'
@@ -66,6 +74,14 @@ import {
 } from '@core/technique/evenness.ts'
 import { techniqueLibrary, techniqueScore, type TechniqueDrill } from '@core/technique/library.ts'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  acknowledgePrompt as acknowledgePostureSchedule,
+  addAttempt as addPostureAttempt,
+  addRunningTime as addPostureRunningTime,
+  INITIAL_POSTURE_SCHEDULE_STATE,
+  isPosturePromptDue,
+  type PostureScheduleState,
+} from './posturePromptSchedule.ts'
 
 const FALLBACK_BPM = 60
 const DEFAULT_TIME_SIGNATURE: TimeSignature = { beats: 4, beatType: 4 }
@@ -95,6 +111,10 @@ export type TechniqueDrillApi = {
   /** REQ-3.7.3: this drill's clean-tempo history, oldest first. */
   readonly history: readonly TempoPoint[]
   readonly bestBpm: number
+  /** REQ-5.23: a human posture/technique check is due — see `posturePromptSchedule.ts`. */
+  readonly posturePromptDue: boolean
+  /** The learner confirmed a human check; restarts the schedule from zero. */
+  readonly acknowledgePosturePrompt: () => void
   readonly setDrillId: (id: string) => void
   readonly setBpm: (bpm: number) => void
   /** No-op if no drill is selected or a run is already in progress. */
@@ -118,6 +138,12 @@ type Run = {
   /** The clock instant onsets are measured relative to. */
   readonly anchorMs: number
   readonly onsets: number[]
+  /** `clock.now()` when `start()` ran — the wall-time baseline the posture
+   *  schedule's running-time counter is credited from on `stop()` (roadmap
+   *  5.23). Deliberately the moment Start was pressed, not `anchorMs`
+   *  (which is offset by the count-in): the learner's hands are already at
+   *  the keyboard for the count-in bar, so that time counts too. */
+  readonly startedAtMs: number
 }
 
 function firstIdOf(drills: readonly TechniqueDrill[]): string | undefined {
@@ -196,6 +222,19 @@ export function useTechniqueDrill(options: UseTechniqueDrillOptions): TechniqueD
   const [lastAttempt, setLastAttempt] = useState<TechniqueAttempt | undefined>(undefined)
   const runRef = useRef<Run | undefined>(undefined)
 
+  // REQ-5.23: the posture-prompt schedule (`posturePromptSchedule.ts`) is
+  // pure and knows nothing about React, Clock or this hook's Run bookkeeping
+  // — it only answers "given these two counters, is a check due?". This
+  // state IS the counters; `stop()` below is the only place that advances
+  // them, from `clock`, never `Date.now()`.
+  const [postureSchedule, setPostureSchedule] = useState<PostureScheduleState>(
+    INITIAL_POSTURE_SCHEDULE_STATE,
+  )
+  const posturePromptDue = useMemo(() => isPosturePromptDue(postureSchedule), [postureSchedule])
+  function acknowledgePosturePrompt(): void {
+    setPostureSchedule(acknowledgePostureSchedule())
+  }
+
   // The run's actual input (roadmap 5.5a, mirrors `playableInput.ts`'s
   // reasoning on Practice): NOT `midi.input` directly, which is `undefined`
   // wherever Web MIDI is absent and left this screen's on-screen/qwerty
@@ -252,7 +291,8 @@ export function useTechniqueDrill(options: UseTechniqueDrillOptions): TechniqueD
     // learner starts on the next click, not mid-frame-zero, and needs the
     // clicked-out bar to find the tempo before the first note is due.
     const barTicks = measureDurationTicks(score.measures[0]?.timeSignature ?? DEFAULT_TIME_SIGNATURE)
-    const anchorMs = clock.now() + (tickToMs(tempo, barTicks) as number)
+    const startedAtMs = clock.now()
+    const anchorMs = startedAtMs + (tickToMs(tempo, barTicks) as number)
     runRef.current = {
       drillId: drill.id,
       bpm: metronome.bpm,
@@ -261,6 +301,7 @@ export function useTechniqueDrill(options: UseTechniqueDrillOptions): TechniqueD
       matcher: new NoteMatcher(score, tempo),
       anchorMs,
       onsets: [],
+      startedAtMs,
     }
     practiceLogRef.current.start('technique', drill.title)
     setLastAttempt(undefined)
@@ -271,6 +312,12 @@ export function useTechniqueDrill(options: UseTechniqueDrillOptions): TechniqueD
     metronome.stop()
     if (run === undefined) return
     runRef.current = undefined
+    // REQ-5.23: credit this run's wall time toward the posture-prompt
+    // schedule regardless of whether it produced a scored attempt below —
+    // time spent drilling under static tension counts even on a run nobody
+    // played a note in.
+    const ranMs = (clock.now() as number) - run.startedAtMs
+    setPostureSchedule((prev) => addPostureRunningTime(prev, ranMs))
     // A run with no input at all (Start pressed then Stop, or no MIDI
     // keyboard connected) has nothing to score: `evennessOf([])` would report
     // a misleadingly perfect 1, and a junk row would consume one of the
@@ -300,6 +347,9 @@ export function useTechniqueDrill(options: UseTechniqueDrillOptions): TechniqueD
     }
     addAttempt(attempt)
     setLastAttempt(attempt)
+    // REQ-5.23: a completed, scored attempt is one rep toward the
+    // repetition-count half of the posture schedule.
+    setPostureSchedule((prev) => addPostureAttempt(prev))
     practiceLogRef.current.stop({ accuracy, tempoBpm: run.bpm })
   }
 
@@ -321,6 +371,8 @@ export function useTechniqueDrill(options: UseTechniqueDrillOptions): TechniqueD
     lastAttempt,
     history,
     bestBpm,
+    posturePromptDue,
+    acknowledgePosturePrompt,
     setDrillId,
     setBpm: metronome.setBpm,
     start,
