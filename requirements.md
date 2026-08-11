@@ -77,7 +77,7 @@ This is the core "interactive way of playing" feature.
 
 **REQ-3.3.1** — The app SHALL receive input from a MIDI keyboard (USB and, if feasible, Bluetooth MIDI) and detect note pitch, timing, velocity, and duration.
 
-**REQ-3.3.2** — In **practice mode**, the app SHALL compare played notes against the score in real time and mark each note as correct, wrong pitch, missed, or extra, with timing feedback (early/late).
+**REQ-3.3.2** — In **practice mode**, the app SHALL compare played notes against the score in real time and mark each note as correct, wrong pitch, missed, or extra, with timing feedback (early/late). This judges onset pitch and timing only: note duration is not scored, so a note released the instant it is struck, or held far past its written value, is still marked correct. The app SHALL state this limitation somewhere reachable from the Practice screen in one click, rather than implying the accuracy percentage is a complete judgement of what was played.
 
 **REQ-3.3.3** — A **wait mode** SHALL be available in which playback pauses until the correct note(s) are played — essential for beginners learning hands together.
 

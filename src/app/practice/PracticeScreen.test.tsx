@@ -896,3 +896,76 @@ describe('PracticeScreen — progressive disclosure by track level (roadmap 5.17
     expect(screen.getByRole('checkbox', { name: 'Read ahead' })).toBeChecked()
   })
 })
+
+// Roadmap 5.18: the controls 5.17 left ungated (loop range, hands, metronome,
+// wait mode, record/replay) move from five flat top-level siblings into one
+// collapsible "Practice setup" section.
+describe('PracticeScreen — control hierarchy (roadmap 5.18)', () => {
+  it('groups loop range, hand mute, metronome and record/replay inside one "Practice setup" disclosure, open by default', () => {
+    setPlayingLevel(3)
+    loadSampleScore()
+    render(<PracticeScreen midiInput={new FakeMidiInput()} />)
+
+    const summary = screen.getByText('Practice setup')
+    const section = summary.closest('details')
+    expect(section).not.toBeNull()
+    // Open by default (unlike "More tools"): these are the controls 5.17
+    // already promises a level-1 learner sees without an extra click.
+    expect(section).toHaveAttribute('open')
+
+    invariant(section !== null, 'Practice setup <details> must exist')
+    expect(section).toContainElement(screen.getByRole('group', { name: 'Loop range' }))
+    expect(section).toContainElement(screen.getByRole('radio', { name: 'Right hand only' }))
+    expect(section).toContainElement(screen.getByRole('checkbox', { name: 'Metronome' }))
+    expect(section).toContainElement(screen.getByRole('group', { name: 'Record and replay' }))
+  })
+
+  it('is a real, closable disclosure — not just a styled wrapper', async () => {
+    setPlayingLevel(3)
+    loadSampleScore()
+    const user = userEvent.setup()
+    render(<PracticeScreen midiInput={new FakeMidiInput()} />)
+
+    const summary = screen.getByText('Practice setup')
+    await user.click(summary)
+    expect(summary.closest('details')).not.toHaveAttribute('open')
+  })
+
+  it('includes wait mode inside "Practice setup" once it is unlocked', () => {
+    setPlayingLevel(2)
+    loadSampleScore()
+    render(<PracticeScreen midiInput={new FakeMidiInput()} />)
+
+    const section = screen.getByText('Practice setup').closest('details')
+    invariant(section !== null, 'Practice setup <details> must exist')
+    expect(section).toContainElement(screen.getByRole('checkbox', { name: 'Wait for me' }))
+  })
+})
+
+// Roadmap 5.48 (REQ-3.3.2): the matcher judges onset pitch and timing only —
+// duration is never scored — and the screen has to say so, reachable from
+// Practice in one click.
+describe('PracticeScreen — accuracy caveat (roadmap 5.48)', () => {
+  it('states the onsets-only limitation behind a one-click, closed-by-default disclosure', async () => {
+    loadSampleScore()
+    const user = userEvent.setup()
+    render(<PracticeScreen midiInput={new FakeMidiInput()} />)
+
+    const summary = screen.getByText("What this screen doesn't check")
+    const details = summary.closest('details')
+    expect(details).not.toBeNull()
+    // Closed by default — not a permanent block of prose (roadmap 5.18's own
+    // decluttering goal). Native `<details>` keeps its body in the DOM even
+    // while closed (the browser hides it at the rendering layer, which is
+    // exactly what the `open` attribute check below stands in for here), so
+    // this asserts the `open` state rather than the body's DOM presence — the
+    // same pattern the "More tools" disclosure (roadmap 5.17) already uses.
+    expect(details).not.toHaveAttribute('open')
+
+    await user.click(summary)
+
+    expect(details).toHaveAttribute('open')
+    expect(screen.getByText(/not how long you held them/i)).toBeInTheDocument()
+    expect(screen.getByText(/hand position, wrist, or posture/i)).toBeInTheDocument()
+  })
+})

@@ -2,3 +2,87 @@
    Single-writer by construction: exactly one parallel session owns this file, so
    a round of concurrent worktrees never conflicts inside domain.css. Rules that
    outlive their feature's round get folded back into domain.css by the integrator. */
+
+/* ---------- Practice screen collapsible sections (roadmap 5.18) ----------
+   `.practice-setup` (new) and `.practice-more-tools` (5.17, previously
+   unstyled — rendering as a bare native <details>) share one convention: a
+   bordered, padded box with a styled disclosure triangle on the summary, so
+   both read as sections rather than as one more flat control. Two rule sets,
+   one selector list, because they are the same pattern applied to two
+   `<details>` at two different disclosure levels — 5.18 asks for sections,
+   not a bespoke look per section. */
+.practice-setup,
+.practice-more-tools {
+  margin: var(--space-4) 0;
+  padding: var(--space-3);
+  border: var(--border-w) solid var(--border-1);
+  border-radius: var(--radius-2);
+  background: var(--bg-1);
+}
+.practice-setup > summary,
+.practice-more-tools > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-md);
+  color: var(--text-1);
+  /* Browsers already draw a default marker; this is the one we style below. */
+  list-style: none;
+}
+.practice-setup > summary::-webkit-details-marker,
+.practice-more-tools > summary::-webkit-details-marker {
+  display: none;
+}
+/* A glyph, not colour alone, marks open vs. closed (docs/DESIGN.md rule 8). */
+.practice-setup > summary::before,
+.practice-more-tools > summary::before {
+  content: "\25b8"; /* ▸ */
+  display: inline-block;
+  color: var(--text-2);
+  transition: transform var(--dur-1) var(--ease-out);
+}
+.practice-setup[open] > summary::before,
+.practice-more-tools[open] > summary::before {
+  transform: rotate(90deg);
+}
+.practice-setup-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+/* ---------- Accuracy caveat (roadmap 5.48) ----------
+   Deliberately NOT the bordered-box treatment above: this is one quiet line,
+   not a section, so it never competes for weight with Play or the score. */
+.practice-accuracy-caveat {
+  margin: 0 0 var(--space-3);
+}
+.practice-accuracy-caveat > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  list-style: none;
+}
+.practice-accuracy-caveat > summary::-webkit-details-marker {
+  display: none;
+}
+.practice-accuracy-caveat > summary::before {
+  content: "\25b8"; /* ▸ */
+  display: inline-block;
+  transition: transform var(--dur-1) var(--ease-out);
+}
+.practice-accuracy-caveat[open] > summary::before {
+  transform: rotate(90deg);
+}
+.practice-accuracy-caveat p {
+  max-width: 60ch;
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
