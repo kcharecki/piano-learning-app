@@ -21,6 +21,7 @@ import { GRADED_PIECES, type GradedPiece } from '@content/repertoire/gradedPiece
 import { gradedScoreById, gradedScoreXmlById } from '@content/scores/gradedScoreFiles.ts'
 import { useRepertoireStore } from '@app/state/repertoireStore.ts'
 import { useScoreStore } from '@app/state/scoreStore.ts'
+import { useLevelStore } from '@app/state/levelStore.ts'
 
 export type UseRepertoireOptions = {
   /** Wall-clock reading for "now" — defaults to the real browser clock, exactly as useDashboard does. */
@@ -42,6 +43,12 @@ export type UseRepertoireResult = {
   addLoadedScore(level: number): void
   /** The shipped graded catalogue (`GRADED_PIECES`), ascending by level then title. */
   readonly catalogue: readonly GradedPiece[]
+  /**
+   * The learner's current 'playing' track level (`@app/state/levelStore.ts`) —
+   * roadmap 5.3's "below the learner's level, not at it" filter compares
+   * catalogue entries against this.
+   */
+  readonly playingLevel: number
   /** Catalogue ids already present in the learner's library. */
   readonly catalogueAddedIds: ReadonlySet<string>
   /**
@@ -84,6 +91,7 @@ export function useRepertoire(options: UseRepertoireOptions = {}): UseRepertoire
   const setNotesInStore = useRepertoireStore((s) => s.setNotes)
   const loaded = useScoreStore((s) => s.loaded)
   const loadScore = useScoreStore((s) => s.loadScore)
+  const playingLevel = useLevelStore((s) => s.levelState.levels.playing)
 
   const [addError, setAddError] = useState<string | undefined>(undefined)
 
@@ -172,6 +180,7 @@ export function useRepertoire(options: UseRepertoireOptions = {}): UseRepertoire
     addError,
     addLoadedScore,
     catalogue: GRADED_PIECES,
+    playingLevel,
     catalogueAddedIds,
     addFromCatalogue,
     setStatus: setStatusInStore,
