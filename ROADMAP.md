@@ -30,6 +30,29 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
       concatenation instead of a literal, so knip's import scanner can't statically match it; runtime
       behaviour in the page is unchanged. Proof: `npm run knip` clean, `npx playwright test
       e2e/audio-clock-drift.spec.ts` still passes (adapter anchor holds, driftPpm -271.76).
+- [x] T.5 M4 acceptance Defect 1 (REQ-3.8.2): `core/repertoire/repertoire.ts`'s `recordSession`
+      (and the `bestAccuracy` it maintains) had zero call sites in `src/app/**` outside test files
+      — a repertoire piece's practice history could never leave "never practised" no matter how
+      much a learner actually played it. Fixed in `app/practice/usePracticeLog.ts`: `stop()` (and
+      its unmount safety net) now call `useRepertoireStore.getState().recordSession` when the
+      finished entry is `kind: 'repertoire'`, its `itemId` (the loaded score's id) matches a
+      library piece's `scoreId`, and the session ran at least 1s (below that is treated as an
+      accidental Play/Stop tap, not practice — see that file's module comment for the argument).
+      One wiring point covers both an ordinary practice run and an assessment run: both drive the
+      same `engine.phase` transitions `PracticeScreen.tsx`'s existing start/stop effect watches, so
+      `bestAccuracy` (derived from `session.accuracy` inside core's own `recordSession`) is fixed
+      by the same call — no second gap found. Downstream REQ-3.8.4 consequence (a "maintained"
+      piece was always immediately due because `sessions` could never become non-empty) no longer
+      holds once a piece receives a real recorded session; still true, correctly, for a piece
+      never yet practised (core's own "never practised = due immediately" rule, unchanged).
+      Proof: `npx playwright test e2e/m4-acceptance-repertoire-practice-history.spec.ts` passes for
+      real (`test.fail()` deleted) — add Greensleeves, open in Practice, play it, stop, the
+      Repertoire row no longer reads "never practised". Scoped `vitest run src/app/practice
+      src/app/state/repertoireStore.test.ts src/core/repertoire`: 63 passed, incl. 8 new cases
+      covering the scoreId match, the duration floor, a non-repertoire kind, an unmatched itemId,
+      and — asserted, not assumed — that the unmount safety net does not reintroduce the React 18
+      StrictMode near-zero-duration phantom into the repertoire store. `npm run typecheck` and
+      `eslint` clean on owned files. Does not close 4.10 — that verdict needs a full M4 re-run.
 
 ## Phases 0-2 — Foundation, M1 playable core, M2 feedback & reading — all done
 

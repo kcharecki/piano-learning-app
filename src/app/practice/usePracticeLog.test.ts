@@ -5,10 +5,12 @@
  */
 import type { DateSource } from '@core/ports/index.ts'
 import type { PracticeEntry } from '@core/progress/log.ts'
+import type { NewPieceInput } from '@core/repertoire/repertoire.ts'
 import { act, renderHook } from '@testing-library/react'
 import { FakeClock } from '@test/fakes.ts'
 import { afterEach, describe, expect, it } from 'vitest'
 import { useProgressStore } from '@app/state/progressStore.ts'
+import { useRepertoireStore } from '@app/state/repertoireStore.ts'
 import { usePracticeLog, type UsePracticeLogOptions } from './usePracticeLog.ts'
 
 /**
@@ -39,7 +41,15 @@ function makeOptions(clock: FakeClock, date: DateSource): UsePracticeLogOptions 
 
 afterEach(() => {
   useProgressStore.setState({ assessments: [], recordings: [], practiceEntries: [] })
+  useRepertoireStore.setState({ pieces: [] })
 })
+
+/** Seeds one repertoire piece whose `scoreId` a test can match `itemId` against. */
+function seedPiece(id: string, scoreId: string): void {
+  const input: NewPieceInput = { id, title: `Piece ${id}`, composer: 'Composer', level: 1, scoreId }
+  const result = useRepertoireStore.getState().addPiece(input)
+  if (!result.ok) throw new Error(`seedPiece: ${result.error}`)
+}
 
 describe('usePracticeLog', () => {
   it('starts idle, not running', () => {
@@ -172,4 +182,131 @@ describe('usePracticeLog', () => {
       expect(entry && entry.endedAt - entry.startedAt).toBe(500)
     },
   )
+
+  describe('repertoire wiring (REQ-3.8.2, M4 acceptance Defect 1)', () => {
+    it("stop() on a long-enough 'repertoire' session records against the piece whose scoreId matches itemId", () => {
+      seedPiece('greensleeves-piece', 'greensleeves-score')
+      const clock = new FakeClock()
+      const { result } = renderHook((p: UsePracticeLogOptions) => usePracticeLog(p), {
+        initialProps: makeOptions(clock, clock),
+      })
+
+      act(() =>
+        result.current.start('repertoire', 'Greensleeves', { itemId: 'greensleeves-score' }),
+      )
+      act(() => clock.advance(5_000))
+      act(() => {
+        result.current.stop({ accuracy: 0.83 })
+      })
+
+      const piece = useRepertoireStore
+        .getState()
+        .pieces.find((p) => p.id === 'greensleeves-piece')
+      expect(piece?.sessions).toHaveLength(1)
+      expect(piece?.bestAccuracy).toBe(0.83)
+    })
+
+    it('does not record — and does not throw — for a session shorter than the minimum duration (accidental Play/Stop)', () => {
+      seedPiece('p1', 'score-1')
+      const clock = new FakeClock()
+      const { result } = renderHook((p: UsePracticeLogOptions) => usePracticeLog(p), {
+        initialProps: makeOptions(clock, clock),
+      })
+
+      act(() => result.current.start('repertoire', 'Some Piece', { itemId: 'score-1' }))
+      act(() => clock.advance(50)) // well under the 1s floor
+      expect(() => {
+        act(() => {
+          result.current.stop()
+        })
+      }).not.toThrow()
+
+      const piece = useRepertoireStore.getState().pieces.find((p) => p.id === 'p1')
+      expect(piece?.sessions).toEqual([])
+      expect(piece?.bestAccuracy).toBe(0)
+    })
+
+    it('does not record a non-repertoire kind even when its itemId happens to match a piece scoreId', () => {
+      seedPiece('p1', 'score-1')
+      const clock = new FakeClock()
+      const { result } = renderHook((p: UsePracticeLogOptions) => usePracticeLog(p), {
+        initialProps: makeOptions(clock, clock),
+      })
+
+      act(() => result.current.start('technique', 'Scales', { itemId: 'score-1' }))
+      act(() => clock.advance(5_000))
+      act(() => {
+        result.current.stop()
+      })
+
+      const piece = useRepertoireStore.getState().pieces.find((p) => p.id === 'p1')
+      expect(piece?.sessions).toEqual([])
+    })
+
+    it('does not record, and does not throw, when itemId matches no repertoire piece', () => {
+      const clock = new FakeClock()
+      const { result } = renderHook((p: UsePracticeLogOptions) => usePracticeLog(p), {
+        initialProps: makeOptions(clock, clock),
+      })
+
+      act(() => result.current.start('repertoire', 'Unknown Score', { itemId: 'no-such-score' }))
+      act(() => clock.advance(5_000))
+      expect(() => {
+        act(() => {
+          result.current.stop()
+        })
+      }).not.toThrow()
+
+      expect(useRepertoireStore.getState().pieces).toEqual([])
+    })
+
+    it('does not record a repertoire session with no itemId at all', () => {
+      seedPiece('p1', 'score-1')
+      const clock = new FakeClock()
+      const { result } = renderHook((p: UsePracticeLogOptions) => usePracticeLog(p), {
+        initialProps: makeOptions(clock, clock),
+      })
+
+      act(() => result.current.start('repertoire', 'No item id'))
+      act(() => clock.advance(5_000))
+      act(() => {
+        result.current.stop()
+      })
+
+      const piece = useRepertoireStore.getState().pieces.find((p) => p.id === 'p1')
+      expect(piece?.sessions).toEqual([])
+    })
+
+    it('the unmount safety net also records a long-enough running repertoire session (navigating away mid-practice)', () => {
+      seedPiece('p1', 'score-1')
+      const clock = new FakeClock()
+      const { result, unmount } = renderHook((p: UsePracticeLogOptions) => usePracticeLog(p), {
+        initialProps: makeOptions(clock, clock),
+      })
+
+      act(() => result.current.start('repertoire', 'Some Piece', { itemId: 'score-1' }))
+      act(() => clock.advance(5_000))
+      unmount()
+
+      const piece = useRepertoireStore.getState().pieces.find((p) => p.id === 'p1')
+      expect(piece?.sessions).toHaveLength(1)
+    })
+
+    it('the unmount safety net does NOT record a near-zero-duration session — the StrictMode double-invoke hazard this file\'s module comment warns about must not reach the repertoire store', () => {
+      seedPiece('p1', 'score-1')
+      const clock = new FakeClock()
+      const { result, unmount } = renderHook((p: UsePracticeLogOptions) => usePracticeLog(p), {
+        initialProps: makeOptions(clock, clock),
+      })
+
+      // Simulates React 18 StrictMode's synchronous mount -> cleanup -> remount:
+      // a session started and the hook torn down again before the clock has
+      // moved at all.
+      act(() => result.current.start('repertoire', 'Some Piece', { itemId: 'score-1' }))
+      unmount()
+
+      const piece = useRepertoireStore.getState().pieces.find((p) => p.id === 'p1')
+      expect(piece?.sessions).toEqual([])
+    })
+  })
 })
