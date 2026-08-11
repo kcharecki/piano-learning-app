@@ -156,4 +156,67 @@ describe('Shell', () => {
 
     expect(screen.getByTestId('mock-score-screen')).toBeInTheDocument()
   })
+
+  // Roadmap 3.17: the reference panel is shell-level chrome, always
+  // reachable, and never unmounts the routed screen underneath it.
+  describe('reference panel', () => {
+    it('is mounted nowhere until the toggle is first pressed', () => {
+      render(<Shell />)
+      expect(screen.queryByRole('complementary', { name: /chord and scale reference/i })).toBeNull()
+    })
+
+    it('opens on toggle, with the correct aria contract, and never unmounts Practice underneath it', async () => {
+      const user = userEvent.setup()
+      render(<Shell />)
+
+      await user.click(screen.getByRole('button', { name: 'Practice' }))
+      expect(screen.getByTestId('mock-score-screen')).toBeInTheDocument()
+
+      const toggle = screen.getByRole('button', { name: 'Reference' })
+      expect(toggle).toHaveAttribute('aria-expanded', 'false')
+      expect(toggle).toHaveAttribute('aria-controls', 'reference-panel')
+
+      await user.click(toggle)
+
+      expect(toggle).toHaveAttribute('aria-expanded', 'true')
+      const panel = screen.getByRole('complementary', { name: /chord and scale reference/i })
+      expect(panel).not.toHaveAttribute('aria-modal')
+      // The routed screen's own instance is untouched — same mock element,
+      // never remounted — while the panel is open on top of it.
+      expect(screen.getByTestId('mock-score-screen')).toBeInTheDocument()
+    })
+
+    it('closes on Escape and returns focus to the toggle', async () => {
+      const user = userEvent.setup()
+      render(<Shell />)
+
+      const toggle = screen.getByRole('button', { name: 'Reference' })
+      await user.click(toggle)
+      expect(screen.getByRole('complementary', { name: /chord and scale reference/i })).toBeVisible()
+
+      await user.keyboard('{Escape}')
+
+      expect(toggle).toHaveAttribute('aria-expanded', 'false')
+      expect(toggle).toHaveFocus()
+    })
+
+    it('is mutually exclusive with the nav drawer — opening one closes the other', async () => {
+      const user = userEvent.setup()
+      render(<Shell />)
+
+      const navToggle = screen.getByRole('button', { name: 'Open navigation' })
+      const referenceToggle = screen.getByRole('button', { name: 'Reference' })
+
+      await user.click(navToggle)
+      expect(navToggle).toHaveAttribute('aria-expanded', 'true')
+
+      await user.click(referenceToggle)
+      expect(referenceToggle).toHaveAttribute('aria-expanded', 'true')
+      expect(navToggle).toHaveAttribute('aria-expanded', 'false')
+
+      await user.click(navToggle)
+      expect(navToggle).toHaveAttribute('aria-expanded', 'true')
+      expect(referenceToggle).toHaveAttribute('aria-expanded', 'false')
+    })
+  })
 })
