@@ -420,6 +420,73 @@ describe('ChordScaleReference', () => {
     expect(within(list).getAllByRole('listitem')).toHaveLength(7)
   })
 
+  describe('scale-type picker merges Major/Ionian and Natural minor/Aeolian (roadmap 5.36)', () => {
+    // Before the merge this listed 16 rows (one per SCALE_TYPES entry,
+    // including `ionian` and `aeolian` as their own rows even though they are
+    // the exact same notes as `major`/`naturalMinor`) — a beginner reading
+    // the list sees two scales that are actually one. This proves the picker
+    // itself now has exactly one entry per distinct scale: 14 rows, not 16,
+    // and specifically no separate "Ionian" or "Aeolian" option text.
+    it('has one entry per distinct scale — no separate Ionian or Aeolian row', () => {
+      render(<Controlled />)
+      const options = within(screen.getByLabelText('Scale') as HTMLSelectElement).getAllByRole(
+        'option',
+      )
+      expect(options).toHaveLength(14)
+      const labels = options.map((o) => o.textContent)
+      expect(labels).not.toContain('Ionian')
+      expect(labels).not.toContain('Aeolian')
+      expect(labels).toContain('Major')
+      expect(labels).toContain('Natural minor')
+    })
+
+    it('selecting Major shows both names — the picker itself and an "Also known as Ionian" subtitle', async () => {
+      const user = userEvent.setup()
+      render(<Controlled initialType="naturalMinor" />)
+
+      await user.selectOptions(screen.getByLabelText('Scale'), 'Major')
+
+      expect((screen.getByLabelText('Scale') as HTMLSelectElement).selectedOptions[0]).toHaveTextContent(
+        'Major',
+      )
+      expect(screen.getByTestId('reference-scale-alt-name')).toHaveTextContent('Ionian')
+    })
+
+    it('selecting Natural minor shows both names — the picker itself and an "Also known as Aeolian" subtitle', async () => {
+      const user = userEvent.setup()
+      render(<Controlled />)
+
+      await user.selectOptions(screen.getByLabelText('Scale'), 'Natural minor')
+
+      expect((screen.getByLabelText('Scale') as HTMLSelectElement).selectedOptions[0]).toHaveTextContent(
+        'Natural minor',
+      )
+      expect(screen.getByTestId('reference-scale-alt-name')).toHaveTextContent('Aeolian')
+    })
+
+    it('a scale type with no merged partner (e.g. Dorian) shows no alternate-name subtitle', async () => {
+      const user = userEvent.setup()
+      render(<Controlled />)
+
+      await user.selectOptions(screen.getByLabelText('Scale'), 'Dorian')
+
+      expect(screen.queryByTestId('reference-scale-alt-name')).not.toBeInTheDocument()
+    })
+
+    // `ScaleType` (the core enum) still carries `ionian`/`aeolian` — this
+    // component may not remove them from it — so a caller that hands this
+    // component a `scaleType` of literally `'ionian'` must still land the
+    // picker on its merged "Major" option rather than leaving the <select>
+    // with nothing selected.
+    it('a scaleType prop of "ionian" still selects the merged Major option and its Ionian subtitle', () => {
+      render(<Controlled initialType="ionian" />)
+      expect((screen.getByLabelText('Scale') as HTMLSelectElement).selectedOptions[0]).toHaveTextContent(
+        'Major',
+      )
+      expect(screen.getByTestId('reference-scale-alt-name')).toHaveTextContent('Ionian')
+    })
+  })
+
   describe('playback (REQ-3.5.3/3.5.4)', () => {
     // A stub that always plays a C major scale regardless of the looked-up
     // root/type would pass every other test in this file (none of them touch

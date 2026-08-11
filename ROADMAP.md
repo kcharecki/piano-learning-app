@@ -84,13 +84,23 @@ The M3 gaps that are unbuilt features rather than defects. Each states its proof
       Driven live: Theory → Chord & scale reference, F# major and G harmonic minor both render an
       8-note engraving whose on-screen degree table reads E#5/F#5 respectively, console clean.*
 - [x] 3.15 `app/theory`: look up ANY chord (REQ-3.5.4) — any root × quality × inversion, with symbol, figured bass, spelled tones and keyboard highlight.
-- [ ] 3.15a `app/theory`: extract the duplicated chord/scale audio helpers (play, panic, the shared
+- [x] 3.15a `app/theory`: extract the duplicated chord/scale audio helpers (play, panic, the shared
       `AudioContext`) out of `ChordScaleReference.tsx` and `ChordLookup.tsx` into a leaf module.
       Raised by 3.15's review and correctly refused there — a file-scoped fix agent should not be
       creating new modules. Not urgent; it is duplication, not a defect.
-      *Proof: both components import the helper, neither declares its own, and 3.13's audio
+      *Proof: `playScaleAscending`/`playChordTones`, the lazy-`AudioOutput` accessor
+      (`useSharedAudioOutput`), `ROOT_OPTIONS` and `noteLabel` now live only in the new
+      `src/app/theory/chordScaleAudio.ts`; both components import them and neither declares its
+      own copy. The one thing deliberately NOT hoisted: the two panic-on-change `useEffect`s
+      themselves, since `ChordScaleReference`'s panics unconditionally on every root/scale/seventh
+      change while `ChordLookup`'s only panics when *it* started the ringing performance
+      (`ringingRef`) — unifying them would change one or the other's behaviour, so only the one
+      line genuinely shared between them (`stopRingingAudio`) is hoisted. All 3.13's audio
       assertions (exact pitches, exact timestamps, a note-off per note-on, velocity above zero)
-      still pass unchanged.*
+      still pass unchanged (`ChordScaleReference.test.tsx` 37 tests, `ChordLookup.test.tsx` 19
+      tests), plus 11 new tests on the extracted module itself. Driven live at
+      `http://localhost:5302`: Theory → Chord & scale reference, Play buttons on the scale and on
+      chord rows in both components still sound, console clean at both widths/both themes.*
 - [ ] 3.16 `core/theory`: fingering for the minor forms (REQ-3.5.4) — `scaleFingering` returns
       `null` unless the type is major/ionian, and the circle's whole inner ring lands the user on
       `naturalMinor`, i.e. half the advertised flow reaches a fingering-less reference.
@@ -659,10 +669,21 @@ both fingering columns**, and minor scales are required from RCM Preparatory B o
       minor reads RH 1 2 3 1 2 3 4 5 / LH 5 4 3 2 1 3 2 1 (leading tone never a thumb), Db melodic
       minor reads the C♯ exception, Ab natural minor reads its forced two-white-key fingering —
       real numbers where the reference showed `—`. Full history: git log.
-- [ ] 5.36 `app/theory`: **Major** and **Ionian** are separate dropdown entries, as are **Natural
+- [x] 5.36 `app/theory`: **Major** and **Ionian** are separate dropdown entries, as are **Natural
       minor** and **Aeolian**. They are the same scales, and a beginner reads two entries as two
       things. Merge, with the alternative name shown as a subtitle.
-      *Proof: the selector has one entry per distinct scale, and selecting it shows both names.*
+      *Proof: `#reference-scale-select` now has 14 options, not 16 — no separate "Ionian" or
+      "Aeolian" row (`SCALE_TYPE_OPTIONS` filters them out of the local `SCALE_TYPE_LABEL` map,
+      the picker's own source of truth; `scales.ts`'s core `TYPE_NAMES` — which feeds the
+      `scaleName()` header, a different concern — is untouched and unowned this round). Selecting
+      "Major" or "Natural minor" shows a `<small>` subtitle under the picker ("Also known as
+      Ionian"/"Aeolian"); every other scale type shows none. A `scaleType` prop of literally
+      `'ionian'`/`'aeolian'` (the type still carries both, unedited) still lands the picker on its
+      merged option rather than showing nothing selected. 5 new tests in
+      `ChordScaleReference.test.tsx`. Driven live at `http://localhost:5302`:
+      `node scripts/visual-pass.mjs Theory --url http://localhost:5302 --select
+      "#reference-scale-select=Major"` and `...=Natural minor`, both widths, both themes, console
+      clean, subtitle visible in every shot.*
 - [x] 5.37 `—` for the modes is defensible and should be *labelled*, not filled. RCM's 2022 technical
       requirements chart returns **zero hits** for dorian/phrygian/lydian/mixolydian/aeolian/locrian/
       whole-tone/blues/pentatonic at any level; modes appear only in ABRSM's Jazz syllabus. Replaced the

@@ -32,22 +32,19 @@
  * on the first press, inside that press's click handler — never at mount —
  * because the browser's autoplay policy requires the `AudioContext` be
  * created inside a user gesture (see `createDefaultAudioOutput`'s own doc).
+ * `playScaleAscending`/`playChordTones`, the lazy-`AudioOutput` accessor,
+ * `ROOT_OPTIONS` and `noteLabel` live in `./chordScaleAudio.ts` (roadmap
+ * 3.15a) — a leaf module this file and `ChordLookup.tsx` both import, so
+ * neither carries its own copy any more.
  */
-import { useEffect, useRef, useState } from 'react'
-import { createDefaultAudioOutput } from '@app/practice/createDefaultAudioOutput.ts'
+import { useEffect, useState } from 'react'
 import type { AudioOutput } from '@core/ports/audio.ts'
 import { at } from '@core/shared/invariant.ts'
-import { midi, millis } from '@core/shared/units.ts'
+import { midi } from '@core/shared/units.ts'
 import { chordSymbol, chordTones, figuredBass, type Chord } from '@core/theory/chords.ts'
 import { chordForRomanNumeral, diatonicChords, romanNumeralFor } from '@core/theory/harmony.ts'
 import { keyOf, type Key, type Mode } from '@core/theory/keys.ts'
-import {
-  fromMidi,
-  pitchName,
-  type SpelledPitch,
-  spelledPitchClass,
-  toMidi,
-} from '@core/theory/pitch.ts'
+import { pitchName, type SpelledPitch, spelledPitchClass, toMidi } from '@core/theory/pitch.ts'
 import {
   buildScale,
   degreeName,
@@ -61,6 +58,14 @@ import {
   type ScaleType,
 } from '@core/theory/scales.ts'
 import { ChordLookup } from './ChordLookup.tsx'
+import {
+  noteLabel,
+  playChordTones,
+  playScaleAscending,
+  ROOT_OPTIONS,
+  stopRingingAudio,
+  useSharedAudioOutput,
+} from './chordScaleAudio.ts'
 import { KeyboardDiagram } from './KeyboardDiagram.tsx'
 import { ScaleStaff } from './ScaleStaff.tsx'
 
@@ -74,74 +79,6 @@ export type ChordScaleReferenceProps = {
    *  gesture (the browser autoplay policy requires it — see
    *  `@app/practice/createDefaultAudioOutput.ts`, which you may import). */
   readonly audioOutput?: AudioOutput
-}
-
-/** Spacing between consecutive scale notes, and how long each rings, in ms. */
-const SCALE_NOTE_SPACING_MS = 400
-const SCALE_NOTE_DURATION_MS = 350
-/** How long a played chord rings, in ms. */
-const CHORD_DURATION_MS = 800
-/** Neither soft nor pinned to max — an audible, unremarkable press. */
-const PLAY_VELOCITY = 80
-
-/**
- * Play a scale ascending, one note after another at a fixed spacing —
- * REQ-3.5.3's "hear them". Every note's `atMs` is derived from one
- * `audioOutput.now()` reading plus its own fixed offset, never a fresh clock
- * read per note (see the module comment).
- *
- * `allNotesOff()` first: without it, a second press while the first
- * performance is still ringing stacks its notes on top rather than
- * restarting, and changing the root/scale mid-performance lets the old scale
- * finish playing under the new selection on screen (see the finding-3
- * report). The cleanup effect below covers the other two triggers — root/type
- * change and unmount — that a press-time panic alone cannot.
- */
-function playScaleAscending(audioOutput: AudioOutput, notes: readonly SpelledPitch[]): void {
-  audioOutput.allNotesOff()
-  const base = audioOutput.now()
-  notes.forEach((note, i) => {
-    const noteMidi = toMidi(note)
-    const onMs = millis(base + i * SCALE_NOTE_SPACING_MS)
-    const offMs = millis(base + i * SCALE_NOTE_SPACING_MS + SCALE_NOTE_DURATION_MS)
-    audioOutput.noteOn(noteMidi, PLAY_VELOCITY, onMs)
-    audioOutput.noteOff(noteMidi, offMs)
-  })
-}
-
-/**
- * Play a chord as a simultaneity — every tone at the exact same instant —
- * REQ-3.5.4's "hear it". Unlike `playScaleAscending`, every tone shares one
- * `atMs`, so it sounds as a chord rather than an arpeggio.
- */
-function playChordTones(audioOutput: AudioOutput, tones: readonly SpelledPitch[]): void {
-  audioOutput.allNotesOff()
-  const base = audioOutput.now()
-  const onMs = millis(base)
-  const offMs = millis(base + CHORD_DURATION_MS)
-  for (const tone of tones) {
-    const noteMidi = toMidi(tone)
-    audioOutput.noteOn(noteMidi, PLAY_VELOCITY, onMs)
-    audioOutput.noteOff(noteMidi, offMs)
-  }
-}
-
-/** Pitch classes that are conventionally written flat rather than sharp (Bb, Eb, Ab, Db). */
-const FLAT_PITCH_CLASSES: ReadonlySet<number> = new Set([1, 3, 8, 10])
-
-/**
- * Twelve pitch classes for the root picker, each spelled the way a learner
- * actually writes it — sharp for C#/F#/G#, flat for Db/Eb/Ab/Bb — so every
- * offered root names a writable key (see the ROOT_OPTIONS finding).
- */
-const ROOT_OPTIONS: readonly SpelledPitch[] = Array.from({ length: 12 }, (_, pc) =>
-  fromMidi(midi(pc + 60), FLAT_PITCH_CLASSES.has(pc)),
-)
-
-/** `'C#'`, `'Bb'` — a root option's name with no octave. */
-function noteLabel(p: SpelledPitch): string {
-  const sign = p.alter < 0 ? 'b'.repeat(-p.alter) : '#'.repeat(p.alter)
-  return `${p.letter}${sign}`
 }
 
 const MINOR_SCALE_TYPES: ReadonlySet<ScaleType> = new Set<ScaleType>([
@@ -168,6 +105,49 @@ const SCALE_TYPE_LABEL: Readonly<Record<ScaleType, string>> = {
   minorPentatonic: 'Minor pentatonic',
   blues: 'Blues',
   wholeTone: 'Whole tone',
+}
+
+/**
+ * The scale-type picker's own entries (roadmap 5.36): one per *distinct*
+ * scale, not one per name. `ionian` is the exact same notes as `major` and
+ * `aeolian` is the exact same notes as `naturalMinor` (see `scales.ts`'s
+ * `SCALE_INTERVALS` comment: "the modes are the rotations of the major
+ * scale, which is why `ionian` duplicates `major` and `aeolian` duplicates
+ * `naturalMinor`") — so listing both names as separate rows reads to a
+ * beginner as two different scales when they are one. `SCALE_TYPES` (the
+ * core enum `ChordScaleReference` may not edit) still carries both names,
+ * because `keyModeFor`/`MAJOR_SCALE_TYPES` above and callers elsewhere still
+ * need to recognise a `scaleType` of literally `'ionian'` or `'aeolian'`
+ * (e.g. this component's own `scaleType` prop, which some future caller
+ * could still pass either value) — only *this picker's own option list*
+ * collapses the pair, via {@link scaleTypeForPicker} below.
+ */
+const SCALE_TYPE_OPTIONS: readonly ScaleType[] = SCALE_TYPES.filter(
+  (type) => type !== 'ionian' && type !== 'aeolian',
+)
+
+/**
+ * The alternate name shown as a subtitle under the merged `major`/
+ * `naturalMinor` entries (roadmap 5.36's "with the alternative name shown as
+ * a subtitle"). `undefined` for every other scale type, which has no merged
+ * partner.
+ */
+const SCALE_TYPE_ALT_NAME: Readonly<Partial<Record<ScaleType, string>>> = {
+  major: 'Ionian',
+  naturalMinor: 'Aeolian',
+}
+
+/**
+ * Maps a `scaleType` onto the picker's own canonical value: `SCALE_TYPE_OPTIONS`
+ * never offers `ionian`/`aeolian` as an `<option>` (they are folded into
+ * `major`/`naturalMinor`), so a `scaleType` of either must still resolve to a
+ * value the `<select>` actually has, or React would render it with nothing
+ * selected.
+ */
+function scaleTypeForPicker(type: ScaleType): ScaleType {
+  if (type === 'ionian') return 'major'
+  if (type === 'aeolian') return 'naturalMinor'
+  return type
 }
 
 /** Scale types whose diatonic chords can be shown at all: major/ionian and the four minor forms. */
@@ -394,25 +374,13 @@ export function ChordScaleReference({
   // Lazy by design: undefined until the first press, so the real
   // AudioContext (when no `audioOutput` prop is injected) is constructed
   // inside that press's click handler, never at mount — see the module
-  // comment on the browser autoplay policy.
-  //
-  // The injected `audioOutput` prop is read directly rather than only seeding
-  // the ref at first render: `useRef(audioOutput)` snapshots whatever the
-  // prop was on mount, so a caller that mounts with it `undefined` and
-  // supplies a real value later would silently keep using a real
-  // `AudioContext` it built for itself instead of ever switching to the
-  // caller's injected one (finding 5).
-  const audioRef = useRef<AudioOutput | undefined>(undefined)
+  // comment on the browser autoplay policy. `useSharedAudioOutput` (roadmap
+  // 3.15a) is the leaf-module hoist of what used to be this component's own
+  // ref + lazy-getter, identical to `ChordLookup`'s copy of the same thing.
+  const { audioRef, getAudioOutput } = useSharedAudioOutput(audioOutput)
   // Shared by both chord-section renderings (DiatonicChords and
   // ScaleDegreeChords) so "Show seventh chords" is one control, not two.
   const [seventh, setSeventh] = useState(false)
-  function getAudioOutput(): AudioOutput {
-    if (audioOutput !== undefined) return audioOutput
-    if (audioRef.current === undefined) {
-      audioRef.current = createDefaultAudioOutput()
-    }
-    return audioRef.current
-  }
 
   // Cancel whatever is still ringing when the looked-up root/scale changes or
   // the screen unmounts (finding 3's other two triggers, beyond a same-button
@@ -421,18 +389,17 @@ export function ChordScaleReference({
   // force-construct a real `AudioContext` outside a user gesture on every
   // mount and every root/scale change, even for a learner who never presses
   // Play, which is exactly what the lazy-construction design above exists to
-  // avoid. Only cancels an output that already exists.
+  // avoid. `stopRingingAudio` only cancels an output that already exists.
   useEffect(() => {
     return () => {
-      const existing = audioOutput ?? audioRef.current
-      existing?.allNotesOff()
+      stopRingingAudio(audioOutput, audioRef)
     }
     // `seventh` included (finding 7): toggling "Show seventh chords" swaps
     // every chord row's tones under a still-ringing chord (a V triad becomes
     // V7 with different tones) exactly like a root/scale-type change does,
     // so it must panic too — without it, ticking the checkbox mid-ring left
     // the old triad audibly playing under the new seventh-chord row.
-  }, [root, scaleType, seventh, audioOutput])
+  }, [root, scaleType, seventh, audioOutput, audioRef])
 
   const scale = buildScale(root, scaleType)
   const highlighted = new Set(scale.notes.map(spelledPitchClass))
@@ -475,6 +442,12 @@ export function ChordScaleReference({
           ),
           0,
         )
+  // Roadmap 5.36: the picker shows one entry per distinct scale, so a
+  // `scaleType` of `ionian`/`aeolian` must still land on its merged
+  // `major`/`naturalMinor` option rather than leaving the `<select>` with no
+  // matching value.
+  const pickerScaleType = scaleTypeForPicker(scaleType)
+  const scaleAltName = SCALE_TYPE_ALT_NAME[pickerScaleType]
 
   return (
     <section aria-label="Chord and scale reference" className="chord-scale-reference">
@@ -496,15 +469,24 @@ export function ChordScaleReference({
         <label htmlFor="reference-scale-select">Scale</label>
         <select
           id="reference-scale-select"
-          value={scaleType}
+          value={pickerScaleType}
           onChange={(e) => onScaleTypeChange(e.target.value as ScaleType)}
         >
-          {SCALE_TYPES.map((type) => (
+          {SCALE_TYPE_OPTIONS.map((type) => (
             <option key={type} value={type}>
               {SCALE_TYPE_LABEL[type]}
             </option>
           ))}
         </select>
+        {/* Roadmap 5.36: "the alternative name shown as a subtitle" — Major
+            and Natural minor are the only two entries with a merged partner
+            (Ionian/Aeolian), so this is the one place that alternate name
+            still surfaces, right under the picker it belongs to. */}
+        {scaleAltName !== undefined && (
+          <p>
+            <small data-testid="reference-scale-alt-name">Also known as {scaleAltName}</small>
+          </p>
+        )}
       </div>
 
       <h3 data-testid="reference-scale-name">{scaleName(scale)}</h3>
