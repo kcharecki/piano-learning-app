@@ -152,6 +152,26 @@ describe('makeScore', () => {
     })
   })
 
+  it('carries a written spelling that sounds as the declared midi', () => {
+    const score = buildTestScore([
+      { midi: 65, startTick: 0, spelling: { letter: 'E', alter: 1, octave: 4 } }, // E#4 sounds F4
+    ])
+    expect(at(score.notes, 0).spelling).toEqual({ letter: 'E', alter: 1, octave: 4 })
+  })
+
+  it('omits spelling when the caller gave none', () => {
+    const score = buildTestScore([{ midi: 60, startTick: 0 }])
+    expect('spelling' in at(score.notes, 0)).toBe(false)
+  })
+
+  it('rejects a spelling that does not sound as the declared midi', () => {
+    expect(() =>
+      buildTestScore([
+        { midi: 60, startTick: 0, spelling: { letter: 'E', alter: 1, octave: 4 } }, // E#4 sounds F4, not C4
+      ]),
+    ).toThrow(/spelling E#4 sounds as 65, not the declared midi 60/)
+  })
+
   it('inherits time signature and key from the previous measure', () => {
     const score = makeScore({
       id: 's',

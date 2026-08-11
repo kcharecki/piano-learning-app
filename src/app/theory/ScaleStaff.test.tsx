@@ -119,12 +119,17 @@ describe('buildScaleScore', () => {
       midiOf('B', 0, 4), // B
       midiOf('C', 1, 5), // C#
       midiOf('D', 1, 5), // D#
-      midiOf('E', 1, 5), // E# — sounds as F5 (midi 77); see ScaleStaff.tsx's
-      // "Spelling limitation" doc comment for why the on-screen glyph cannot
-      // show the E# spelling even though this Score's sounding pitch does.
+      midiOf('E', 1, 5), // E# — sounds as F5 (midi 77)
       midiOf('F', 1, 5), // F# (octave)
     ]
     expect(score.notes.map((n) => n.midi)).toEqual(expected)
+
+    // The engraved glyph, not merely the sounding pitch: the 7th degree must
+    // print as E#, not the F natural `fromMidi`'s per-measure `preferFlats`
+    // bit would otherwise draw (roadmap 3.14a).
+    const expectedSpelling = scaleNotes(root, 'major', 1).map(pitchStepAlter)
+    expect(stepsAndAlters(writeMusicXml(score))).toEqual(expectedSpelling)
+    expect(expectedSpelling[6]).toEqual({ step: 'E', alter: 1 })
 
     const key = keyOf(root, 'major')
     expect(key.ok).toBe(true)
@@ -170,13 +175,17 @@ describe('buildScaleScore', () => {
     expect(stepsAndAlters(writeMusicXml(score))).toEqual(expected)
   })
 
-  // A second spelling-sensitive case for a raised-leading-tone scale (e.g. G
-  // harmonic minor) is deliberately NOT added here: that one is the
-  // known-and-flagged limitation documented in this file's "Spelling
-  // limitation" doc comment (`preferFlats` is a per-measure, not per-note,
-  // decision) — asserting the correct spelling for it would fail, and fixing
-  // it needs a spelling field on `ScoreNote` outside this component's owned
-  // files. See that doc comment for the full 42/51-combination breakdown.
+  it('engraves G harmonic minor\'s raised leading tone as F#, not the flat-biased key signature\'s Gb (roadmap 3.14a)', () => {
+    // G harmonic minor's own signature is the parallel natural minor's (2
+    // flats, `preferFlats = true`), which used to make the re-derived
+    // spelling write the raised 7th as Gb — same staff line as the tonic it
+    // resolves to. The per-note `spelling` field fixes that.
+    const root = spell('G', 0, 4)
+    const score = buildScaleScore(root, 'harmonicMinor')
+    const expected = scaleNotes(root, 'harmonicMinor', 1).map(pitchStepAlter)
+    expect(stepsAndAlters(writeMusicXml(score))).toEqual(expected)
+    expect(expected[6]).toEqual({ step: 'F', alter: 1 }) // F#, not Gb
+  })
 
   it('matches core\'s own scaleNotes exactly, note for note, for every scale type it engraves', () => {
     // A second, independent check across the whole SCALE_TYPES surface (not

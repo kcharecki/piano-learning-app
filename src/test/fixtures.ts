@@ -21,6 +21,7 @@ import {
 } from '@core/notation/score.ts'
 import { at } from '@core/shared/invariant.ts'
 import { EIGHTH, HALF, QUARTER, TICKS_PER_QUARTER, WHOLE } from '@core/shared/units.ts'
+import type { SpelledPitch } from '@core/theory/pitch.ts'
 
 /** Dotted value: 1.5x the base — inlined here since `units.ts` dropped the unused helper. */
 const dotted = (t: number): number => t * 1.5
@@ -38,6 +39,7 @@ export type TestNote = {
   readonly tiedFrom?: boolean
   readonly tiedTo?: boolean
   readonly fingering?: number
+  readonly spelling?: SpelledPitch
 }
 
 export type BuildTestScoreOptions = {
@@ -69,6 +71,7 @@ function toInput(n: TestNote): ScoreNoteInput {
     ...(n.tiedFrom === undefined ? {} : { tiedFrom: n.tiedFrom }),
     ...(n.tiedTo === undefined ? {} : { tiedTo: n.tiedTo }),
     ...(n.fingering === undefined ? {} : { fingering: n.fingering }),
+    ...(n.spelling === undefined ? {} : { spelling: n.spelling }),
   }
 }
 

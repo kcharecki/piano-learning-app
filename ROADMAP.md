@@ -173,16 +173,19 @@ The M3 gaps that are unbuilt features rather than defects. Each states its proof
       major.* Its visual pass added a `'reference'` presentation to `osmdEngraver` (no cursor, no
       `♩=120`, no duplicated title, no synthetic `8/4`, tight margins) and dropped the "Piano" part
       label app-wide, which is 5.13's part-name half.
-- [ ] 3.14a `core/notation`: per-note spelling, so the engraving spells what `scaleNotes` spelled.
-      `ScoreNote` carries only a sounding midi number, so `musicxmlwriter`'s `pitchXml` re-derives
-      the written spelling from the measure's key signature — one `preferFlats` choice per measure,
-      against a table holding only the twelve single sharp/flat spellings. Seen on screen in 3.14's
-      own visual pass: F# major's leading tone E# engraves as F♮ (then F# for the octave), and 93 of
-      the 192 root x scale-type combinations the reference can draw mis-spell at least one degree
-      (42 the E#/B#/Cb/Fb class, 51 the per-measure-vs-per-note gap in harmonic/melodic minor).
-      Sounds right, reads wrong. Blocks 5.35's minor fingerings being shown next to correct notation.
-      *Proof: F# major's 7th degree engraves as E#, G harmonic minor's as F#, and every existing
-      musicxml/writer round-trip fixture still passes.*
+- [x] 3.14a `core/notation`: gave `ScoreNote`/`ScoreNoteInput` an optional per-note `spelling: SpelledPitch`
+      field (validated to sound as the note's own `midi`), and `musicxmlwriter`'s `pitchXml` uses it
+      when present instead of re-deriving a spelling from `midi` + the measure's single `preferFlats`
+      bit, which could never represent E#/B#/Cb/Fb or a per-note choice that disagrees with the
+      measure's bias. `accidentalName` now names the full alter range (double-sharp/flat-flat
+      included). `ScaleStaff.tsx` wires `scaleNotes`' already-correct `SpelledPitch` straight through
+      instead of collapsing it to a bare midi number first.
+      *Proof: `musicxmlwriter.test.ts`/`score.test.ts`/`ScaleStaff.test.tsx` assert the written
+      MusicXML step/alter matches `scaleNotes` exactly, incl. F# major's 7th degree as E# (not F♮) and
+      G harmonic minor's raised 7th as F# (not Gb) — both previously-flagged cases now pass; every
+      existing musicxml/writer round-trip fixture still passes (`npm run verify` green, 3420 tests).
+      Driven live: Theory → Chord & scale reference, F# major and G harmonic minor both render an
+      8-note engraving whose on-screen degree table reads E#5/F#5 respectively, console clean.*
 - [x] 3.15 `app/theory`: look up ANY chord (REQ-3.5.4) — any root × quality × inversion, with symbol, figured bass, spelled tones and keyboard highlight.
 - [ ] 3.15a `app/theory`: extract the duplicated chord/scale audio helpers (play, panic, the shared
       `AudioContext`) out of `ChordScaleReference.tsx` and `ChordLookup.tsx` into a leaf module.

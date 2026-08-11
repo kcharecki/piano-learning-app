@@ -38,38 +38,20 @@
  * flip `preferFlats` to `true` so `fromMidi` picks flat spellings instead
  * of sharp ones.
  *
- * ## Spelling limitation (reported, not silently resolved)
+ * ## Spelling
  *
  * `scaleNotes` (`@core/theory/scales.ts`) spells each degree correctly —
  * including cases like F# major's leading tone E# ("the letter that many
  * steps up, carrying whatever accidental makes the semitone count come out
  * right", never "the nearest convenient enharmonic": see that file's module
- * doc). That `SpelledPitch` is converted to a bare `Midi` here because
- * `ScoreNote` (`@core/notation/score.ts`) carries no spelling field at all
- * — only a sounding pitch. `musicxmlwriter.ts`'s `pitchXml` then re-derives
- * the WRITTEN spelling purely from that midi number and the measure's key
- * signature via `fromMidi`, whose sharp/flat tables have no entry for E#,
- * B#, Cb or Fb (or any double accidental) — only the twelve single
- * sharp/flat spellings, and picking between them from `fromMidi` cannot
- * change that: both tables spell pitch class 5 "F", never "E#", regardless
- * of key. This is NOT limited to the rare E#/B#/Cb/Fb-only degrees: because
- * `preferFlats` is a single per-measure choice (`keyFifths < 0`) rather than
- * a per-note one, `fromMidi` can also mis-spell a degree that F# or C# *is*
- * in its tables — e.g. G harmonic minor's leading tone is written F# by
- * `scaleNotes`, but the measure's own key (2 flats, `preferFlats = true`)
- * makes `fromMidi` write it Gb instead, on the same staff line as the tonic
- * it resolves to. A whole-surface check found 93 of the 192 root x
- * scale-type combinations this component can be asked to draw mis-spell one
- * or more degrees: 42 are the genuinely engraver-blocked E#/B#/Cb/Fb class
- * described above, the other 51 are this per-measure-vs-per-note gap (all in
- * harmonicMinor/melodicMinor keys whose signature's flat/sharp bias disagrees
- * with a raised or lowered degree). Both classes need the same fix: a
- * per-note spelling field on `ScoreNote` and a spelling-aware `pitchXml` —
- * outside this component's owned files, and outside "you do not need to
- * touch the engraver". Flagged rather than silently worked around; every
- * note this component builds still sounds exactly right, which
- * `ScaleStaff.test.tsx` verifies pitch by pitch, and — for the two cases
- * where it does not require the engraver fix — spelling by spelling too.
+ * doc). That `SpelledPitch` is carried straight onto each `ScoreNote` as
+ * `spelling` (roadmap 3.14a), so `musicxmlwriter.ts`'s `pitchXml` engraves it
+ * as written — E#/B#/Cb/Fb included — instead of re-deriving a spelling from
+ * the sounding midi number and the measure's single sharps-vs-flats bit,
+ * which cannot represent either. `ScaleStaff.test.tsx` checks both: every
+ * note sounds exactly what `scaleNotes` said, and — for F# major and G
+ * harmonic minor, the two cases that used to mis-spell — the engraved
+ * `<step>`/`<alter>` match `scaleNotes`' spelling too.
  */
 import { useMemo } from 'react'
 import type { JSX } from 'react'
@@ -153,6 +135,7 @@ export function buildScaleScore(root: SpelledPitch, scaleType: ScaleType): Score
   const keyFifths = keyFifthsFor(root, scaleType, pitches)
   const notes: ScoreNoteInput[] = pitches.map((pitch, i) => ({
     midi: toMidi(pitch),
+    spelling: pitch,
     startTick: i * TICKS_PER_QUARTER,
     durationTicks: TICKS_PER_QUARTER,
     hand: 'right',
