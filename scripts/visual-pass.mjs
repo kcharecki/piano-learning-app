@@ -24,6 +24,12 @@
  *                         that only appears once something is in the library)
  *   --out <dir>           where the PNGs go (default: ./visual-pass)
  *   --url <url>           dev server (default: http://localhost:5173)
+ *   --wait <ms>           extra wait AFTER the clicks and the built-in 2500ms
+ *                         settle time, before the screenshot — for a state
+ *                         that only exists after real wall-clock time passes
+ *                         (e.g. the roadmap-3.21 clap-back drill's audible
+ *                         "listening" run auto-advancing to "tapping").
+ *                         Default 0.
  *
  * Exits 1 if any console/page error was seen, so "console clean" is a check
  * rather than a claim. Requires `npm run dev` to be running.
@@ -37,7 +43,7 @@ const HEIGHT = 900
 
 function parseArgs(argv) {
   const [destination, ...rest] = argv
-  const opts = { destination, out: './visual-pass', url: 'http://localhost:5173', levels: [], selects: [], clicks: [] }
+  const opts = { destination, out: './visual-pass', url: 'http://localhost:5173', levels: [], selects: [], clicks: [], wait: 0 }
   for (let i = 0; i < rest.length; i += 2) {
     const value = rest[i + 1]
     if (value === undefined) break
@@ -46,6 +52,7 @@ function parseArgs(argv) {
     else if (rest[i] === '--level') opts.levels.push(value)
     else if (rest[i] === '--select') opts.selects.push(value)
     else if (rest[i] === '--click') opts.clicks.push(value)
+    else if (rest[i] === '--wait') opts.wait = Number(value)
   }
   return opts
 }
@@ -109,6 +116,7 @@ for (const theme of THEMES) {
     // Long enough for an OSMD engrave to settle; the gate is about what the
     // learner ends up looking at, not about first paint.
     await page.waitForTimeout(2500)
+    if (opts.wait > 0) await page.waitForTimeout(opts.wait)
 
     const file = `${opts.out}/${slug}-${theme}-${width}.png`
     await page.screenshot({ path: file, fullPage: true })

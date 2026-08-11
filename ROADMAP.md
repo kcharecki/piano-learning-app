@@ -139,10 +139,21 @@ The M3 gaps that are unbuilt features rather than defects. Each states its proof
       rewrite the task warned against.
       *Proof: that score reads minor, and every 3.19/3.19a fixture still reads what it read.*
 - [x] 3.20 `app/theory`: SRS that re-serves the actual due fact (REQ-3.5.6)
-- [ ] 3.21 `app/eartraining`: clap/tap-back (REQ-3.6.2) — there is no call-and-response anywhere.
-      The Rhythm screen shows the pattern for the whole run and silences the audio deliberately, so
-      it is rhythm SIGHT-READING; "hear a phrase and clap it back" has never been built.
-      *Proof: the pattern is heard and never shown, and the tapped answer is graded.*
+- [x] 3.21 `app/rhythm`, `core/rhythm`: clap/tap-back (REQ-3.6.2) — a new "Clap-back mode" on the
+      Rhythm screen (a mode switch, not a nav destination — `Shell.tsx` was owned by another
+      session this round): the transport plays the pattern AUDIBLY once (no notation ever
+      engraved), then replays silently-but-clicking on the same transport instance so the learner
+      taps the phrase back from memory; `core/rhythm/clapback.ts` (new, property-tested) grades it
+      with a level-scaled tolerance window and a tempo-scale fit over the tapped onsets' own gaps
+      (mirrors `core/eartraining/dictation.ts`'s roadmap-3.23 approach, worked out independently for
+      bare timestamps) — a phrase tapped a consistent 8-12% off tempo still grades correct; a phrase
+      with one extra or one dropped tap does not. `gradeTapping`/`core/generator/rhythm.ts` were left
+      untouched (owned by another session) — this is a new, separate grading module.
+      *Proof: `RhythmClapback.test.tsx`/`e2e/rhythm-clapback.spec.ts` assert the notation is ABSENT
+      from the DOM (element count, not visibility) through listening, tapping and graded; the e2e
+      spec taps a known count and asserts `matched + extra` equals it against a real generated
+      pattern. `npm run typecheck`/scoped `vitest`/`eslint` green; visual pass on all four
+      idle/listening/tapping/graded x 1280/1024 x dark/light combinations, console clean.*
 - [x] 3.22 `core/eartraining`: delete the inert band; give the dashboard an honest ear level
 - [x] 3.26 `core/eartraining`: give an attempt a real accuracy, then a band means something.
 - [x] 3.23 `app/eartraining`: dictation has a tempo reference (REQ-3.6.1) — `gradeDictation` fits a
@@ -490,9 +501,8 @@ whole and half notes" inverts the order Faber and Alfred agree on, **quarter →
       quarters and halves only, no rests, no wholes. `e2e/rhythm.spec.ts` updated for the new
       quarter-note grid (was hardcoded to the old half-note-only assumption) and passes against the
       real dev server. Console clean, `npm run verify` green.*
-- [ ] 5.21 Rhythm also needs **3.21** (clap/tap-back — the Rhythm screen shows the pattern for the
-      whole run and silences the audio deliberately, so it is rhythm *sight-reading*; "hear a phrase
-      and clap it back" has never been built). Referenced, not restated.
+- [x] 5.21 Rhythm also needed **3.21** (clap/tap-back). Done together with 3.21 — see that line;
+      "Clap-back mode" on the Rhythm screen IS the Rhythm-specific delivery this line asked for.
 
 ### Technique — **5/10 → 9**
 

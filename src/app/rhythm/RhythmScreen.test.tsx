@@ -194,3 +194,25 @@ describe('RhythmScreen', () => {
     expect(audioOutput.clicks.length).toBeGreaterThan(0)
   })
 })
+
+describe('RhythmScreen — mode switch (roadmap 3.21/5.21)', () => {
+  it('defaults to sight-reading mode, and switching to clap-back mode swaps the whole drill', async () => {
+    const user = userEvent.setup()
+    render(<RhythmScreen midiInput={new FakeMidiInput()} rng={seededRng(1)} />)
+
+    // Default: the original sight-reading drill's own controls are present.
+    expect(screen.getByTestId('rhythm-complexity')).toBeInTheDocument()
+    expect(screen.queryByTestId('clapback-level')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Clap-back mode' }))
+
+    // The sight-reading drill's controls are gone; the clap-back drill's own
+    // are there instead — a real swap, not two panels stacked and hidden.
+    expect(screen.queryByTestId('rhythm-complexity')).not.toBeInTheDocument()
+    expect(screen.getByTestId('clapback-level')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Sight-reading mode' }))
+    expect(screen.getByTestId('rhythm-complexity')).toBeInTheDocument()
+    expect(screen.queryByTestId('clapback-level')).not.toBeInTheDocument()
+  })
+})

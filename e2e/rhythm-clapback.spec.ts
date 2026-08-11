@@ -1,0 +1,109 @@
+import { expect, test, type ConsoleMessage, type Page } from '@playwright/test'
+
+/**
+ * E2E proof for the clap/tap-back drill (roadmap 3.21/5.21, REQ-3.6.2).
+ *
+ * The task's own proof statement is two assertions, and the first one is the
+ * one that quietly fails if done wrong: "never shown" has to mean the
+ * notation is genuinely ABSENT from the DOM, not merely hidden by CSS — so
+ * this asserts on presence (`toHaveCount(0)` / `queryByTestId` style
+ * absence), never on visibility or opacity, through every phase of the run:
+ * idle, listening, tapping, and graded. `RhythmClapback.test.tsx` already
+ * covers this at the unit level with `happy-dom`; this is the same guarantee
+ * proven against the real dev server and the real OSMD/Web Audio stack (a
+ * unit test mocking `ScoreViewer` cannot prove OSMD itself never mounts).
+ *
+ * The second half — "the tapped answer is graded" — is proven by tapping a
+ * KNOWN number of times and asserting `matched + extra` equals exactly that
+ * count, the same technique `rhythm.spec.ts` uses for the sight-reading
+ * drill, which a stub grader (fixed 0/1, or one that ignores the taps
+ * entirely) cannot satisfy.
+ */
+
+function collectErrors(page: Page): string[] {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  page.on('console', (msg: ConsoleMessage) => {
+    if (msg.type() === 'error') errors.push(msg.text())
+  })
+  return errors
+}
+
+/** No score container, no SVG, no OSMD-authored note element — anywhere on
+ *  the page, not just inside some presumed "notation region". Checked by
+ *  COUNT, never by visibility, per the module doc. */
+async function expectNoNotationAnywhere(page: Page): Promise<void> {
+  await expect(page.getByTestId('score-container')).toHaveCount(0)
+  await expect(page.locator('svg')).toHaveCount(0)
+  await expect(page.locator('[data-note-id]')).toHaveCount(0)
+}
+
+test('the clap-back mode plays the phrase audibly, never engraves it, and grades the real tapped answer (roadmap 3.21)', async ({
+  page,
+}) => {
+  test.setTimeout(45_000)
+  const errors = collectErrors(page)
+
+  await page.goto('/')
+  await page
+    .getByRole('navigation', { name: /main/i })
+    .getByRole('button', { name: 'Rhythm' })
+    .click()
+
+  await expect(page.getByRole('heading', { name: 'Rhythm' })).toBeVisible()
+  await expectNoNotationAnywhere(page)
+
+  await page.getByRole('button', { name: 'Clap-back mode' }).click()
+  await expect(page.getByTestId('clapback-level')).toHaveText('Level 1')
+  await expectNoNotationAnywhere(page)
+
+  await page.getByRole('button', { name: 'Start' }).click()
+  await expect(page.getByTestId('clapback-listening-status')).toBeVisible()
+  await expectNoNotationAnywhere(page)
+
+  // Listening auto-advances to tapping once the phrase finishes playing —
+  // `RhythmClapback`'s own `BARS = 2` at the 120bpm default is 4s, generous
+  // real-time margin either side.
+  await expect(page.getByTestId('clapback-tapping-status')).toBeVisible({ timeout: 15_000 })
+  await expectNoNotationAnywhere(page)
+
+  // `exact: true`: the mode toggle's own "Sight-read & tap" button contains
+  // "Tap" as a substring, and Playwright's default name match is substring.
+  const tapButton = page.getByRole('button', { name: 'Tap', exact: true })
+  await expect(tapButton).toBeEnabled()
+
+  const TAP_COUNT = 5
+  for (let i = 0; i < TAP_COUNT; i++) {
+    await tapButton.click()
+    await page.waitForTimeout(150)
+  }
+  await expect(page.getByTestId('clapback-tap-count')).toHaveText(`Taps: ${TAP_COUNT}`)
+  await expectNoNotationAnywhere(page)
+
+  await expect(page.getByTestId('clapback-accuracy')).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByRole('button', { name: 'Again' })).toBeVisible()
+  await expectNoNotationAnywhere(page)
+
+  const matched = Number(await page.getByTestId('clapback-matched').textContent())
+  const missed = Number(await page.getByTestId('clapback-missed').textContent())
+  const extra = Number(await page.getByTestId('clapback-extra').textContent())
+  const accuracyText = (await page.getByTestId('clapback-accuracy').textContent()) ?? ''
+  const accuracy = Number(accuracyText.replace('%', '')) / 100
+
+  // Every one of the 5 real taps is accounted for as either matched or extra
+  // — the real invariant `gradeClapback` keeps — which a stub returning a
+  // fixed grade regardless of input cannot satisfy.
+  expect(matched + extra).toBe(TAP_COUNT)
+  expect(missed).toBeGreaterThanOrEqual(0)
+  expect(accuracy).toBeGreaterThanOrEqual(0)
+  expect(accuracy).toBeLessThanOrEqual(1)
+
+  // The sight-reading mode is still reachable and unaffected — switching
+  // back shows its own (SIGHT-READING, notation-visible) drill, proving the
+  // mode switch is real navigation between two different drills, not a
+  // relabelled one.
+  await page.getByRole('button', { name: 'Sight-reading mode' }).click()
+  await expect(page.getByRole('button', { name: 'Start' })).toBeVisible()
+
+  expect(errors).toEqual([])
+})
