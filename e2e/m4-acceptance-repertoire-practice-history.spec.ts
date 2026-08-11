@@ -8,26 +8,15 @@ import { expect, test, type ConsoleMessage, type Page } from '@playwright/test'
  * works), actually play it, then go back to Repertoire and check whether
  * that practice moved the piece off "never practised".
  *
- * It does not. `src/core/repertoire/repertoire.ts`'s `recordSession` (and
- * the `bestAccuracy` it maintains) is called from nowhere in `src/app` except
- * test files — grep confirms zero references in `src/app/practice/**`, and
- * `RepertoireScreen`'s "days since last practice" column reads straight off
- * `RepertoirePiece.sessions`, which nothing production ever appends to.
- * `e2e/repertoire.spec.ts`'s own doc comment already says as much ("There is
- * no UI that records a repertoire practice session yet... that is the
- * `usePracticeLog.stop()` wiring roadmap 2.33 leaves for later") — this spec
- * turns that comment into a driven, dated assertion instead of leaving it as
- * prose only a reader of the source would find.
- *
- * Marked `test.fail()`: this is EXPECTED to fail today (that failure is the
- * acceptance pass's evidence that REQ-3.8.2's practice-history and
- * best-assessment-result clauses are not met by the shipped app — see the
- * M4 report). `test.fail()` makes that an intentional, documented red rather
- * than a silent break future runs would mistake for a real regression to
- * chase; the moment `usePracticeLog.stop()` is wired to `recordSession` and
- * this test starts PASSING, Playwright reports that as a failure of its own
- * ("expected to fail, but passed") — which is exactly the signal the gap has
- * closed and this spec (and its `test.fail()`) should be deleted.
+ * It now does. `src/app/practice/usePracticeLog.ts`'s `stop()` (and its
+ * unmount safety net) now call `useRepertoireStore.getState().recordSession`
+ * when the finished entry is a `'repertoire'`-kind session whose `itemId`
+ * (the loaded score's id) matches a library piece's `scoreId` and the
+ * session ran at least a second — see that file's module comment for the
+ * full wiring and why the duration floor exists. This spec was previously
+ * marked `test.fail()` to document the gap (see the M4 acceptance report,
+ * `docs/m4-acceptance-2026-08-11.md`, Defect 1); now that the wiring lands,
+ * it asserts the real behaviour.
  */
 
 function collectErrors(page: Page): string[] {
@@ -52,10 +41,9 @@ function noteLabel(note: number): string {
 }
 const key = (page: Page, note: number) => keyboard(page).getByRole('button', { name: noteLabel(note) })
 
-test('REQ-3.8.2: playing a repertoire piece through the real Practice screen updates its practice history (expected to fail — see M4 report)', async ({
+test('REQ-3.8.2: playing a repertoire piece through the real Practice screen updates its practice history', async ({
   page,
 }) => {
-  test.fail()
   test.setTimeout(30_000)
   const errors = collectErrors(page)
   const GREENSLEEVES_TITLE = 'Greensleeves'
@@ -81,8 +69,8 @@ test('REQ-3.8.2: playing a repertoire piece through the real Practice screen upd
 
   await navButton(page, 'Repertoire').click()
   // This is the claim REQ-3.8.2 makes: a real practice session should move
-  // the piece off "never practised". It currently does not — the row still
-  // reads "never practised" because nothing calls `recordSession`.
+  // the piece off "never practised" — `usePracticeLog.stop()` now calls
+  // `recordSession` for it (see that file's module comment).
   await expect(library.getByRole('listitem').filter({ hasText: GREENSLEEVES_TITLE }).getByText('never practised')).not.toBeVisible()
 
   expect(errors).toEqual([])
