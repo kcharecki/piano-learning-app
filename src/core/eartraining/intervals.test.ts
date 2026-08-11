@@ -46,36 +46,38 @@ const nameOf = (i: Interval): string => `${i.number}-${i.quality}`
 // ---------------------------------------------------------------------------
 
 describe('intervalsForLevel', () => {
-  it('level 1 is exactly P5, P8, M3, m3', () => {
+  // roadmap 5.30: RCM's own staging — m3/M3 at Level 1, P5 at 2, P4 at 3, the
+  // octave only at 4. See the module doc for why RCM was picked over Trinity
+  // (2nd-6th together) or Musical U (2nds-first).
+  it('level 1 is exactly M3, m3', () => {
     expect(new Set(intervalsForLevel(1).map((i) => intervalName(i)))).toEqual(
-      new Set(['P5', 'P8', 'M3', 'm3']),
+      new Set(['M3', 'm3']),
     )
   })
 
-  it('level 2 adds M2, m2, P4', () => {
+  it('level 2 adds P5', () => {
     const names = new Set(intervalsForLevel(2).map((i) => intervalName(i)))
-    expect(names).toEqual(new Set(['P5', 'P8', 'M3', 'm3', 'M2', 'm2', 'P4']))
+    expect(names).toEqual(new Set(['M3', 'm3', 'P5']))
   })
 
-  it('level 3 adds M6, m6', () => {
+  it('level 3 adds P4', () => {
     const names = new Set(intervalsForLevel(3).map((i) => intervalName(i)))
-    expect(names).toEqual(new Set(['P5', 'P8', 'M3', 'm3', 'M2', 'm2', 'P4', 'M6', 'm6']))
+    expect(names).toEqual(new Set(['M3', 'm3', 'P5', 'P4']))
   })
 
-  it('level 4 adds M7, m7', () => {
+  it('level 4 adds P8 (the octave)', () => {
     const names = new Set(intervalsForLevel(4).map((i) => intervalName(i)))
-    expect(names).toEqual(
-      new Set(['P5', 'P8', 'M3', 'm3', 'M2', 'm2', 'P4', 'M6', 'm6', 'M7', 'm7']),
-    )
+    expect(names).toEqual(new Set(['M3', 'm3', 'P5', 'P4', 'P8']))
   })
 
-  it('level 5 is exactly level 4 plus the tritone plus compounds of level 4, octave excluded', () => {
+  it('level 5 is level 4 plus M2/m2/M6/m6/M7/m7, the tritone, and compounds of level 4 minus the octave', () => {
     const names = new Set(intervalsForLevel(5).map((i) => intervalName(i)))
     expect(names).toEqual(
       new Set([
-        'P5', 'P8', 'M3', 'm3', 'M2', 'm2', 'P4', 'M6', 'm6', 'M7', 'm7',
+        'M3', 'm3', 'P5', 'P4', 'P8',
+        'M2', 'm2', 'M6', 'm6', 'M7', 'm7',
         'A4',
-        'M10', 'm10', 'M9', 'm9', 'P11', 'P12', 'M13', 'm13', 'M14', 'm14',
+        'M10', 'm10', 'P12', 'P11',
       ]),
     )
   })

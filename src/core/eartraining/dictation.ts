@@ -102,14 +102,56 @@ function clampComplexity(level: number): Complexity {
 }
 
 /**
- * REQ-3.6.1: "a 2-8 note phrase". `defaultParamsForLevel`'s own `bars` is
- * tuned for a full sight-reading piece, not a dictation snippet — 4 bars of
- * quarters at level 2, 8 bars of eighths at levels 3-5, dozens of notes
- * either way — so it cannot be used unmodified here. These are the floor and
- * ceiling every generated phrase is bounded to instead.
+ * REQ-3.6.1: "a 2-8 note phrase" — the OUTER bounds no generated phrase, at
+ * any level, ever leaves. `defaultParamsForLevel`'s own `bars` is tuned for a
+ * full sight-reading piece, not a dictation snippet — 4 bars of quarters at
+ * level 2, 8 bars of eighths at levels 3-5, dozens of notes either way — so it
+ * cannot be used unmodified here.
+ *
+ * roadmap 5.34: the 2-8 window itself is correct and worth keeping, but a
+ * SINGLE window for every level was not — RCM's own dictation syllabus runs
+ * roughly 3 notes at its Preparatory grade up to 9 at Level 6, so a level-1
+ * learner and a level-5 learner drawing from the identical 2-8 window were
+ * never actually being asked to hold more in their head as they progressed.
+ * `noteBoundsForLevel` (below) scales the window itself by level instead;
+ * these two constants now only mark its overall floor and ceiling — level 1
+ * bottoms out at `MIN_DICTATION_NOTES` and level 5 tops out at
+ * `MAX_DICTATION_NOTES`, exactly REQ-3.6.1's own numbers.
  */
 const MIN_DICTATION_NOTES = 2
 const MAX_DICTATION_NOTES = 8
+
+/**
+ * The level-1 ceiling and level-5 floor `noteBoundsForLevel` interpolates
+ * between, alongside `MIN_DICTATION_NOTES`/`MAX_DICTATION_NOTES` above (the
+ * level-1 floor and level-5 ceiling). Named separately because the four
+ * numbers are the two ENDPOINTS of the scaled window, not a single fixed
+ * pair: level 1 is `MIN_DICTATION_NOTES..LEVEL_1_MAX_NOTES` (2-3 notes) and
+ * level 5 is `LEVEL_5_MIN_NOTES..MAX_DICTATION_NOTES` (7-8 notes).
+ */
+const LEVEL_1_MAX_NOTES = 3
+const LEVEL_5_MIN_NOTES = 7
+
+/**
+ * The `{ min, max }` note-count window for a given level (roadmap 5.34) — see
+ * `MIN_DICTATION_NOTES`'s own doc for why this replaced one fixed 2-8 window
+ * for every level. Linear between level 1 (2-3 notes) and level 5 (7-8
+ * notes): a defensible interpolation of RCM's own syllabus endpoints onto
+ * this drill's 1-5 level ladder (RCM's own grades do not map 1:1 onto ours),
+ * not the only one — a curve that widens the window itself as level rises
+ * (rather than keeping a constant width-1 window that just slides up) is
+ * equally defensible and would teach a different thing (more UNCERTAINTY
+ * about the count, not just a longer one), which this drill does not
+ * currently claim to teach. Levels outside 1-5 clamp to that range, mirroring
+ * every other level-indexed lookup in this module.
+ */
+function noteBoundsForLevel(level: number): { readonly min: number; readonly max: number } {
+  const clamped = Math.min(5, Math.max(1, Math.round(level)))
+  const steps = (clamped - 1) / 4 // 0 at level 1, 1 at level 5
+  const min = Math.round(MIN_DICTATION_NOTES + steps * (LEVEL_5_MIN_NOTES - MIN_DICTATION_NOTES))
+  const max = Math.round(LEVEL_1_MAX_NOTES + steps * (MAX_DICTATION_NOTES - LEVEL_1_MAX_NOTES))
+  return { min, max }
+}
 
 /**
  * How many times `generateRhythmicDictation` grows `bars` by one, looking for
@@ -117,18 +159,6 @@ const MAX_DICTATION_NOTES = 8
  * function's own comment for why melodic dictation never needs this.
  */
 const MAX_BAR_GROWTH_ATTEMPTS = 6
-
-/**
- * The floor on `bars` for melodic dictation, kept as its own constant rather
- * than reusing `MIN_DICTATION_NOTES` (a note count, not a bar count) for both:
- * the two only agree in value because `generateMelodicLine` always places at
- * least one note per bar (`buildBarDurations` never returns an empty list for
- * a bar), so `bars === MIN_MELODIC_BARS` happens to guarantee
- * `notes.length >= MIN_DICTATION_NOTES` today. That is a property of the
- * generator, not a coincidence of the two constants sharing a value, so it is
- * named separately here rather than left implicit in a shared symbol.
- */
-const MIN_MELODIC_BARS = 2
 
 /** Small, deterministic, non-cryptographic string hash — good enough for a stable content id. */
 function fnv1a(text: string): string {
@@ -194,13 +224,14 @@ function truncateNotes(score: Score, max: number): Score {
  * level's own default — dictation grades one monophonic line, and the answer
  * type (`DictationAnswerNote`) has no hand to disambiguate a second one.
  *
- * Bounded to `MIN_DICTATION_NOTES..MAX_DICTATION_NOTES` notes (REQ-3.6.1) when
- * `opts.bars` is left unset: `generateMelodicLine` always places at least one
- * note per bar (`buildBarDurations` never returns an empty list for a bar), so
- * `bars === MIN_DICTATION_NOTES` is a hard floor on the note count — no retry
- * loop needed, unlike the rhythmic generator below. The ceiling is enforced by
- * trimming, not by shrinking `bars`, since a busier style (levels 3-5) can
- * pack more than 8 notes into even a single bar. An explicit `opts.bars` is
+ * Bounded to this level's own `noteBoundsForLevel` window (REQ-3.6.1,
+ * scaled by level per roadmap 5.34) when `opts.bars` is left unset:
+ * `generateMelodicLine` always places at least one note per bar
+ * (`buildBarDurations` never returns an empty list for a bar), so
+ * `bars === min` is a hard floor on the note count — no retry loop needed,
+ * unlike the rhythmic generator below. The ceiling is enforced by trimming,
+ * not by shrinking `bars`, since a busier style (levels 3-5) can pack more
+ * than `max` notes into even a single bar. An explicit `opts.bars` is
  * respected as the caller's own choice (see the 'honours a bars override'
  * test) and is only ever trimmed from above, never grown.
  */
@@ -208,6 +239,7 @@ export function generateMelodicDictation(level: number, opts: DictationOptions, 
   const defaults = defaultParamsForLevel(level)
   const key = opts.key ?? defaults.key
   const range: Range = opts.range ?? defaults.rightRange
+  const { min, max } = noteBoundsForLevel(level)
 
   function build(bars: number): Score {
     const params: GeneratorParams = {
@@ -246,8 +278,12 @@ export function generateMelodicDictation(level: number, opts: DictationOptions, 
 
   let bars = opts.bars ?? 1
   let score = build(bars)
-  if (opts.bars === undefined && score.notes.length < MIN_DICTATION_NOTES) {
-    bars = MIN_MELODIC_BARS
+  if (opts.bars === undefined && score.notes.length < min) {
+    // `generateMelodicLine` places at least one note per bar, so `bars ===
+    // min` is a hard floor on the note count (roadmap 5.34: `min` replaces
+    // the old fixed `MIN_MELODIC_BARS`/`MIN_DICTATION_NOTES` pair, scaled by
+    // level instead).
+    bars = min
     score = build(bars)
   }
   // Prefer shrinking `bars` over slicing mid-phrase: a smaller bar count that
@@ -259,14 +295,14 @@ export function generateMelodicDictation(level: number, opts: DictationOptions, 
   // generator can draw, so there is nothing left to shrink to, and the
   // ceiling can only be enforced by `truncateNotes`' trim below.
   if (opts.bars === undefined) {
-    while (score.notes.length > MAX_DICTATION_NOTES && bars > 1) {
+    while (score.notes.length > max && bars > 1) {
       const shrunk = build(bars - 1)
-      if (shrunk.notes.length < MIN_DICTATION_NOTES) break
+      if (shrunk.notes.length < min) break
       bars -= 1
       score = shrunk
     }
   }
-  score = truncateNotes(score, MAX_DICTATION_NOTES)
+  score = truncateNotes(score, max)
   if (opts.bars === undefined) score = trimTrailingEmptyMeasures(score)
 
   const answerKey = notesKey(score.notes, true)
@@ -291,16 +327,16 @@ export function generateMelodicDictation(level: number, opts: DictationOptions, 
  * level's default range) via {@link rhythmToScore}. `opts.key` is not
  * meaningful here — rhythm has no scale — and is ignored.
  *
- * Bounded the same way melodic dictation is (REQ-3.6.1), but rests
- * (`allowRests`, on from complexity 2) break the "one note per bar" floor
- * that makes the melodic generator's bound a single retry: a bar can, in the
- * worst case, subdivide into onsets that are all rests, so growing `bars`
- * only raises the *odds* of clearing `MIN_DICTATION_NOTES`, it does not
- * guarantee it the way adding a bar does for a melody. So this retries with
- * more bars first — `MAX_BAR_GROWTH_ATTEMPTS` covers the overwhelming
- * majority of draws — and only if the floor is still unmet falls back to one
- * final draw with rests forced off, which, like the melodic generator, does
- * guarantee at least one real onset per bar.
+ * Bounded the same way melodic dictation is (REQ-3.6.1, scaled by level per
+ * roadmap 5.34), but rests (`allowRests`, on from complexity 2) break the
+ * "one note per bar" floor that makes the melodic generator's bound a single
+ * retry: a bar can, in the worst case, subdivide into onsets that are all
+ * rests, so growing `bars` only raises the *odds* of clearing this level's
+ * own `min`, it does not guarantee it the way adding a bar does for a melody.
+ * So this retries with more bars first — `MAX_BAR_GROWTH_ATTEMPTS` covers the
+ * overwhelming majority of draws — and only if the floor is still unmet falls
+ * back to one final draw with rests forced off, which, like the melodic
+ * generator, does guarantee at least one real onset per bar.
  */
 export function generateRhythmicDictation(
   level: number,
@@ -312,6 +348,7 @@ export function generateRhythmicDictation(
   const complexity = clampComplexity(level)
   const timeSignature: TimeSignature = defaults.timeSignature
   const pitch = asMidi(Math.round((range.low + range.high) / 2))
+  const { min, max } = noteBoundsForLevel(level)
 
   function build(bars: number, allowRests: boolean): { score: Score; onsetTicks: readonly Ticks[] } {
     const rhythmParams: RhythmParams = {
@@ -333,22 +370,22 @@ export function generateRhythmicDictation(
 
   if (opts.bars === undefined) {
     let attempts = 0
-    while (built.onsetTicks.length < MIN_DICTATION_NOTES && attempts < MAX_BAR_GROWTH_ATTEMPTS) {
+    while (built.onsetTicks.length < min && attempts < MAX_BAR_GROWTH_ATTEMPTS) {
       bars += 1
       built = build(bars, baseAllowRests)
       attempts += 1
     }
-    if (built.onsetTicks.length < MIN_DICTATION_NOTES) {
-      bars = Math.max(bars, MIN_DICTATION_NOTES)
+    if (built.onsetTicks.length < min) {
+      bars = Math.max(bars, min)
       built = build(bars, false)
     }
   }
 
   let { score } = built
   let onsetTicks = built.onsetTicks
-  if (onsetTicks.length > MAX_DICTATION_NOTES) {
-    onsetTicks = onsetTicks.slice(0, MAX_DICTATION_NOTES)
-    score = truncateNotes(score, MAX_DICTATION_NOTES)
+  if (onsetTicks.length > max) {
+    onsetTicks = onsetTicks.slice(0, max)
+    score = truncateNotes(score, max)
   }
   // Trimmed whenever `bars` was auto-selected, not just when the ceiling
   // above was hit: the bar-growth loop can settle on a `bars` count whose

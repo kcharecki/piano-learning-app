@@ -111,6 +111,42 @@ describe('generateMelodicDictation / generateRhythmicDictation — REQ-3.6.1 phr
     )
   })
 
+  // roadmap 5.34: the 2-8 window itself is correct (pinned above) but must not
+  // be the SAME window at every level — RCM runs roughly 3 notes at its
+  // Preparatory grade up to 9 at Level 6, so the window has to actually scale.
+  // 200 generated items per level, per kind, both directions of the property:
+  // level 1 never exceeds the short end (2-3 notes) and level 5 never drops
+  // below the long end (7-8 notes) — a mutant that reintroduces one fixed 2-8
+  // window for every level passes the test above but fails both halves here.
+  it('level 1 dictation is 2-3 notes and level 5 dictation is 7-8 notes, over 200 generated items each (property)', () => {
+    const ITEMS_PER_LEVEL = 200
+    for (const generate of [generateMelodicDictation, generateRhythmicDictation]) {
+      for (let seed = 0; seed < ITEMS_PER_LEVEL; seed++) {
+        const level1 = generate(1, {}, seededRng(seed))
+        expect(level1.prompt.notes.length).toBeGreaterThanOrEqual(2)
+        expect(level1.prompt.notes.length).toBeLessThanOrEqual(3)
+
+        const level5 = generate(5, {}, seededRng(seed))
+        expect(level5.prompt.notes.length).toBeGreaterThanOrEqual(7)
+        expect(level5.prompt.notes.length).toBeLessThanOrEqual(8)
+      }
+    }
+  })
+
+  // The monotonic middle: level 3's window (5-6 notes) sits strictly between
+  // level 1's and level 5's, for both kinds — guards against a mutant that
+  // scales the ceiling but leaves the floor fixed (or vice versa), which the
+  // two endpoint-only checks above cannot see.
+  it('level 3 dictation is 5-6 notes, over 200 generated items, both kinds (property)', () => {
+    for (const generate of [generateMelodicDictation, generateRhythmicDictation]) {
+      for (let seed = 0; seed < 200; seed++) {
+        const item = generate(3, {}, seededRng(seed))
+        expect(item.prompt.notes.length).toBeGreaterThanOrEqual(5)
+        expect(item.prompt.notes.length).toBeLessThanOrEqual(6)
+      }
+    }
+  })
+
   // Review finding: measured over 2000 rhythmic draws, 436 left the item with
   // declared trailing measures containing no onset at all — `score.measures`
   // was never trimmed to match the (possibly truncated, possibly

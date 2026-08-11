@@ -120,7 +120,7 @@ import {
   type Ticks,
 } from '@core/shared/units.ts'
 import type { ChordQuality } from '@core/theory/chords.ts'
-import type { Interval } from '@core/theory/intervals.ts'
+import { parseInterval, type Interval } from '@core/theory/intervals.ts'
 import type { ScaleType } from '@core/theory/scales.ts'
 
 export type EarTrainingPhase = 'idle' | 'playing' | 'answering' | 'graded'
@@ -199,6 +199,11 @@ export type UseEarTraining = {
    *  through the same path every other answer uses, so adaptation and SRS see it.
    *  No-op if no dictation item is loaded. */
   readonly submitDictation: () => void
+  /** Roadmap 5.29: play the current item's own interval in isolation, at a
+   *  fixed reference register (middle C up), regardless of the register the
+   *  drill actually drew — see `playIntervalReference`'s own doc. No-op
+   *  unless the current item is `interval-melodic`/`interval-harmonic`. */
+  readonly playIntervalReference: () => void
 }
 
 function isDictationKind(kind: EarItemKind): boolean {
@@ -339,6 +344,32 @@ function scheduleCountIn(audioOutput: AudioOutput, item: EarItem, baseMs: Millis
     const atMs = millis(baseMs + tickToMs(tempoMap, tick))
     audioOutput.click(i === 0, atMs)
   }
+}
+
+/** Middle C — the fixed anchor `playIntervalReference` always plays from (roadmap 5.29). */
+const REFERENCE_ROOT_MIDI = 60
+/** How long each of the reference's two notes rings, in ms. */
+const REFERENCE_NOTE_MS = 500
+/** Gap between the reference's two note-ons, in ms — a comfortable, unhurried quarter-ish beat. */
+const REFERENCE_NOTE_SPACING_MS = 600
+/** Matches `ChordScaleReference`'s own `PLAY_VELOCITY` — neither soft nor pinned to max. */
+const REFERENCE_VELOCITY = 80
+
+/**
+ * The two-note reference itself (roadmap 5.29) — module-level, like
+ * `scheduleContext`/`scheduleCountIn` above, and for the same reason: inside
+ * `useEarTraining`'s own body, the local `const midi = useMidiConnection(...)`
+ * binding shadows the imported `midi()` Midi-branding function, so the
+ * branding has to happen out here, not in the component-scoped
+ * `playIntervalReference` that calls this.
+ */
+function scheduleIntervalReference(audioOutput: AudioOutput, semitones: number, baseMs: Millis): void {
+  const root = midi(REFERENCE_ROOT_MIDI)
+  const target = midi(REFERENCE_ROOT_MIDI + semitones)
+  audioOutput.noteOn(root, REFERENCE_VELOCITY, baseMs)
+  audioOutput.noteOff(root, millis(baseMs + REFERENCE_NOTE_MS))
+  audioOutput.noteOn(target, REFERENCE_VELOCITY, millis(baseMs + REFERENCE_NOTE_SPACING_MS))
+  audioOutput.noteOff(target, millis(baseMs + REFERENCE_NOTE_SPACING_MS + REFERENCE_NOTE_MS))
 }
 
 /** Beats of tonic-drone context (tonic + fifth, held together) played before an item
@@ -596,6 +627,29 @@ export function useEarTraining(options: UseEarTrainingOptions = {}): UseEarTrain
     answer({ kind: 'dictation', notes: dictationNotesRef.current })
   }
 
+  /**
+   * REQ-3.6.1/3.6.2 (roadmap 5.29): a reveal that only replays the item's own
+   * two notes teaches the interval AT THE ONE REGISTER the drill happened to
+   * draw — this instead plays it from a fixed, always-the-same reference
+   * root (middle C), the way a mnemonic ("this interval sounds like the
+   * start of ___") is actually taught: always the same two pitches, so the
+   * association forms independent of where any one drawn item happened to
+   * sit. Always ascending, regardless of the item's own direction — a
+   * reference is a fixed thing to compare against, not a repeat of what was
+   * just heard (`replay()` already does that). Reads `item.answerKey`, never
+   * `item.prompt`'s actual pitches, which is exactly what makes the register
+   * fixed instead of following the draw.
+   */
+  function playIntervalReference(): void {
+    if (item === undefined) return
+    if (item.kind !== 'interval-melodic' && item.kind !== 'interval-harmonic') return
+    const unsigned = item.answerKey.startsWith('-') ? item.answerKey.slice(1) : item.answerKey
+    const parsed = parseInterval(unsigned)
+    if (!parsed.ok) return
+    const audioOutput = getAudioOutput()
+    scheduleIntervalReference(audioOutput, parsed.value.semitones, audioOutput.now())
+  }
+
   const pressDictationNoteRef = useRef(pressDictationNote)
   pressDictationNoteRef.current = pressDictationNote
 
@@ -642,5 +696,6 @@ export function useEarTraining(options: UseEarTrainingOptions = {}): UseEarTrain
     pressDictationNote,
     clearDictation,
     submitDictation,
+    playIntervalReference,
   }
 }

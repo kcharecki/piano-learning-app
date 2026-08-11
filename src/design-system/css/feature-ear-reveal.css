@@ -2,3 +2,43 @@
    Single-writer by construction: exactly one parallel session owns this file, so
    a round of concurrent worktrees never conflicts inside domain.css. Rules that
    outlive their feature's round get folded back into domain.css by the integrator. */
+
+/* roadmap 5.32: the "this screen can't hear you sing" disclosure — small,
+   secondary copy (--text-2 is the AA-compliant secondary tone; --text-3 is
+   decorative-only and would fail contrast on a sentence a learner has to
+   actually read), sitting quietly above the drill controls rather than
+   competing with them. */
+.eartraining-vocal-note {
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  max-width: 60ch;
+}
+
+/* roadmap 5.29: the post-answer reveal — naming, staff, keyboard, and (for
+   intervals) a fixed-register reference. `.notation-frame` (ScoreViewer's own
+   class, domain.css) already gives the staff its "paper" surface; this file
+   only spaces the reveal's own pieces out from each other and from the
+   dictation per-note breakdown above it. */
+.eartraining-reveal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.eartraining-reveal-staff {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.eartraining-reference-tune {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.eartraining-reference-tune p {
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
