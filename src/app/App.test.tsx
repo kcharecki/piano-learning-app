@@ -15,6 +15,7 @@ import { MIN_LEVEL } from '@core/sightreading/adaptive.ts'
 import type { Store } from '@core/ports/index.ts'
 import { C_MAJOR_SCALE_RH } from '@test/fixtures.ts'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@app/score/ScoreScreen.tsx', () => ({
@@ -75,10 +76,19 @@ afterEach(() => {
 })
 
 describe('App', () => {
-  it('renders the shell with the nav and the live Practice screen', () => {
+  // Roadmap 5.39 moved the default destination from Practice to Today, so this
+  // reachability test navigates to Practice rather than expecting to land on
+  // it. The assertion that matters is unchanged and slightly stronger: the real
+  // `ScoreScreen` is mounted by the real `Shell` under the real `App`, not
+  // merely importable.
+  it('renders the shell with the nav, and reaches the live Practice screen', async () => {
+    const user = userEvent.setup()
     render(<App openStore={async () => fakeStore()} />)
     expect(screen.getByRole('navigation', { name: /main/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Practice' })).toBeInTheDocument()
+    expect(screen.queryByTestId('mock-score-screen')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Practice' }))
+
     expect(screen.getByTestId('mock-score-screen')).toBeInTheDocument()
   })
 
