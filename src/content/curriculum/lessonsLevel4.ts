@@ -13,12 +13,15 @@
  * title promises (roadmap 3.11/3.12's discipline, continued here); see each
  * exercise's comment for which table widens at that level.
  *
- * No demo score exists for any of these three topics specifically —
- * `src/content/scores/demoScores.ts` is not this task's file to extend (see
- * roadmap 3.25's brief) — so each lesson points at the closest existing
- * demonstration that is genuinely on-topic, named in its own comment below.
- * Every lesson carries a STAFF diagram (roadmap 3.25 built the diagram kind
- * these six lessons exist to use), never keyboard-only.
+ * roadmap 5.10's lesson-quality audit found the original demos here — a
+ * triad-inversion cycle standing in for a seventh chord, a bare V-I standing
+ * in for all four cadence types, one progression standing in for three — were
+ * on-topic but not on-topic ENOUGH: a beginner opening "Open demonstration"
+ * would not hear what the lesson's own prose promised. `harmonyDemoScores.ts`
+ * now carries a real demo for each; see its own module comment for the full
+ * list of what was closed. Every lesson carries a STAFF diagram (roadmap
+ * 3.25 built the diagram kind these six lessons exist to use), never
+ * keyboard-only.
  */
 import type { Exercise, Lesson } from '@core/curriculum/types.ts'
 import { demoScoreById } from '@content/scores/demoScores.ts'
@@ -62,11 +65,9 @@ export const LEVEL_4_LESSONS: readonly Lesson[] = [
       "urgently it wants to resolve to C than the bare triad did — that extra pull is a seventh " +
       "chord's whole purpose in a progression.\n\n" +
       '[diagram:staff-seventh-chord]',
-    // No demo of a seventh chord exists yet (raised as a gap, not fixed here
-    // — src/content/scores/demoScores.ts is owned by another task). The
-    // blocked/broken C major triad demo is the closest on-topic
-    // demonstration: the same chord-building technique this lesson extends.
-    demoScoreId: demo('demo-c-major-triad-blocked'),
+    // roadmap 5.10: plays exactly what the prose describes — the G major
+    // triad, then G7 (see harmonyDemoScores.ts).
+    demoScoreId: demo('demo-g-major-to-g-dominant-seventh'),
     exercises: [
       // CHORD_QUALITIES_BY_LEVEL[2] (level 3) is the tier where
       // dominant7/major7/minor7 FIRST join the major/minor/diminished/
@@ -97,7 +98,10 @@ export const LEVEL_4_LESSONS: readonly Lesson[] = [
       'feels: full stop, comma, gentle close, surprise — the same harmonic vocabulary used four ' +
       'different ways.\n\n' +
       '[diagram:staff-authentic-cadence]',
-    demoScoreId: demo('demo-authentic-cadence-c-major'),
+    // roadmap 5.10: the prior demo (a bare V-I) showed only one of the four
+    // cadence types this lesson names. Now plays all four, each starting
+    // from the same I chord, exactly as the prose describes.
+    demoScoreId: demo('demo-four-cadence-types-c-major'),
     exercises: [
       // CADENCES_BY_LEVEL[3] (level 4) is the first tier that includes all
       // four cadence types this lesson names — DECEPTIVE only joins at
@@ -127,7 +131,9 @@ export const LEVEL_4_LESSONS: readonly Lesson[] = [
       'Play all three progressions in C major and notice what they share: every one of them is built ' +
       'entirely from the seven diatonic triads you already know, just visited in a different order.\n\n' +
       '[diagram:staff-i-iv-v-i-progression]',
-    demoScoreId: demo('demo-i-iv-v-i-c-major'),
+    // roadmap 5.10: the prior demo played only I-IV-V-I, one of the three
+    // progressions this lesson names. Now plays all three back to back.
+    demoScoreId: demo('demo-common-progressions-c-major'),
     exercises: [
       // No quiz kind builds a whole multi-chord progression as one item —
       // `build-cadence`'s two-chord recipes are the closest keyboard-

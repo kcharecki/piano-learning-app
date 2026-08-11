@@ -64,6 +64,7 @@ const F = 5
 const FSharp = 6
 const G = 7
 const A = 9
+const Bb = 10
 const B = 11
 
 export type KeyboardLessonDiagram = {
@@ -233,6 +234,22 @@ export const LESSON_DIAGRAMS: readonly LessonDiagram[] = [
     high: 74, // D5
     highlightedPitchClasses: [D, E, FSharp, G, A, B, CSharp],
     rootPitchClass: D,
+  },
+  {
+    // roadmap 5.10: l3-keys-to-two-sharps-flats names D major and B-flat
+    // major with equal weight ("two sharps... and two flats...") but only
+    // 'd-major-scale' above existed — a beginner reading the lesson would
+    // see one of its two named keys illustrated and not the other. `low` is
+    // A3 (a white key, satisfying the same registry invariant every other
+    // keyboard diagram here does) rather than the root Bb itself, which is a
+    // black key.
+    kind: 'keyboard',
+    id: 'b-flat-major-scale',
+    caption: 'The B-flat major scale: two flats, Bb and Eb.',
+    low: 57, // A3
+    high: 69, // A4
+    highlightedPitchClasses: [Bb, C, D, 3, F, G, A],
+    rootPitchClass: Bb,
   },
 
   // -- staff/rhythm diagrams for the level 1-3 gap topics (roadmap 3.25) ----

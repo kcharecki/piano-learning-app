@@ -416,10 +416,34 @@ mismatch worse: the audio wins and a beginner cannot tell which one is lying.
 - [x] 5.9b `app/lessons`: "Open demonstration" now navigates to Practice after loading the demo score
       (`LessonsScreen`'s new `onOpenDemo` → `Shell`'s `goTo('practice')`), instead of leaving the
       learner on the Lessons screen. Driven in a browser: one click, no second step (ec91440).
-- [ ] 5.10 Lesson quality also depends on **3.24** (six REQ-3.5.1 topics with no lesson at any level)
-      and **3.25** (`LessonBody` can render only `KeyboardDiagram`, so 7 staff/rhythm lessons are
-      structurally incapable of having a diagram). Both are referenced here, not restated: this aspect
-      cannot reach 9 with 11 of 19 theory lessons undiagrammed.
+- [x] 5.10 The gate itself, over what 3.24/3.25 landed. Verified live, not from the ticked boxes: every
+      theory lesson at every level (1-5) opens with a real engraved `<svg>` diagram, console clean —
+      driven in the browser on port 5325, screenshotted both widths/themes on `l4-seventh-chords` and
+      `l5-minor-scale-forms` (both new), console clean throughout.
+      **Content audit, the 5.9 five dimensions (key, hand, octave, note values, concept) re-run over
+      what exists now: 46 `demoScoreId` lessons audited (40 from 5.9 + 6 new from 3.24), 6 defects
+      found** — all six new level 4-5 lessons' demos were on-topic but not on-topic enough: a
+      triad-inversion cycle standing in for `l4-seventh-chords`' actual seventh chord, a bare V-I
+      standing in for all four of `l4-cadences`' named types, one progression standing in for
+      `l4-common-progressions`' three, a chord pair (not a scale at all) standing in for
+      `l5-minor-scale-forms`, a plain I-V-I never sounding the borrowed chord `l5-secondary-dominants`
+      names, and a same-key run with no chord ever reinterpreted standing in for
+      `l5-modulation-closely-related-keys`'s pivot. Both of the task's flagged open gaps are closed, not
+      argued acceptable: authored 6 new demos in `harmonyDemoScores.ts` (`@core/notation/score.ts`
+      builders only, no transcription) that play exactly what each lesson's prose promises, verified
+      against the real theory core, not the demo's title — `romanNumeralFor`/`classifyCadence` on the
+      cadences and the modulation's actual pivot chord, `scaleNotes` pitch-class assertions on the three
+      minor forms. The 40 pre-existing lessons re-checked clean (5.9/5.9a's fixes hold).
+      A second, smaller pass over diagram-vs-prose (part of verifying 3.25, not a demoScoreId
+      dimension): 1 of 25 diagrammed lessons found short — `l3-keys-to-two-sharps-flats` names D major
+      and B-flat major with equal weight but only diagrammed D major; added `b-flat-major-scale` to
+      `diagrams.ts` and referenced it. *Proof: `curriculum.test.ts`/`demoKeyConsistency.test.ts` stay
+      green; `demoScores.test.ts` gained 11 new content assertions reading each new demo's actual notes
+      (never its title) — 108 of 108 scoped tests pass, `npm run typecheck` clean, `eslint` clean on
+      every owned file.* Deleted nothing — the six repointed lessons' old demoScoreIds
+      (`demo-c-major-triad-blocked`, `demo-authentic-cadence-c-major`, `demo-i-iv-v-i-c-major`,
+      `demo-c-major-and-a-minor-triads`, `demo-i-v-i-c-major`, `demo-circle-of-fifths-c-g-f`) stay in
+      the registry, still referenced by their original level 2-3 lessons.
 
 ### Sight reading — **5/10 → 9**
 
