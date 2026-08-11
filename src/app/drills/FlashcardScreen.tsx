@@ -19,6 +19,7 @@ import { MidiDeviceStatus } from '@app/practice/MidiDeviceStatus.tsx'
 import type { ConnectMidi } from '@app/practice/useMidiConnection.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { useMetronome } from '@app/metronome/useMetronome.ts'
+import { SrsSummary } from '@app/srs/SrsSummary.tsx'
 import type { GradeResult } from '@core/drills/flashcards.ts'
 import type { AudioOutput, Clock, DateSource, MidiInput, Rng } from '@core/ports/index.ts'
 import { MAX_BPM, MIN_BPM } from '@core/timing/metronome.ts'
@@ -248,43 +249,7 @@ export function FlashcardScreen(props: FlashcardScreenProps) {
         </section>
       )}
 
-      <dl className="flashcard-stats retention-stats" aria-label="Retention">
-        <dt>Cards</dt>
-        <dd>
-          <div className="stat">
-            <b data-testid="flashcard-stats-total">{drill.stats.total}</b>
-            <small>Cards</small>
-          </div>
-        </dd>
-        <dt>Due</dt>
-        <dd>
-          <div className="stat">
-            <b data-testid="flashcard-stats-due">{drill.stats.due}</b>
-            <small>Due</small>
-          </div>
-        </dd>
-        <dt>Young</dt>
-        <dd>
-          <div className="stat">
-            <b data-testid="flashcard-stats-young">{drill.stats.young}</b>
-            <small>Young</small>
-          </div>
-        </dd>
-        <dt>Mature</dt>
-        <dd>
-          <div className="stat">
-            <b data-testid="flashcard-stats-mature">{drill.stats.mature}</b>
-            <small>Mature</small>
-          </div>
-        </dd>
-        <dt>Average ease</dt>
-        <dd>
-          <div className="stat">
-            <b data-testid="flashcard-stats-ease">{drill.stats.averageEase.toFixed(2)}</b>
-            <small>Average ease</small>
-          </div>
-        </dd>
-      </dl>
+      <SrsSummary stats={drill.stats} idPrefix="flashcard-stats" ariaLabel="Retention" />
     </div>
   )
 }

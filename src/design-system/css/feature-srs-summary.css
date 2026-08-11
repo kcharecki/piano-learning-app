@@ -2,3 +2,84 @@
    Single-writer by construction: exactly one parallel session owns this file, so
    a round of concurrent worktrees never conflicts inside domain.css. Folded back
    into domain.css by the integrator once the feature settles. */
+
+/* ---------- Shared SRS summary (roadmap 5.31) ----------
+   One component (`src/app/srs/SrsSummary.tsx`) rendered by all four SRS-backed
+   screens (dashboard, flashcards, ear training, theory drills). The counts row
+   mirrors the pre-existing `.eartraining-stats`/`.retention-stats` tile layout
+   in domain.css (number-first `.stat` tile, `<dt>` visually hidden but still in
+   the accessibility tree) so this reads as the same design already shipped,
+   just under a name this file alone owns. */
+.srs-summary { width: 100%; }
+.srs-summary-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-6);
+  justify-content: center;
+  padding: var(--space-3);
+  border-top: var(--border-w) solid var(--border-1);
+  width: 100%;
+  margin: 0;
+}
+.srs-summary-counts > dt {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.srs-summary-counts .stat { display: grid; justify-items: center; gap: 2px; }
+.srs-summary-counts .stat b {
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+.srs-summary-counts .stat small {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  color: var(--text-2);
+}
+
+.srs-summary > p[role="status"] {
+  margin: 0 var(--space-3) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  text-align: center;
+}
+
+/* The scheduler's own vocabulary (Young/Mature/ease) — kept for debugging,
+   never shown by default. Same disclosure convention as
+   `.practice-accuracy-caveat` (feature-practice-sections.css): one quiet
+   line, not a bordered section, since this is a debug aside, not a feature. */
+.srs-summary-debug {
+  margin: 0 var(--space-3) var(--space-3);
+}
+.srs-summary-debug > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  list-style: none;
+}
+.srs-summary-debug > summary::-webkit-details-marker { display: none; }
+.srs-summary-debug > summary::before {
+  content: "\25b8"; /* ▸ */
+  display: inline-block;
+  transition: transform var(--dur-1) var(--ease-out);
+}
+.srs-summary-debug[open] > summary::before { transform: rotate(90deg); }
+.srs-summary-debug-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+.srs-summary-debug-list dt { font-weight: var(--weight-semibold); }
+.srs-summary-debug-list dt::after { content: ":"; }
+.srs-summary-debug-list dd { margin: 0; }

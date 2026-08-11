@@ -8,6 +8,7 @@
  */
 import { ExportPanel } from '@app/progress/ExportPanel.tsx'
 import { PracticeSheet } from '@app/progress/PracticeSheet.tsx'
+import { SrsSummary } from '@app/srs/SrsSummary.tsx'
 import { ACTIVITY_KIND_LABELS } from '@app/progress/activityKindLabels.ts'
 import { ACTIVITY_KINDS } from '@core/progress/log.ts'
 import { MIN_LEVEL, MAX_LEVEL, type Track } from '@core/curriculum/types.ts'
@@ -217,23 +218,7 @@ export function DashboardScreen(props: DashboardScreenProps) {
 
       <section aria-label="Theory retention stats" role="region">
         <h3>Theory retention</h3>
-        <dl>
-          <dt>Cards</dt>
-          <dd data-testid="dashboard-retention-total">{data.retention.total}</dd>
-          <dt>Due</dt>
-          <dd data-testid="dashboard-retention-due">{data.retention.due}</dd>
-          <dt>Young</dt>
-          <dd data-testid="dashboard-retention-young">{data.retention.young}</dd>
-          <dt>Mature</dt>
-          <dd data-testid="dashboard-retention-mature">{data.retention.mature}</dd>
-          <dt>Average ease</dt>
-          <dd data-testid="dashboard-retention-ease">{data.retention.averageEase.toFixed(2)}</dd>
-        </dl>
-        {data.retention.total === 0 && (
-          <p role="status" data-testid="dashboard-retention-empty">
-            Nothing recorded yet.
-          </p>
-        )}
+        <SrsSummary stats={data.retention} idPrefix="dashboard-retention" ariaLabel="Retention" />
       </section>
 
       <section aria-label="Repertoire status" role="region">

@@ -55,6 +55,7 @@ import { QwertyHint } from '@app/keyboardInput/QwertyHint.tsx'
 import { defaultBaseNote } from '@app/keyboardInput/qwertyNoteMap.ts'
 import { useQwertyNoteInput } from '@app/keyboardInput/useQwertyNoteInput.ts'
 import { useFlashcardStore } from '@app/state/flashcardStore.ts'
+import { SrsSummary } from '@app/srs/SrsSummary.tsx'
 import { createBrowserRng } from '@app/sightreading/rng.ts'
 import {
   ALL_THEORY_KINDS,
@@ -417,18 +418,7 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
         </section>
       )}
 
-      <dl className="theory-stats" aria-label="Retention">
-        <dt>Cards</dt>
-        <dd data-testid="theory-stats-total">{stats.total}</dd>
-        <dt>Due</dt>
-        <dd data-testid="theory-stats-due">{stats.due}</dd>
-        <dt>Young</dt>
-        <dd data-testid="theory-stats-young">{stats.young}</dd>
-        <dt>Mature</dt>
-        <dd data-testid="theory-stats-mature">{stats.mature}</dd>
-        <dt>Average ease</dt>
-        <dd data-testid="theory-stats-ease">{stats.averageEase.toFixed(2)}</dd>
-      </dl>
+      <SrsSummary stats={stats} idPrefix="theory-stats" ariaLabel="Retention" />
     </div>
   )
 }

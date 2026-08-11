@@ -709,12 +709,28 @@ who guesses wrong.
       than replaces (plus the pre-existing monotonic property test, unchanged); `IntervalAnswerButtons.
       test.tsx` confirms the on-screen pad matches the new staging. `useEarTraining.test.ts` and
       `EarTrainingScreen.test.tsx` updated throughout for the new level-1 draw (M3 instead of P5).*
-- [ ] 5.31 `app`: the SRS panel exposes Anki's internal vocabulary to a piano beginner — *Cards / Due /
+- [x] 5.31 `app`: the SRS panel exposes Anki's internal vocabulary to a piano beginner — *Cards / Due /
       Young / Mature / Average ease 2.50* — on Ear training, Flashcards and Theory. Nobody learning
       piano knows what a mature card is. Replace with learner-facing language; keep the raw numbers
       behind a details toggle if they are wanted for debugging.
-      *Proof: none of "Young", "Mature" or "ease" appears in the default view of any of the three
-      screens; the underlying scheduler is untouched (its tests unchanged and still green).*
+      3 reported, 4 found: `DashboardScreen.tsx`'s "Theory retention" section rendered the identical
+      *Young / Mature / Average ease* row and was not named in the original report. Built one shared
+      `src/app/srs/SrsSummary.tsx` (never four copies) and pointed all four screens at it. New words:
+      **Due now** (unchanged — already plain), **New** (`total - young - mature`: never yet answered
+      correctly), **Learning** (the scheduler's `young`: recalled once, interval still short — "still
+      building the memory"), **Mastered** (the scheduler's `mature`: interval ≥ 21 days — "you know
+      this well now"). The scheduler's own words move into a closed-by-default `<details>` ("Scheduler
+      details"), the same disclosure convention `SightReadingCustomizer.tsx`/`.practice-more-tools`
+      already use — not deleted, one click away for debugging. Numbers unchanged throughout; only
+      label and default visibility moved. `src/core/srs/scheduler.ts` untouched, its own tests
+      unchanged and green.
+      *Proof: `SrsSummary.test.tsx` (new, 4 tests) asserts the translation and the empty state; none
+      of "Young", "Mature" or "ease" appears in the default (closed-`<details>`) view of any of the
+      three drill screens — confirmed both by component test and a driven Playwright run against
+      `localhost:5322` that answers a real Key-signature flashcard, watches Cards/Due now/New/
+      Learning/Mastered move with real numbers (1/0/0/1/0), then opens "Scheduler details" and reads
+      the same data back as Young:1 Mature:0 Average ease:2.65. `visual-pass.mjs` clean (console, both
+      themes, both widths) on Flashcards, Ear training, Theory and Progress.*
 - [x] 5.32 `app/eartraining`: added a persistent on-screen statement, visible for every drill: "This
       screen has no microphone — it can't hear you sing, only what you click or play on a keyboard.
       RCM accepts keyboard playback like the answers here as an equivalent response, but ABRSM,
