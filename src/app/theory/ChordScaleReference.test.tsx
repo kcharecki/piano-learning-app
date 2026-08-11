@@ -223,24 +223,16 @@ describe('ChordScaleReference', () => {
     }
   })
 
-  it('still shows a dash for every fingering cell when the scale type has no defined fingering', () => {
-    // The modes are deliberately out of scope, so the fallback still has to work.
-    render(<Controlled initialType="dorian" />)
-    for (let degree = 1; degree <= 7; degree++) {
-      const row = screen.getByTestId(`scale-degree-${degree}`)
-      const cells = within(row).getAllByRole('cell')
-      expect(cells[2]).toHaveTextContent('—')
-      expect(cells[3]).toHaveTextContent('—')
-    }
-  })
-
   it('a mode not in the graded syllabi reads that sentence instead of a bare dash (roadmap 5.37)', () => {
     render(<Controlled initialType="dorian" />)
     const row = screen.getByTestId('scale-degree-1')
+    // One merged cell carrying the sentence, not two dashes — so the row has
+    // three cells, not four. This supersedes 5.35's branch-local
+    // "dash in every fingering cell" case, which asserted a state no scale
+    // type can reach any more: the 11 NO_STANDARD_FINGERING_TYPES read this
+    // sentence, and the three minor forms now read real numbers (5.35).
+    expect(within(row).getAllByRole('cell')).toHaveLength(3)
     expect(row).toHaveTextContent('no standard fingering — modes are not in the graded syllabi')
-    // Minor scales are a different case (roadmap 5.35, not this task) — they
-    // still read a bare dash, never this sentence, because minor scales ARE
-    // in the graded syllabi.
   })
 
   it('substitutes the raised-leading-tone V and vii° chords for harmonic minor instead of the natural-minor reading', async () => {
