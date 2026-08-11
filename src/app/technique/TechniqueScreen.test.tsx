@@ -14,6 +14,7 @@ import { techniqueLibrary, techniqueScore } from '@core/technique/library.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useTechniqueStore } from '@app/state/techniqueStore.ts'
+import { POSTURE_PROMPT_RUNNING_MS } from './posturePromptSchedule.ts'
 import { TechniqueScreen } from './TechniqueScreen.tsx'
 
 // OSMD cannot run in this test environment (no canvas to measure text) — the
@@ -152,5 +153,57 @@ describe('TechniqueScreen', () => {
     expect(screen.getByTestId('technique-result')).toHaveTextContent('Clean')
     expect(screen.getByTestId('technique-history').children).toHaveLength(1)
     expect(screen.getByTestId('technique-best-bpm')).toHaveTextContent(String(drill.targetBpm))
+  })
+
+  it('always states what MIDI cannot see, whether or not a run has ever happened (REQ-5.23)', () => {
+    const neverResolves = (): Promise<never> => new Promise(() => {})
+    render(<TechniqueScreen connectMidi={neverResolves} />)
+
+    const statement = screen.getByTestId('technique-safety-statement')
+    // Names the specific blind spots, not a vague disclaimer — each is
+    // independently assertable so this can't be satisfied by a generic
+    // "consult a teacher" sentence.
+    for (const term of [
+      'wrist',
+      'forearm',
+      'finger curl',
+      'which finger',
+      'shoulder tension',
+      'bench height',
+    ]) {
+      expect(statement).toHaveTextContent(new RegExp(term, 'i'))
+    }
+    // Not behind a disclosure: it renders with no click/toggle needed.
+    expect(screen.queryByRole('button', { name: /what.*miss|learn more|show/i })).not.toBeInTheDocument()
+  })
+
+  it('has no posture prompt at the start of a session, then shows one once the schedule (driven by the injected Clock) says a check is due, and clears on acknowledgement (REQ-5.23)', async () => {
+    const user = userEvent.setup()
+    const clock = new FakeClock()
+    const midiInput = new FakeMidiInput()
+    const audioOutput = new RecordingAudioOutput(clock)
+
+    render(
+      <TechniqueScreen
+        clock={clock}
+        date={clock}
+        midiInput={midiInput}
+        audioOutput={audioOutput}
+        frameDriver={manualDriver()}
+      />,
+    )
+
+    expect(screen.queryByTestId('technique-posture-prompt')).not.toBeInTheDocument()
+
+    // Cross the running-time threshold without ever playing a note — the
+    // schedule fires purely from FakeClock advances, never real wall time.
+    await user.click(screen.getByRole('button', { name: 'Start' }))
+    act(() => clock.advance(POSTURE_PROMPT_RUNNING_MS))
+    await user.click(screen.getByRole('button', { name: 'Stop' }))
+
+    expect(screen.getByTestId('technique-posture-prompt')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'I checked' }))
+    expect(screen.queryByTestId('technique-posture-prompt')).not.toBeInTheDocument()
   })
 })

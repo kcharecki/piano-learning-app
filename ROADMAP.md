@@ -524,7 +524,7 @@ printed edition puts them and which OSMD renders natively.
       notehead by nearest x, and asserts each reads `1 2 3 1 2 3 4 1`, is horizontally centred on
       that notehead (±4px) and sits above it; the left hand gets the same per-note check, below.
       Visual pass both widths/themes, console clean, screenshotted.*
-- [ ] 5.23 `app/technique`: say what MIDI cannot see. Wrist height and collapse, forearm alignment,
+- [x] 5.23 `app/technique`: say what MIDI cannot see. Wrist height and collapse, forearm alignment,
       finger curl, *which* finger was actually used, shoulder tension, bench height, posture — the
       Taubman/Golandsky literature names dropped wrists and isolated finger motion as direct causes of
       tendonitis. A clean tempo history implies technical validation the app cannot perform. Say so
@@ -532,6 +532,19 @@ printed edition puts them and which OSMD renders natively.
       *Proof: the statement is on the Technique screen (asserted by an e2e reading it, so it cannot be
       deleted silently), and a periodic posture prompt fires on a schedule driven by the injected
       `Clock`, never real time.*
+      Done: a standing statement (`technique-safety-statement`) sits directly under the "Technique"
+      heading, always rendered, not behind a disclosure — `e2e/technique-safety.spec.ts` reads it off
+      the running app. The posture prompt's schedule (`src/app/technique/posturePromptSchedule.ts`) is
+      pure, has no React/Clock/`Date.now()` dependency of its own, and fires once EITHER 10 minutes of
+      cumulative drill-running time OR 6 completed attempts (clean or not) have passed since the last
+      acknowledgement — argued in the module's own comment: static-tension injury builds with time,
+      isolated-finger-motion injury builds with reps, and a short fixed-interval timer (rejected) trains
+      the learner to dismiss it by reflex. 8 property tests (`posturePromptSchedule.test.ts`) plus 4
+      `useTechniqueDrill.test.ts` cases prove both triggers fire from a `FakeClock` alone, never real
+      time; `e2e/technique-posture-prompt.spec.ts` drives 6 real on-screen-keyboard attempts in a
+      browser to the prompt-visible state and back. Visual pass (dark/light × 1280/1024, plus the
+      prompt-visible state at 1280) console-clean in every configuration; screenshots reviewed by hand.
+      Deleted nothing.
 
 ### Accessibility — **7/10 → 9** · visual design system — **8/10 → 9**
 

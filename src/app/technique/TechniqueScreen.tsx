@@ -6,6 +6,15 @@
  * through; Start/Stop runs it against the metronome and, on Stop, shows the
  * evenness score, whether the run was clean at this tempo, and the drill's
  * clean-tempo history (REQ-3.7.3).
+ *
+ * Roadmap 5.23: this screen also carries a standing statement of what the
+ * scoring above cannot see, always rendered (see `technique-safety-note`
+ * below), and a periodic posture-check prompt gated by
+ * `useTechniqueDrill`'s `posturePromptDue` — the schedule itself lives in
+ * `posturePromptSchedule.ts` and is driven by the injected `Clock`, never
+ * real time. Both read from `technique-safety.css`, a file this screen
+ * imports directly rather than through the shared stylesheet index, since
+ * this task does not own that index.
  */
 import { MidiDeviceStatus } from '@app/practice/MidiDeviceStatus.tsx'
 import { PracticeKeyboard } from '@app/practice/PracticeKeyboard.tsx'
@@ -18,6 +27,7 @@ import type { AudioOutput, Clock, DateSource, MidiInput } from '@core/ports/inde
 import { MAX_BPM, MIN_BPM } from '@core/timing/metronome.ts'
 import { useState } from 'react'
 import { useTechniqueDrill } from './useTechniqueDrill.ts'
+import './technique-safety.css'
 
 export type TechniqueScreenProps = {
   readonly initialLevel?: number
@@ -73,6 +83,30 @@ export function TechniqueScreen(props: TechniqueScreenProps) {
   return (
     <div className="technique-screen">
       <h2>Technique</h2>
+
+      {/* REQ-5.23: always visible, not behind a disclosure — this is a
+          safety statement about what the scoring below cannot see, not a
+          dismissible tip. Names the specific blind spots the Taubman/
+          Golandsky literature calls out as tendonitis mechanisms, rather
+          than a vague "consult a teacher" disclaimer nobody reads twice. */}
+      <p className="technique-safety-note" data-testid="technique-safety-statement">
+        MIDI hears pitch and timing only. It cannot see wrist height or collapse, forearm
+        alignment, finger curl, which finger you actually used, shoulder tension, or bench
+        height — a clean, rising tempo history is not a technique check.
+      </p>
+
+      {drill.posturePromptDue && (
+        <div className="technique-posture-prompt" role="status" data-testid="technique-posture-prompt">
+          <p>
+            Time for a human check: watch (or film) your wrist, forearm and shoulder for the
+            next run — is the wrist level and loose, or dropped/braced?
+          </p>
+          <button type="button" onClick={drill.acknowledgePosturePrompt}>
+            I checked
+          </button>
+        </div>
+      )}
+
       <MidiDeviceStatus
         connected={drill.midi.input !== undefined}
         devices={drill.midi.devices}

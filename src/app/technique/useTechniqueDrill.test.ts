@@ -13,6 +13,10 @@ import { techniqueDrillById, techniqueLibrary, type TechniqueDrill } from '@core
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { afterEach, describe, expect, it } from 'vitest'
 import { useTechniqueStore } from '@app/state/techniqueStore.ts'
+import {
+  POSTURE_PROMPT_ATTEMPT_COUNT,
+  POSTURE_PROMPT_RUNNING_MS,
+} from './posturePromptSchedule.ts'
 import { useTechniqueDrill } from './useTechniqueDrill.ts'
 
 // Unmount BEFORE resetting the store, in that order, inside one callback:
@@ -268,5 +272,136 @@ describe('useTechniqueDrill', () => {
     const { result } = renderHook(() => useTechniqueDrill({ level: 2, connectMidi: neverResolves }))
     expect(result.current.drill?.level).toBe(2)
     expect(result.current.drill?.id).toBe(techniqueLibrary(2)[0]?.id)
+  })
+
+  describe('posturePromptDue (REQ-5.23)', () => {
+    it('is not due at the start of a session', () => {
+      const drill = firstDrillOf(1)
+      const { result } = renderHook(() =>
+        useTechniqueDrill({ level: 1, initialDrillId: drill.id, connectMidi: (): Promise<never> => new Promise(() => {}) }),
+      )
+      expect(result.current.posturePromptDue).toBe(false)
+    })
+
+    // Proves the schedule is driven by the injected Clock, not real time:
+    // this test's wall-clock execution is milliseconds, yet it crosses the
+    // ten-minute running-time threshold purely by advancing the FakeClock —
+    // if the hook were reading `Date.now()` or a real timer instead, this
+    // would never fire without the test itself blocking for ten minutes.
+    it('becomes due once cumulative RUNNING time reaches the threshold, even with no notes played', () => {
+      const drill = firstDrillOf(1)
+      const clock = new FakeClock()
+      const midiInput = new FakeMidiInput()
+      const audioOutput = new RecordingAudioOutput(clock)
+
+      const { result } = renderHook(() =>
+        useTechniqueDrill({
+          level: 1,
+          initialDrillId: drill.id,
+          clock,
+          date: clock,
+          midiInput,
+          audioOutput,
+          frameDriver: manualDriver(),
+        }),
+      )
+
+      // First run: leaves the schedule just short of the threshold.
+      act(() => result.current.start())
+      clock.advance(POSTURE_PROMPT_RUNNING_MS - 1)
+      act(() => result.current.stop())
+      expect(result.current.posturePromptDue).toBe(false)
+
+      // Second run: a couple more ms of running time tips it over.
+      act(() => result.current.start())
+      clock.advance(2)
+      act(() => result.current.stop())
+      expect(result.current.posturePromptDue).toBe(true)
+    })
+
+    it('becomes due after enough completed ATTEMPTS, well under the running-time threshold', () => {
+      const drill = firstDrillOf(1)
+      const clock = new FakeClock()
+      const midiInput = new FakeMidiInput()
+      const audioOutput = new RecordingAudioOutput(clock)
+
+      const { result } = renderHook(() =>
+        useTechniqueDrill({
+          level: 1,
+          initialDrillId: drill.id,
+          clock,
+          date: clock,
+          midiInput,
+          audioOutput,
+          frameDriver: manualDriver(),
+        }),
+      )
+
+      runStart(clock)
+      for (let run = 0; run < POSTURE_PROMPT_ATTEMPT_COUNT; run++) {
+        act(() => result.current.start())
+        const score = result.current.score
+        if (score === undefined) throw new Error('expected a score once started')
+        const msPerBeat = 60000 / result.current.bpm
+        const countInMs = COUNT_IN_BEATS * msPerBeat
+        const base = clock.now()
+        for (const [i, note] of score.notes.entries()) {
+          act(() =>
+            midiInput.emit({
+              type: 'noteOn',
+              note: note.midi,
+              velocity: 80,
+              time: millis(base + countInMs + i * msPerBeat),
+            }),
+          )
+        }
+        // A few ms of "real" elapsed time per run — nowhere near the
+        // running-time threshold even after POSTURE_PROMPT_ATTEMPT_COUNT
+        // repeats, isolating the attempt-count trigger from the time one.
+        clock.advance(50)
+        act(() => result.current.stop())
+
+        if (run < POSTURE_PROMPT_ATTEMPT_COUNT - 1) {
+          expect(result.current.posturePromptDue).toBe(false)
+        }
+      }
+
+      expect(result.current.lastAttempt?.clean).toBe(true)
+      expect(result.current.posturePromptDue).toBe(true)
+    })
+
+    it('acknowledging the prompt clears it, and the schedule restarts from zero', () => {
+      const drill = firstDrillOf(1)
+      const clock = new FakeClock()
+      const midiInput = new FakeMidiInput()
+      const audioOutput = new RecordingAudioOutput(clock)
+
+      const { result } = renderHook(() =>
+        useTechniqueDrill({
+          level: 1,
+          initialDrillId: drill.id,
+          clock,
+          date: clock,
+          midiInput,
+          audioOutput,
+          frameDriver: manualDriver(),
+        }),
+      )
+
+      act(() => result.current.start())
+      clock.advance(POSTURE_PROMPT_RUNNING_MS)
+      act(() => result.current.stop())
+      expect(result.current.posturePromptDue).toBe(true)
+
+      act(() => result.current.acknowledgePosturePrompt())
+      expect(result.current.posturePromptDue).toBe(false)
+
+      // A short run afterward should not immediately re-trigger it — the
+      // counters really reset to zero, not to "one below threshold".
+      act(() => result.current.start())
+      clock.advance(1_000)
+      act(() => result.current.stop())
+      expect(result.current.posturePromptDue).toBe(false)
+    })
   })
 })
