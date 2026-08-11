@@ -12,6 +12,7 @@
 import type { ActivityKind } from '@core/progress/log.ts'
 
 export const ACTIVITY_KIND_LABELS: Readonly<Record<ActivityKind, string>> = {
+  warmup: 'Warm-up',
   technique: 'Technique',
   sightreading: 'Sight reading',
   repertoire: 'Repertoire',
