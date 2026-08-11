@@ -1713,3 +1713,119 @@ Append one line per session: date, what landed, anything the next session must k
       *Proof: `scripts/worktree-isolation.test.mjs` asserts ESLint's and Prettier's own resolution
       (`isPathIgnored` / `getFileInfo`) in BOTH directions, so a glob that is present but does not
       match cannot pass, plus that the other three tools' globs stay root-anchored.*
+
+---
+
+## Archived 2026-08-11: Phases 0-2, fully complete (M1/M2 milestones)
+
+Moved out of ROADMAP.md to stay under its line budget — all boxes were `[x]`, nothing here is
+open work. Full commit history in git log.
+
+## Phase 0 — Foundation
+
+Scaffold, test harness, lint boundary, docs, core shared/ports — all done.
+
+- [x] 0.1 Project scaffold: Vite + React + TS, path aliases, strict tsconfig
+- [x] 0.2 Test harness: vitest core/ui projects, fast-check, coverage gate, deterministic fakes
+- [x] 0.3 Lint architecture boundary (core purity enforced by eslint)
+- [x] 0.4 Docs: CLAUDE.md, ARCHITECTURE.md, ROADMAP.md, checkpoint script
+- [x] 0.5 Git init + first commit
+- [x] 0.6 `src/core/shared`: `Result`, branded types, invariants + tests
+- [x] 0.7 `src/core/ports`: Clock, Rng, MidiInput, AudioOutput, Store interfaces + test fakes
+
+## Phase 1 — Milestone M1: playable core
+
+Goal: usable for daily practice at the piano — MIDI in, score on screen, playback, loop, wait
+mode, metronome. All landed.
+
+- [x] 1.1 ‖ `core/theory/pitch`: MIDI↔name↔spelling, accidentals, enharmonics, transpose (property tests)
+- [x] 1.2 ‖ `core/theory/intervals`: size/quality, inversion, compound intervals (property tests)
+- [x] 1.3 ‖ `core/theory/scales`: major, 3 minor forms, modes, degrees, fingerings
+- [x] 1.4 ‖ `core/theory/keys`: key signatures, circle of fifths, relative/parallel, closely related
+- [x] 1.5 ‖ `core/theory/chords`: triads, inversions, 7ths, spelling, recognition from pitch set
+- [x] 1.6 `core/notation/score`: internal Score model + builders + fixtures
+- [x] 1.7 `core/notation/musicxml`: MusicXML → Score parser (golden-file tests)
+- [x] 1.8 `core/notation/midifile`: SMF → Score parser (REQ-3.2.5)
+- [x] 1.9 `core/timing/tempo`: tick↔ms mapping, tempo changes, tempo scaling 30–200%
+- [x] 1.10 `core/timing/transport`: play/pause/seek/loop range, deterministic tick advance under FakeClock
+- [x] 1.11 `core/timing/metronome`: click scheduling, subdivisions, accents, ramping (REQ-3.9.1)
+- [x] 1.12 `core/practice/matcher`: real-time note matching — correct/wrong/missed/extra + timing (REQ-3.3.2)
+- [x] 1.13 `core/practice/waitmode`: gate transport on required-notes-satisfied (REQ-3.3.3)
+- [x] 1.13b `core/practice/waitmode`: rebuilt on the new Transport barrier — parks exactly on the onset, cannot walk past owed notes in a long pump, and derives its waiting flag from the transport.
+- [x] 1.13c Re-review of the M1 fix round: every fix confirmed by reverting it and watching the new tests fail.
+- [x] 1.14 `adapters/midi`: Web MIDI input + output, device hot-plug, port-conformance tests
+- [x] 1.15 `adapters/audio`: MIDI-out-preferred / Web Audio soundfont fallback (REQ-4.7)
+- [x] 1.16 `adapters/store`: IndexedDB store implementing the Store port
+- [x] 1.17 `app`: shell, routing, score viewer with OSMD + cursor highlight (REQ-3.2.4)
+- [x] 1.18 `app`: practice screen — transport controls, loop range, hand mute, tempo, metronome
+- [x] 1.19 e2e smoke: app boots, load bundled score, start playback
+- [x] 1.20 M1 acceptance pass: reviewed; gaps found and fixed (see below)
+- [x] 1.21 `app`: UX — made the transport control strip sticky so Play stays visible while scrolled down a long score.
+- [x] 1.22 `core/practice/matcher`: fixed a sub-range loop reporting every note before the loop start as "missed" on each wrap.
+- [x] 1.23 `app`: wired the IndexedDB store — loaded score and practice settings now persist and restore on start.
+
+## Phase 2 — Milestone M2: feedback & reading
+
+Assessment, review, generators, SRS, drills, persistence and performance work — all landed.
+
+- [x] 2.1 `core/practice/assessment`: fixed-tempo run, accuracy %, timing consistency, per-measure (REQ-3.3.4)
+- [x] 2.2 `core/practice/review`: worst-measure detection → suggested loops (REQ-3.3.5)
+- [x] 2.3 ‖ `core/generator/melody`: parameterised sight-reading generation (key, range, rhythm, hands, accidentals) (REQ-3.4.2)
+- [x] 2.4 ‖ `core/generator/rhythm`: rhythm-only patterns for tapping drills — core only; wired by 2.13
+- [x] 2.5 `core/sightreading/session`: preview timer, no-stopping rule, retirement pool (REQ-3.4.1/3/4)
+- [x] 2.6 `core/sightreading/adaptive`: difficulty adaptation to 80–90% accuracy band (REQ-3.4.6)
+- [x] 2.7 `core/srs`: spaced repetition scheduler, deterministic, shared by all drill types (REQ-3.9.4)
+- [x] 2.8 ‖ `core/drills/flashcards`: staff→key note naming, interval recognition on staff (REQ-3.4.5)
+- [x] 2.9 ‖ `core/progress/log`: practice session log, timer, what/how long/tempo/accuracy (REQ-3.9.5) — core only; wired by the 4.7 dashboard
+- [x] 2.10 `core/practice/recorder`: MIDI capture, replay against score (REQ-3.9.2) — core only; wired by 2.14
+- [x] 2.11 `app`: feedback overlay on score (correct/wrong/missed colouring), review overlay.
+- [x] 2.11a `app/practice`: fixed three review findings — transport mutations that only landed on the NEXT React commit; added atomic `rewindToTop()`/`playLoop()`.
+- [x] 2.12 `app`: sight-reading trainer screen, flashcard drill screen
+- [x] 2.13 `app`: rhythm tapping drill screen — the only consumer `core/generator/rhythm` will ever have.
+- [x] 2.14 `app`: record & replay panel — the only consumer `core/practice/recorder` will ever have.
+- [x] 2.15 M2 acceptance pass — three-reviewer audit against REQ-3.3.x/3.4.x/3.9.x; accepted with 2.16–2.19 landed as the blockers that were defects rather than unbuilt features.
+
+### M2 blockers — must land before 2.15 can be ticked
+
+- [x] 2.16 `app/practice`: fixed measure numbers disagreeing between the review overlay (0-based) and the loop control (1-based).
+- [x] 2.17 `app/practice`: locked tempo, loop and hand mute, and wired Pause/Stop for real, during an assessment run (previously no-op lambdas that stayed enabled).
+- [x] 2.18 `app/state`: persist the sight-reading level + retirement history and the flashcard SRS cards through the `Store` port.
+- [x] 2.19 `app/drills`: moved flashcard SRS scheduling off `Clock` (session-relative) onto the `DateSource` port, fixing due-immediately-forever once persisted.
+
+### M2 follow-ups — recorded, not blocking, may be taken in Phase 3
+
+- [x] 2.19a `core/notation`: support `.mxl`, the compressed MusicXML format (REQ-3.2.5).
+- [x] 2.20 `core/notation`: a `Score` → MusicXML writer, feeding both generated sight-reading exercises and every imported MIDI file (previously playback-only).
+- [x] 2.20a `app/practice`: fixed the score cursor not rewinding to match the position readout after Stop.
+- [x] 2.21 `app/practice`: batch `osmd.render()` to once per animation frame.
+- [x] 2.22 `app/score`: osmdEngraver id→OSMD-note mapping tested end to end.
+- [x] 2.23 `app/practice`: show the early/late timing feedback REQ-3.3.2 asks for.
+- [x] 2.24 `app/state`: persist assessment results, recordings and the practice log.
+- [x] 2.25 `app/drills`: ship the interval-recognition flashcard UI.
+- [x] 2.26 `app/practice`: the "read ahead" drill REQ-3.4.5 requires — notation progressively hidden behind the playback cursor.
+- [x] 2.26a `app/score`: fixed a crash in `buildNoteIdMap` on the app's own bundled sample score that had silently disabled note colouring and read-ahead since each shipped.
+- [x] 2.27 `app/practice`: tempo ramping (REQ-3.9.1's own worked example, "+2 BPM per clean repetition").
+- [x] 2.28 `app`: a standalone metronome destination with absolute BPM, time signature and accent editing.
+- [x] 2.28a `app`: metronome toggle on Rhythm and Sight-reading, and a metronome on Flashcards at all.
+- [x] 2.29 `app/practice`: per-loop tempo (REQ-3.9.3).
+- [x] 2.30 e2e: drive wait mode end to end.
+- [x] 2.31 `app/sightreading`: nav-away no longer silently abandons a run.
+- [x] 2.32 tooling: `verify:full` now runs `knip:prod:all`, catching production-unreachable exports the old `knip:prod` check missed.
+
+### Performance — a real score, not a six-bar fixture
+
+Reported by the user on `Canon_in_D.mxl` (102 measures, 1603 notes): stuttering, audio desync, slow
+Play/Stop. Before 2.32a-e: p95 frame gap 551ms, 13 long tasks (worst 561ms), Stop 5339ms. After:
+p95 18ms, 0 long tasks, Stop 59ms (~4.7fps -> ~70fps).
+
+- [x] 2.32a `app/score`: stopped re-engraving the whole score to recolour one note — uses `GraphicalNote.setColor` instead of a full `osmd.render()`.
+- [x] 2.32b `app/score`: binary-searched `stepsToOnsetAtOrBefore` (was an O(n) linear scan run every animation frame).
+- [x] 2.32c `app/practice`: made `useReadAhead` incremental — only the measures actually crossed, not a full rebuild every frame.
+- [x] 2.32d e2e: added `e2e/perf-large-score.spec.ts` — drives the real Canon in D `.mxl`, measures long tasks, frame gaps and Play/Stop latency.
+- [x] 2.32e `adapters/audio`: fixed audio-clock drift (measured ≈ -255ppm) — the offset is now a time-based exponential-filtered running anchor instead of a frozen one-time capture.
+- [x] 2.32f `app/score`: raised the silent `MAX_CURSOR_STEPS` cursor-tracking cap and made truncation warn instead of failing silently.
+- [x] 2.33 `app/repertoire`: wired the repertoire library end to end (store, screen, persistence, dashboard) — `core/repertoire/repertoire.ts` had zero consumers until now.
+- [x] 2.33a `app/dashboard`: fixed the dashboard's technique tempo trend, hardcoded empty since 4.4b shipped a real writer for it.
+- [x] 2.34 `app/session`: wired the planned session's chosen technique drill through to `TechniqueScreen` (it always opened the level's first drill instead).
+- [x] 2.35 `core/practice`: deduped `matcher.ts`'s chord-grouping logic onto `notation/score.ts`'s `chordGroups`.
+- [x] 2.36 `app/dashboard`: built the missing `LevelState` store + per-track manual-override UI that 4.3 had claimed shipped but had not.
