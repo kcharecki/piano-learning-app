@@ -1,7 +1,8 @@
 import { expect, test, type ConsoleMessage, type Page } from '@playwright/test'
 import { LEVEL_2_LESSONS } from '../src/content/curriculum/lessonsLevel2.ts'
 import { buildChord, chordMidi, type ChordQuality } from '../src/core/theory/chords.ts'
-import { LETTERS, spell, type Letter } from '../src/core/theory/pitch.ts'
+import { LETTERS, midiToName, spell, type Letter } from '../src/core/theory/pitch.ts'
+import { midi as asMidi } from '../src/core/shared/units.ts'
 
 /**
  * E2E proof for roadmap 3.12 (REQ-3.5.2). Four authored lesson quizzes
@@ -165,7 +166,7 @@ test('opening "The C Major Triad" lesson\'s quiz opens the build-chord theory dr
   // Answer it through the real on-screen keyboard, using the notes derived
   // from the prompt actually shown — never a hardcoded pitch list.
   for (const note of notes) {
-    await page.getByRole('button', { name: `Key ${note}`, exact: true }).click()
+    await page.getByRole('button', { name: midiToName(asMidi(note)), exact: true }).click()
   }
 
   // The roadmap's proof action: a chord played on the keyboard grades.

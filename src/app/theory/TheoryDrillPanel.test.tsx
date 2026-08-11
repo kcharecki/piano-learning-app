@@ -12,7 +12,8 @@ import { seededRng } from '@core/ports/rng.ts'
 import { act, render, screen, cleanup, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FakeClock, FakeMidiInput, scriptedRng } from '@test/fakes.ts'
-import type { Midi } from '@core/shared/units.ts'
+import { midi as asMidi, type Midi } from '@core/shared/units.ts'
+import { midiToName } from '@core/theory/pitch.ts'
 import { afterEach, describe, expect, it } from 'vitest'
 import { TheoryDrillPanel } from './TheoryDrillPanel.tsx'
 
@@ -123,7 +124,7 @@ describe('TheoryDrillPanel', () => {
     const keyboard = screen.getByRole('group', { name: 'On-screen keyboard' })
     for (const group of expected.answer) {
       for (const note of group) {
-        await user.click(within(keyboard).getByRole('button', { name: `Key ${note}` }))
+        await user.click(within(keyboard).getByRole('button', { name: midiToName(asMidi(note)) }))
       }
     }
 
@@ -161,7 +162,7 @@ describe('TheoryDrillPanel', () => {
     const wrongNote = firstNote + 1 <= 127 ? firstNote + 1 : firstNote - 1
 
     const keyboard = screen.getByRole('group', { name: 'On-screen keyboard' })
-    await user.click(within(keyboard).getByRole('button', { name: `Key ${wrongNote}` }))
+    await user.click(within(keyboard).getByRole('button', { name: midiToName(asMidi(wrongNote)) }))
 
     expect(screen.getByTestId('theory-feedback')).toHaveTextContent(/not quite — graded again/i)
     expect(screen.getByTestId('theory-stats-total')).toHaveTextContent('1')
@@ -180,12 +181,12 @@ describe('TheoryDrillPanel', () => {
     // Press every note but the last one: the chord is not complete yet, so no
     // feedback should appear.
     for (const note of chord.slice(0, -1)) {
-      await user.click(within(keyboard).getByRole('button', { name: `Key ${note}` }))
+      await user.click(within(keyboard).getByRole('button', { name: midiToName(asMidi(note)) }))
     }
     expect(screen.queryByTestId('theory-feedback')).toBeNull()
 
     const lastNote = chord.at(-1) as number
-    await user.click(within(keyboard).getByRole('button', { name: `Key ${lastNote}` }))
+    await user.click(within(keyboard).getByRole('button', { name: midiToName(asMidi(lastNote)) }))
 
     expect(screen.getByTestId('theory-feedback')).toHaveTextContent(/correct — graded good/i)
   })
@@ -241,7 +242,7 @@ describe('TheoryDrillPanel', () => {
     const keyboard = screen.getByRole('group', { name: 'On-screen keyboard' })
     for (const group of expected.answer) {
       for (const note of group) {
-        await user.click(within(keyboard).getByRole('button', { name: `Key ${note}` }))
+        await user.click(within(keyboard).getByRole('button', { name: midiToName(asMidi(note)) }))
       }
     }
 
@@ -312,7 +313,7 @@ describe('TheoryDrillPanel', () => {
     const chord = item1.answer[0] as readonly Midi[]
     const wrongChord = chord.map((n, i) => (i === 0 ? (n + 1 <= 127 ? n + 1 : n - 1) : n))
     for (const note of wrongChord) {
-      await user.click(within(keyboard).getByRole('button', { name: `Key ${note}` }))
+      await user.click(within(keyboard).getByRole('button', { name: midiToName(asMidi(note)) }))
     }
     expect(screen.getByTestId('theory-feedback')).toHaveTextContent(/not quite — graded again/i)
 
@@ -330,7 +331,7 @@ describe('TheoryDrillPanel', () => {
     // scheduling pass, which is when the panel re-checks what is due.
     for (const group of item2.answer) {
       for (const note of group) {
-        await user.click(within(keyboard).getByRole('button', { name: `Key ${note}` }))
+        await user.click(within(keyboard).getByRole('button', { name: midiToName(asMidi(note)) }))
       }
     }
 
@@ -366,7 +367,7 @@ describe('TheoryDrillPanel', () => {
       seenIds.add(current.id)
       const chord = current.answer[0] as readonly Midi[]
       for (const note of chord) {
-        await user.click(within(keyboard).getByRole('button', { name: `Key ${note}` }))
+        await user.click(within(keyboard).getByRole('button', { name: midiToName(asMidi(note)) }))
       }
       // A correct grade schedules via `review`, which spends 1 rng call on
       // fuzzing the interval (unlike the 'again' path above) — mirror that
@@ -461,7 +462,7 @@ describe('TheoryDrillPanel', () => {
     const chord = item1.answer[0] as readonly Midi[]
     const wrongChord = chord.map((n, i) => (i === 0 ? (n + 1 <= 127 ? n + 1 : n - 1) : n))
     for (const note of wrongChord) {
-      await user.click(within(keyboard).getByRole('button', { name: `Key ${note}` }))
+      await user.click(within(keyboard).getByRole('button', { name: midiToName(asMidi(note)) }))
     }
     expect(screen.getByTestId('theory-feedback')).toHaveTextContent(/not quite — graded again/i)
 
@@ -475,7 +476,7 @@ describe('TheoryDrillPanel', () => {
 
     for (const group of item2.answer) {
       for (const note of group) {
-        await user.click(within(keyboard).getByRole('button', { name: `Key ${note}` }))
+        await user.click(within(keyboard).getByRole('button', { name: midiToName(asMidi(note)) }))
       }
     }
 

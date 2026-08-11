@@ -68,7 +68,14 @@ async function openPractice(page: Page, atLevel?: number): Promise<void> {
 }
 
 const keyboard = (page: Page) => page.getByRole('group', { name: 'Play the score' })
-const key = (page: Page, note: number) => keyboard(page).getByRole('button', { name: `Key ${note}` })
+
+const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+/** Mirrors `core/theory/pitch.ts`'s `midiToName` default (sharp) spelling — e2e specs stay free of `@core` imports by design, so this is a small, deliberate duplicate. */
+function noteLabel(note: number): string {
+  return `${NOTE_NAMES[((note % 12) + 12) % 12]}${Math.floor(note / 12) - 1}`
+}
+
+const key = (page: Page, note: number) => keyboard(page).getByRole('button', { name: noteLabel(note) })
 
 test('with no Web MIDI, the on-screen keyboard is shown and its notes are graded by the real matcher', async ({
   page,

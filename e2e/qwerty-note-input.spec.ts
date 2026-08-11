@@ -13,6 +13,17 @@ import { expect, test, type ConsoleMessage, type Page } from '@playwright/test'
  * that — it stays correct if the bundled sample or its arrangement changes.
  */
 
+const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+/** Inverse of `core/theory/pitch.ts`'s `midiToName` default (sharp) spelling — see `OnScreenKeyboard`'s roadmap-5.25 aria-label. e2e specs stay free of `@core` imports by design, so this is a small, deliberate duplicate. */
+function midiFromLabel(label: string): number {
+  const match = /^([A-G]#?)(-?\d+)$/.exec(label)
+  if (match === null) throw new Error(`not a note label: '${label}'`)
+  const [, letter, octaveText] = match
+  const index = NOTE_NAMES.indexOf(letter ?? '')
+  if (index === -1 || octaveText === undefined) throw new Error(`unrecognised note label: '${label}'`)
+  return (Number(octaveText) + 1) * 12 + index
+}
+
 const OFFSET_BY_CODE: Readonly<Record<string, number>> = {
   KeyA: 0,
   KeyW: 1,
@@ -83,7 +94,8 @@ test('with no Web MIDI and no mouse, typing on the QWERTY row plays and grades n
   await expect(page.getByText(/or type it/i)).toBeVisible()
 
   const firstKeyLabel = await keyboard.getByRole('button').first().getAttribute('aria-label')
-  const low = Number(firstKeyLabel?.replace('Key ', ''))
+  expect(firstKeyLabel).not.toBeNull()
+  const low = midiFromLabel(firstKeyLabel ?? '')
   expect(Number.isFinite(low)).toBe(true)
 
   // The bundled sample's first beat: C4 in the right hand over a C3/E3/G3
