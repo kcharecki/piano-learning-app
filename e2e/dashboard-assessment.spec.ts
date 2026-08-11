@@ -8,6 +8,7 @@ import {
   FAKE_MIDI_DEVICE_NAME,
   type RelativeFakeMidiEvent,
 } from './fake-midi.ts'
+import { seedPlayingLevel } from './seedLevel.ts'
 
 /**
  * E2E proof for roadmap 4.7c (REQ-3.3.4/REQ-3.10.1): a repertoire assessment
@@ -112,6 +113,11 @@ test('a repertoire assessment run through the UI is surfaced on the dashboard af
   // access on mount.
   await installFakeMidi(page)
   await page.goto('/')
+  // Roadmap 5.17 gates "Start assessment" behind the `playing` track's level
+  // — a fresh app starts every track at level 1. Seeded once, it survives
+  // this test's own later reload the same way the real assessment result does.
+  await seedPlayingLevel(page, 3)
+  await page.reload()
   await nav(page, 'Practice').click()
 
   await page.getByLabel(/Import a score/i).setInputFiles(FIXTURE_PATH)
@@ -126,6 +132,10 @@ test('a repertoire assessment run through the UI is surfaced on the dashboard af
   const loopRangeSettle = page.getByRole('group', { name: 'Loop range' })
   await expect(loopRangeSettle.getByLabel('to measure')).toHaveValue('6')
   await page.waitForTimeout(300)
+
+  // "Start assessment" lives behind the collapsed "More tools" disclosure
+  // (roadmap 5.17) — open it before reaching for the button inside.
+  await page.getByText('More tools').click()
 
   // Play measures 1-3 correctly; say nothing for measures 4-6, so the run
   // finalises strictly between 0% and 100% (see e2e/assessment.spec.ts).

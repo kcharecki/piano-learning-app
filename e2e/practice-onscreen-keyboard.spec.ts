@@ -1,4 +1,5 @@
 import { expect, test, type ConsoleMessage, type Page } from '@playwright/test'
+import { seedPlayingLevel } from './seedLevel.ts'
 
 /**
  * E2E proof for roadmap 5.4 (REQ-3.3.7): the practice screen is PLAYABLE with
@@ -48,8 +49,17 @@ async function removeWebMidi(page: Page): Promise<void> {
   })
 }
 
-async function openPractice(page: Page): Promise<void> {
+/**
+ * `atLevel`, when given, seeds the `playing` track to that level before
+ * navigating — roadmap 5.17 gates wait mode behind it, and a fresh app
+ * always starts at level 1.
+ */
+async function openPractice(page: Page, atLevel?: number): Promise<void> {
   await page.goto('/')
+  if (atLevel !== undefined) {
+    await seedPlayingLevel(page, atLevel)
+    await page.reload()
+  }
   await page
     .getByRole('navigation', { name: /main/i })
     .getByRole('button', { name: 'Practice', exact: true })
@@ -103,7 +113,7 @@ test('with no Web MIDI, wait mode holds the transport and on-screen notes releas
   const errors = collectErrors(page)
 
   await removeWebMidi(page)
-  await openPractice(page)
+  await openPractice(page, 3)
 
   const waitMode = page.getByRole('group', { name: 'Wait mode' })
   await waitMode.getByRole('checkbox', { name: 'Wait for me' }).check()

@@ -5,7 +5,9 @@
  * covered by each control's own test file; this only asserts the wiring
  * between them.
  */
+import { useLevelStore } from '@app/state/levelStore.ts'
 import { useScoreStore } from '@app/state/scoreStore.ts'
+import { initialLevelState } from '@core/progress/levels.ts'
 import { C_MAJOR_SCALE_RH } from '@test/fixtures.ts'
 import { at, invariant } from '@core/shared/invariant.ts'
 import { measureRange } from '@core/notation/score.ts'
@@ -94,6 +96,28 @@ function resetStore(): void {
       metronomeEnabled: false,
       loop: undefined,
     },
+  })
+  // Every test in this file except the "progressive disclosure" describe
+  // block below (roadmap 5.17) predates the level gate and exercises wait
+  // mode/assessment/read-ahead/annotations directly — hydrated at a level
+  // past both thresholds so those tests see the same screen they always did.
+  // The gate's own tests set the level explicitly, the way ScoreScreen.test's
+  // `setTheoryLevel` does for its own gate (roadmap 3.18).
+  useLevelStore.setState({
+    levelState: { ...initialLevelState(), levels: { ...initialLevelState().levels, playing: 3 } },
+    hydrated: true,
+  })
+}
+
+/** Seeds the `playing` track to `level` directly, the way roadmap 3.18's
+ *  unit tests are asked to: through the store, not through a UI flow (that
+ *  is what e2e/round6.spec.ts is for). `undefined` sets `hydrated: false`
+ *  instead, for the hydration-race case. */
+function setPlayingLevel(level: number | undefined): void {
+  const current = useLevelStore.getState().levelState
+  useLevelStore.setState({
+    levelState: { ...current, levels: { ...current.levels, playing: level ?? current.levels.playing } },
+    hydrated: level !== undefined,
   })
 }
 
@@ -794,5 +818,81 @@ describe('PracticeScreen', () => {
     await user.click(screen.getByRole('checkbox', { name: 'Read ahead' }))
 
     expect(setNoteHiddenSpy.mock.calls.some(([, hidden]) => hidden === true)).toBe(true)
+  })
+})
+
+// Roadmap 5.17: progressive disclosure gated by the `playing` track's level.
+describe('PracticeScreen — progressive disclosure by track level (roadmap 5.17)', () => {
+  it('hides wait mode and "More tools" at level 1 — ABSENT, not merely collapsed', () => {
+    setPlayingLevel(1)
+    loadSampleScore()
+    render(<PracticeScreen midiInput={new FakeMidiInput()} />)
+
+    // Base controls a level-1 learner keeps: transport, tempo, hands, metronome.
+    expect(screen.getByRole('group', { name: 'Transport' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Tempo')).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Right hand only' })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Metronome' })).toBeInTheDocument()
+
+    // The gated tiers: absent from the DOM entirely, not just closed inside
+    // a <details> — queryBy* (not getBy*/queryAllBy*) is the failure signal
+    // for "still rendered, just collapsed".
+    expect(screen.queryByRole('checkbox', { name: 'Wait for me' })).not.toBeInTheDocument()
+    expect(screen.queryByText('More tools')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Start assessment' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('checkbox', { name: 'Read ahead' })).not.toBeInTheDocument()
+  })
+
+  it('reveals wait mode once the level reaches MIN_WAIT_MODE_LEVEL, "More tools" still absent', () => {
+    setPlayingLevel(2)
+    loadSampleScore()
+    render(<PracticeScreen midiInput={new FakeMidiInput()} />)
+
+    expect(screen.getByRole('checkbox', { name: 'Wait for me' })).toBeInTheDocument()
+    expect(screen.queryByText('More tools')).not.toBeInTheDocument()
+  })
+
+  it('reveals "More tools" — collapsed by default — once the level reaches MIN_ADVANCED_TOOLS_LEVEL', async () => {
+    setPlayingLevel(3)
+    loadSampleScore()
+    const user = userEvent.setup()
+    render(<PracticeScreen midiInput={new FakeMidiInput()} />)
+
+    const summary = screen.getByText('More tools')
+    // Collapsed by default (roadmap 5.12/3.18a's `<details>` convention) —
+    // its content exists in the DOM (findable by role) but the disclosure
+    // itself is closed.
+    expect(summary.closest('details')).not.toHaveAttribute('open')
+    expect(screen.getByRole('button', { name: 'Start assessment' })).toBeInTheDocument()
+
+    await user.click(summary)
+    expect(summary.closest('details')).toHaveAttribute('open')
+  })
+
+  it('stays hidden while the level restore is still in flight, even at a qualifying level (no flash, roadmap 3.18 pattern)', () => {
+    useLevelStore.setState({
+      levelState: { ...initialLevelState(), levels: { ...initialLevelState().levels, playing: 3 } },
+      hydrated: false,
+    })
+    loadSampleScore()
+    render(<PracticeScreen midiInput={new FakeMidiInput()} />)
+
+    expect(screen.queryByRole('checkbox', { name: 'Wait for me' })).not.toBeInTheDocument()
+    expect(screen.queryByText('More tools')).not.toBeInTheDocument()
+  })
+
+  it('keeps an already-enabled Read ahead control on screen after a level drop, rather than orphaning it on', async () => {
+    setPlayingLevel(3)
+    loadSampleScoreWithMusicXml()
+    const user = userEvent.setup()
+    render(<PracticeScreen midiInput={new FakeMidiInput()} />)
+
+    await user.click(screen.getByText('More tools'))
+    await user.click(screen.getByRole('checkbox', { name: 'Read ahead' }))
+    expect(screen.getByRole('checkbox', { name: 'Read ahead' })).toBeChecked()
+
+    act(() => setPlayingLevel(1))
+
+    expect(screen.getByRole('checkbox', { name: 'Read ahead' })).toBeChecked()
   })
 })

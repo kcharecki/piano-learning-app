@@ -30,6 +30,7 @@
 import { AnnotationPanel } from '@app/annotations/AnnotationPanel.tsx'
 import { DEFAULT_NOTE_COLOR } from '@app/score/osmdEngraver.ts'
 import { ScoreViewer, type ScoreViewerHandle } from '@app/score/ScoreViewer.tsx'
+import { useLevelStore } from '@app/state/levelStore.ts'
 import { useScoreStore } from '@app/state/scoreStore.ts'
 import type { AudioOutput, Clock, DateSource, MidiInput } from '@core/ports/index.ts'
 import type { Subdivision } from '@core/timing/metronome.ts'
@@ -71,6 +72,36 @@ const RAMP_REPS_PER_STEP = 1
 /** The selected notehead's colour (roadmap 4.8a, REQ-3.2.6) — matches `--accent` in styles.css. */
 const SELECTION_NOTE_COLOR = '#6ea8fe'
 
+/**
+ * Roadmap 5.17 (progressive disclosure gated by track level, the `playing`
+ * track): a level-1 learner sees only transport, tempo, hand mute, loop,
+ * metronome and record — everything this file already rendered before this
+ * task. Two further tiers unlock as the learner's OWN level rises (read
+ * through `levelStore`, raised either by real advancement or the dashboard's
+ * manual override — see `docs/ux-pedagogy-review-2026-08-06.md`'s "the app
+ * already tracks a per-track level and does not use it" finding, which this
+ * task exists to fix).
+ *
+ * Curriculum content (`src/content/curriculum/curriculum.ts`) never names
+ * "wait mode" or "assessment" against a level number — it is authored as
+ * lesson prose, not a skills-per-level table — so these two thresholds are a
+ * judgement call, not a derived fact, exactly like 5.35's fingering table
+ * says of its own defensible-but-not-unique choices. What curriculum.ts DOES
+ * say: level 1's own exit criterion (`LEVEL_1_EXIT_CRITERIA`) is playing
+ * hands together, in level 1's LAST unit (`l1-u5-hands-together`) — REQ-3.3.3
+ * ties wait mode directly to that same hands-together coordination. The app
+ * tracks whole levels, not units within one, so the closest level boundary
+ * to "just past hands-together" is entering level 2.
+ */
+const MIN_WAIT_MODE_LEVEL = 2
+/**
+ * Assessment, tempo ramp, read-ahead and annotations (behind "More tools")
+ * assume the learner can already get through a piece — level 2's own units
+ * (one-octave scales, tonic/dominant chords, first sight reading) are that
+ * bar; level 3 is where they are worth surfacing unprompted.
+ */
+const MIN_ADVANCED_TOOLS_LEVEL = 3
+
 export type PracticeScreenProps = {
   /** Injection seams for tests; each defaults to the real browser adapter. */
   readonly clock?: Clock
@@ -94,6 +125,15 @@ export function PracticeScreen(props: PracticeScreenProps) {
   const setActiveHands = useScoreStore((s) => s.setActiveHands)
   const setMetronomeEnabled = useScoreStore((s) => s.setMetronomeEnabled)
   const setLoop = useScoreStore((s) => s.setLoop)
+
+  // Roadmap 5.17: gates below read `playingLevel` directly, never a copy —
+  // a dashboard override or real advancement must be reflected the next
+  // render, not just at mount. `levelsHydrated` guards against a flash of
+  // the advanced groups for a level 3+ learner while the async restore is
+  // still in flight (same reasoning as `ScoreScreen`'s theory-level gate,
+  // roadmap 3.18) — false here reads as "not settled yet", not "level 1".
+  const playingLevel = useLevelStore((s) => s.levelState.levels.playing)
+  const levelsHydrated = useLevelStore((s) => s.hydrated)
 
   const [subdivision, setSubdivision] = useState<Subdivision>(1)
   const [rampFromBpm, setRampFromBpm] = useState(60)
@@ -433,6 +473,18 @@ export function PracticeScreen(props: PracticeScreenProps) {
   })
   const assessmentRunning = assessment.phase === 'running'
 
+  // Roadmap 5.17: each gate also stays open once its OWN feature is already
+  // active — without this, a learner using wait mode/read-ahead/the ramp/an
+  // in-progress assessment at level 3+ would have its control vanish out
+  // from under them the instant a dashboard override drops their level back
+  // down, with no way left on screen to turn it off.
+  const showWaitMode = waitModeEnabled || (levelsHydrated && playingLevel >= MIN_WAIT_MODE_LEVEL)
+  const showAdvancedTools =
+    readAheadEnabled ||
+    ramp.enabled ||
+    assessment.phase !== 'idle' ||
+    (levelsHydrated && playingLevel >= MIN_ADVANCED_TOOLS_LEVEL)
+
   if (loaded === undefined) {
     return <p>Load a score on the Practice tab to start practising.</p>
   }
@@ -460,31 +512,6 @@ export function PracticeScreen(props: PracticeScreenProps) {
             onChange={setTempoScale}
             writtenBpm={engine.writtenBpm}
             effectiveBpm={engine.effectiveBpm}
-            disabled={assessmentRunning}
-          />
-          <TempoRampControl
-            enabled={ramp.enabled}
-            onToggle={(on) => {
-              if (on) {
-                ramp.start({
-                  startBpm: bpm(rampFromBpm),
-                  targetBpm: bpm(rampToBpm),
-                  stepBpm: rampStepBpm,
-                  repsPerStep: RAMP_REPS_PER_STEP,
-                })
-              } else {
-                ramp.stop()
-              }
-            }}
-            fromBpm={rampFromBpm}
-            onFromBpmChange={setRampFromBpm}
-            toBpm={rampToBpm}
-            onToBpmChange={setRampToBpm}
-            stepBpm={rampStepBpm}
-            onStepBpmChange={setRampStepBpm}
-            repsPerStep={ramp.repsPerStep ?? RAMP_REPS_PER_STEP}
-            state={ramp.state}
-            nextBpm={ramp.nextBpm}
             disabled={assessmentRunning}
           />
         </div>
@@ -571,26 +598,6 @@ export function PracticeScreen(props: PracticeScreenProps) {
         // with the rest would make assessment unreachable on exactly the
         // browsers roadmap 5.4 exists for.
       />
-      {/* Per-measure notes attach to wherever the playhead is; fingering and
-          highlight edits need a selected note — clicking a notehead in the
-          viewer above provides one (roadmap 4.8a). */}
-      <AnnotationPanel
-        measureIndex={Math.max(0, (engine.position?.measureNumber ?? 1) - 1)}
-        {...(selectedNoteId === undefined ? {} : { selectedNoteId })}
-      />
-      <AssessmentPanel
-        phase={assessment.phase}
-        result={assessment.result}
-        canStart
-        onStart={assessment.start}
-      />
-      {assessment.phase === 'complete' && (
-        <ReviewOverlay
-          problems={assessment.problems}
-          loops={assessment.loops}
-          onPracticeLoop={assessment.practiceLoop}
-        />
-      )}
       {/* `LoopRangeControl` has no `disabled` prop of its own (owned by another
           agent) — a native `<fieldset disabled>` disables every form control
           inside it, which is the only lever available without touching that
@@ -615,17 +622,81 @@ export function PracticeScreen(props: PracticeScreenProps) {
         onSubdivisionChange={setSubdivision}
         disabled={assessmentRunning}
       />
-      <WaitModeControl
-        enabled={waitModeEnabled}
-        onToggle={setWaitModeEnabled}
-        wait={engine.wait}
-        disabled={assessmentRunning}
-      />
-      <ReadAheadControl
-        enabled={readAheadEnabled}
-        onToggle={setReadAheadEnabled}
-        disabled={assessmentRunning}
-      />
+      {/* Roadmap 5.17: wait mode is the one tier between the level-1 basics
+          above and "More tools" below — REQ-3.3.3 ties it to hands-together,
+          which the curriculum introduces before assessment/ramp/read-ahead/
+          annotations become relevant (see `MIN_WAIT_MODE_LEVEL`'s comment). */}
+      {showWaitMode && (
+        <WaitModeControl
+          enabled={waitModeEnabled}
+          onToggle={setWaitModeEnabled}
+          wait={engine.wait}
+          disabled={assessmentRunning}
+        />
+      )}
+      {/* Roadmap 5.17: absent below `MIN_ADVANCED_TOOLS_LEVEL` — not merely
+          collapsed — per docs/ux-pedagogy-review-2026-08-06.md's finding that
+          these four sit at the same visual weight as Play for a learner who
+          has never once needed them. Collapsed by default even once it DOES
+          render, matching `SightReadingCustomizer`'s and `AnalysisPanel`'s
+          own `<details>` disclosures (roadmap 5.12, 3.18a). */}
+      {showAdvancedTools && (
+        <details className="practice-more-tools">
+          <summary>More tools</summary>
+          <div className="practice-more-tools-body">
+            <TempoRampControl
+              enabled={ramp.enabled}
+              onToggle={(on) => {
+                if (on) {
+                  ramp.start({
+                    startBpm: bpm(rampFromBpm),
+                    targetBpm: bpm(rampToBpm),
+                    stepBpm: rampStepBpm,
+                    repsPerStep: RAMP_REPS_PER_STEP,
+                  })
+                } else {
+                  ramp.stop()
+                }
+              }}
+              fromBpm={rampFromBpm}
+              onFromBpmChange={setRampFromBpm}
+              toBpm={rampToBpm}
+              onToBpmChange={setRampToBpm}
+              stepBpm={rampStepBpm}
+              onStepBpmChange={setRampStepBpm}
+              repsPerStep={ramp.repsPerStep ?? RAMP_REPS_PER_STEP}
+              state={ramp.state}
+              nextBpm={ramp.nextBpm}
+              disabled={assessmentRunning}
+            />
+            <ReadAheadControl
+              enabled={readAheadEnabled}
+              onToggle={setReadAheadEnabled}
+              disabled={assessmentRunning}
+            />
+            <AssessmentPanel
+              phase={assessment.phase}
+              result={assessment.result}
+              canStart
+              onStart={assessment.start}
+            />
+            {assessment.phase === 'complete' && (
+              <ReviewOverlay
+                problems={assessment.problems}
+                loops={assessment.loops}
+                onPracticeLoop={assessment.practiceLoop}
+              />
+            )}
+            {/* Per-measure notes attach to wherever the playhead is; fingering
+                and highlight edits need a selected note — clicking a notehead
+                in the viewer above provides one (roadmap 4.8a). */}
+            <AnnotationPanel
+              measureIndex={Math.max(0, (engine.position?.measureNumber ?? 1) - 1)}
+              {...(selectedNoteId === undefined ? {} : { selectedNoteId })}
+            />
+          </div>
+        </details>
+      )}
       <RecordPanel
         phase={recorder.phase}
         recording={recorder.recording}

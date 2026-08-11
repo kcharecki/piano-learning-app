@@ -359,6 +359,14 @@
 .circle-of-fifths .wedge-minor + text, .circle-of-fifths text.minor { font-size: 12px; fill: var(--text-2); }
 .circle-of-fifths .wedge[aria-selected="true"] + text { fill: var(--on-accent); }
 
+/* ---------- Practice "More tools" (roadmap 5.17) ---------- */
+.practice-more-tools-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+
 /* ---------- Sight-reading customizer (roadmap 5.12) ---------- */
 /* Each label+control pair wraps as one atomic unit — without this a narrow
    viewport wraps mid-label text (e.g. "No" / "accidentals" on separate

@@ -1,4 +1,5 @@
 import { expect, test, type ConsoleMessage, type Page } from '@playwright/test'
+import { seedPlayingLevel } from './seedLevel.ts'
 
 /**
  * E2E proof for roadmap 4.8a (REQ-3.2.6). `AnnotationPanel`'s fingering and
@@ -89,11 +90,18 @@ test('a fingering set on a clicked notehead survives a reload, associated with t
   test.setTimeout(30_000)
   const errors = collectErrors(page)
   await page.goto('/')
+  // Roadmap 5.17 gates the annotation panel behind "More tools", itself
+  // behind the `playing` track's level — a fresh app starts every track at
+  // level 1. Seeded once, it survives this test's own later reload the same
+  // way the fingering annotation itself does.
+  await seedPlayingLevel(page, 3)
+  await page.reload()
   await nav(page, 'Practice').click()
 
   const scoreSvg = page.locator('[data-testid="score-container"] svg')
   await expect(scoreSvg).toBeVisible()
 
+  await page.getByText('More tools').click()
   const fingering = page.getByRole('group', { name: 'Fingering' })
   const fingerInput = fingering.getByLabel(/finger/i)
   // Disabled before any note is selected — the exact defect this roadmap
@@ -150,6 +158,9 @@ test('a fingering set on a clicked notehead survives a reload, associated with t
   await page.reload()
   await nav(page, 'Practice').click()
   await expect(page.locator('[data-testid="score-container"] svg')).toBeVisible()
+  // "More tools" is closed-by-default React state, not persisted — reopen it
+  // post-reload before reaching for the Fingering group inside.
+  await page.getByText('More tools').click()
 
   // Read the annotation back out of storage once more, post-reload: it must
   // still name the SAME note id, not merely "a" fingering annotation

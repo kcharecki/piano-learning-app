@@ -413,13 +413,31 @@ weight as Play. The app already tracks a per-track level and does not use it to 
 except for the analysis panel, correctly gated to theory level 4+ (3.18). That pattern should be the
 rule, not the exception.
 
-- [ ] 5.17 `app/practice`: progressive disclosure gated by track level. A level-1 learner sees
-      transport, tempo, hands and metronome. Wait mode appears when the curriculum introduces it.
-      Assessment, tempo ramp, read-ahead and annotations live behind "More tools", with a manual
-      override for the learner who wants everything.
-      *Proof: e2e — at level 1 assert the advanced groups are ABSENT (not merely collapsed), raise the
-      track level through the dashboard's own override, and assert wait mode appears; deleting the
-      gate must fail this, the mutant 3.18 records.*
+- [x] 5.17 `app/practice`: progressive disclosure gated by the `playing` track's level. A level-1
+      learner sees transport, tempo, hands, metronome, loop range and record — everything the screen
+      showed before this task. Curriculum content (`curriculum.ts`) never names "wait mode" or
+      "assessment" against a level number (it is lesson prose, not a skills-per-level table), so the
+      two thresholds are a judgement call, documented in `PracticeScreen.tsx`'s own comment: wait mode
+      unlocks at level 2 (REQ-3.3.3 ties it to hands-together, level 1's own last unit); Assessment,
+      tempo ramp, Read ahead and the annotation panel unlock at level 3, behind a collapsed "More
+      tools" `<details>` (the 5.12/3.18a convention) that is entirely ABSENT below the gate, not
+      merely closed. "Manual override for the learner who wants everything" is the dashboard's own
+      existing per-track level override (2.36/4.3) — no second toggle was added. Each gate also stays
+      open once its own feature is already active (wait mode/read-ahead/the ramp/a running assessment),
+      so a dashboard override dropping the level mid-session can never strand a control the learner has
+      no way left to turn off.
+      *Proof: `PracticeScreen.test.tsx`'s new "progressive disclosure" describe block — level 1 hides
+      both tiers (ABSENT, via `queryBy`, not collapsed), level 2 reveals wait mode only, level 3 reveals
+      "More tools" (closed by default), the hydration race shows neither at a qualifying level while
+      unsettled, and an active Read ahead survives a level drop. Driven in the real app: seeded
+      `playing: 3` into IndexedDB, confirmed via the accessibility tree that Wait mode and a collapsed
+      More tools (Tempo ramp, Read ahead, Assessment, Fingering, Highlight, Measure note) appear, and
+      confirmed via `scripts/visual-pass.mjs` that level 1 and level 3 are each console-clean at both
+      widths/themes. Eight e2e specs that drove the now-gated controls directly (`waitmode`,
+      `practice-onscreen-keyboard`, `assessment`, `assessment-locked`, `dashboard-assessment`,
+      `read-ahead`, `notehead-select`, `round6`'s measure-note test) updated to seed a qualifying level
+      first — real regressions this task would otherwise have introduced into the existing suite, all
+      now green.*
 - [ ] 5.18 `app/practice`: give the remaining controls a hierarchy — primary transport pinned, related
       groups collapsed into sections rather than one flat column.
       *Proof: measured in a browser at 1280px — the number of controls visible without scrolling is
