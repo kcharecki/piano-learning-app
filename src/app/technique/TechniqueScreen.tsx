@@ -12,9 +12,9 @@
  * below), and a periodic posture-check prompt gated by
  * `useTechniqueDrill`'s `posturePromptDue` — the schedule itself lives in
  * `posturePromptSchedule.ts` and is driven by the injected `Clock`, never
- * real time. Both read from `technique-safety.css`, a file this screen
- * imports directly rather than through the shared stylesheet index, since
- * this task does not own that index.
+ * real time. Both are styled from
+ * `design-system/css/feature-technique-safety.css`, reached through the
+ * shared stylesheet index like every other screen's styling.
  */
 import { MidiDeviceStatus } from '@app/practice/MidiDeviceStatus.tsx'
 import { PracticeKeyboard } from '@app/practice/PracticeKeyboard.tsx'
@@ -27,7 +27,6 @@ import type { AudioOutput, Clock, DateSource, MidiInput } from '@core/ports/inde
 import { MAX_BPM, MIN_BPM } from '@core/timing/metronome.ts'
 import { useState } from 'react'
 import { useTechniqueDrill } from './useTechniqueDrill.ts'
-import './technique-safety.css'
 
 export type TechniqueScreenProps = {
   readonly initialLevel?: number
