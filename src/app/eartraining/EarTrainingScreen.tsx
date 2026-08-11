@@ -24,6 +24,7 @@ import { assertNever } from '@core/shared/invariant.ts'
 import { intervalLongName, parseInterval } from '@core/theory/intervals.ts'
 import { MidiDeviceStatus } from '@app/practice/MidiDeviceStatus.tsx'
 import type { ConnectMidi } from '@app/practice/useMidiConnection.ts'
+import { SrsSummary } from '@app/srs/SrsSummary.tsx'
 import { DictationAnswerPad } from './DictationAnswerPad.tsx'
 import { IntervalAnswerButtons } from './IntervalAnswerButtons.tsx'
 import { QualityAnswerButtons, humanize } from './QualityAnswerButtons.tsx'
@@ -330,43 +331,7 @@ export function EarTrainingScreen(props: EarTrainingScreenProps) {
         />
       )}
 
-      <dl className="eartraining-stats" aria-label="Retention">
-        <dt>Cards</dt>
-        <dd>
-          <div className="stat">
-            <b data-testid="eartraining-stats-total">{drill.stats.total}</b>
-            <small>Cards</small>
-          </div>
-        </dd>
-        <dt>Due</dt>
-        <dd>
-          <div className="stat">
-            <b data-testid="eartraining-stats-due">{drill.stats.due}</b>
-            <small>Due</small>
-          </div>
-        </dd>
-        <dt>Young</dt>
-        <dd>
-          <div className="stat">
-            <b data-testid="eartraining-stats-young">{drill.stats.young}</b>
-            <small>Young</small>
-          </div>
-        </dd>
-        <dt>Mature</dt>
-        <dd>
-          <div className="stat">
-            <b data-testid="eartraining-stats-mature">{drill.stats.mature}</b>
-            <small>Mature</small>
-          </div>
-        </dd>
-        <dt>Average ease</dt>
-        <dd>
-          <div className="stat">
-            <b data-testid="eartraining-stats-ease">{drill.stats.averageEase.toFixed(2)}</b>
-            <small>Average ease</small>
-          </div>
-        </dd>
-      </dl>
+      <SrsSummary stats={drill.stats} idPrefix="eartraining-stats" ariaLabel="Retention" />
     </div>
   )
 }
