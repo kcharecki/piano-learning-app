@@ -133,7 +133,6 @@ deliberately, not deleted.
         `npm run knip` exits **0**. The previous "reproduced on a clean HEAD" re-run was also inside
         a worktree. `knip:prod` and `knip:prod:all` exit 0 (Defect 3 closed — no
         implemented-tested-unimported module left).
-<<<<<<< HEAD
       - **F.1 FIXED 2026-08-12 (integrator).** `scripts/worktrees.mjs status` now links a worktree's
         `node_modules` to the main checkout's (junction on Windows, directory symlink on POSIX) the
         first time it runs inside one. `status` is where it belongs because every worktree session
