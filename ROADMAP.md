@@ -282,95 +282,59 @@ The M3 gaps that are unbuilt features rather than defects. Each states its proof
 - [x] 4.9a `app/repertoire`: seed an empty repertoire library from `GRADED_PIECES`
 - [x] 4.9b `app/lessons`: the lesson screen — the only consumer the authored curriculum, the demo score registry and `core/curriculum/model.ts` will ever have.
 - [x] 4.9c `app/drills`: every `theory-quiz` exercise in the authored curriculum opened the same note-naming deck regardless of its title — gave `FlashcardScreen` an `initialKind` prop routed from `params.drillKind`.
-- [ ] 4.10 M4 acceptance pass — full §9 acceptance criteria review — **re-run 2026-08-12, still does
-      NOT pass**. The 2026-08-11 blocker (REQ-3.8.2 practice history) is genuinely fixed by triage
-      T.5 and was re-proven here under a stricter test — the old spec only asserted the row stops
-      saying "never practised"; the new one reads the session back out of IndexedDB and backdates
-      the stored timestamp so the screen must follow it. Both stale e2e specs from the last run are
-      also fixed. But **two criteria that passed on 2026-08-11 fail today**, so the score went 20/21
-      → 19/21. Full per-criterion table, diff and proposed tasks: `docs/m4-acceptance-2026-08-12.md`.
-      New blockers, each with a driven proof left in the suite:
-      - **FIXED 2026-08-12 (integrator).** `npm run knip:prod` was red on
-        `src/app/sightreading/noteDisplay.ts` — implemented and tested, imported by nothing, its
-        stated consumer `PatternPreview.tsx` deleted by 5.19. Deleted the module and its test; the
-        evidence for pruning the test is the module going with it, not a judgement call. The other
-        finding, `midiToFrequency` dead in core and duplicated privately in `webaudio.ts`, is fixed
-        the other way round: the adapter now imports core's, so one function has one home (its local
-        copy's comment also read "A2 = 440 Hz at MIDI note 69", which is A4). *Proof:*
-        `npm run knip`, `knip:prod` and `knip:prod:all` all exit 0, unpiped; `npm run verify` green
-        at 3774 tests.
-      - **`npm run verify:full` is green end to end — exit 0, unpiped, 123 e2e tests.** First time
-        this gate has ever run to completion. The audit saw it exit 1 at `knip`; that stage passes on
-        master, and `knip:prod:all` was fixed above. Getting the rest green took three real fixes,
-        none of them a threshold being loosened:
-        (i) B.2 and B.5 each added a barrel re-export nothing imports (`createAudioRecorder`/
-        `createAudioPlayback`/`PREFERRED_MIME_TYPES` in `adapters/audio/index.ts`, the two BLE UUIDs
-        in `adapters/midi/index.ts`) — their consumers import the modules directly. Neither agent
-        could have seen it: `knip` is not in `verify`, only in `verify:full`. Removed, with the
-        reason recorded in both barrels.
-        (ii) `e2e/piano-roll.spec.ts` waited for an EXACT beat while the transport ran at written
-        tempo — a beat that comes and goes between two polls is never seen again, so the wait burned
-        its timeout with playback already past it. Green solo, red in the full suite where every
-        worker fights for the same CPU. Fixed by dropping the tempo to the slider's 30% floor before
-        Play; every assertion is unchanged, because the lit pitches and the tick delta are properties
-        of the score and the geometry, not of the tempo.
-        (iii) `e2e/onboarding.spec.ts` clicked "Not now" and reloaded immediately, racing
-        `useOnboardingGate.markCompleted`'s deliberately un-awaited IndexedDB write (its own module
-        doc accepts "the banner reappears next boot" as the worst case). Now the spec asserts the
-        persisted `{ completed: true }` record directly before reloading — the durability claim
-        stated rather than inferred from a reload that happened to outrun the write.
-      - **FIXED (task/M4.F2) — REQ-3.10.4/REQ-4.3, a backup drops a repertoire piece's history, and
-        restoring one destroys it.** `RepertoirePieceLike` (`src/core/progress/export.ts`) is widened
-        to carry every field `RepertoirePiece` has — `level`/`sessions`/`bestAccuracy`/`notes`/
-        `scoreId` — so export-then-restore of the learner's own backup is now lossless; `toRepertoirePiece`
-        (`src/app/progress/snapshot.ts`) no longer fabricates them at defaults. Backward compatibility
-        is explicit: an OLD-format file (written before this change, missing all five fields) still
-        imports cleanly at the old fabricated defaults — proven with a real pre-widening fixture, both
-        in `export.test.ts` and driven live against the running app (a hand-built old-format JSON
-        restored without a crash, landing at "Level 1"/"never practised"). CSV was made lossless too,
-        rather than caveated on screen: `repertoire.csv` gained `level`/`bestAccuracy`/`notes`/`scoreId`
-        columns, and practice sessions (a one-to-many relationship a flat row can't hold without lying)
-        got their own `repertoireSessions.csv`, keyed back to the piece by `pieceId`. A restored
-        `level` is clamped into `MIN_LEVEL..MAX_LEVEL` rather than trusted verbatim from an untrusted
-        file. *Proof:* `npm run verify` green (183 files / 3765 tests); a new `fast-check` round-trip
-        property test covers the widened repertoire record; `e2e/m4-acceptance-export-repertoire-history.spec.ts`
-        passes for real with its `test.fail()` deleted — practise Greensleeves, give it notes, export
-        the real downloaded JSON (carries `sessions`/`bestAccuracy`/`level`/`notes`), wipe via restore,
-        and the practice history/level/notes read back off the live screen unchanged. Also driven live:
-        a corrupt file surfaces a readable error and leaves the library untouched (never a silent
-        wipe), and an empty profile exports `repertoire: []` with no crash. Visual pass on Progress
-        clean at 1280/1024, dark/light, console clean throughout.
-      - **FIXED (task/M4.F1, 2026-08-12).** REQ-3.1.4 — the daily session no longer held the stated
-        20/20/40/20 mix (regression from 5.45). Two causes, both fixed:
-        (a) `core/curriculum/session.ts` no longer reserves a flat `WARMUP_MINUTES` off the top of
-        the budget. `technique`'s own 20% mix share IS the combined "warm-up/technique" bucket
-        REQ-3.1.4 names; it is apportioned over the FULL budget exactly like the other three
-        segments, and warm-up then claims up to `WARMUP_MINUTES` OF that bucket, technique keeping
-        the rest — so warm-up stays at its full 5-step, ~1-minute-a-step routine (`WarmupChecklist`
-        never truncates by minutes) whenever the bucket allows it, and is never squeezed to zero by
-        technique. (b) `app/session/candidates.ts`'s `lessonCandidates` now falls back — loaded
-        score, then the learner's own first repertoire piece, then the curriculum's first lesson —
-        so the `lesson` segment always has a real candidate, even on a cold profile with an empty
-        score store AND an empty repertoire library (the repertoire library is never auto-seeded;
-        confirmed via `repertoire-seed.spec.ts`). Measured on the running app (`npm run dev -- --port
-        5816`), cold and warm profiles now both hold the mix EXACTLY at 15/30/60 minutes: warm-up +
-        technique 20.0% at every budget (15 min: 3+0=3; 30 min: 5+1=6; 60 min: 5+7=12), sight-reading
-        20.0%, lesson/repertoire 40.0%, theory/ear 20.0% — well inside the spec's ±8-point tolerance,
-        exactly on target because 15/30/60 divide evenly into the default shares. *Proof:*
-        `e2e/m4-acceptance-session-mix.spec.ts` passes with both `test.fail()` markers deleted (2/2),
-        full `npx playwright test` 110/110, `npm run verify` green (docs budget, typecheck, lint,
-        3757 tests), visual pass on Today at 1280/1024 × dark/light on both a cold and a
-        score-loaded profile, console clean throughout. Files touched:
-        `src/core/curriculum/session.ts`, `src/app/session/candidates.ts`,
-        `src/app/session/useSessionPlan.ts`, `src/app/session/SessionPlanScreen.tsx` (the dead
-        "load a score" hint became a real "no score/no repertoire yet" note, shown only when the
-        lesson item is the generic curriculum fallback), plus their tests. Not personalized: the
-        curriculum fallback is always level 1's first lesson, not the learner's actual progress —
-        flagged, not fixed, since REQ-3.1.4 is about proportions, not content relevance, and a
-        learner this far into a cold state almost always has a repertoire piece by then, which takes
-        priority anyway.
-      - Process hazard found while auditing: `npm run … | tail -N` reports *tail's* exit code. Two
-        results previously read as green (the full e2e run, `knip:prod`) were red underneath.
+- [x] 4.10 M4 acceptance pass — full §9 acceptance criteria review — **re-run 2026-08-12b, PASSES,
+      21 of 21**. Third review of this milestone (20/21 → 19/21 → 21/21). Full per-criterion table,
+      diff against BOTH previous runs, findings and proposed tasks:
+      `docs/m4-acceptance-2026-08-12b.md`.
+      - **Both 2026-08-12 blockers are genuinely closed, re-driven from scratch under assertions
+        stricter than the fixes' own.** REQ-3.1.4: `m4-acceptance-session-mix.spec.ts` 2/2 with the
+        `test.fail()` markers gone, and the visual pass on Today reads warm-up 5 + technique 1 /
+        sight-reading 6 / lesson 12 / theory-ear 6 at a 30-minute budget — exactly 20/20/40/20 on a
+        cold profile. REQ-3.10.4/REQ-4.3: the restore half of
+        `m4-acceptance-export-repertoire-history.spec.ts` used to assert only that "never practised"
+        was hidden — an absence a vanished row satisfies too — and now asserts the restored
+        sessions, `bestAccuracy`, level and notes positively, reading the notes back off the live
+        control.
+      - **The real finding is about the previous reviews, not the code: five criteria were carrying
+        a PASS that nothing executed.** REQ-2.2's Advance control, REQ-3.10.2's exit criteria, three
+        of REQ-3.10.1's seven dashboard sections (technique trends, theory retention, repertoire
+        status) and REQ-3.1.4's "adjustable by the user" clause had **zero** e2e coverage — grep the
+        suite at the last pass's HEAD for `dashboard-criterion`, `dashboard-advance`,
+        `dashboard-retention`, `dashboard-technique`, `dashboard-repertoire` and there are no hits.
+        They were passing on a code reading of `useDashboard.ts`/`DashboardScreen.tsx`. All five now
+        hold when driven, but "it holds" was never the claim under test. New spec
+        `e2e/m4-acceptance-dashboard-sections.spec.ts` (3 tests, no `test.fail()`) seeds the real
+        `techniqueHistory`/`srsCards`/`repertoire`/`sightReadingHistory` IndexedDB records, reloads,
+        asserts exact values with two exclusion traps built in (a non-clean 999 bpm attempt that
+        must not be plotted, a non-theory card that must not be counted), then rewrites stored
+        values behind the app's back and watches the screen follow. *Proof:* `npm run verify` exit 0
+        (190 files / 3900 tests), full `npx playwright test` **126 passed** exit 0, five visual
+        passes exit 0 (Today, Repertoire, Progress, Lessons, Technique × 1280/1024 × dark/light,
+        console clean), every exit code unpiped.
+      - **Nothing regressed under the day's merges** — checked per surface, not assumed: the
+        milestones panel shares the Progress screen with criteria 15/16 (recomputed from the same
+        persisted stores, nothing cached); audio recording never touches `usePracticeLog.ts` and
+        bumped no `DB_VERSION`, so an older database still opens; the piano roll, BLE
+        `MidiDeviceStatus` on seven screens and the 44px tablet targets all pass their own specs
+        with the M4 screens console-clean.
+      - **Correction to the 2026-08-12 pass: Defect 4 was misdiagnosed.** `verify:full` exiting 1 at
+        `knip` is a **worktree artifact**, not a repo defect — a worktree has no installed
+        `node_modules`, and knip does not do npm's parent-directory lookup for binaries or
+        plugin-owned deps. Proven by control: identical command, `node_modules` junctioned in →
+        `npm run knip` exits **0**. The previous "reproduced on a clean HEAD" re-run was also inside
+        a worktree. `knip:prod` and `knip:prod:all` exit 0 (Defect 3 closed — no
+        implemented-tested-unimported module left).
+      - Follow-ups raised, none blocking: **F.1** make `verify:full` runnable from a worktree (or
+        document it as main-checkout-only and give worktrees the equivalent pair); **F.2**
+        `app/state/persistence.ts` has no `pagehide`/`beforeunload` flush, so a store write in
+        flight when the tab closes is lost — observed live: clicking "Advance" then reloading
+        immediately left the track back at level 1; **F.3** delete the module comments the code has
+        already contradicted (`core/repertoire/repertoire.ts` "roadmap 4.5's consumer screen doesn't
+        call this yet" ×7 plus `sessionFromEntry`'s "checked: no reference … in that file",
+        `content/curriculum/curriculum.ts:17–22`, `app/state/techniqueStore.ts` "hydrate … is
+        unused") — acceptance passes route their reachability checks through these, so a false one
+        costs a review cycle.
+      - Process hazard, still worth keeping: `npm run … | tail -N` reports *tail's* exit code.
 
 ## Phase 5 — Milestone M5: teachable product
 
