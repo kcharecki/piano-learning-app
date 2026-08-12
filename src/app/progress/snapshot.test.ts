@@ -161,11 +161,20 @@ describe('gatherProgressSnapshot', () => {
     expect(snapshot.version).toBe(1)
   })
 
-  it('gathers the repertoire library, projected to id/title/composer/status', () => {
+  it('gathers the repertoire library, carrying every field the piece has (roadmap 4.10 — this used to project down to only id/title/composer/status)', () => {
     seedStores()
     const snapshot = gatherProgressSnapshot(new FakeClock(0))
     expect(snapshot.repertoire).toEqual([
-      { id: 'piece-1', title: 'Fur Elise', composer: 'Beethoven', status: 'maintained' },
+      {
+        id: 'piece-1',
+        title: 'Fur Elise',
+        composer: 'Beethoven',
+        status: 'maintained',
+        level: 3,
+        sessions: [repertoireSession],
+        bestAccuracy: repertoireSession.accuracy,
+        notes: '',
+      },
     ])
   })
 
@@ -244,27 +253,75 @@ describe('gather -> clear -> apply round trip', () => {
     },
   )
 
-  it('restores a repertoire piece\'s recoverable fields (id, title, composer, status) — not sessions/level/bestAccuracy/notes', () => {
+  it(
+    'restores a repertoire piece\'s full fields exactly — id, title, composer, status, level, ' +
+      'sessions and bestAccuracy (roadmap 4.10: this used to fabricate level/sessions/' +
+      'bestAccuracy/notes at defaults, destroying practice history on every restore)',
+    () => {
+      seedStores()
+      const snapshot = gatherProgressSnapshot(new FakeClock(0))
+
+      resetStores()
+      applyProgressSnapshot(snapshot)
+
+      const restored = useRepertoireStore.getState().pieces
+      expect(restored).toHaveLength(1)
+      const [got] = restored as [RepertoirePiece]
+      expect(got.id).toBe(repertoirePieceInput.id)
+      expect(got.title).toBe(repertoirePieceInput.title)
+      expect(got.composer).toBe(repertoirePieceInput.composer)
+      expect(got.status).toBe('maintained')
+      expect(got.level).toBe(repertoirePieceInput.level)
+      expect(got.sessions).toEqual([repertoireSession])
+      expect(got.bestAccuracy).toBe(repertoireSession.accuracy)
+      expect(got.notes).toBe('')
+    },
+  )
+
+  it(
+    'restores a repertoire piece from an OLD-FORMAT snapshot (no level/sessions/bestAccuracy/' +
+      'notes/scoreId keys at all) at the fabricated defaults, exactly as a file exported before ' +
+      'roadmap 4.10 must still import cleanly',
+    () => {
+      seedStores()
+      const snapshot = gatherProgressSnapshot(new FakeClock(0))
+      const oldFormatSnapshot = {
+        ...snapshot,
+        repertoire: snapshot.repertoire.map((p) => ({
+          id: p.id,
+          title: p.title,
+          ...(p.composer === undefined ? {} : { composer: p.composer }),
+          ...(p.status === undefined ? {} : { status: p.status }),
+        })),
+      }
+
+      resetStores()
+      applyProgressSnapshot(oldFormatSnapshot)
+
+      const restored = useRepertoireStore.getState().pieces
+      expect(restored).toHaveLength(1)
+      const [got] = restored as [RepertoirePiece]
+      expect(got.status).toBe('maintained')
+      expect(got.level).toBe(REPERTOIRE_MIN_LEVEL)
+      expect(got.sessions).toEqual([])
+      expect(got.bestAccuracy).toBe(0)
+      expect(got.notes).toBe('')
+    },
+  )
+
+  it('clamps a restored repertoire level into 1..MAX_LEVEL rather than trusting an out-of-range value from an untrusted file', () => {
     seedStores()
     const snapshot = gatherProgressSnapshot(new FakeClock(0))
+    const outOfRange = {
+      ...snapshot,
+      repertoire: snapshot.repertoire.map((p) => ({ ...p, level: 999 })),
+    }
 
     resetStores()
-    applyProgressSnapshot(snapshot)
+    applyProgressSnapshot(outOfRange)
 
-    const restored = useRepertoireStore.getState().pieces
-    expect(restored).toHaveLength(1)
-    const [got] = restored as [RepertoirePiece]
-    expect(got.id).toBe(repertoirePieceInput.id)
-    expect(got.title).toBe(repertoirePieceInput.title)
-    expect(got.composer).toBe(repertoirePieceInput.composer)
-    expect(got.status).toBe('maintained')
-    // NOT preserved by RepertoirePieceLike's structural minimum — documented
-    // in the module comment. Fabricated at the curriculum minimum/blank,
-    // never a value the piece never actually earned.
-    expect(got.level).toBe(REPERTOIRE_MIN_LEVEL)
-    expect(got.sessions).toEqual([])
-    expect(got.bestAccuracy).toBe(0)
-    expect(got.notes).toBe('')
+    const [got] = useRepertoireStore.getState().pieces as [RepertoirePiece]
+    expect(got.level).toBeLessThanOrEqual(5)
   })
 
   it('restores an assessment\'s recoverable fields (id, at, accuracy, scoreId, scoreTitle) — not the full AssessmentResult', () => {

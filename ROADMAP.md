@@ -298,12 +298,27 @@ The M3 gaps that are unbuilt features rather than defects. Each states its proof
         `e2e/screens.spec.ts` cannot catch it: it asserts the minutes *sum* to the budget, which is
         true of any split. *Proof:* `e2e/m4-acceptance-session-mix.spec.ts` passes with both
         `test.fail()` markers deleted.
-      - **REQ-3.10.4/REQ-4.3 — a backup drops a repertoire piece's history, and restoring one
-        destroys it.** `RepertoirePieceLike` carries only id/title/composer/status/addedAt, so
-        `sessions`/`bestAccuracy`/`level`/`notes`/`scoreId` are dropped on export and fabricated at
-        defaults on import — and the restore hydrates by replacement. Harmless while those fields
-        were always empty; the T.5 fix made them real, and the data loss with them. *Proof:*
-        `e2e/m4-acceptance-export-repertoire-history.spec.ts` passes with its `test.fail()` deleted.
+      - **FIXED (task/M4.F2) — REQ-3.10.4/REQ-4.3, a backup drops a repertoire piece's history, and
+        restoring one destroys it.** `RepertoirePieceLike` (`src/core/progress/export.ts`) is widened
+        to carry every field `RepertoirePiece` has — `level`/`sessions`/`bestAccuracy`/`notes`/
+        `scoreId` — so export-then-restore of the learner's own backup is now lossless; `toRepertoirePiece`
+        (`src/app/progress/snapshot.ts`) no longer fabricates them at defaults. Backward compatibility
+        is explicit: an OLD-format file (written before this change, missing all five fields) still
+        imports cleanly at the old fabricated defaults — proven with a real pre-widening fixture, both
+        in `export.test.ts` and driven live against the running app (a hand-built old-format JSON
+        restored without a crash, landing at "Level 1"/"never practised"). CSV was made lossless too,
+        rather than caveated on screen: `repertoire.csv` gained `level`/`bestAccuracy`/`notes`/`scoreId`
+        columns, and practice sessions (a one-to-many relationship a flat row can't hold without lying)
+        got their own `repertoireSessions.csv`, keyed back to the piece by `pieceId`. A restored
+        `level` is clamped into `MIN_LEVEL..MAX_LEVEL` rather than trusted verbatim from an untrusted
+        file. *Proof:* `npm run verify` green (183 files / 3765 tests); a new `fast-check` round-trip
+        property test covers the widened repertoire record; `e2e/m4-acceptance-export-repertoire-history.spec.ts`
+        passes for real with its `test.fail()` deleted — practise Greensleeves, give it notes, export
+        the real downloaded JSON (carries `sessions`/`bestAccuracy`/`level`/`notes`), wipe via restore,
+        and the practice history/level/notes read back off the live screen unchanged. Also driven live:
+        a corrupt file surfaces a readable error and leaves the library untouched (never a silent
+        wipe), and an empty profile exports `repertoire: []` with no crash. Visual pass on Progress
+        clean at 1280/1024, dark/light, console clean throughout.
       - **`npm run knip:prod` is red** — `src/app/sightreading/noteDisplay.ts` is implemented and
         tested but imported by nothing (its stated consumer `PatternPreview.tsx` no longer exists);
         `midiToFrequency` is a dead core export duplicated privately in `webaudio.ts`. Not M4 scope,

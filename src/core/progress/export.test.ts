@@ -14,6 +14,7 @@ import {
   type EarTrainingSnapshot,
   type ProgressSnapshot,
   type RepertoirePieceLike,
+  type RepertoireSessionLike,
   type StoredAssessmentLike,
 } from './export.ts'
 
@@ -95,6 +96,20 @@ const arbSightReadingRecord: fc.Arbitrary<SightReadingRecord> = fc.record({
   level: arbFiniteNumber(0, 20),
 })
 
+const arbRepertoireSessionLike: fc.Arbitrary<RepertoireSessionLike> = fc
+  .record({
+    at: arbFiniteNumber(0, 2_000_000_000_000),
+    minutes: arbFiniteNumber(0, 300),
+    accuracy: fc.option(arbFiniteNumber(0, 1), { nil: undefined }),
+    tempoBpm: fc.option(arbFiniteNumber(20, 300), { nil: undefined }),
+  })
+  .map(({ at, minutes, accuracy, tempoBpm }): RepertoireSessionLike => ({
+    at,
+    minutes,
+    ...(accuracy === undefined ? {} : { accuracy }),
+    ...(tempoBpm === undefined ? {} : { tempoBpm }),
+  }))
+
 const arbRepertoirePieceLike: fc.Arbitrary<RepertoirePieceLike> = fc
   .record({
     id: arbId,
@@ -102,14 +117,26 @@ const arbRepertoirePieceLike: fc.Arbitrary<RepertoirePieceLike> = fc
     composer: fc.option(arbNastyString, { nil: undefined }),
     status: fc.option(arbNastyString, { nil: undefined }),
     addedAt: fc.option(arbFiniteNumber(0, 2_000_000_000_000), { nil: undefined }),
+    level: fc.option(arbFiniteNumber(1, 5), { nil: undefined }),
+    sessions: fc.option(fc.array(arbRepertoireSessionLike, { maxLength: 5 }), { nil: undefined }),
+    bestAccuracy: fc.option(arbFiniteNumber(0, 1), { nil: undefined }),
+    notes: fc.option(arbNastyString, { nil: undefined }),
+    scoreId: fc.option(arbId, { nil: undefined }),
   })
-  .map(({ id, title, composer, status, addedAt }): RepertoirePieceLike => ({
-    id,
-    title,
-    ...(composer === undefined ? {} : { composer }),
-    ...(status === undefined ? {} : { status }),
-    ...(addedAt === undefined ? {} : { addedAt }),
-  }))
+  .map(
+    ({ id, title, composer, status, addedAt, level, sessions, bestAccuracy, notes, scoreId }): RepertoirePieceLike => ({
+      id,
+      title,
+      ...(composer === undefined ? {} : { composer }),
+      ...(status === undefined ? {} : { status }),
+      ...(addedAt === undefined ? {} : { addedAt }),
+      ...(level === undefined ? {} : { level }),
+      ...(sessions === undefined ? {} : { sessions }),
+      ...(bestAccuracy === undefined ? {} : { bestAccuracy }),
+      ...(notes === undefined ? {} : { notes }),
+      ...(scoreId === undefined ? {} : { scoreId }),
+    }),
+  )
 
 const arbStoredAssessmentLike: fc.Arbitrary<StoredAssessmentLike> = fc
   .record({
@@ -314,6 +341,119 @@ describe('round trip', () => {
         techniqueAttempts: [],
       },
     })
+  })
+
+  it(
+    'round-trips a repertoire piece\'s full widened fields (level, sessions, bestAccuracy, ' +
+      'notes, scoreId) through exportJson -> importProgress exactly (roadmap 4.10, ' +
+      'REQ-3.10.4/REQ-4.3 — this is the fix for the data-loss defect the M4 acceptance pass found)',
+    () => {
+      const piece: RepertoirePieceLike = {
+        id: 'r-1',
+        title: 'Greensleeves',
+        composer: 'Traditional',
+        status: 'polishing',
+        level: 3,
+        sessions: [
+          { at: 1_000, minutes: 12, accuracy: 0.91, tempoBpm: 96 },
+          { at: 2_000, minutes: 8 },
+        ],
+        bestAccuracy: 0.91,
+        notes: 'Rubato in the B section; watch the LH thumb.',
+        scoreId: 'score-greensleeves',
+      }
+      const snapshot: ProgressSnapshot = {
+        version: 1,
+        exportedAt: 0,
+        practiceEntries: [],
+        srsCards: [],
+        sightReadingHistory: [],
+        levels: {},
+        repertoire: [piece],
+        assessments: [],
+        techniqueAttempts: [],
+      }
+      const result = importProgress(exportJson(snapshot))
+      expect(result).toEqual({ ok: true, value: snapshot })
+    },
+  )
+
+  it(
+    'tolerates an OLD-FORMAT repertoire entry with none of the widened fields (a real backup ' +
+      'written before roadmap 4.10), defaulting level/sessions/bestAccuracy/notes/scoreId to ' +
+      'absent rather than failing to import',
+    () => {
+      // Exactly the shape `exportJson` produced before this fix: only
+      // id/title/composer/status/addedAt.
+      const oldFormatExport = JSON.stringify({
+        version: 1,
+        exportedAt: 0,
+        practiceEntries: [],
+        srsCards: [],
+        sightReadingHistory: [],
+        levels: {},
+        repertoire: [{ id: 'r-1', title: 'Greensleeves', composer: 'Traditional', status: 'polishing' }],
+        assessments: [],
+        techniqueAttempts: [],
+      })
+      const result = importProgress(oldFormatExport)
+      expect(result).toEqual({
+        ok: true,
+        value: {
+          version: 1,
+          exportedAt: 0,
+          practiceEntries: [],
+          srsCards: [],
+          sightReadingHistory: [],
+          levels: {},
+          repertoire: [{ id: 'r-1', title: 'Greensleeves', composer: 'Traditional', status: 'polishing' }],
+          assessments: [],
+          techniqueAttempts: [],
+        },
+      })
+    },
+  )
+
+  it('rejects a repertoire piece whose sessions is not an array, naming the field', () => {
+    const result = importProgress(
+      JSON.stringify({
+        version: 1,
+        exportedAt: 0,
+        practiceEntries: [],
+        srsCards: [],
+        sightReadingHistory: [],
+        levels: {},
+        repertoire: [{ id: 'r-1', title: 'Greensleeves', sessions: 'not-an-array' }],
+        assessments: [],
+        techniqueAttempts: [],
+      }),
+    )
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error).toMatch(/repertoire\[0\]\.sessions/)
+      expect(result.error).toMatch(/array/i)
+    }
+  })
+
+  it('rejects a repertoire session missing its required `minutes` field, naming the path', () => {
+    const result = importProgress(
+      JSON.stringify({
+        version: 1,
+        exportedAt: 0,
+        practiceEntries: [],
+        srsCards: [],
+        sightReadingHistory: [],
+        levels: {},
+        repertoire: [{ id: 'r-1', title: 'Greensleeves', sessions: [{ at: 1_000 }] }],
+        assessments: [],
+        techniqueAttempts: [],
+      }),
+    )
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error).toMatch(/repertoire\[0\]\.sessions\[0\]/)
+      expect(result.error).toMatch(/minutes/)
+    }
   })
 
   it(
@@ -757,6 +897,7 @@ describe('exportCsv', () => {
         'levels',
         'practiceEntries',
         'repertoire',
+        'repertoireSessions',
         'sightReadingHistory',
         'srsCards',
       ].sort(),
@@ -875,8 +1016,8 @@ describe('exportCsv', () => {
         }).repertoire
         const rows = parseCsv(csv)
         expect(rows).toEqual([
-          ['id', 'title', 'composer', 'status', 'addedAt'],
-          ['r-1', title, composer, '', ''],
+          ['id', 'title', 'composer', 'status', 'addedAt', 'level', 'bestAccuracy', 'notes', 'scoreId'],
+          ['r-1', title, composer, '', '', '', '', '', ''],
         ])
       }),
       { numRuns: 200 },
@@ -889,6 +1030,52 @@ describe('exportCsv', () => {
       repertoire: [{ id: 'r-1', title: 'a,b', composer: 'c' }],
     }).repertoire
     const rows = parseCsv(csv)
-    expect(rows[1]).toEqual(['r-1', 'a,b', 'c', '', ''])
+    expect(rows[1]).toEqual(['r-1', 'a,b', 'c', '', '', '', '', '', ''])
+  })
+
+  it('emits repertoireSessions as its own CSV, keyed back to the piece by pieceId', () => {
+    const snapshot: ProgressSnapshot = {
+      ...baseSnapshot,
+      repertoire: [
+        {
+          id: 'r-1',
+          title: 'Nocturne',
+          sessions: [
+            { at: 1_000, minutes: 12, accuracy: 0.9, tempoBpm: 88 },
+            { at: 2_000, minutes: 5 },
+          ],
+        },
+        { id: 'r-2', title: 'Minuet' },
+      ],
+    }
+    const csv = exportCsv(snapshot).repertoireSessions
+    expect(csv.split('\n')).toEqual([
+      'pieceId,at,minutes,accuracy,tempoBpm',
+      'r-1,1000,12,0.9,88',
+      'r-1,2000,5,,',
+    ])
+  })
+
+  it('widens the repertoire row with level/bestAccuracy/notes/scoreId', () => {
+    const snapshot: ProgressSnapshot = {
+      ...baseSnapshot,
+      repertoire: [
+        {
+          id: 'r-1',
+          title: 'Nocturne',
+          composer: 'Chopin',
+          status: 'polishing',
+          level: 4,
+          bestAccuracy: 0.87,
+          notes: 'watch the pedal',
+          scoreId: 'score-9',
+        },
+      ],
+    }
+    const csv = exportCsv(snapshot).repertoire
+    expect(csv.split('\n')).toEqual([
+      'id,title,composer,status,addedAt,level,bestAccuracy,notes,scoreId',
+      'r-1,Nocturne,Chopin,polishing,,4,0.87,watch the pedal,score-9',
+    ])
   })
 })

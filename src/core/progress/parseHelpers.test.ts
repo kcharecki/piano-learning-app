@@ -8,6 +8,7 @@ import {
   optionalFiniteNumber,
   requireBoolean,
   parseArray,
+  optionalArray,
 } from '@core/progress/parseHelpers.ts'
 import { err, ok, type Result } from '@core/shared/result.ts'
 
@@ -175,5 +176,29 @@ describe('parseArray', () => {
     }
     parseArray([1, 'x', 'y'], 'root', recording)
     expect(seen).toEqual([1, 'x'])
+  })
+})
+
+describe('optionalArray', () => {
+  const parseNumber = (item: unknown, itemPath: string): Result<number, string> =>
+    typeof item === 'number' ? ok(item) : err(`${itemPath}: expected number, got ${typeOf(item)}`)
+
+  it('parses every item when the array is present, same as parseArray', () => {
+    expect(optionalArray([1, 2, 3], 'root', parseNumber)).toEqual(ok([1, 2, 3]))
+  })
+
+  it('returns ok(undefined) when the value is genuinely missing, rather than an error', () => {
+    expect(optionalArray(undefined, 'root', parseNumber)).toEqual(ok(undefined))
+  })
+
+  it('distinguishes "missing" from "present but the wrong type" — a null or object still errors', () => {
+    expect(optionalArray(null, 'root', parseNumber)).toEqual(err('root: expected array, got null'))
+    expect(optionalArray({}, 'root', parseNumber)).toEqual(err('root: expected array, got object'))
+  })
+
+  it('propagates a present-but-malformed item failure exactly like parseArray', () => {
+    expect(optionalArray([1, 'x', 3], 'root', parseNumber)).toEqual(
+      err('root[1]: expected number, got string'),
+    )
   })
 })

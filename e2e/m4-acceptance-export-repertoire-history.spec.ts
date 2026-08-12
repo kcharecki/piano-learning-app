@@ -18,19 +18,19 @@ import path from 'node:path'
  * days ago and reloading: a screen deriving a plausible number from anything
  * else cannot follow that edit.
  *
- * Test 2 is the gap that re-proving the first half exposed. Now that a piece's
- * `sessions`/`bestAccuracy` finally hold real data, REQ-3.10.4 ("ALL progress
- * data SHALL be exportable") and REQ-4.3 ("simple backup/restore") are broken
- * for it: `RepertoirePieceLike` (`src/core/progress/export.ts:52`) carries only
- * id/title/composer/status/addedAt, so `toRepertoirePieceLike`
- * (`src/app/progress/snapshot.ts:102`) drops `level`, `sessions`,
+ * Test 2 was the gap that re-proving the first half exposed. Now that a
+ * piece's `sessions`/`bestAccuracy` finally hold real data, REQ-3.10.4 ("ALL
+ * progress data SHALL be exportable") and REQ-4.3 ("simple backup/restore")
+ * used to be broken for it: `RepertoirePieceLike` (`src/core/progress/export.ts`)
+ * carried only id/title/composer/status/addedAt, so `toRepertoirePieceLike`
+ * (`src/app/progress/snapshot.ts`) dropped `level`, `sessions`,
  * `bestAccuracy`, `notes` and `scoreId` on the way out, and
- * `toRepertoirePiece` (`snapshot.ts:118`) fabricates them back at defaults on
- * the way in. Because `applyProgressSnapshot` hydrates the repertoire store by
- * REPLACEMENT, a restore does not merely fail to carry the history forward —
- * it destroys the history that was there. Marked `test.fail()` so it reports
- * the gap without reddening the suite; delete the `test.fail()` when the
- * export format is widened and this passes for real.
+ * `toRepertoirePiece` fabricated them back at defaults on the way in. Because
+ * `applyProgressSnapshot` hydrates the repertoire store by REPLACEMENT, a
+ * restore did not merely fail to carry the history forward — it destroyed the
+ * history that was there. Fixed by roadmap 4.10 (M4 acceptance Defect 2):
+ * `RepertoirePieceLike` now carries every field `RepertoirePiece` does, so
+ * export-then-restore is lossless; this spec is the regression guard for it.
  */
 
 /** Console/page errors, collected from page creation (see e2e/export-restore.spec.ts). */
@@ -231,11 +231,6 @@ test('REQ-3.8.2: a practice run stores a real session row, and the screen reads 
 test('REQ-3.10.4/REQ-4.3: an exported backup carries a repertoire piece’s practice history, level and notes', async ({
   page,
 }) => {
-  // REQ-3.10.4 / REQ-4.3: this is the behaviour the requirements state, and it
-  // does not hold today — see this file's module comment. Remove this
-  // `test.fail()` once the export format carries a repertoire piece's own
-  // fields, at which point this spec becomes the regression guard for it.
-  test.fail()
   test.setTimeout(120_000)
   let downloadDir: string | undefined
   try {
