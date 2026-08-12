@@ -74,6 +74,35 @@ async function readSessionRunSnapshot(page: Page): Promise<{
   })
 }
 
+/**
+ * Reads the onboarding record straight out of IndexedDB.
+ *
+ * `useOnboardingGate.markCompleted` sets React state and fires the IndexedDB
+ * write WITHOUT awaiting it — deliberately, so a slow or broken store can never
+ * block the learner (its own module doc says the worst case is the banner
+ * reappearing next boot). A test that clicks "Not now" and reloads immediately
+ * is therefore racing that write, and loses it under load: this spec passed
+ * solo and failed inside the full `verify:full` suite for exactly that reason.
+ * Waiting on the persisted record before reloading is not a workaround — it is
+ * the durability claim stated directly, instead of inferred from a reload that
+ * happened to be slower than the write.
+ */
+async function readOnboardingRecord(page: Page): Promise<{ readonly completed: boolean } | null> {
+  return page.evaluate(() => {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open('piano-learning-app')
+      req.onerror = () => reject(req.error)
+      req.onsuccess = () => {
+        const db = req.result
+        const tx = db.transaction('settings', 'readonly')
+        const getReq = tx.objectStore('settings').get('onboarding')
+        getReq.onsuccess = () => resolve(getReq.result ?? null)
+        getReq.onerror = () => reject(getReq.error)
+      }
+    })
+  })
+}
+
 test('completing onboarding from an empty IndexedDB sets the chosen levels and starts a first session matching the chosen minutes (roadmap 5.40)', async ({
   page,
 }) => {
@@ -147,7 +176,12 @@ test('Skip leaves levels untouched and never shows the banner again; Settings re
   await page.getByRole('button', { name: 'Not now' }).click()
   await expect(banner).toBeHidden()
 
-  // Persisted — a reload does not bring the banner back.
+  // Persisted — asserted on the stored record itself, then proven again by a
+  // reload not bringing the banner back. See readOnboardingRecord's doc for
+  // why the record is waited on rather than the reload being raced.
+  await expect(async () => {
+    expect(await readOnboardingRecord(page)).toEqual({ completed: true })
+  }).toPass({ timeout: 10_000 })
   await page.reload()
   await expect(banner).toBeHidden()
   await expect(page.getByRole('heading', { name: "Today's session" })).toBeVisible()

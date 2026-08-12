@@ -105,7 +105,18 @@ async function readRollSnapshot(page: Page): Promise<RollSnapshot> {
   })
 }
 
-/** Polls (via the same atomic snapshot) until the position reads exactly `measure`/`beat`, returning the snapshot that satisfied it. */
+/**
+ * Polls (via the same atomic snapshot) until the position reads exactly
+ * `measure`/`beat`, returning the snapshot that satisfied it.
+ *
+ * Waiting for an EXACT beat is only safe while a beat lasts much longer than
+ * one poll: a beat that comes and goes between two polls is never seen again,
+ * and the wait then burns its whole timeout with the transport already past it.
+ * That is a real failure this spec hit — green solo, red inside the full
+ * `verify:full` suite, where every worker is competing for the same CPU. The
+ * caller therefore drops the tempo to the slider's 30% floor before Play; do
+ * not raise it back without also making this wait tolerate an overshoot.
+ */
 async function waitForPosition(page: Page, measure: number, beat: number): Promise<RollSnapshot> {
   let last: RollSnapshot | undefined
   await expect(async () => {
@@ -113,7 +124,7 @@ async function waitForPosition(page: Page, measure: number, beat: number): Promi
     last = snapshot
     expect(snapshot.measure).toBe(measure)
     expect(snapshot.beat).toBe(beat)
-  }).toPass({ timeout: 15_000 })
+  }).toPass({ timeout: 25_000 })
   if (last === undefined) throw new Error('unreachable — toPass only resolves after a read')
   return last
 }
@@ -121,7 +132,9 @@ async function waitForPosition(page: Page, measure: number, beat: number): Promi
 test('falling-note piano roll tracks the real transport position, lighting exactly the pitches the score holds there and scrolling notes past a fixed now-line as playback advances (roadmap B.3)', async ({
   page,
 }) => {
-  test.setTimeout(45_000)
+  // Two 25s position waits have to fit inside this, with the import and the
+  // engrave before them.
+  test.setTimeout(75_000)
   const errors = collectErrors(page)
 
   // Must be installed before the first navigation — the app requests MIDI
@@ -165,6 +178,14 @@ test('falling-note piano roll tracks the real transport position, lighting exact
   // ---- transport STOPPED state: the roll renders at rest without playing ----
   const atRestBeforePlay = await readRollSnapshot(page)
   expect(atRestBeforePlay.notes.length).toBeGreaterThan(0)
+
+  // Slow the transport to the tempo slider's 30% floor before playing. At the
+  // written tempo a beat is short enough that a poll can step straight over the
+  // exact beat `waitForPosition` is waiting for, which is how this spec passed
+  // solo and failed inside the full suite. Slower beats do not weaken a single
+  // assertion below — the lit pitches and the scroll direction are properties of
+  // the score and the geometry, not of the tempo.
+  await page.getByLabel('Tempo', { exact: true }).fill('30')
 
   const transport = page.getByRole('group', { name: 'Transport' })
   await transport.getByRole('button', { name: 'Play', exact: true }).click()

@@ -299,14 +299,26 @@ The M3 gaps that are unbuilt features rather than defects. Each states its proof
         copy's comment also read "A2 = 440 Hz at MIDI note 69", which is A4). *Proof:*
         `npm run knip`, `knip:prod` and `knip:prod:all` all exit 0, unpiped; `npm run verify` green
         at 3774 tests.
-      - **`npm run verify:full` now reaches `test:e2e` for the first time** — the audit saw it exit 1
-        at `knip` (2 unused devDependencies, 8 unlisted binaries); on master today `knip` exits 0
-        unpiped, and the only remaining blocker was `knip:prod:all`, fixed above. No `package.json`
-        change was needed. NOT yet green end to end: the first full run past those gates died inside
-        `test:e2e` with exit `-1073740791` (0xC0000409, a native browser crash), while six sibling
-        worktree sessions were each running their own Playwright browsers on the same machine — an
-        environment collision, not a repo failure, and stated as unproven rather than assumed benign.
-        *Proof still owed: `npm run verify:full` exits 0 end to end on a quiet machine.*
+      - **`npm run verify:full` is green end to end — exit 0, unpiped, 123 e2e tests.** First time
+        this gate has ever run to completion. The audit saw it exit 1 at `knip`; that stage passes on
+        master, and `knip:prod:all` was fixed above. Getting the rest green took three real fixes,
+        none of them a threshold being loosened:
+        (i) B.2 and B.5 each added a barrel re-export nothing imports (`createAudioRecorder`/
+        `createAudioPlayback`/`PREFERRED_MIME_TYPES` in `adapters/audio/index.ts`, the two BLE UUIDs
+        in `adapters/midi/index.ts`) — their consumers import the modules directly. Neither agent
+        could have seen it: `knip` is not in `verify`, only in `verify:full`. Removed, with the
+        reason recorded in both barrels.
+        (ii) `e2e/piano-roll.spec.ts` waited for an EXACT beat while the transport ran at written
+        tempo — a beat that comes and goes between two polls is never seen again, so the wait burned
+        its timeout with playback already past it. Green solo, red in the full suite where every
+        worker fights for the same CPU. Fixed by dropping the tempo to the slider's 30% floor before
+        Play; every assertion is unchanged, because the lit pitches and the tick delta are properties
+        of the score and the geometry, not of the tempo.
+        (iii) `e2e/onboarding.spec.ts` clicked "Not now" and reloaded immediately, racing
+        `useOnboardingGate.markCompleted`'s deliberately un-awaited IndexedDB write (its own module
+        doc accepts "the banner reappears next boot" as the worst case). Now the spec asserts the
+        persisted `{ completed: true }` record directly before reloading — the durability claim
+        stated rather than inferred from a reload that happened to outrun the write.
       - **FIXED (task/M4.F2) — REQ-3.10.4/REQ-4.3, a backup drops a repertoire piece's history, and
         restoring one destroys it.** `RepertoirePieceLike` (`src/core/progress/export.ts`) is widened
         to carry every field `RepertoirePiece` has — `level`/`sessions`/`bestAccuracy`/`notes`/
