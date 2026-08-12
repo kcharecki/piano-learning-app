@@ -33,8 +33,8 @@ import { ScoreViewer, type ScoreViewerHandle } from '@app/score/ScoreViewer.tsx'
 import { useLevelStore } from '@app/state/levelStore.ts'
 import { useScoreStore } from '@app/state/scoreStore.ts'
 import type { AudioOutput, Clock, DateSource, MidiInput } from '@core/ports/index.ts'
-import type { Subdivision } from '@core/timing/metronome.ts'
-import { bpm, type Millis } from '@core/shared/units.ts'
+import { beatTicks, type Subdivision } from '@core/timing/metronome.ts'
+import { bpm, ticks as asTicks, type Millis } from '@core/shared/units.ts'
 import { useEffect, useRef, useState } from 'react'
 import { AssessmentPanel } from './AssessmentPanel.tsx'
 import { createBrowserClock } from './clock.ts'
@@ -44,6 +44,7 @@ import { LoopRangeControl } from './LoopRangeControl.tsx'
 import { MetronomeControl } from './MetronomeControl.tsx'
 import { MicInputControl } from './MicInputControl.tsx'
 import { MidiDeviceStatus } from './MidiDeviceStatus.tsx'
+import { PianoRoll, type PianoRollHandle } from './PianoRoll.tsx'
 import { createPlayableInput, type PlayableMidiInput } from './playableInput.ts'
 import { PracticeKeyboard } from './PracticeKeyboard.tsx'
 import { RecordPanel } from './RecordPanel.tsx'
@@ -58,12 +59,13 @@ import { usePracticeLog } from './usePracticeLog.ts'
 import { useMidiConnection, type ConnectMidi } from './useMidiConnection.ts'
 import { useMicInput, type ConnectMic } from './useMicInput.ts'
 import { useNoteFeedback } from './useNoteFeedback.ts'
-import { usePracticeEngine, type PracticeEngine } from './usePracticeEngine.ts'
+import { usePracticeEngine, type PositionDisplay, type PracticeEngine } from './usePracticeEngine.ts'
 import { useRecorder } from './useRecorder.ts'
 import type { FrameDriver } from './useTransportLoop.ts'
 import { WaitModeControl } from './WaitModeControl.tsx'
 import { ReadAheadControl } from './ReadAheadControl.tsx'
 import { useReadAhead } from './useReadAhead.ts'
+import type { Score } from '@core/notation/score.ts'
 
 /** Note accuracy at or above which a completed pass counts as a clean repetition (REQ-3.9.1). */
 const CLEAN_ACCURACY = 0.95
@@ -117,7 +119,35 @@ const MIN_ADVANCED_TOOLS_LEVEL = 3
  * OPEN rather than closed); Assessment, tempo ramp, read ahead and the
  * annotation editors keep 5.17's pre-existing "More tools" section,
  * untouched. Net demotion: five flat groups collapse into one.
+ *
+ * Roadmap B.3 adds a sixth control — "Piano roll" — into that SAME
+ * `.practice-setup` group rather than a new top-level sibling, so nothing
+ * else on the screen is demoted: it takes the same already-collapsible slot
+ * loop range/hand mute/metronome/wait mode/record already share, off by
+ * default like they were before 5.17 named them the level-1 baseline.
  */
+
+/**
+ * The piano roll starts drawing from wherever the score cursor already IS,
+ * not always tick 0 — otherwise turning it on mid-pause (say, right after
+ * Stop rewound to a loop's start, or simply before ever pressing Play on a
+ * freshly-opened piece) would flash to the top of the piece before the next
+ * frame corrects it. `usePracticeEngine` exposes only the beat/measure
+ * display it already computes (`PositionDisplay`), never a raw tick — so
+ * this reverses that same display back into an approximate tick using
+ * `beatTicks`, the one piece of tick math this file already imports for
+ * nothing else. This is a ONE-TIME snapshot for the very first paint, not a
+ * running clock: every position after it comes from the SAME per-frame
+ * `moveCursorTo` call the score cursor rides on (see the `engineCursorRef`
+ * comment below).
+ */
+function approxTickFromPosition(score: Score, position: PositionDisplay | undefined) {
+  if (position === undefined) return asTicks(0)
+  const measure = score.measures[position.measureNumber - 1]
+  if (measure === undefined) return asTicks(0)
+  const unit = beatTicks(measure.timeSignature)
+  return asTicks(measure.startTick + (position.beat - 1) * unit)
+}
 
 export type PracticeScreenProps = {
   /** Injection seams for tests; each defaults to the real browser adapter. */
@@ -158,6 +188,11 @@ export function PracticeScreen(props: PracticeScreenProps) {
   const [rampStepBpm, setRampStepBpm] = useState(2)
   const [waitModeEnabled, setWaitModeEnabled] = useState(false)
   const [readAheadEnabled, setReadAheadEnabled] = useState(false)
+  // Roadmap B.3 (REQ-3.2.4's optional half): off by default — see the
+  // `.practice-setup` module comment above for why this lives in that
+  // existing group rather than a new top-level control.
+  const [pianoRollEnabled, setPianoRollEnabled] = useState(false)
+  const pianoRollRef = useRef<PianoRollHandle>(null)
   // The note selected in the score viewer (roadmap 4.8a, REQ-3.2.6) — feeds
   // AnnotationPanel's fingering/highlight controls, which are disabled
   // without one.
@@ -296,6 +331,31 @@ export function PracticeScreen(props: PracticeScreenProps) {
     scoreViewerRef,
   })
 
+  // Roadmap B.3: the piano roll's position comes from the SAME per-frame
+  // `moveCursorTo` call `usePracticeEngine` already makes to drive the score
+  // cursor — never a second clock. This borrows `useNoteFeedback`'s own
+  // trick one layer further: `feedback.cursorRef` already intercepts that
+  // call for note-matching and forwards it to the real `ScoreViewer`; this
+  // wraps `feedback.cursorRef` ITSELF the same way, forwarding every call
+  // unchanged after also handing the tick to the roll. Built once (the
+  // `if (current === null)` guard, matching `useNoteFeedback`'s own
+  // `cursorRef` construction) so its identity never changes across renders —
+  // `usePracticeEngine` only rebuilds its frame-loop subscription when this
+  // ref's IDENTITY changes, not its contents.
+  const engineCursorRef = useRef<ScoreViewerHandle | null>(null)
+  if (engineCursorRef.current === null) {
+    engineCursorRef.current = {
+      moveCursorTo(measureIndex, tick) {
+        pianoRollRef.current?.setPositionTick(tick)
+        feedback.cursorRef.current?.moveCursorTo(measureIndex, tick)
+      },
+      setNoteColor: (noteId, color) => feedback.cursorRef.current?.setNoteColor(noteId, color),
+      clearNoteColors: () => feedback.cursorRef.current?.clearNoteColors(),
+      setNoteHidden: (noteId, hidden) => feedback.cursorRef.current?.setNoteHidden(noteId, hidden),
+      clearHiddenNotes: () => feedback.cursorRef.current?.clearHiddenNotes(),
+    }
+  }
+
   const engine = usePracticeEngine({
     score: loaded?.score,
     activeHands: settings.activeHands,
@@ -307,7 +367,7 @@ export function PracticeScreen(props: PracticeScreenProps) {
     clock,
     audioOutput,
     midiInput: recorder.input,
-    scoreViewerRef: feedback.cursorRef,
+    scoreViewerRef: engineCursorRef,
     ...(props.frameDriver === undefined ? {} : { frameDriver: props.frameDriver }),
   })
   engineRef.current = engine
@@ -438,7 +498,14 @@ export function PracticeScreen(props: PracticeScreenProps) {
   // `stop:` option (above) is built before `engine` exists on this render.
   function handleStop(): void {
     const at = engineRef.current?.stop()
-    if (at !== undefined) scoreViewerRef.current?.moveCursorTo(at.measureIndex, at.tick)
+    if (at !== undefined) {
+      scoreViewerRef.current?.moveCursorTo(at.measureIndex, at.tick)
+      // This bypasses `engineCursorRef` on purpose, same as the raw
+      // `scoreViewerRef` call above — the roll still needs to know where the
+      // playhead landed, so it is told directly rather than by duplicating
+      // the interception here too.
+      pianoRollRef.current?.setPositionTick(at.tick)
+    }
   }
 
   // Click-to-select (roadmap 4.8a, REQ-3.2.6): feeds AnnotationPanel's
@@ -586,6 +653,22 @@ export function PracticeScreen(props: PracticeScreenProps) {
           to practicing with a teacher, not a replacement.
         </p>
       </details>
+      {/* Roadmap B.3 (REQ-3.2.4's optional half): ABOVE the engraving, not
+          instead of it — both stay visible together, which is the whole
+          pedagogical point (a bridge from roll to notation, not a
+          replacement). `key={loaded.score.id}` remounts on a new piece so
+          its internal position resets instead of carrying over the old
+          piece's tick range; `loaded.score`, matching what `ScoreViewer`
+          itself draws below (unfiltered by hand mute — mute affects sound
+          and matching, never what is printed or rolled). */}
+      {pianoRollEnabled && loaded.musicXml !== undefined && (
+        <PianoRoll
+          key={loaded.score.id}
+          ref={pianoRollRef}
+          score={loaded.score}
+          initialPositionTick={approxTickFromPosition(loaded.score, engine.position)}
+        />
+      )}
       {loaded.musicXml !== undefined && (
         <ScoreViewer
           ref={scoreViewerRef}
@@ -678,6 +761,21 @@ export function PracticeScreen(props: PracticeScreenProps) {
             onSubdivisionChange={setSubdivision}
             disabled={assessmentRunning}
           />
+          {/* Roadmap B.3 (REQ-3.2.4's optional half) — the falling-note view,
+              synchronized with the score below rather than a second clock
+              (see `engineCursorRef` above). Off by default: sight reading is
+              the target skill, so a beginner leaning on the roll instead of
+              the staff is an opt-in, not the default experience. */}
+          <div className="piano-roll-control" role="group" aria-label="Piano roll">
+            <label>
+              <input
+                type="checkbox"
+                checked={pianoRollEnabled}
+                onChange={(event) => setPianoRollEnabled(event.target.checked)}
+              />
+              Piano roll
+            </label>
+          </div>
           {/* Roadmap 5.17: wait mode is the one tier between the level-1
               basics above and "More tools" below — REQ-3.3.3 ties it to
               hands-together, which the curriculum introduces before
