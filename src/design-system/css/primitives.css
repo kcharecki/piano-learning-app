@@ -93,6 +93,26 @@ button[aria-pressed="true"] {
   background: var(--on-accent);
 }
 
+/* ---------- Checkbox / radio ----------
+   Every consumer already wraps its checkbox/radio in a `<label>` with the
+   input as a direct child and the text alongside it (roadmap B.6 audit:
+   `.onboarding-option` had already discovered this pattern for its own use;
+   this generalizes it design-system-wide instead of leaving every other
+   caller's label unstyled). Clicking anywhere on that label activates the
+   input, so the LABEL is the real touch target, not the ~13px native box —
+   measured at 129x21 for an unstyled label, well under the 44px minimum in
+   its own right. `min-height` tracks --control-h, so it grows to 44px at
+   tablet widths the same way every other control does. A more specific
+   sibling class (e.g. `.practice-keyboard-toggle`) still wins on properties
+   it sets itself (font-size, color); this only adds what nothing else did. */
+label:has(> input[type="checkbox"], > input[type="radio"]) {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-h);
+  cursor: pointer;
+}
+
 /* ---------- Text-ish inputs ---------- */
 input[type="text"], input[type="search"], input[type="number"],
 input[type="url"], input[type="email"], textarea, select {

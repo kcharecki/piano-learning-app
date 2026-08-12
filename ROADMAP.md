@@ -1181,7 +1181,7 @@ next item, no completion state, no sense of being 3 of 5 through today.
       Clock=monotonic/DateSource=wall-clock split, `@core/ports/clock.ts`) — used once, to drop any
       input timestamp later than "now" (clock-skew defence), not for elapsed time.
 - [ ] B.5 Audio recording alongside MIDI recording (REQ-3.9.2 optional)
-- [ ] B.6 `app`: make the UI usable on a tablet (REQ-4.4 names "a laptop/tablet" as where practice
+- [x] B.6 `app`: make the UI usable on a tablet (REQ-4.4 names "a laptop/tablet" as where practice
       happens, so this is in scope, not a new ambition). Measured in a real browser at 768x1024 on
       2026-08-06, against the running app:
       * **All 62 controls are below Apple's 44px minimum touch target.** Nav buttons are 192x34 —
@@ -1199,6 +1199,33 @@ next item, no completion state, no sense of being 3 of 5 through today.
       *Proof: at 768x1024 and 1024x1366, no control is under 44px, the page does not scroll
       horizontally, and a tapped on-screen key grades an answer — driven in a browser, not asserted
       from CSS.*
+      **Re-measured 2026-08-12, live from the CSSOM at both required widths, across all 13 nav
+      destinations (528 controls counted per width) — the nav drawer, `--control-h`→44px scaling,
+      and native-input sizing from the 5.27/5.40 rounds already fixed most of the 62: only 3 real
+      gaps remained, all in the shared design-system layer, not per-screen. (1) The on-screen
+      keyboard's black keys are 0.62× the white key's width by construction — same as a real
+      piano — which never clears 44px at any reasonable white-key size; `--black-key-w` now floors
+      to `max(44px, …)` at ≤1024px (`domain.css`, `responsive.css`), with `.chord-scale-reference`'s
+      non-interactive reference diagram (plain `<div>`s, never a touch target) explicitly excluded
+      from the floor so its keys stay proportional instead of ballooning past their white keys.
+      (2) The full 37-key practice/technique keyboard was silently shrinking below its own
+      breakpoint values (56px keys measured at ~41px) because `.keyboard-diagram .key` had no
+      `flex-shrink: 0` — the "scroll, don't shrink" container comment was aspirational, not
+      enforced; fixed by adding it. (3) Every checkbox/radio in the app was already wrapped in a
+      `<label>` (a convention `.onboarding-option` had independently discovered for itself), so the
+      label — not the ~13px native box — is the real tap target; it was just never sized. Generalized
+      onboarding's own pattern app-wide: `primitives.css`'s new `label:has(> input[type="checkbox"],
+      > input[type="radio"])` rule. Before: Practice/Technique/Theory each had ~38-41 undersized
+      controls (all on-screen-keyboard keys, squeezed by the shrink bug); Flashcards had 4 (black
+      keys only); seven other screens had 1-7 (checkbox labels only). After: 0 undersized controls
+      on any of the 13 destinations, at both 768x1024 and 1024x1366, and no horizontal scroll
+      anywhere. Driven proof: `e2e/tablet-touch-targets.spec.ts` (4 tests, real Chromium with
+      `hasTouch: true`, not the non-compositing manual-drive pane) — sweeps all 13 destinations at
+      both widths asserting the 44px floor and no horizontal scroll, then TAPS an on-screen
+      flashcard key and asserts `flashcard-stats-total` moves 0→1 (graded, not just rendered).
+      `npm run verify` green (182 files, 3739 tests); visual pass clean (console-clean, both
+      themes, 1280/1024px) on Practice, Flashcards, Theory, and Settings — the four screens the CSS
+      changes touch. Nothing deleted.
 - [x] B.7 `docs`: platform reality stated in `requirements.md` as **REQ-4.4.1**, a sub-clause of the
       REQ-4.4 it corrects, rather than a free-floating note — a per-platform table (Chrome/Edge
       desktop and Chrome on an Android tablet have Web MIDI; desktop Firefox and **every browser on
