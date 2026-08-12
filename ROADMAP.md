@@ -917,7 +917,22 @@ both fingering columns**, and minor scales are required from RCM Preparatory B o
       one, roadmap-`ChordScaleReference.test.tsx`), a natural-minor row still reads a bare dash
       unchanged, and 3.16 is re-scoped in the same commit to say the mode half is deliberately not
       shipped. Driven live: Theory reference, Dorian selected, sentence visible; console clean.*
-- [ ] 5.38 The rest of this aspect is **3.14** (no staff rendering in the theory layer — `osmdEngraver`
+- [x] 5.38 **Closed 2026-08-12 by 5.50**, the one gap its 2026-08-11 re-verification left open. Every
+      other half of this aspect was already proven that day (see below); what was missing was a chord
+      on a staff anywhere in the theory layer. 5.50 shipped `ChordStaff.tsx` through the same
+      `Score` → `ExerciseScore` → `createOsmdEngraver({ presentation: 'reference' })` path `ScaleStaff`
+      uses — no third rendering route — for BOTH consumers: `ChordLookup`'s looked-up chord and
+      `ChordScaleReference`'s diatonic rows. Verified by the integrator on merged master rather than
+      from the ticked box: `e2e/theory-chord-staff.spec.ts` reads each notehead's engraved pitch off
+      the SVG (not its presence) — D-flat diminished seventh gives 4 noteheads at midi 61/64/67/70,
+      the V7 diatonic row 4 at 67/71/74/77 — and both pass alongside the rest of the merged round
+      (11/11 specs, one dev server, one run). The spelling comes from core's own `SpelledPitch` per
+      3.14a, never a re-derived enharmonic guess. One thing deliberately NOT done: the original bullet
+      said "grand staff"; the shipped engraving is a single treble staff, because reusing `ScaleStaff`'s
+      existing pipeline was the explicit instruction and a second bass-clef part would have been a new
+      rendering route. Flagged here rather than quietly satisfied.
+      The 2026-08-11 record of the other halves is kept below.
+      The rest of this aspect was **3.14** (no staff rendering in the theory layer — `osmdEngraver`
       is never imported there), **3.15** (no chord picker, no sevenths, and the chord section vanishes
       entirely for the 10 modal/exotic types) and **3.17** (reference is a destination you leave your
       place for). Referenced, not restated; the aspect cannot reach 9 without them, because "you
