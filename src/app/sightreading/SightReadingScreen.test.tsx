@@ -74,7 +74,15 @@ describe('SightReadingScreen', () => {
       />,
     )
 
-    expect(screen.getByTestId('sight-reading-level')).toHaveTextContent('Level 1')
+    // roadmap 5.57: the trainer's own adaptive level, named distinctly from
+    // the curriculum track level shown on Progress — see that screen's own
+    // "(curriculum track)" wording for the other half of this collision fix.
+    expect(screen.getByTestId('sight-reading-level')).toHaveTextContent(
+      'Sight-reading trainer level: 1',
+    )
+    expect(screen.getByTestId('sight-reading-level-note')).toHaveTextContent(
+      /separate from the curriculum track level on Progress/i,
+    )
 
     await user.click(screen.getByRole('button', { name: 'Start exercise' }))
     expect(screen.getByTestId('preview-countdown')).toHaveTextContent('30s')

@@ -44,7 +44,17 @@ export function SightReadingScreen(props: SightReadingScreenProps) {
         selectedDeviceId={trainer.midi.selectedDeviceId}
         connectionError={trainer.midi.connectionError}
       />
-      <p data-testid="sight-reading-level">Level {trainer.level}</p>
+      {/* roadmap 5.57: named distinctly from the Progress screen's "sight-reading
+          (curriculum track)" row — same word "level", two different numbers.
+          This one is the trainer's own adaptive difficulty; the track number
+          lives only on Progress and moves via advancement/manual override. */}
+      <p data-testid="sight-reading-level">
+        Sight-reading trainer level: <b>{trainer.level}</b>
+      </p>
+      <small data-testid="sight-reading-level-note">
+        Adapts automatically from your recent run accuracy &mdash; separate from the curriculum
+        track level on Progress, which only moves when you advance a level or set it by hand.
+      </small>
 
       <label>
         <input
@@ -109,8 +119,8 @@ export function SightReadingScreen(props: SightReadingScreenProps) {
           </dl>
           {trainer.previousLevel !== undefined && trainer.previousLevel !== trainer.level && (
             <p data-testid="sight-reading-level-change">
-              Level {trainer.previousLevel > trainer.level ? 'decreased' : 'increased'} to{' '}
-              {trainer.level}
+              Sight-reading trainer level{' '}
+              {trainer.previousLevel > trainer.level ? 'decreased' : 'increased'} to {trainer.level}
             </p>
           )}
           <button type="button" onClick={trainer.start}>

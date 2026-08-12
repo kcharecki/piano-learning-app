@@ -1258,7 +1258,7 @@ next item, no completion state, no sense of being 3 of 5 through today.
       *Proof: a driven complexity-1 drill engraves a real title naming the drill and complexity, and no
       screen in the app renders "Untitled Score" — asserted across all 13 destinations by
       `review-probe.mjs walk`.*
-- [ ] 5.57 `app`: one skill, two numbers, both called "level". Driven in one session, the Progress
+- [x] 5.57 `app`: one skill, two numbers, both called "level". Driven in one session, the Progress
       screen read "Sight-reading: level 4 (overridden)" while the Sight reading screen read "Level 1" —
       the curriculum track level (`settings/levelState`) and the trainer's adaptive level
       (`sightReadingHistory`, REQ-3.4.6's 80–90% band). Both are legitimate and neither is broken; the
@@ -1267,6 +1267,26 @@ next item, no completion state, no sense of being 3 of 5 through today.
       each does. Blocks **information architecture**.
       *Proof: an e2e seeds the two stores to different values and asserts both screens render distinct,
       self-explaining labels; the Progress accuracy-trend panel states which of the two it is charting.*
+      **Done 2026-08-12.** 1 reported, 0 further found. The Progress screen's "Current level per track"
+      row is now "Sight-reading (curriculum track): level N", with a note saying it moves via exit
+      criteria or the override select and naming the trainer level as the separate number below; the
+      "Sight-reading accuracy trend" panel's own label is now "Sight-reading trainer level: N" with a
+      note stating it charts this trainer's own accuracy per run (adapts from recent accuracy), not the
+      track level. The Sight reading screen's bare "Level N" is now "Sight-reading trainer level: N"
+      plus a one-line note naming the curriculum track level on Progress and what moves each. Checked
+      for the same collision elsewhere: ear training's per-kind adaptive level (`EarTrainingScreen`'s
+      "Level N") has no colliding counterpart anywhere — `TRACKS` (`@core/curriculum/types.ts`) is only
+      `playing`/`sight-reading`/`theory`, so no "ear-training" row is ever rendered on the Progress
+      screen's "Current level per track" list for it to disagree with — left `EarTrainingScreen.tsx`
+      unedited. Also found, but out of this task's scope (a different pattern, not the reported
+      collision, and outside the frozen file list): `TechniqueScreen`/`TheoryDrillPanel`/
+      `FlashcardScreen`/`RhythmClapback` each show a bare "Level N" too, but it is a local, freely
+      user-adjustable practice-level picker (a `useState`, seeded from a track level, changed with
+      on-screen +/- buttons the learner clicks themselves), not a second persisted/adaptive number a
+      learner could be misled by — reported as a possible follow-up, not fixed here. `npm run verify`
+      green; e2e/level-naming.spec.ts (2 tests) seeds the two sight-reading stores to different and to
+      equal values and passes against the real running app; visual pass clean (console, 1280/1024,
+      dark/light) on both screens. Deleted nothing.
 - [ ] 5.58 `core/eartraining/dictation`: 5.34's per-level bounds are systematically shorter than the
       syllabus they cite — app level 1 is **2–3 notes**, RCM is **4 at Preparatory A and 5 at Level 1**
       (verified 2026-08-12); app level 5 is 7–8 against RCM's 8–10. Re-anchor the ladder on the quoted

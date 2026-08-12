@@ -187,11 +187,23 @@ describe('DashboardScreen — seeded data', () => {
 
     const { container } = render(<DashboardScreen date={new FakeDateSource(NOW)} utcOffsetMinutes={0} />)
 
-    expect(screen.getByTestId('dashboard-sightreading-level').textContent).toBe('Level 3')
+    // roadmap 5.57: distinct wording for the two "level" numbers — the
+    // trainer's own adaptive level (this panel) versus the curriculum track
+    // level (the "Current level per track" row below), seeded to DIFFERENT
+    // values above specifically so a naive shared label would be caught here.
+    expect(screen.getByTestId('dashboard-sightreading-level').textContent).toBe(
+      'Sight-reading trainer level: 3',
+    )
     expect(screen.getByTestId('dashboard-level-sight-reading').textContent).toContain('level 5')
+    expect(screen.getByTestId('dashboard-level-sight-reading').textContent).toContain(
+      '(curriculum track)',
+    )
+    expect(screen.getByTestId('dashboard-sightreading-level-note').textContent).toMatch(
+      /trainer.*accuracy per run/i,
+    )
     expect(screen.queryByTestId('dashboard-sightreading-empty')).toBeNull()
     expect(
-      screen.getByRole('img', { name: 'Sight-reading accuracy over time' }),
+      screen.getByRole('img', { name: 'Sight-reading trainer accuracy over time' }),
     ).toBeTruthy()
     // Presence alone cannot tell a correctly-plotted trend from a mislabelled
     // one (unscaled accuracy, wrong point order) — read the actual values back.
