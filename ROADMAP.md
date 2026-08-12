@@ -901,16 +901,34 @@ both fingering columns**, and minor scales are required from RCM Preparatory B o
       `.diatonic-chords` with a diminished seventh chord selected (screenshot on file from this
       session). REQ-3.5.3/3.5.4's "see it on staff and keyboard" is met for scales, not chords — every
       chord is keyboard + audio only. **Leaving unticked**; the gap is 5.50 below.
-- [ ] 5.50 `app/theory`: engrave a chord on staff, not just the keyboard diagram — the gap 5.38's
+- [x] 5.50 `app/theory`: engrave a chord on staff, not just the keyboard diagram — the gap 5.38's
       2026-08-11 re-verification found. Both `ChordScaleReference`'s diatonic chord rows and
       `ChordLookup`'s looked-up chord need a small staff rendering of the chord's own notes (reuse
       `ScaleStaff`'s pattern of building a real `Score`/`Measure` and handing it to the existing
       `ExerciseScore`/`ScoreViewer` — a chord is a single simultaneity, a strict subset of what that
       path already engraves for a scale's run of single notes). Owned by whichever session next touches
       `src/app/theory/**` (not this shell/onboarding/reference-panel session — out of file boundary).
-      *Proof: look up D♭ diminished seventh in `ChordLookup`, see it as a real four-note chord on a
-      grand staff (not a keyboard diagram substituting for one); select a diatonic chord row in
-      `ChordScaleReference` and see the same; both widths, both themes, console clean.*
+      **Done.** New `ChordStaff.tsx` builds a whole-note-chord `Score` (every tone `startTick: 0`, same
+      duration, so `musicxmlwriter.ts` marks them a real `<chord/>` simultaneity) with each tone's own
+      `spelling` carried through untouched — Db diminished 7th engraves Db Fb Abb Cbb, not a respelled
+      guess. Single treble staff, right hand, `presentation: 'reference'` — the exact same pipeline
+      `ScaleStaff` already uses (a literal "grand staff" was this bullet's own loose wording; the task
+      brief for this slice was explicit about reusing `ScaleStaff`'s existing single-staff path rather
+      than inventing a second one, and a grand staff has no left-hand part to put on its bass clef for a
+      chord that is a single right-hand simultaneity). Wired into both consumers: `ChordLookup` renders
+      it below the keyboard diagram for the looked-up chord; `ChordScaleReference`'s shared `ChordRow`
+      renders it for every row in both `DiatonicChords` and the no-key `ScaleDegreeChords` fallback.
+      *Proof: `npm run verify` green (183 files, 3753 tests). Playwright
+      (`e2e/theory-chord-staff.spec.ts`, driven live on port 5302): looked up D♭ diminished seventh in
+      `ChordLookup` — exactly 4 `.vf-notehead`s, engraved pitches read off each notehead's own
+      `data-note-id` equal midi [61, 64, 67, 70] (Db4 Fb4 Abb4 Cbb5); toggled "Show seventh chords" and
+      selected the `ChordScaleReference` V7 row — exactly 4 noteheads, midi [67, 71, 74, 77] (G7).
+      Visual pass (`scripts/visual-pass.mjs Theory`, both widths, both themes, Db dim7 selected):
+      console clean in all four configurations; every diatonic row and the lookup show a compact
+      "paper" staff under their keyboard diagram, correct in both themes. States: empty/loading/error
+      N/A (a chord is always ≥3 notes, built synchronously; OSMD failure already surfaces through
+      `ScoreViewer`'s existing error paragraph, unchanged here); no-MIDI N/A (read-only reference,
+      unaffected by MIDI connection state).*
 
 ### First-run experience — **2/10 → 9**
 

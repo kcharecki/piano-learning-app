@@ -66,6 +66,7 @@ import {
   stopRingingAudio,
   useSharedAudioOutput,
 } from './chordScaleAudio.ts'
+import { ChordStaff } from './ChordStaff.tsx'
 import { KeyboardDiagram } from './KeyboardDiagram.tsx'
 import { ScaleStaff } from './ScaleStaff.tsx'
 
@@ -268,6 +269,7 @@ function ChordRow({
   numeralText,
   symbol,
   figures,
+  tones,
   pitchClasses,
   rootPitchClass,
   onPlay,
@@ -275,6 +277,10 @@ function ChordRow({
   readonly numeralText: string
   readonly symbol: string
   readonly figures: string
+  /** The row's exact tones, sounding order — carried straight through to
+   *  `ChordStaff` so the staff engraves precisely what the keyboard diagram
+   *  highlights and the Play button sounds (roadmap 5.50). */
+  readonly tones: readonly SpelledPitch[]
   readonly pitchClasses: ReadonlySet<number>
   readonly rootPitchClass: number
   /** Plays this row's exact chord tones as a simultaneity. */
@@ -293,6 +299,10 @@ function ChordRow({
         rootPitchClass={rootPitchClass}
         ariaLabel={`${symbol} on the keyboard`}
       />
+      {/* REQ-3.5.3's "see it on staff and keyboard" (roadmap 5.50): the
+          gap 5.38's re-verification found — a chord was keyboard + audio
+          only, never engraved. Same pipeline `ScaleStaff` already uses. */}
+      <ChordStaff notes={tones} title={symbol} />
     </li>
   )
 }
@@ -323,6 +333,7 @@ function DiatonicChords({
             numeralText={numeralText}
             symbol={chordSymbol(chord)}
             figures={figuredBass(chord)}
+            tones={tones}
             pitchClasses={new Set(tones.map(spelledPitchClass))}
             rootPitchClass={spelledPitchClass(chord.root)}
             onPlay={() => playChordTones(getAudioOutput(), tones)}
@@ -354,6 +365,7 @@ function ScaleDegreeChords({
             numeralText={`${i + 1}`}
             symbol={tones.map(noteLabel).join('–')}
             figures=""
+            tones={tones}
             pitchClasses={new Set(tones.map(spelledPitchClass))}
             rootPitchClass={spelledPitchClass(root)}
             onPlay={() => playChordTones(getAudioOutput(), tones)}

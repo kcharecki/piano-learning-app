@@ -60,6 +60,7 @@ import {
   stopRingingAudio,
   useSharedAudioOutput,
 } from './chordScaleAudio.ts'
+import { ChordStaff } from './ChordStaff.tsx'
 import { KeyboardDiagram } from './KeyboardDiagram.tsx'
 
 export type ChordLookupProps = {
@@ -237,6 +238,13 @@ export function ChordLookup({ initialRoot, audioOutput }: ChordLookupProps): JSX
         rootPitchClass={rootPitchClass}
         ariaLabel={`${symbol} on the keyboard`}
       />
+      {/* REQ-3.5.3's "see it on staff and keyboard" (roadmap 5.50): the
+          keyboard diagram above shows which keys to press; this shows what a
+          learner actually has to read at the piano — the looked-up chord's
+          own tones, correctly voiced for the picked inversion, engraved as a
+          real simultaneity. Same pipeline `ScaleStaff` already uses for
+          scales. */}
+      <ChordStaff notes={chord.notes} title={symbol} />
     </section>
   )
 }

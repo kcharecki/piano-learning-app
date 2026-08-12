@@ -8,12 +8,23 @@
  */
 import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { buildChord, chordSymbol, figuredBass } from '@core/theory/chords.ts'
 import { pitchName, spell, spelledPitchClass, toMidi } from '@core/theory/pitch.ts'
 import { ChordLookup } from './ChordLookup.tsx'
 import { FakeClock, RecordingAudioOutput } from '@test/fakes.ts'
 import type { RecordedAudioCall } from '@test/fakes.ts'
+
+// OSMD cannot run in this test environment (no canvas to measure text) — the
+// same mock every other test that renders a component engraving a real
+// `Score` uses (see `ScaleStaff.test.tsx`, `ChordScaleReference.test.tsx`).
+// `ChordLookup` now mounts `ChordStaff` (roadmap 5.50) for every looked-up
+// chord, unconditionally, so every test in this file renders one.
+vi.mock('@app/score/ScoreViewer.tsx', () => ({
+  ScoreViewer: ({ score }: { readonly score: { readonly id: string; readonly meta: { readonly title: string } } }) => (
+    <div data-testid="mock-score-viewer" data-title={score.meta.title} />
+  ),
+}))
 
 afterEach(cleanup)
 
@@ -300,5 +311,40 @@ describe('ChordLookup', () => {
     const expected = buildChord(spell('F', 1, 4), 'halfDiminished7', 2)
     expect(screen.getByTestId('chord-lookup-symbol')).toHaveTextContent(chordSymbol(expected))
     expect(screen.getByTestId('chord-lookup-figures')).toHaveTextContent(figuredBass(expected))
+  })
+
+  describe('ChordStaff wiring (roadmap 5.50, REQ-3.5.3 "see it on staff")', () => {
+    // A component nobody renders is the exact defect class 5.38's
+    // re-verification found for chords (see the module comment on
+    // ChordStaff.tsx) — this proves ChordStaff is actually mounted with the
+    // looked-up chord's own tones, not merely computed and thrown away.
+    it('renders the looked-up chord engraved on a staff, matching the default C major triad', () => {
+      render(<ChordLookup initialRoot={C4} />)
+      expect(screen.getByLabelText('C staff notation')).toBeInTheDocument()
+      expect(screen.getByTestId('mock-score-viewer')).toHaveAttribute('data-title', 'C')
+    })
+
+    it('re-engraves the staff to a chord no diatonic-chords section could ever show: Db diminished 7th', async () => {
+      const user = userEvent.setup()
+      render(<ChordLookup initialRoot={C4} />)
+
+      await user.selectOptions(screen.getByLabelText('Chord root'), 'Db')
+      await user.selectOptions(screen.getByLabelText('Chord quality'), 'Diminished 7th')
+
+      expect(screen.getByLabelText('Dbdim7 staff notation')).toBeInTheDocument()
+      expect(screen.getByTestId('mock-score-viewer')).toHaveAttribute('data-title', 'Dbdim7')
+    })
+
+    it('re-engraves the staff when the inversion picker changes', async () => {
+      const user = userEvent.setup()
+      render(<ChordLookup initialRoot={C4} />)
+
+      await user.selectOptions(screen.getByLabelText('Inversion'), 'First inversion')
+
+      // First inversion's symbol carries the slash bass — proves the staff's
+      // title tracks the re-voiced chord, not merely the root+quality.
+      const expected = buildChord(C4, 'major', 1)
+      expect(screen.getByLabelText(`${chordSymbol(expected)} staff notation`)).toBeInTheDocument()
+    })
   })
 })
