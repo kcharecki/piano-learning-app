@@ -9,6 +9,7 @@
  */
 import { MAX_LEVEL, MIN_LEVEL } from '@core/curriculum/types.ts'
 import { REPERTOIRE_STATUSES, type RepertoirePiece, type RepertoireStatus } from '@core/repertoire/repertoire.ts'
+import { PROVENANCE_LABELS, type GradedPiece } from '@content/repertoire/gradedPieces.ts'
 import { useState } from 'react'
 import { useRepertoire } from './useRepertoire.ts'
 
@@ -20,6 +21,25 @@ function daysSinceText(days: number | null): string {
   if (days === null) return 'never practised'
   const whole = Math.round(days)
   return whole === 1 ? '1 day since last practice' : `${whole} days since last practice`
+}
+
+/**
+ * Roadmap 5.52: the catalogue row used to read "Für Elise (Theme A) /
+ * Ludwig van Beethoven (1770–1827) / Level 3 / Add" and disclose nothing
+ * about what the bundled file actually is — `src/content/scores/LICENSE.md`
+ * and `gradedPieces.ts`'s own doc comment already say, per piece, whether it
+ * is a source-verified transcription, a confirmed-shape rendition, a
+ * stylistic excerpt, or this app's own rendition. This turns that into one
+ * line of learner-facing copy per piece, specific enough that two different
+ * pieces read differently (`e2e/repertoire-provenance.spec.ts` asserts
+ * exactly that) rather than a generic disclaimer that would be true of every
+ * row and prove nothing.
+ */
+function provenanceText(piece: GradedPiece): string {
+  const label = PROVENANCE_LABELS[piece.provenance.tier]
+  return piece.provenance.excerptNote === undefined
+    ? label
+    : `${label} — ${piece.provenance.excerptNote}`
 }
 
 export type RepertoireScreenProps = {
@@ -145,6 +165,7 @@ export function RepertoireScreen({ onOpenInPractice }: RepertoireScreenProps) {
                 <span className="repertoire-catalogue-title">{piece.title}</span>
                 <span className="repertoire-catalogue-composer">{piece.composer}</span>
                 <span className="repertoire-catalogue-level">Level {piece.level}</span>
+                <span className="repertoire-catalogue-provenance">{provenanceText(piece)}</span>
                 {alreadyAdded ? (
                   <span>Already in your library</span>
                 ) : (

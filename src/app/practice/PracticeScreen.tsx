@@ -29,6 +29,7 @@
  */
 import { AnnotationPanel } from '@app/annotations/AnnotationPanel.tsx'
 import { DEFAULT_NOTE_COLOR } from '@app/score/osmdEngraver.ts'
+import { GRADED_PIECES, PROVENANCE_LABELS } from '@content/repertoire/gradedPieces.ts'
 import { ScoreViewer, type ScoreViewerHandle } from '@app/score/ScoreViewer.tsx'
 import { useLevelStore } from '@app/state/levelStore.ts'
 import { useScoreStore } from '@app/state/scoreStore.ts'
@@ -573,8 +574,38 @@ export function PracticeScreen(props: PracticeScreenProps) {
     return <p>Load a score on the Practice tab to start practising.</p>
   }
 
+  // Roadmap 5.52: the same disclosure the Repertoire catalogue row shows
+  // (`RepertoireScreen.tsx`'s `provenanceText`), read here off the LOADED
+  // score rather than a prop, so it follows the piece wherever it was opened
+  // from (Repertoire's "Open in Practice", a lesson demo, or a plain file
+  // import). `GRADED_PIECES` entries set their bundled `Score.id` to their
+  // own `id`/`scoreId` (`gradedScoreById`, `gradedPieces.test.ts`), so this
+  // lookup is exact, not a title match. Undefined for any score that is NOT
+  // a catalogue piece — a learner's own imported file or a manually added
+  // piece with no catalogue entry — which is the correct, explicit "not
+  // applicable" state: nothing renders rather than a guessed provenance.
+  //
+  // Deliberately NOT a new heading with the piece title: `ScoreScreen.tsx`
+  // (the only production caller of `PracticeScreen`, outside this task's
+  // file boundary) already renders the loaded piece's title as its own
+  // `<h2>` directly above this component. A second element repeating that
+  // same title text created an ambiguous duplicate — caught by
+  // `ScoreScreen.test.tsx` failing on `findByText('Twinkle, Twinkle, Little
+  // Star')` matching two nodes once this landed. This renders ONLY the
+  // provenance line itself, immediately under that existing heading, so the
+  // disclosure follows the piece into Practice without repeating its title.
+  const cataloguePiece = GRADED_PIECES.find((piece) => piece.id === loaded.score.id)
+
   return (
     <div className="practice-screen">
+      {cataloguePiece !== undefined && (
+        <p className="practice-piece-provenance">
+          {PROVENANCE_LABELS[cataloguePiece.provenance.tier]}
+          {cataloguePiece.provenance.excerptNote !== undefined
+            ? ` — ${cataloguePiece.provenance.excerptNote}`
+            : ''}
+        </p>
+      )}
       <div className="practice-controls">
         <div className="transport-group">
           <TransportControls

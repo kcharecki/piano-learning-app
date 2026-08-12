@@ -45,12 +45,23 @@ export type WarmupStep = {
  * (the joints that do the actual work), then one posture/breath check
  * before sitting down to play. Five steps at roughly a minute each fits
  * `WARMUP_MINUTES` (`@core/curriculum/session.ts`).
+ *
+ * Roadmap 5.52: the 'jaw-and-neck' step used to add "Piano tension hides in
+ * the jaw first" — a specific causal claim no source consulted supports.
+ * Juilliard's Basic Warm-Up Guide (the clearest source consulted for this
+ * routine, named in the module comment above) verifies a pre-practice
+ * release for the SHOULDERS and POSTURE at the bench; it is an at-the-bench
+ * routine and does not mention the jaw at all. A gentle jaw/neck roll is
+ * still a reasonable general tension-release action (any physical warm-up
+ * guide recommends releasing the jaw and neck before sustained fine-motor
+ * work), so the action stays — only the unsupported "hides... first" claim
+ * is removed.
  */
 export const WARMUP_STEPS: readonly WarmupStep[] = [
   {
     id: 'jaw-and-neck',
     instruction:
-      'Drop your jaw open, roll your neck slowly side to side. Piano tension hides in the jaw first.',
+      'Drop your jaw open, roll your neck slowly side to side — a gentle release before you sit down to play.',
   },
   {
     id: 'shoulder-rolls',

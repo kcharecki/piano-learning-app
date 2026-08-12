@@ -12,7 +12,7 @@ import type { RepertoirePiece } from '@core/repertoire/repertoire.ts'
 import type { Score } from '@core/notation/score.ts'
 import { DAY_MS } from '@core/srs/scheduler.ts'
 import { ticks } from '@core/shared/units.ts'
-import { GRADED_PIECES } from '@content/repertoire/gradedPieces.ts'
+import { GRADED_PIECES, PROVENANCE_LABELS } from '@content/repertoire/gradedPieces.ts'
 import { act, cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -128,6 +128,37 @@ describe('RepertoireScreen', () => {
     const row = within(catalogueRegion).getByText(firstEntry.title).closest('li')
     if (row === null) throw new Error('expected the catalogue row to render as a list item')
     expect(within(row as HTMLElement).getByText(`Level ${firstEntry.level}`)).toBeInTheDocument()
+  })
+
+  it('roadmap 5.52: a catalogue row discloses its own piece-specific provenance, not a generic disclaimer', () => {
+    renderScreen()
+    const catalogueRegion = screen.getByRole('region', { name: 'Graded library' })
+
+    // A source-verified piece and a stylistic-excerpt piece must read
+    // differently — proving the line is per-piece, not boilerplate true of
+    // every row (the same standard e2e/repertoire-provenance.spec.ts holds
+    // the running app to).
+    const verified = GRADED_PIECES.find((p) => p.provenance.tier === 'source-verified')
+    const excerpt = GRADED_PIECES.find((p) => p.provenance.tier === 'stylistic-excerpt')
+    if (verified === undefined || excerpt === undefined) {
+      throw new Error('expected both a source-verified and a stylistic-excerpt catalogue entry')
+    }
+
+    const verifiedRow = within(catalogueRegion).getByText(verified.title).closest('li')
+    const excerptRow = within(catalogueRegion).getByText(excerpt.title).closest('li')
+    if (verifiedRow === null || excerptRow === null) {
+      throw new Error('expected both catalogue rows to render as list items')
+    }
+
+    const verifiedText = within(verifiedRow as HTMLElement).getByText(
+      new RegExp(PROVENANCE_LABELS['source-verified']),
+    ).textContent
+    const excerptText = within(excerptRow as HTMLElement).getByText(
+      new RegExp(PROVENANCE_LABELS['stylistic-excerpt']),
+    ).textContent
+
+    expect(verifiedText).not.toBe(excerptText)
+    expect(excerptText).toMatch(/not a verified transcription/i)
   })
 
   it('an Add click on a catalogue piece reaches the store and the row flips to already-added', async () => {
