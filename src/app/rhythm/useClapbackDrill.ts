@@ -242,6 +242,16 @@ export function useClapbackDrill(options: UseClapbackDrillOptions): UseClapbackD
   const [tapCount, setTapCount] = useState(0)
 
   const patternRef = useRef<RhythmPattern | undefined>(undefined)
+  /** The level `start()` generated the CURRENT pattern at — read by the
+   *  score-title memo below instead of `level` directly, mirroring
+   *  `useRhythmDrill.ts`'s identical `patternComplexityRef`: `level` can
+   *  change (the +/- buttons, or adaptation on grading) without a fresh
+   *  `start()`, and this score must never be relabelled with a level it was
+   *  not actually drawn at. The title is not user-visible today (this hook
+   *  deliberately never hands its `Score` out — see the module doc) but is
+   *  kept real anyway, the same class-level guarantee `rhythmToScore` now
+   *  makes for every caller (roadmap 5.56). */
+  const patternLevelRef = useRef<ClapbackLevel>(externalLevel ?? level)
   const tempoMapRef = useRef<TempoMap | undefined>(undefined)
   const tapsRef = useRef<Millis[]>([])
   const anchorMsRef = useRef<Millis>(millis(0))
@@ -271,7 +281,12 @@ export function useClapbackDrill(options: UseClapbackDrillOptions): UseClapbackD
 
   const { score, tempo } = useMemo(() => {
     if (pattern === undefined) return { score: undefined, tempo: undefined }
-    const generatedScore = rhythmToScore(pattern)
+    // roadmap 5.56: name the drill and the level it was drawn at, mirroring
+    // `useRhythmDrill.ts`'s identical title — see `patternLevelRef`'s own
+    // comment for why the ref, not `level` directly.
+    const generatedScore = rhythmToScore(pattern, {
+      title: `Clap back — level ${patternLevelRef.current}`,
+    })
     return { score: generatedScore, tempo: makeTempoMap(generatedScore.tempos) }
   }, [pattern])
 
@@ -383,6 +398,7 @@ export function useClapbackDrill(options: UseClapbackDrillOptions): UseClapbackD
     // `generateNonEmptyPattern`'s own doc.
     const generated = generateNonEmptyPattern(options.bars, level, rng)
     patternRef.current = generated
+    patternLevelRef.current = level
     tapsRef.current = []
     hasPlayedRef.current = false
     setGrade(undefined)

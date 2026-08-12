@@ -494,14 +494,40 @@ export function generateRhythm(params: RhythmParams, rng: Rng): RhythmPattern {
 const DEFAULT_TAPPING_MIDI = 60
 
 /**
+ * Fallback title for a caller that has nothing more specific to say (roadmap
+ * 5.56). `generateMelody` and `techniqueScore` were both given real titles by
+ * roadmap 5.13 — "a generated score with no title engraves as 'Untitled
+ * Score'" — but that pass never reached this function, so every one of ITS
+ * callers (the sight-reading-style tap drill, the clap-back drill, and
+ * `core/eartraining/dictation.ts`'s rhythmic dictation) kept engraving
+ * untitled. Fixing it here, once, is what makes it a class fix rather than an
+ * instance fix: a caller that knows more (a drill name, a complexity) should
+ * pass `opts.title` and does (see `app/rhythm/useRhythmDrill.ts`,
+ * `useClapbackDrill.ts`), but even a caller that does not is now structurally
+ * unable to produce an empty `meta.title` through this function.
+ */
+function defaultRhythmTitle(pattern: RhythmPattern): string {
+  const { beats, beatType } = pattern.timeSignature
+  const bars = `${pattern.bars} bar${pattern.bars === 1 ? '' : 's'}`
+  return `Rhythm pattern, ${bars} (${beats}/${beatType})`
+}
+
+/**
  * Render a rhythm pattern as a playable `Score`: one pitch (opts.midi, default
  * middle C) so it can be run through the same playback and matching machinery
  * as any other drill. Rests contribute no note. Notes never cross a bar,
  * because generation never produces an onset that does — `measureDurationTicks`
  * gives every measure the same length the pattern was built against.
+ *
+ * `opts.title` names the score for engraving (roadmap 5.56); a caller that
+ * omits it still gets a real, non-empty title — see `defaultRhythmTitle`.
  */
-export function rhythmToScore(pattern: RhythmPattern, opts?: { readonly midi?: Midi }): Score {
+export function rhythmToScore(
+  pattern: RhythmPattern,
+  opts?: { readonly midi?: Midi; readonly title?: string },
+): Score {
   const pitch = opts?.midi ?? asMidi(DEFAULT_TAPPING_MIDI)
+  const title = opts?.title ?? defaultRhythmTitle(pattern)
   const measures = Array.from({ length: pattern.bars }, () => ({
     timeSignature: pattern.timeSignature,
   }))
@@ -513,7 +539,7 @@ export function rhythmToScore(pattern: RhythmPattern, opts?: { readonly midi?: M
       durationTicks: o.durationTicks,
       hand: 'right' as const,
     }))
-  return makeScore({ id: 'rhythm', measures, notes })
+  return makeScore({ id: 'rhythm', meta: { title }, measures, notes })
 }
 
 /**

@@ -141,6 +141,12 @@ export function useRhythmDrill(options: UseRhythmDrillOptions): UseRhythmDrill {
    * must not depend on the `pattern` state (they fire on `engine.phase`, not
    * on a pattern change). */
   const patternRef = useRef<RhythmPattern | undefined>(undefined)
+  /** The complexity `start()` generated the CURRENT pattern at — read by the
+   *  score-title memo below instead of `options.complexity` directly, so a
+   *  complexity change made after grading (the stepper is only disabled
+   *  while 'tapping', not while 'idle'/'graded') cannot relabel an
+   *  already-generated pattern with a complexity it was never drawn at. */
+  const patternComplexityRef = useRef<UseRhythmDrillOptions['complexity']>(options.complexity)
   const tempoMapRef = useRef<TempoMap | undefined>(undefined)
   const tapsRef = useRef<Millis[]>([])
   const anchorMsRef = useRef<Millis>(millis(0))
@@ -158,7 +164,15 @@ export function useRhythmDrill(options: UseRhythmDrillOptions): UseRhythmDrill {
 
   const { score, tempo } = useMemo(() => {
     if (pattern === undefined) return { score: undefined, tempo: undefined }
-    const generatedScore = rhythmToScore(pattern)
+    // roadmap 5.56: name the drill and its complexity, the same label
+    // `practiceLog.start` below already uses — 5.13 titled `generateMelody`/
+    // `techniqueScore` but never reached `rhythmToScore`, so this engraved
+    // "Untitled Score" until now. `patternComplexityRef` (not
+    // `options.complexity`) so the title always names the complexity THIS
+    // pattern was actually drawn at — see that ref's own comment.
+    const generatedScore = rhythmToScore(pattern, {
+      title: `Rhythm — complexity ${patternComplexityRef.current}`,
+    })
     return { score: generatedScore, tempo: makeTempoMap(generatedScore.tempos) }
   }, [pattern])
 
@@ -228,6 +242,7 @@ export function useRhythmDrill(options: UseRhythmDrillOptions): UseRhythmDrill {
       rng,
     )
     patternRef.current = generated
+    patternComplexityRef.current = options.complexity
     tapsRef.current = []
     hasPlayedRef.current = false
     setGrade(undefined)
