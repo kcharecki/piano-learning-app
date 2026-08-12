@@ -14,21 +14,12 @@
  * so a unit's membership can only ever agree with what each lesson's
  * `unitId` actually says.
  *
- * Not consumed yet: the lesson screen that renders a `Curriculum` value is
- * the scheduled follow-on task to roadmap 3.7/4.9. `knip.jsonc`'s ignore
- * entry for `@core/curriculum/model.ts` (comment: "delete when 4.9 lands")
- * must STAY until that lesson screen imports `CURRICULUM` — the only
- * current importer of `model.ts` outside this file is
- * `curriculum.test.ts`, and `--production` mode excludes tests, so
- * `validateCurriculum` is still reached from a test only. Under
- * `--production`, `knip` now also reports every file in this directory
- * (`diagrams.ts`, `lessonsLevel{1,2,3}.ts`, `curriculum.ts`, plus the
- * pre-existing `src/content/scores/demoScores.ts`) as unused, for the same
- * reason: nothing outside tests imports them yet. `knip.jsonc` needs a
- * task-tagged ignore entry for `src/content/curriculum/*` (same pattern as
- * the existing `gradedPieces.ts` entry) before `verify:full` will pass with
- * this module in the tree — this file is owned by this task, not
- * `knip.jsonc`, so that edit is left to the main thread.
+ * Consumed for real, which the note this replaces denied for two roadmap items
+ * after it stopped being true (2026-08-12 M4 acceptance, finding F.3): the
+ * lesson screen it was waiting on landed as roadmap 4.9b, and `CURRICULUM` is
+ * now read by `@app/lessons/**`, by `@app/session/candidates.ts` when planning
+ * a day, and by the per-track exit criteria on the dashboard. `knip --production`
+ * reports nothing here, so no ignore entry is owed either.
  */
 import type { Curriculum, CurriculumLevel, ExitCriterion, Lesson, Unit } from '@core/curriculum/types.ts'
 import { validateCurriculum } from '@core/curriculum/model.ts'

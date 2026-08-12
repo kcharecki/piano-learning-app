@@ -29,6 +29,48 @@
  * session's app. The main checkout keeps 5173.
  */
 import { execFileSync } from 'node:child_process'
+import { existsSync, symlinkSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+
+/**
+ * Gives the current worktree a `node_modules` link back to the main checkout's,
+ * if it is a worktree and has none. Returns the path it created, or undefined.
+ *
+ * Node's own resolver walks ancestor directories, and worktrees live under the
+ * repo root, so `npm test`, `tsc` and `eslint` all work in a fresh worktree with
+ * zero setup — which is exactly why this went unnoticed. `knip` is the one tool
+ * in `verify:full` that does NOT walk: it classifies dependencies against a
+ * `node_modules` directory inside the workspace it is pointed at, finds none,
+ * and exits 1. So `npm run verify:full` — the only gate that runs e2e — could
+ * not pass anywhere except the main checkout, while most sessions work in a
+ * worktree. The 2026-08-12 M4 acceptance pass spent a criterion mis-filing that
+ * as a repo defect before its control experiment found the real cause.
+ *
+ * A junction (Windows) or directory symlink (POSIX) costs no install and no
+ * disk. It is created here rather than documented as a manual step because a
+ * setup instruction that can be skipped silently will be
+ * (docs/PROCESS.md: enforce in automation, not prose). `git worktree remove`
+ * deletes it with the rest of the worktree.
+ */
+function ensureNodeModulesLink() {
+  const gitDir = git(['rev-parse', '--absolute-git-dir'])
+  const commonDir = git(['rev-parse', '--path-format=absolute', '--git-common-dir'])
+  if (!gitDir || !commonDir || gitDir === commonDir) return undefined // main checkout
+  const top = git(['rev-parse', '--show-toplevel'])
+  if (!top) return undefined
+  const link = join(top, 'node_modules')
+  if (existsSync(link)) return undefined
+  const target = join(dirname(commonDir), 'node_modules')
+  if (!existsSync(target)) return undefined
+  try {
+    symlinkSync(target, link, process.platform === 'win32' ? 'junction' : 'dir')
+    return link
+  } catch {
+    // Best effort only: a sandbox that forbids symlinks still leaves every
+    // other tool working, and `knip` is skippable (see WORKTREES.md).
+    return undefined
+  }
+}
 
 function git(args, opts = {}) {
   try {
@@ -102,6 +144,12 @@ if (command === 'claim') {
   git(['update-ref', '-d', `refs/claims/${id}`])
   console.log(`released ${id}`)
 } else {
+  // Every worktree session runs `status` before it picks up work
+  // (docs/WORKTREES.md), which makes it the one reliable place to repair the
+  // worktree's own tooling — see `ensureNodeModulesLink`.
+  const linked = ensureNodeModulesLink()
+  if (linked) console.log(`linked ${linked} -> the main checkout's node_modules, so knip (and thus verify:full) works here`)
+
   const entries = worktreeEntries()
   const main = entries[0]
   const byBranch = new Map(entries.slice(1).map((e) => [e.branch, e]))

@@ -19,13 +19,20 @@ import type { PracticeEntry } from '@core/progress/log.ts'
 export type RepertoireStatus = 'learning' | 'polishing' | 'performance-ready' | 'maintained'
 
 /**
- * @public — roadmap 4.5's consumer screen doesn't call this yet; see the
- * roadmap triage note added for 2.32. No store persists a `RepertoirePiece`
- * list anywhere in the app (`snapshot.ts` hardcodes `repertoire: []`,
- * `useDashboard.ts` hardcodes `repertoirePieces: []`) — a whole domain module
- * (statuses, practice history, maintenance prompts) with no screen wired to
- * it, not dead code. Sibling of `addPiece`/`setStatus`/`recordSession`/
- * `setNotes`/`maintenanceDue`/`sessionFromEntry` below, all in the same boat.
+ * Where this module is reached from, for the reachability check every review
+ * here starts with. It is fully wired; the note this replaces said the opposite
+ * and was two roadmap items out of date, which made three separate audits chase
+ * a dead end (2026-08-12 M4 acceptance, finding F.3).
+ *  - `@app/state/repertoireStore.ts` holds the library, persisted by
+ *    `persistence.ts`'s `COLLECTIONS.repertoire` slice.
+ *  - `@app/repertoire/useRepertoire.ts` + `RepertoireScreen.tsx` — `addPiece`,
+ *    `setStatus`, `setNotes`, `REPERTOIRE_STATUSES`.
+ *  - `@app/practice/usePracticeLog.ts` — `sessionFromEntry` + `recordSession`
+ *    on `stop()`, the one writer of a piece's practice history (triage T.5).
+ *  - `@app/dashboard/useDashboard.ts` — `maintenanceDue`.
+ *  - `@app/progress/snapshot.ts` — the export/restore round trip, which since
+ *    2026-08-12 carries `sessions`/`bestAccuracy`/`level`/`notes`/`scoreId`.
+ *  - `@app/session/candidates.ts` — `RepertoirePiece` as a lesson candidate.
  */
 export const REPERTOIRE_STATUSES: readonly RepertoireStatus[] = [
   'learning',
@@ -51,11 +58,11 @@ export type RepertoireSession = {
  * both appends the `PracticeEntry` and calls `recordSession` with the result
  * of this adapter. Never construct a `RepertoireSession` from a second,
  * independent record of the same practice session.
- * @public — roadmap 4.5's consumer screen doesn't call this yet; see the
- * roadmap triage note added for 2.32. `usePracticeLog.ts`'s `stop()` does not
- * actually call `recordSession` with this adapter's result today (checked:
- * no reference to `repertoire`/`recordSession` anywhere in that file) — the
- * doc comment above describes the intended wiring, not the current state.
+ * That wiring is live, not intended: `usePracticeLog.ts`'s `stop()` calls this
+ * and passes the result to `recordSession` (triage T.5), and the M4 acceptance
+ * pass drove it end to end. The note this replaces still said "does not
+ * actually call `recordSession` … the doc comment describes the intended
+ * wiring, not the current state", two roadmap items after it stopped being true.
  */
 export function sessionFromEntry(entry: PracticeEntry): RepertoireSession {
   const minutes = (entry.endedAt - entry.startedAt) / 60_000
@@ -96,8 +103,7 @@ export type NewPieceInput = {
  * whitespace-only) title, or a level outside 1..5. `composer` is otherwise
  * unchecked — REQ-3.8.3 lets the learner assign the level manually, and
  * nothing here second-guesses the rest of an imported score's metadata.
- * @public — roadmap 4.5's consumer screen doesn't call this yet; see the
- * roadmap triage note added for 2.32 (see `REPERTOIRE_STATUSES`'s note).
+ * Reached from the app — see `REPERTOIRE_STATUSES`'s note for the call sites.
  */
 export function addPiece(
   pieces: readonly RepertoirePiece[],
@@ -130,8 +136,7 @@ export function addPiece(
 
 /**
  * Replace the status of the piece with the given id. Status changes are free-form: a learner may move a piece back to 'learning'.
- * @public — roadmap 4.5's consumer screen doesn't call this yet; see the
- * roadmap triage note added for 2.32 (see `REPERTOIRE_STATUSES`'s note).
+ * Reached from the app — see `REPERTOIRE_STATUSES`'s note for the call sites.
  */
 export function setStatus(
   pieces: readonly RepertoirePiece[],
@@ -146,8 +151,7 @@ export function setStatus(
  * it. Pure. Throws if `id` does not match a piece in the library — an unknown
  * id here means a stale caller reference, and silently dropping the session
  * would leave maintenance prompts firing with no signal anywhere.
- * @public — roadmap 4.5's consumer screen doesn't call this yet; see the
- * roadmap triage note added for 2.32 (see `REPERTOIRE_STATUSES`'s note).
+ * Reached from the app — see `REPERTOIRE_STATUSES`'s note for the call sites.
  */
 export function recordSession(
   pieces: readonly RepertoirePiece[],
@@ -170,8 +174,7 @@ export function recordSession(
 
 /**
  * Replace the free-text notes for the piece with the given id.
- * @public — roadmap 4.5's consumer screen doesn't call this yet; see the
- * roadmap triage note added for 2.32 (see `REPERTOIRE_STATUSES`'s note).
+ * Reached from the app — see `REPERTOIRE_STATUSES`'s note for the call sites.
  */
 export function setNotes(
   pieces: readonly RepertoirePiece[],
@@ -199,8 +202,7 @@ const DEFAULT_MAINTENANCE_INTERVAL_DAYS = 21
  * REQ-3.8.4: which 'maintained' pieces are due for review, most overdue
  * first. A piece never practised is due immediately, and sorts ahead of any
  * practised piece (it has no bound on how overdue it is).
- * @public — roadmap 4.5's consumer screen doesn't call this yet; see the
- * roadmap triage note added for 2.32 (see `REPERTOIRE_STATUSES`'s note).
+ * Reached from the app — see `REPERTOIRE_STATUSES`'s note for the call sites.
  */
 export function maintenanceDue(
   pieces: readonly RepertoirePiece[],

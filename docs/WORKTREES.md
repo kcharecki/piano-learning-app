@@ -47,6 +47,17 @@ also check on each other ("what is the t2 session doing?") and message each othe
 claude --worktree t1
 ```
 
+**`node_modules` in a worktree (2026-08-12).** Node's resolver walks ancestor directories and
+worktrees sit under the repo root, so `npm test`, `tsc` and `eslint` all work in a fresh
+worktree with no install — which is why this went unnoticed for a dozen sessions. **`knip` does
+not walk**: it classifies dependencies against a `node_modules` directory inside the workspace
+it is given, finds none, and exits 1, so `npm run verify:full` — the only gate that runs e2e —
+could not pass anywhere except the main checkout. `worktrees.mjs status` now creates a
+junction (Windows) / directory symlink (POSIX) back to the main checkout's `node_modules` the
+first time it runs inside a worktree, and prints that it did. Since every worktree session runs
+`status` before picking up work, no new step is added. Proven both directions in a scratch
+worktree: `npm run knip` exits 1 without the link and 0 with it.
+
 Worktree lands in `.claude/worktrees/t1/` (gitignored), branch `worktree-t1`, branched from
 local HEAD (`worktree.baseRef: "head"` in `.claude/settings.json` — deliberate: this repo's
 master is usually ahead of origin, and the default "fresh" base would branch from a stale

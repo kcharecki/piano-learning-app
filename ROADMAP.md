@@ -324,8 +324,27 @@ The M3 gaps that are unbuilt features rather than defects. Each states its proof
         `npm run knip` exits **0**. The previous "reproduced on a clean HEAD" re-run was also inside
         a worktree. `knip:prod` and `knip:prod:all` exit 0 (Defect 3 closed — no
         implemented-tested-unimported module left).
-      - Follow-ups raised, none blocking: **F.1** make `verify:full` runnable from a worktree (or
-        document it as main-checkout-only and give worktrees the equivalent pair); **F.2**
+      - **F.1 FIXED 2026-08-12 (integrator).** `scripts/worktrees.mjs status` now links a worktree's
+        `node_modules` to the main checkout's (junction on Windows, directory symlink on POSIX) the
+        first time it runs inside one. `status` is where it belongs because every worktree session
+        already runs it before picking up work, so no step is added and none can be skipped. Proven
+        both directions in a scratch worktree, exit codes unpiped: `npm run knip` exits **1** with no
+        link and **0** with it. Recorded in `docs/WORKTREES.md` with why only knip was affected —
+        Node's resolver walks ancestors and worktrees sit under the repo root, so every other tool
+        worked, which is what hid this for a dozen sessions.
+      - **F.3 FIXED 2026-08-12 (integrator).** Rewrote the module comments the code had already
+        contradicted, each replaced with what is true and a note that it was wrong: eight in
+        `core/repertoire/repertoire.ts` (the "no screen wired to it / `snapshot.ts` hardcodes
+        `repertoire: []`" claim, and `sessionFromEntry`'s "`usePracticeLog.ts`'s `stop()` does not
+        actually call `recordSession`" — both false since triage T.5; the module header now lists the
+        six real call sites, since a reachability check is the first thing every review here does),
+        `content/curriculum/curriculum.ts` ("not consumed yet", false since 4.9b — `CURRICULUM` is
+        read by `app/lessons/**`, `app/session/candidates.ts` and the dashboard's exit criteria), and
+        `app/state/techniqueStore.ts` ("were this store wired into `persistence.ts`" / "`hydrate` …
+        is unused", both false — it is a persisted slice and `hydrate` is what its restore calls).
+        Comments only; no behaviour touched. *Proof: `npm run verify` green, and each replaced claim
+        checked against the code by grep before it was rewritten, not assumed stale.*
+      - Follow-up still open: **F.2**
         `app/state/persistence.ts` has no `pagehide`/`beforeunload` flush, so a store write in
         flight when the tab closes is lost — observed live: clicking "Advance" then reloading
         immediately left the track back at level 1; **F.3** delete the module comments the code has
