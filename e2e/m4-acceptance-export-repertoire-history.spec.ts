@@ -289,6 +289,24 @@ test('REQ-3.10.4/REQ-4.3: an exported backup carries a repertoire piece’s prac
       restoredRow.getByText(`Level ${CATALOGUE_LEVEL}`),
       'the restore reset the manually assigned level',
     ).toBeVisible()
+
+    // "never practised" being hidden is an ABSENCE, which a row that vanished
+    // or that renders nothing at all would satisfy just as well (roadmap 4.10,
+    // acceptance pass 2026-08-12b). Assert the restored values POSITIVELY,
+    // straight off the persisted record the restore wrote and off the screen:
+    // the session, its accuracy-derived `bestAccuracy`, and the notes.
+    const restored = (await readPieces(page)).find((p) => p.title === TITLE)
+    expect(restored, 'Greensleeves is missing from the repertoire record after the restore').toBeDefined()
+    expect(restored?.sessions.length, 'the restore dropped the practice sessions').toBeGreaterThan(0)
+    expect(restored?.bestAccuracy, 'the restore dropped the best assessment result').toBeGreaterThan(0)
+    expect(restored?.level, 'the restore reset the stored level').toBe(CATALOGUE_LEVEL)
+    expect(restored?.notes, 'the restore dropped the piece notes').toBe(
+      'Rubato in the B section; watch the LH thumb.',
+    )
+    await expect(
+      restoredRow.getByLabel('Notes'),
+      'the restored notes are not on screen',
+    ).toHaveValue('Rubato in the B section; watch the LH thumb.')
   } finally {
     if (downloadDir !== undefined) rmSync(downloadDir, { recursive: true, force: true })
   }
