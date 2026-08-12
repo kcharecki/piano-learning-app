@@ -1091,7 +1091,41 @@ next item, no completion state, no sense of being 3 of 5 through today.
 - [ ] B.2 Bluetooth MIDI (REQ-3.3.1, if feasible)
 - [ ] B.3 Falling-note piano-roll view (REQ-3.2.4 optional half)
 - [ ] B.4 Light gamification: streaks, milestones (REQ-3.10.3)
-- [ ] B.5 Audio recording alongside MIDI recording (REQ-3.9.2 optional)
+- [x] B.5 Audio recording alongside MIDI recording (REQ-3.9.2 optional). Opt-in
+      `getUserMedia`+`MediaRecorder` capture (`src/adapters/audio/audioRecorder.ts`, feature-detects
+      the mime type via `MediaRecorder.isTypeSupported`, never hardcodes one) alongside the existing
+      MIDI recorder — never instead of it, and never automatic (roadmap 5.7's opt-in rule). Start/stop
+      is bracketed on the SAME click as the MIDI recorder's own start/stop (`RecordPanel.tsx`'s
+      `handleRecord`/`handleStopRecording`), and the offset between the audio's first sample and the
+      MIDI recording's own time origin is MEASURED (`performance.now()` either side of the two starts,
+      `useAudioRecording.beginCapture`/`markMidiOrigin`) and stored, not assumed zero — proved in
+      `useRecorder.test.ts`'s "measures a real offset" test with a non-zero injected clock. Storage
+      reuses the existing `recordings` IndexedDB object store under a separate `audio:<id>` key
+      (`src/adapters/store/idb.ts`'s `putRecordingAudio`/`getRecordingAudio`/`deleteRecordingAudio`) —
+      no `Recording` type or schema change, so an old MIDI-only recording loads and replays exactly as
+      before (`idb.test.ts`'s and `useRecorder.test.ts`'s migration-path tests). Replay plays both
+      together (`useAudioRecording.beginPlayback`, scheduled off the stored offset).
+      PracticeScreen.tsx (owned by a sibling session this round) was never touched — the wiring lives
+      entirely in `RecordPanel.tsx` wrapping the same callbacks it already receives, plus a new
+      `useAudioRecording` hook in `useRecorder.ts` that opens its own IndexedDB connection (same
+      pattern as `useSessionRun.ts`).
+      **What this demotes** (docs/DESIGN.md rule 3): the new opt-in toggle, its error text, the saved-
+      audio summary and the delete-audio control are GROUPED behind their own collapsed `<details>`
+      ("Audio recording") inside the Record & replay group, rather than landing as four more
+      always-visible controls — only one more disclosure line is visible by default.
+      Proof: `npm run verify` green (183 files / 3788 tests). E2E
+      (`e2e/audio-recording.spec.ts`, Chromium launched with `--use-fake-device-for-media-stream
+      --use-fake-ui-for-media-stream`) records a real take against the fake device, reads the stored
+      audio back from real IndexedDB (non-empty `ArrayBuffer`, a real `audio/…` mime type, a finite
+      offset), confirms the MIDI event count is still there, and replay puts a real, attached
+      `<audio>` element into `playing: true` with advancing `currentTime` — both twice in a row,
+      `--workers=1`. A second spec proves a denied mic surfaces a real, visible error without
+      crashing the panel or the MIDI half. Visual pass: `Practice --level playing=3`, both widths,
+      both themes, both the collapsed and the expanded state of the new disclosure (`scripts/
+      visual-pass.mjs` extended with a text-locator fallback for `--click`, since the disclosure is a
+      `<summary>`, not a `<button>`) — console clean in all eight shots. NOT proven: the fake media
+      device's audio content itself (a synthetic tone, not a real microphone signal) — real-hardware
+      capture quality is unverified, as it must be in this sandbox.
 - [ ] B.6 `app`: make the UI usable on a tablet (REQ-4.4 names "a laptop/tablet" as where practice
       happens, so this is in scope, not a new ambition). Measured in a real browser at 768x1024 on
       2026-08-06, against the running app:

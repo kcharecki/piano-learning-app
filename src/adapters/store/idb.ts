@@ -15,6 +15,98 @@ import { openDB, type IDBPDatabase } from 'idb'
 import type { Store } from '@core/ports/store.ts'
 import { COLLECTIONS } from '@core/ports/store.ts'
 
+/**
+ * A recording's optional audio track (roadmap B.5, REQ-3.9.2 "audio recording
+ * is optional"). Deliberately NOT a field on `Recording` itself
+ * (`core/practice/recorder.ts`) — that type is pure-core and already
+ * persisted wholesale, as one array, under `RECORDINGS_KEY` by
+ * `app/state/persistence.ts`; folding a multi-megabyte `Blob` into that same
+ * array would mean re-writing every OTHER recording's bytes on every change
+ * to any one of them. Instead this reuses `COLLECTIONS.recordings` — the
+ * object store already created for the MIDI recordings array — under a
+ * SEPARATE key per recording, the same "shared collection, separated by key"
+ * pattern `persistence.ts`'s module comment documents for `COLLECTIONS.settings`.
+ * No `DB_VERSION` bump is needed: the object store already exists.
+ */
+export type StoredRecordingAudio = {
+  /** The `Recording.id` this audio belongs to. */
+  readonly recordingId: string
+  readonly blob: Blob
+  /** What `AudioRecorder.mimeType` reported when this was captured. */
+  readonly mimeType: string
+  /**
+   * Milliseconds from the MIDI recording's own time origin (`Recording`'s
+   * `t=0`, set by `MidiRecorder.start()`) to the audio blob's first sample.
+   * Positive: the audio started after the MIDI origin — replay waits this
+   * long before playing it. Negative: the audio started first — replay
+   * begins the clip that many ms into itself. See `useAudioRecording`
+   * (`app/practice/useRecorder.ts`) for how this is measured and used.
+   */
+  readonly offsetMs: number
+}
+
+const RECORDING_AUDIO_KEY_PREFIX = 'audio:'
+
+function recordingAudioKey(recordingId: string): string {
+  return `${RECORDING_AUDIO_KEY_PREFIX}${recordingId}`
+}
+
+/**
+ * What actually goes over `Store.put` — the `Blob` converted to an
+ * `ArrayBuffer` up front, not stored as a `Blob` directly. `structuredClone`
+ * (which `IdbStore.put`'s `cloneForStorage` calls, and which `MemoryStore`
+ * uses too) reliably preserves an `ArrayBuffer` end-to-end; a `Blob` is not
+ * guaranteed to survive that same clone with its data intact in every
+ * environment this port runs under (this project's own test environment,
+ * happy-dom, is one — its `structuredClone` degrades a `Blob` to a plain
+ * `{ type }` object with the bytes gone). Converting at the edge sidesteps
+ * that entirely rather than depending on it.
+ */
+type StoredRecordingAudioRecord = {
+  readonly recordingId: string
+  readonly bytes: ArrayBuffer
+  readonly mimeType: string
+  readonly offsetMs: number
+}
+
+/** Stores (or replaces) `audio`'s blob, keyed by its own `recordingId`. */
+export async function putRecordingAudio(store: Store, audio: StoredRecordingAudio): Promise<void> {
+  const record: StoredRecordingAudioRecord = {
+    recordingId: audio.recordingId,
+    bytes: await audio.blob.arrayBuffer(),
+    mimeType: audio.mimeType,
+    offsetMs: audio.offsetMs,
+  }
+  await store.put(COLLECTIONS.recordings, recordingAudioKey(audio.recordingId), record)
+}
+
+/**
+ * `undefined` both for a recording that never had audio captured, and for one
+ * made before this feature shipped — the same "absent key" case, which is
+ * exactly what makes an old MIDI-only `Recording` load and replay unchanged.
+ */
+export async function getRecordingAudio(
+  store: Store,
+  recordingId: string,
+): Promise<StoredRecordingAudio | undefined> {
+  const record = await store.get<StoredRecordingAudioRecord>(
+    COLLECTIONS.recordings,
+    recordingAudioKey(recordingId),
+  )
+  if (record === undefined) return undefined
+  return {
+    recordingId: record.recordingId,
+    blob: new Blob([record.bytes], { type: record.mimeType }),
+    mimeType: record.mimeType,
+    offsetMs: record.offsetMs,
+  }
+}
+
+/** Deletes just the audio for `recordingId`, leaving the MIDI recording itself untouched. A no-op if there was none. */
+export async function deleteRecordingAudio(store: Store, recordingId: string): Promise<void> {
+  await store.delete(COLLECTIONS.recordings, recordingAudioKey(recordingId))
+}
+
 const DEFAULT_DB_NAME = 'piano-learning-app'
 const DB_VERSION = 1
 

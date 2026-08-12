@@ -111,7 +111,16 @@ for (const theme of THEMES) {
       await page.locator(selector).selectOption({ label })
     }
     for (const label of opts.clicks) {
-      await page.getByRole('button', { name: label, exact: true }).first().click()
+      // Prefer a real button; fall back to any element with that exact
+      // visible text (e.g. a `<summary>` disclosure toggle, which browsers
+      // do not expose with role "button") — added because roadmap B.5's
+      // RecordPanel opens its audio controls via a `<summary>`, not a
+      // `<button>`, and this script previously had no way to reach it.
+      const target = page
+        .getByRole('button', { name: label, exact: true })
+        .or(page.getByText(label, { exact: true }))
+        .first()
+      await target.click()
     }
     // Long enough for an OSMD engrave to settle; the gate is about what the
     // learner ends up looking at, not about first paint.

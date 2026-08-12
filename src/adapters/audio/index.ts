@@ -10,6 +10,19 @@ import { createMidiAudioOutput } from './midiout.ts'
 import { createWebAudioOutput } from './webaudio.ts'
 
 export { createWebAudioOutput, type WebAudioOutputOptions } from './webaudio.ts'
+// roadmap B.5, REQ-3.9.2: the optional audio half of practice recording —
+// capture (`createAudioRecorder`) and replay (`createAudioPlayback`) of a
+// take's audio track, alongside (not instead of) the MIDI recording above.
+export {
+  createAudioRecorder,
+  createAudioPlayback,
+  PREFERRED_MIME_TYPES,
+  type AudioRecorder,
+  type AudioRecorderOptions,
+  type AudioPlayback,
+  type AudioPlaybackOptions,
+  type MediaRecorderLike,
+} from './audioRecorder.ts'
 
 export type SelectAudioOutputOptions = {
   /** The MIDI-out port, if Web MIDI access was granted. */

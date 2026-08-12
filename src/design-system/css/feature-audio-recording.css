@@ -1,0 +1,22 @@
+/* Feature stylesheet — audio recording (roadmap B.5, REQ-3.9.2).
+   Single-writer by construction: exactly one parallel session owns this file, so
+   a round of concurrent worktrees never conflicts inside domain.css. Rules that
+   outlive their feature's round get folded back into domain.css by the integrator. */
+
+/* The "Record audio too" opt-in checkbox inside `.record-panel` — sits with
+   the buttons it modifies rather than in a separate settings area, per
+   docs/DESIGN.md rule 4 (status/controls sit with the thing they describe). */
+.record-audio-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+
+/* `Delete audio` sits inline with the Audio summary row it acts on, not off
+   in its own row — keeps the destructive action next to what it deletes. */
+.record-audio-delete {
+  margin-left: var(--space-3);
+  font-size: var(--text-sm);
+}
