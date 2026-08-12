@@ -133,6 +133,7 @@ deliberately, not deleted.
         `npm run knip` exits **0**. The previous "reproduced on a clean HEAD" re-run was also inside
         a worktree. `knip:prod` and `knip:prod:all` exit 0 (Defect 3 closed — no
         implemented-tested-unimported module left).
+<<<<<<< HEAD
       - **F.1 FIXED 2026-08-12 (integrator).** `scripts/worktrees.mjs status` now links a worktree's
         `node_modules` to the main checkout's (junction on Windows, directory symlink on POSIX) the
         first time it runs inside one. `status` is where it belongs because every worktree session
@@ -153,15 +154,22 @@ deliberately, not deleted.
         is unused", both false — it is a persisted slice and `hydrate` is what its restore calls).
         Comments only; no behaviour touched. *Proof: `npm run verify` green, and each replaced claim
         checked against the code by grep before it was rewritten, not assumed stale.*
-      - Follow-up still open: **F.2**
-        `app/state/persistence.ts` has no `pagehide`/`beforeunload` flush, so a store write in
-        flight when the tab closes is lost — observed live: clicking "Advance" then reloading
-        immediately left the track back at level 1; **F.3** delete the module comments the code has
-        already contradicted (`core/repertoire/repertoire.ts` "roadmap 4.5's consumer screen doesn't
-        call this yet" ×7 plus `sessionFromEntry`'s "checked: no reference … in that file",
-        `content/curriculum/curriculum.ts:17–22`, `app/state/techniqueStore.ts` "hydrate … is
-        unused") — acceptance passes route their reachability checks through these, so a false one
-        costs a review cycle.
+      - **F.2 FIXED 2026-08-12.**
+        `app/state/persistence.ts` had no `pagehide`/`beforeunload` flush, so a store write still
+        sitting in `createWriteQueue`'s `pending` when the tab went away was never sent at all
+        (distinct from a request already sent but not yet committed, which no in-page listener can
+        close). `createWriteQueue` now carries a synchronous, best-effort `flush()`, and
+        `startPersisting` registers one `pagehide` + `visibilitychange`→hidden listener pair that
+        flushes all eleven slices, torn down by the same unsubscribe. *Proof:* reproduced the exact
+        loss first — a deterministic two-write-per-queue race, checked with a synchronous native
+        `IDBObjectStore.put` call count so the assertion cannot be won by the ordinary (non-flush)
+        drain loop's own unrelated timing — failed 10/10 runs against the pre-fix code and passed
+        10/10 against the fix, driven in the real app (`e2e/persistence-pagehide.spec.ts`, small
+        payload `levelState` and the bigger repertoire library); `npm run verify` green (115 new/
+        changed persistence unit tests, 3908 total); full `npx playwright test` **128 passed**
+        (126 baseline + 2 new), console clean; every exit code unpiped. The "sent but not committed"
+        window — a transaction the browser kills mid-commit during an abrupt teardown — remains
+        open by design, and is stated in the module comment rather than left implied.
       - Process hazard, still worth keeping: `npm run … | tail -N` reports *tail's* exit code.
 
 ## Phase 5 — Milestone M5: teachable product

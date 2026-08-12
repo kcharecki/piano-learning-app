@@ -58,6 +58,91 @@
  * IndexedDB serialises transactions, so that write can commit first and the
  * subsequent read then returns the wrong (or no) saved value, silently
  * discarding it.
+ *
+ * ## Page-hide flush (roadmap follow-up F.2)
+ *
+ * `createWriteQueue` keeps at most one `put` in flight per slice and holds
+ * any newer value as `pending` until that write settles (see its own doc
+ * comment). Nothing previously drained `pending` when the tab went away, so
+ * a value that was PRODUCED (a store changed) while an older write for the
+ * same slice was still in flight sat in `pending` forever if the page
+ * disappeared before the in-flight write settled and the drain loop got
+ * back around to sending it — a learner who advanced a level, or logged a
+ * practice session, and then closed the tab lost exactly that change.
+ * `startPersisting` now registers ONE listener pair — `pagehide`, and
+ * `visibilitychange` when `document.visibilityState` becomes `'hidden'` —
+ * that calls every slice's `flush()`. `beforeunload` alone is not enough:
+ * it does not fire reliably on mobile or when a tab is discarded in the
+ * background, and `visibilitychange` is the only one of the three that
+ * fires on every backgrounding path (switching apps, closing a phone's
+ * screen, a tab going background without ever formally "closing"). Both are
+ * wired because they are NOT mutually redundant: a `pagehide`-only reload
+ * fires `pagehide` but a background tab kill may only ever see
+ * `visibilitychange`, and neither implies the other.
+ *
+ * `flush()` is a SYNCHRONOUS, best-effort call — never awaited, and it must
+ * never be: a page-hide handler that blocked on the write settling would be
+ * a synchronous busy-wait, which is worse than the bug it closes (the tab
+ * would hang rather than close). What it buys is real: for the real
+ * `IdbStore` (`src/adapters/store/idb.ts`), `Store.put` is an `async`
+ * function whose body runs SYNCHRONOUSLY up to its own first `await` —
+ * `cloneForStorage` runs, then `this.db.put(...)` is called, which
+ * synchronously opens a transaction and issues the native
+ * `IDBObjectStore.put()` request — before that function suspends and
+ * returns a pending promise. So calling `flush()` synchronously, with
+ * nothing awaited, is enough to make sure the request for whatever was
+ * still sitting in `pending` has actually been ISSUED to the browser before
+ * the page can be torn down, instead of dying inside this module having
+ * never left it.
+ *
+ * That is also the honest limit of what this closes. A flush cannot make
+ * IndexedDB synchronous: issuing the request is not the same as the
+ * browser having committed the underlying transaction, and a transaction
+ * the browser kills mid-commit during an abrupt teardown is still lost.
+ * This fix closes the "queued but never sent" window — a value that was
+ * never even handed to the store — not the "sent but not committed" one,
+ * which no amount of listener wiring from inside the page can close.
+ *
+ * ## Why flushing is safe against the ordering invariant
+ *
+ * `createWriteQueue`'s whole design leans on ONE guarantee: the store only
+ * ever receives writes for a given (collection, key) in the order the
+ * values were produced, because at most one `put` is ever in flight and a
+ * value produced mid-write replaces `pending` rather than starting a second
+ * `put`. `flush()` has to preserve that or a page-hide could commit a STALE
+ * value last. It does, for a reason specific to IndexedDB and specific to
+ * this moment:
+ *
+ * - IndexedDB orders `readwrite` transactions against the SAME object store
+ *   by CREATION order, not completion order — a transaction opened later
+ *   always commits after one opened earlier against the same store, no
+ *   matter how their underlying work finishes. `flush()` only ever runs
+ *   while an older write for that same slice is genuinely still in flight
+ *   (see below), so the `put` it issues is, by construction, created after
+ *   the one already in flight — it will commit after it, carrying the
+ *   newer value forward, exactly like the ordinary drain loop's next
+ *   iteration would have.
+ * - The `Store` PORT itself makes no such promise in general — a
+ *   hand-written fake, or a future non-IndexedDB adapter, is free to
+ *   resolve two `put` calls in whatever order it likes, which is exactly
+ *   why the ordinary drain loop above never issues a second `put` while one
+ *   is in flight at all. `flush()` is a deliberate, narrow exception to
+ *   that caution, acceptable ONLY at page-hide: the alternative is not "the
+ *   store's own guarantee is slightly weaker" but "the value is not sent at
+ *   all", which is strictly worse for every `Store` implementation, ordered
+ *   or not.
+ * - `flush()` NEVER issues a `put` for a value that was already sent: it
+ *   inspects `pending`, which — by the very invariant above — only ever
+ *   holds a value once a DIFFERENT, older write for the same slice is
+ *   already in flight (see `createWriteQueue`'s own comment on `write`).
+ *   If nothing is queued, `flush()` is a no-op, whether nothing was ever
+ *   written, a write is in flight with nothing newer behind it, or an
+ *   earlier flush already sent the newest value — `flush()` clears
+ *   `pending` itself the moment it sends it, so the drain loop that wakes
+ *   up when the older write settles finds nothing left to resend and simply
+ *   stops, and a second `flush()` call (e.g. `pagehide` and then
+ *   `visibilitychange` firing for the same hide, or two hide/show cycles in
+ *   a row) finds nothing left to send either.
  */
 import type { Store } from '@core/ports/index.ts'
 import { COLLECTIONS } from '@core/ports/store.ts'
@@ -416,11 +501,34 @@ export async function restoreSession(store: Store): Promise<boolean> {
  * last — there is no completion to drop, because there was never a newer one
  * still in flight behind it. A rejected `put` is swallowed here, never
  * thrown into React.
+ *
+ * The returned function also carries a `flush()` (roadmap follow-up F.2):
+ * a synchronous, best-effort drain of whatever is currently sitting in
+ * `pending`, for `startPersisting`'s page-hide listener to call on every
+ * slice. See the module comment's "Page-hide flush" and "Why flushing is
+ * safe against the ordering invariant" sections for the full reasoning —
+ * `flush` never issues a `put` for a value already sent, and the `put` it
+ * does issue is always created strictly after whichever write is currently
+ * in flight, so IndexedDB's creation-order guarantee still lands them in
+ * the right order.
  */
-function createWriteQueue<T>(store: Store, collection: string, key: string): (value: T) => void {
+type FlushableWrite<T> = {
+  (value: T): void
+  /** Best-effort, synchronous, never awaited — see the module comment. */
+  readonly flush: () => void
+}
+
+function createWriteQueue<T>(store: Store, collection: string, key: string): FlushableWrite<T> {
   let pending: { readonly seq: number; readonly value: T } | undefined
   let seq = 0
   let draining = false
+  // The `seq` of the value whose `put` is CURRENTLY outstanding, if any —
+  // distinct from `pending` itself, which (see the loop below) stays defined
+  // for the value's WHOLE time in flight and is only cleared once its `put`
+  // settles with nothing newer behind it. `flush` needs to tell "`pending`
+  // IS the value already handed to `store.put`" apart from "`pending` is a
+  // newer value stuck behind that one" — comparing against this is how.
+  let inFlightSeq: number | undefined
 
   const drain = (): void => {
     if (draining) return
@@ -428,11 +536,13 @@ function createWriteQueue<T>(store: Store, collection: string, key: string): (va
     void (async () => {
       while (pending !== undefined) {
         const { seq: sentSeq, value } = pending
+        inFlightSeq = sentSeq
         try {
           await store.put(collection, key, value)
         } catch {
           // Swallowed: a failed save must not crash the practice session.
         }
+        inFlightSeq = undefined
         // Stop only if nothing newer was queued while this write was in
         // flight; otherwise `pending` now names that newer value and the loop
         // sends it next. Re-read `pending` rather than relying on pre-`await`
@@ -445,11 +555,36 @@ function createWriteQueue<T>(store: Store, collection: string, key: string): (va
     })()
   }
 
-  return (value: T): void => {
+  const write = ((value: T): void => {
     seq += 1
     pending = { seq, value }
     drain()
-  }
+  }) as FlushableWrite<T>
+
+  return Object.assign(write, {
+    flush: (): void => {
+      // Nothing queued at all: either nothing was ever written, or an
+      // earlier `flush()` already sent the newest value and nothing has
+      // changed since. Nothing to do.
+      if (pending === undefined) return
+      // `pending` names the value CURRENTLY being sent by the drain loop's
+      // own in-flight `put` — not a newer one stuck behind it. Sending it
+      // again would be the exact duplicate `put` this function must never
+      // issue; the drain loop already owns delivering this one.
+      if (pending.seq === inFlightSeq) return
+      const { value } = pending
+      // Clear BEFORE issuing the put, not after: this is what stops the
+      // drain loop's in-flight write from resending this same value once it
+      // settles (its post-await check reads `pending`, and finds it empty),
+      // and what makes a second `flush()` call — another lifecycle event
+      // for the same hide, or a later hide/show cycle — a no-op.
+      pending = undefined
+      void store.put(collection, key, value).catch(() => {
+        // Swallowed, same as the drain loop above: a failed save at
+        // page-hide has no one left to report it to.
+      })
+    },
+  })
 }
 
 function isSessionRelevantChange(state: ScoreStoreState, prev: ScoreStoreState): boolean {
@@ -467,148 +602,170 @@ function toSession(state: ScoreStoreState): PersistedSession | undefined {
 }
 
 /**
+ * What every `persistXxx` below hands back to `startPersisting`: how to stop
+ * listening, and how to best-effort-drain whatever this slice's queue is
+ * currently holding (roadmap follow-up F.2's page-hide flush).
+ */
+type PersistedSlice = {
+  readonly unsubscribe: () => void
+  readonly flush: () => void
+}
+
+/**
  * Subscribes to the score store and writes the session on every change to the
  * loaded score or the practice settings. Never on MIDI-device state or import
- * errors, which are not session state. Returns an unsubscribe function.
+ * errors, which are not session state.
  */
-function persistScoreSession(store: Store): () => void {
+function persistScoreSession(store: Store): PersistedSlice {
   const write = createWriteQueue<PersistedSession>(store, SESSION_COLLECTION, SESSION_KEY)
-  return useScoreStore.subscribe((state, prevState) => {
+  const unsubscribe = useScoreStore.subscribe((state, prevState) => {
     if (applyingRestoredScoreSession) return
     if (!isSessionRelevantChange(state, prevState)) return
     const session = toSession(state)
     if (session === undefined) return
     write(session)
   })
+  return { unsubscribe, flush: write.flush }
 }
 
 /** Subscribes to the sight-reading store and writes level + history on every change. */
-function persistSightReadingHistory(store: Store): () => void {
+function persistSightReadingHistory(store: Store): PersistedSlice {
   const write = createWriteQueue<PersistedSightReadingHistory>(
     store,
     SIGHT_READING_COLLECTION,
     SIGHT_READING_KEY,
   )
-  return useSightReadingStore.subscribe((state, prevState) => {
+  const unsubscribe = useSightReadingStore.subscribe((state, prevState) => {
     if (applyingRestoredSightReadingHistory) return
     if (state.level === prevState.level && state.history === prevState.history) return
     write({ level: state.level, history: state.history })
   })
+  return { unsubscribe, flush: write.flush }
 }
 
-/** Subscribes to the flashcard store and writes `cardsById` on every change. */
 /**
  * Subscribes to the annotation store and writes every score's annotations
  * (roadmap 4.8, REQ-3.2.6). `COLLECTIONS.annotations` was the last declared
  * collection nothing wrote.
  */
-function persistAnnotations(store: Store): () => void {
+function persistAnnotations(store: Store): PersistedSlice {
   const write = createWriteQueue<PersistedAnnotations>(
     store,
     ANNOTATIONS_COLLECTION,
     ANNOTATIONS_KEY,
   )
-  return useAnnotationStore.subscribe((state, prevState) => {
+  const unsubscribe = useAnnotationStore.subscribe((state, prevState) => {
     if (applyingRestoredAnnotations) return
     if (state.byScoreId === prevState.byScoreId) return
     write({ byScoreId: state.byScoreId })
   })
+  return { unsubscribe, flush: write.flush }
 }
 
-function persistFlashcards(store: Store): () => void {
+/** Subscribes to the flashcard store and writes `cardsById` on every change. */
+function persistFlashcards(store: Store): PersistedSlice {
   const write = createWriteQueue<PersistedFlashcards>(store, FLASHCARDS_COLLECTION, FLASHCARDS_KEY)
-  return useFlashcardStore.subscribe((state, prevState) => {
+  const unsubscribe = useFlashcardStore.subscribe((state, prevState) => {
     if (applyingRestoredFlashcards) return
     if (state.cardsById === prevState.cardsById) return
     write({ cardsById: state.cardsById })
   })
+  return { unsubscribe, flush: write.flush }
 }
 
 /** Subscribes to the progress store and writes `assessments` on every change. */
-function persistAssessments(store: Store): () => void {
+function persistAssessments(store: Store): PersistedSlice {
   const write = createWriteQueue<PersistedAssessments>(store, PROGRESS_COLLECTION, PROGRESS_KEY)
-  return useProgressStore.subscribe((state, prevState) => {
+  const unsubscribe = useProgressStore.subscribe((state, prevState) => {
     if (applyingRestoredAssessments) return
     if (state.assessments === prevState.assessments) return
     write({ assessments: state.assessments })
   })
+  return { unsubscribe, flush: write.flush }
 }
 
 /** Subscribes to the progress store and writes `recordings` on every change. */
-function persistRecordings(store: Store): () => void {
+function persistRecordings(store: Store): PersistedSlice {
   const write = createWriteQueue<PersistedRecordings>(store, RECORDINGS_COLLECTION, RECORDINGS_KEY)
-  return useProgressStore.subscribe((state, prevState) => {
+  const unsubscribe = useProgressStore.subscribe((state, prevState) => {
     if (applyingRestoredRecordings) return
     if (state.recordings === prevState.recordings) return
     write({ recordings: state.recordings })
   })
+  return { unsubscribe, flush: write.flush }
 }
 
 /** Subscribes to the progress store and writes `practiceEntries` on every change. */
-function persistPracticeLog(store: Store): () => void {
+function persistPracticeLog(store: Store): PersistedSlice {
   const write = createWriteQueue<PersistedPracticeLog>(
     store,
     PRACTICE_LOG_COLLECTION,
     PRACTICE_LOG_KEY,
   )
-  return useProgressStore.subscribe((state, prevState) => {
+  const unsubscribe = useProgressStore.subscribe((state, prevState) => {
     if (applyingRestoredPracticeLog) return
     if (state.practiceEntries === prevState.practiceEntries) return
     write({ practiceEntries: state.practiceEntries })
   })
+  return { unsubscribe, flush: write.flush }
 }
 
 /** Subscribes to the technique store and writes `attempts` on every change. */
-function persistTechniqueHistory(store: Store): () => void {
+function persistTechniqueHistory(store: Store): PersistedSlice {
   const write = createWriteQueue<PersistedTechniqueHistory>(
     store,
     TECHNIQUE_COLLECTION,
     TECHNIQUE_KEY,
   )
-  return useTechniqueStore.subscribe((state, prevState) => {
+  const unsubscribe = useTechniqueStore.subscribe((state, prevState) => {
     if (applyingRestoredTechniqueHistory) return
     if (state.attempts === prevState.attempts) return
     write({ attempts: state.attempts })
   })
+  return { unsubscribe, flush: write.flush }
 }
 
 /** Subscribes to the repertoire store and writes `pieces` on every change. */
-function persistRepertoire(store: Store): () => void {
+function persistRepertoire(store: Store): PersistedSlice {
   const write = createWriteQueue<PersistedRepertoire>(store, REPERTOIRE_COLLECTION, REPERTOIRE_KEY)
-  return useRepertoireStore.subscribe((state, prevState) => {
+  const unsubscribe = useRepertoireStore.subscribe((state, prevState) => {
     if (applyingRestoredRepertoire) return
     if (state.pieces === prevState.pieces) return
     write({ pieces: state.pieces })
   })
+  return { unsubscribe, flush: write.flush }
 }
 
 /** Subscribes to the level store and writes `levelState` on every change. */
-function persistLevels(store: Store): () => void {
+function persistLevels(store: Store): PersistedSlice {
   const write = createWriteQueue<PersistedLevelState>(store, LEVELS_COLLECTION, LEVELS_KEY)
-  return useLevelStore.subscribe((state, prevState) => {
+  const unsubscribe = useLevelStore.subscribe((state, prevState) => {
     if (applyingRestoredLevels) return
     if (state.levelState === prevState.levelState) return
     write({ levelState: state.levelState })
   })
+  return { unsubscribe, flush: write.flush }
 }
 
 /** Subscribes to the ear-training store and writes `session` + `itemsById` on every change to either. */
-function persistEarTraining(store: Store): () => void {
+function persistEarTraining(store: Store): PersistedSlice {
   const write = createWriteQueue<PersistedEarTraining>(store, EAR_TRAINING_COLLECTION, EAR_TRAINING_KEY)
-  return useEarTrainingStore.subscribe((state, prevState) => {
+  const unsubscribe = useEarTrainingStore.subscribe((state, prevState) => {
     if (applyingRestoredEarTraining) return
     if (state.session === prevState.session && state.itemsById === prevState.itemsById) return
     write({ session: state.session, itemsById: state.itemsById })
   })
+  return { unsubscribe, flush: write.flush }
 }
 
 /**
- * Starts persisting all eleven slices and returns one combined unsubscribe.
- * See the module comment for the mandatory `restoreSession` → `startPersisting`
- * call order.
+ * Starts persisting all eleven slices, registers the page-hide flush
+ * listener pair (roadmap follow-up F.2 — see the module comment), and
+ * returns one combined unsubscribe that tears both down. See the module
+ * comment for the mandatory `restoreSession` → `startPersisting` call order.
  */
 export function startPersisting(store: Store): () => void {
-  const unsubscribers = [
+  const slices = [
     persistScoreSession(store),
     persistSightReadingHistory(store),
     persistFlashcards(store),
@@ -621,7 +778,24 @@ export function startPersisting(store: Store): () => void {
     persistLevels(store),
     persistEarTraining(store),
   ]
+
+  // Best-effort drain of every slice's write queue — see the module comment's
+  // "Page-hide flush" section for why both events are wired and neither
+  // subsumes the other, and `createWriteQueue`'s `flush` for why this is
+  // synchronous and never awaited.
+  const flushAll = (): void => {
+    for (const slice of slices) slice.flush()
+  }
+  const handlePageHide = (): void => flushAll()
+  const handleVisibilityChange = (): void => {
+    if (document.visibilityState === 'hidden') flushAll()
+  }
+  window.addEventListener('pagehide', handlePageHide)
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+
   return () => {
-    for (const unsubscribe of unsubscribers) unsubscribe()
+    window.removeEventListener('pagehide', handlePageHide)
+    document.removeEventListener('visibilitychange', handleVisibilityChange)
+    for (const slice of slices) slice.unsubscribe()
   }
 }

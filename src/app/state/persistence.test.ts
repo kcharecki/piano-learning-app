@@ -1454,6 +1454,212 @@ describe('persistence', () => {
       expect(useFlashcardStore.getState().cardsById).toEqual({ [SIBLING_CARD.id]: SIBLING_CARD })
     })
   })
+
+  describe('page-hide flush (roadmap follow-up F.2)', () => {
+    /** A `Store` whose `put` promises are settled one at a time, by index, either resolved or rejected. */
+    class ControllableStore implements Store {
+      private readonly inner = new MemoryStore()
+      readonly puts: { collection: string; id: string; value: unknown }[] = []
+      private readonly resolvers: ((fail: boolean) => void)[] = []
+
+      get<T>(collection: string, id: string): Promise<T | undefined> { return this.inner.get<T>(collection, id) }
+      getAll<T>(collection: string): Promise<T[]> { return this.inner.getAll<T>(collection) }
+      put<T>(collection: string, id: string, value: T): Promise<void> {
+        this.puts.push({ collection, id, value })
+        return new Promise((resolve, reject) => {
+          this.resolvers.push((fail) => {
+            if (fail) { reject(new Error('put failed')); return }
+            this.inner.put(collection, id, value).then(resolve).catch(reject)
+          })
+        })
+      }
+      delete(collection: string, id: string): Promise<void> { return this.inner.delete(collection, id) }
+      clear(collection: string): Promise<void> { return this.inner.clear(collection) }
+      collections(): Promise<string[]> { return this.inner.collections() }
+      /** Settle the `index`-th `put` call — resolved unless `fail` is `true`. */
+      settle(index: number, fail = false): void {
+        const resolver = this.resolvers[index]
+        if (resolver === undefined) throw new Error(`no put #${index} yet`)
+        resolver(fail)
+      }
+    }
+
+    function setVisibility(state: 'visible' | 'hidden'): void {
+      Object.defineProperty(document, 'visibilityState', { value: state, configurable: true })
+    }
+
+    /** Loads a score (issued synchronously as the queue's own in-flight put) and, optionally, a second change. */
+    function load(tempoScale?: number): void {
+      useScoreStore.getState().loadScore({ score: SINGLE_NOTE, sourceName: 'single.musicxml', musicXml: undefined })
+      if (tempoScale !== undefined) useScoreStore.getState().setTempoScale(tempoScale)
+    }
+
+    afterEach(() => {
+      setVisibility('visible')
+    })
+
+    it('pagehide with nothing ever written is a no-op — no put is issued', async () => {
+      const store = new CountingStore()
+      persist(store)
+
+      window.dispatchEvent(new Event('pagehide'))
+      await flush()
+
+      expect(store.putCount).toBe(0)
+    })
+
+    it('pagehide with a write already in flight and nothing newer behind it does not issue a duplicate put', async () => {
+      const store = new DeferredStore()
+      persist(store)
+
+      load()
+      // The write above is already synchronously in flight (see the module
+      // comment: `store.put`'s underlying request is issued before it ever
+      // suspends), so there is nothing NEW for flush to send.
+      expect(store.puts).toHaveLength(1)
+
+      window.dispatchEvent(new Event('pagehide'))
+      expect(store.puts).toHaveLength(1)
+
+      store.resolvePut(0)
+      await flush()
+      expect(store.puts).toHaveLength(1)
+    })
+
+    it(
+      'pagehide flushes a value stuck in `pending` behind an in-flight write — the exact loss this closes ' +
+        '(roadmap M4 acceptance Finding 2: an advancement made and then immediately reloaded away)',
+      async () => {
+        const store = new DeferredStore()
+        persist(store)
+
+        // The first write (inside `load`) is now in flight, unresolved. The
+        // second change lands in `pending` without a second `put` — the write
+        // queue's own defence against write amplification — which is exactly
+        // "queued but never sent" if nothing drains it before the page
+        // disappears.
+        load(0.4)
+        expect(store.puts).toHaveLength(1)
+
+        window.dispatchEvent(new Event('pagehide'))
+        // Flushed synchronously — no `await` needed to observe the second put.
+        expect(store.puts).toHaveLength(2)
+        expect((store.puts[1]?.value as PersistedSession).settings.tempoScale).toBe(0.4)
+
+        // The original in-flight write settling afterwards must NOT resend —
+        // `flush` already cleared `pending` the instant it sent it.
+        store.resolvePut(0)
+        await flush()
+        expect(store.puts).toHaveLength(2)
+
+        store.resolvePut(1)
+        await flush()
+        const saved = await store.get<PersistedSession>(SESSION_COLLECTION, SESSION_KEY)
+        expect(saved?.settings.tempoScale).toBe(0.4)
+      },
+    )
+
+    it('visibilitychange only flushes on the transition to hidden, and pagehide right after does not double-write', async () => {
+      const store = new DeferredStore()
+      persist(store)
+      load(0.6)
+      expect(store.puts).toHaveLength(1)
+
+      setVisibility('visible') // the default, asserted explicitly for clarity
+      document.dispatchEvent(new Event('visibilitychange'))
+      expect(store.puts).toHaveLength(1) // still visible: no flush
+
+      setVisibility('hidden')
+      document.dispatchEvent(new Event('visibilitychange'))
+      expect(store.puts).toHaveLength(2)
+      expect((store.puts[1]?.value as PersistedSession).settings.tempoScale).toBe(0.6)
+
+      // A `pagehide` for the SAME hide finds `pending` already cleared.
+      window.dispatchEvent(new Event('pagehide'))
+      expect(store.puts).toHaveLength(2)
+    })
+
+    it('a repeated hide/show/hide cycle flushes each new value exactly once, never leaking a duplicate put', async () => {
+      const store = new DeferredStore()
+      persist(store)
+
+      load(0.2)
+      expect(store.puts).toHaveLength(1)
+      window.dispatchEvent(new Event('pagehide'))
+      expect(store.puts).toHaveLength(2)
+      store.resolvePut(0)
+      store.resolvePut(1)
+      await flush()
+
+      // "Show" again: an ordinary new change (queue is idle, so issued
+      // synchronously as usual), then hidden again.
+      useScoreStore.getState().setTempoScale(0.9)
+      expect(store.puts).toHaveLength(3)
+      window.dispatchEvent(new Event('pagehide'))
+      // Nothing queued behind THIS write — flush must not duplicate it.
+      expect(store.puts).toHaveLength(3)
+
+      store.resolvePut(2)
+      await flush()
+      const saved = await store.get<PersistedSession>(SESSION_COLLECTION, SESSION_KEY)
+      expect(saved?.settings.tempoScale).toBe(0.9)
+    })
+
+    it('a flush-issued put that rejects is swallowed and does not wedge the queue for later writes', async () => {
+      const store = new ControllableStore()
+      persist(store)
+
+      load(0.7) // second change queued behind the in-flight first put
+      expect(store.puts).toHaveLength(1)
+
+      expect(() => window.dispatchEvent(new Event('pagehide'))).not.toThrow()
+      expect(store.puts).toHaveLength(2)
+
+      store.settle(1, true) // flush's own put rejects
+      await flush()
+      store.settle(0, false) // the original in-flight put finally resolves too
+      await flush()
+
+      // The queue recovered: a later change is still written normally.
+      useScoreStore.getState().setTempoScale(0.35)
+      expect(store.puts).toHaveLength(3)
+      store.settle(2, false)
+      await flush()
+      const saved = await store.get<PersistedSession>(SESSION_COLLECTION, SESSION_KEY)
+      expect(saved?.settings.tempoScale).toBe(0.35)
+    })
+
+    it('unsubscribe removes both listeners: a pagehide after unsubscribe writes nothing further', async () => {
+      const store = new DeferredStore()
+      const unsubscribe = persist(store)
+
+      load(0.5) // stuck in pending
+      expect(store.puts).toHaveLength(1)
+
+      unsubscribe()
+      window.dispatchEvent(new Event('pagehide'))
+      expect(store.puts).toHaveLength(1) // no flush after unsubscribe
+    })
+
+    it('pagehide flushes every one of the eleven slices independently, not just one', async () => {
+      const store = new DeferredStore()
+      persist(store)
+
+      load(0.4) // score slice: second change queued behind its in-flight put
+      useLevelStore.getState().setTrackLevel('theory', 3) // level slice: issued synchronously (its queue was idle)
+      useLevelStore.getState().setTrackLevel('playing', 2) // level slice: queued behind ITS in-flight put
+      expect(store.puts).toHaveLength(2) // one in-flight put per independent queue
+
+      window.dispatchEvent(new Event('pagehide'))
+
+      expect(store.puts).toHaveLength(4) // both queues flushed their own pending value
+      const scoreFlushed = store.puts[2]?.value as PersistedSession
+      const levelFlushed = store.puts[3]?.value as PersistedLevelState
+      expect(scoreFlushed.settings.tempoScale).toBe(0.4)
+      expect(levelFlushed.levelState.levels.theory).toBe(3)
+      expect(levelFlushed.levelState.levels.playing).toBe(2)
+    })
+  })
 })
 
 function assessmentResult(overrides: Partial<AssessmentResult> = {}): AssessmentResult {
