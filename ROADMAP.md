@@ -282,13 +282,37 @@ The M3 gaps that are unbuilt features rather than defects. Each states its proof
 - [x] 4.9a `app/repertoire`: seed an empty repertoire library from `GRADED_PIECES`
 - [x] 4.9b `app/lessons`: the lesson screen — the only consumer the authored curriculum, the demo score registry and `core/curriculum/model.ts` will ever have.
 - [x] 4.9c `app/drills`: every `theory-quiz` exercise in the authored curriculum opened the same note-naming deck regardless of its title — gave `FlashcardScreen` an `initialKind` prop routed from `params.drillKind`.
-- [ ] 4.10 M4 acceptance pass — full §9 acceptance criteria review — run 2026-08-11, does NOT pass:
-      REQ-3.8.2's practice-history/best-assessment-result never reach a repertoire piece (nothing
-      in `src/app` calls `recordSession` — driven proof in `e2e/m4-acceptance-repertoire-practice-history.spec.ts`,
-      `test.fail()`). 20 of 21 other REQ/roadmap criteria held up under driven proof. Two unrelated
-      e2e specs (`repertoire.spec.ts`, `progress-persistence.spec.ts`) were found broken by test
-      staleness from other sessions' merged work, not app regressions — re-verified independently,
-      both hold. Full detail, per-criterion table and proposed follow-up tasks: `docs/m4-acceptance-2026-08-11.md`.
+- [ ] 4.10 M4 acceptance pass — full §9 acceptance criteria review — **re-run 2026-08-12, still does
+      NOT pass**. The 2026-08-11 blocker (REQ-3.8.2 practice history) is genuinely fixed by triage
+      T.5 and was re-proven here under a stricter test — the old spec only asserted the row stops
+      saying "never practised"; the new one reads the session back out of IndexedDB and backdates
+      the stored timestamp so the screen must follow it. Both stale e2e specs from the last run are
+      also fixed. But **two criteria that passed on 2026-08-11 fail today**, so the score went 20/21
+      → 19/21. Full per-criterion table, diff and proposed tasks: `docs/m4-acceptance-2026-08-12.md`.
+      New blockers, each with a driven proof left in the suite:
+      - **REQ-3.1.4 — the daily session no longer holds the stated 20/20/40/20 mix** (regression
+        from 5.45). Two causes: warm-up reserves a flat 5 min off the top of the budget rather than
+        coming out of technique's own share, so at 15 min warm-up/technique takes 46.7%; and the
+        `lesson` segment is fed only by a loaded score, so on Today — the app's DEFAULT screen — a
+        fresh install plans "Lesson / repertoire — 0 min" and inflates technique to absorb the 40%.
+        `e2e/screens.spec.ts` cannot catch it: it asserts the minutes *sum* to the budget, which is
+        true of any split. *Proof:* `e2e/m4-acceptance-session-mix.spec.ts` passes with both
+        `test.fail()` markers deleted.
+      - **REQ-3.10.4/REQ-4.3 — a backup drops a repertoire piece's history, and restoring one
+        destroys it.** `RepertoirePieceLike` carries only id/title/composer/status/addedAt, so
+        `sessions`/`bestAccuracy`/`level`/`notes`/`scoreId` are dropped on export and fabricated at
+        defaults on import — and the restore hydrates by replacement. Harmless while those fields
+        were always empty; the T.5 fix made them real, and the data loss with them. *Proof:*
+        `e2e/m4-acceptance-export-repertoire-history.spec.ts` passes with its `test.fail()` deleted.
+      - **`npm run knip:prod` is red** — `src/app/sightreading/noteDisplay.ts` is implemented and
+        tested but imported by nothing (its stated consumer `PatternPreview.tsx` no longer exists);
+        `midiToFrequency` is a dead core export duplicated privately in `webaudio.ts`. Not M4 scope,
+        so not counted against the 21, but a hard gate failure. *Proof:* `npm run knip:prod` exits 0.
+      - **`npm run verify:full` cannot be green** — it exits 1 at `knip` (2 unused devDependencies,
+        8 unlisted binaries) and never reaches `test:e2e`. Pre-existing; confirmed by re-running on
+        a clean HEAD. Needs a `package.json`/knip-config change. *Proof:* `npm run verify:full` exits 0.
+      - Process hazard found while auditing: `npm run … | tail -N` reports *tail's* exit code. Two
+        results previously read as green (the full e2e run, `knip:prod`) were red underneath.
 
 ## Phase 5 — Milestone M5: teachable product
 
