@@ -251,6 +251,15 @@
 .keyboard-diagram {
   --white-key-w: clamp(30px, calc((100vw - var(--nav-w) - 2 * var(--content-pad)) / 22), 46px);
   --key-h: 148px;
+  /* A separate property (not just `calc(var(--white-key-w) * 0.62)` inlined
+     at each use) so a tablet breakpoint can float it to the 44px touch
+     minimum independently of the white key's own width — see
+     responsive.css, which is also where the reference-diagram exception
+     lives (a real piano's black keys ARE narrower than its white ones; a
+     44px floor makes sense for a THUMB, not for a small non-interactive
+     chord/scale diagram, so that context resets this back to the plain
+     ratio rather than inheriting the floor). */
+  --black-key-w: calc(var(--white-key-w) * 0.62);
   display: flex;
   position: relative;
   width: max-content;
@@ -269,6 +278,14 @@
   justify-content: center;
   padding: 0 0 var(--space-2);
   min-height: 0;
+  /* The container is `width: max-content; max-width: 100%; overflow-x:
+     auto` specifically so a keyboard wider than its box SCROLLS rather than
+     compresses (see the container's own comment) — that only holds if the
+     keys themselves refuse to shrink. Without this, a full 37-key range
+     (the practice/technique screens) was measured shrinking white keys from
+     the intended 56px down to ~41px at 768px, silently reintroducing the
+     sub-44px targets the breakpoint exists to prevent. */
+  flex-shrink: 0;
   border: var(--border-w) solid var(--key-outline);
   border-radius: 0 0 var(--radius-1) var(--radius-1);
   transition: background var(--dur-1) var(--ease-out);
@@ -284,9 +301,12 @@
 .keyboard-diagram .key-white:active,
 .keyboard-diagram .key-white[data-state="pressed"] { background: var(--key-white-down); }
 .keyboard-diagram .key-black {
-  width: calc(var(--white-key-w) * 0.62);
+  width: var(--black-key-w);
   height: calc(var(--key-h) * 0.62);
-  margin: 0 calc(var(--white-key-w) * -0.31);
+  /* Half the (possibly floored) black-key width each side, so it stays
+     centred over the white-key seam even when --black-key-w has been
+     floored to 44px and is no longer exactly 0.62 of --white-key-w. */
+  margin: 0 calc(var(--black-key-w) * -0.5);
   background: var(--key-black);
   color: var(--key-label-on-black);
   z-index: 1;

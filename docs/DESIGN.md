@@ -31,11 +31,32 @@ These rules govern composition, and the checklist below is the experience gate's
    sentence case, short, and speaks piano.
 8. **Both themes are first-class.** Dark is the base (evening practice); notation always sits
    on `--paper`. Color is never the only signal — every feedback state keeps its glyph cue.
+9. **Every touch target clears 44px, tablet and up (roadmap B.6).** `--control-h` already
+   grows to `--touch-min` (44px) at `≤1024px` (`tokens/spacing.css` / `responsive.css`) and
+   every primitive tracks it — new controls get this for free by using a primitive rather than
+   a bare styled element. Two things `--control-h` does NOT cover on its own:
+   - **Checkbox/radio.** The native box stays its small unstyled size by design; the `<label>`
+     wrapping it (every consumer already writes `<label><input type="checkbox/radio" />text
+     </label>`) is the real tap target, and `primitives.css`'s `label:has(> input[type=
+     "checkbox"], > input[type="radio"])` rule is what sizes THAT to `--control-h`. Do not
+     wrap a checkbox/radio any other way, or it falls outside this rule.
+   - **The on-screen keyboard.** A key is not a generic control — width comes from
+     `--white-key-w`/`--black-key-w` (`domain.css`), floored to 44px for `--black-key-w` at
+     tablet widths (`responsive.css`) since a real piano's black keys are narrower than its
+     white ones and never clear 44px at a reasonable white-key size otherwise. The
+     `.chord-scale-reference` diagram resets that floor: its keys are plain, non-interactive
+     `<div>`s (`KeyboardDiagram.tsx`), not a touch target, and flooring them too would draw a
+     black key wider than the tiny white key next to it.
+   A keyboard wide enough to need horizontal scroll (the full practice/technique range) must
+   actually scroll, not shrink: `.keyboard-diagram .key` is `flex-shrink: 0` for exactly this
+   reason — losing it silently reintroduces sub-44px keys with no visible diff to catch it.
 
 ## The visual pass checklist
 
 Run on every changed screen: 1280px and ≤1024px, dark and light. Screenshot each; judge as a
-picky stranger, then fix before ticking.
+picky stranger, then fix before ticking. A screen with touch input also gets the tablet pass:
+768x1024 and 1024x1366, real touch emulation (not just a narrow mouse viewport) — see
+`e2e/tablet-touch-targets.spec.ts`.
 
 - [ ] The primary action is obvious within 3 seconds, and there is exactly one.
 - [ ] ≤ ~6 interactive controls visible before disclosure; related controls grouped, groups
