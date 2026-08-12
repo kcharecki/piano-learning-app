@@ -147,11 +147,20 @@ describe('ChordScaleReference', () => {
     // fix (see the module comment on ScaleStaff.tsx) — this proves
     // `ScaleStaff` is actually mounted with the reference's current
     // root/scaleType, both at first render and after the pickers change it,
-    // not merely computed and thrown away.
+    // not merely computed and thrown away. Queries are scoped with `within`
+    // the labelled region (`getByLabelText` finds the region itself, same
+    // element the `role="img"` lives on) because roadmap 5.50 now also mounts
+    // one `ChordStaff` per diatonic-chord row plus one inside `ChordLookup`
+    // — several `mock-score-viewer` nodes coexist on the page at once, so an
+    // unscoped `screen.getByTestId` would throw "multiple elements found".
     it('renders the looked-up scale engraved on a staff, matching the default C major', () => {
       render(<Controlled />)
-      expect(screen.getByLabelText('C major staff notation')).toBeInTheDocument()
-      expect(screen.getByTestId('mock-score-viewer')).toHaveAttribute('data-title', 'C major')
+      const region = screen.getByLabelText('C major staff notation')
+      expect(region).toBeInTheDocument()
+      expect(within(region).getByTestId('mock-score-viewer')).toHaveAttribute(
+        'data-title',
+        'C major',
+      )
     })
 
     it('re-engraves the staff when the scale-type picker changes', async () => {
@@ -160,8 +169,9 @@ describe('ChordScaleReference', () => {
 
       await user.selectOptions(screen.getByLabelText('Scale'), 'harmonicMinor')
 
-      expect(screen.getByLabelText('C harmonic minor staff notation')).toBeInTheDocument()
-      expect(screen.getByTestId('mock-score-viewer')).toHaveAttribute(
+      const region = screen.getByLabelText('C harmonic minor staff notation')
+      expect(region).toBeInTheDocument()
+      expect(within(region).getByTestId('mock-score-viewer')).toHaveAttribute(
         'data-title',
         'C harmonic minor',
       )
@@ -174,6 +184,69 @@ describe('ChordScaleReference', () => {
       await user.selectOptions(screen.getByLabelText('Root'), 'G')
 
       expect(screen.getByLabelText('G major staff notation')).toBeInTheDocument()
+    })
+  })
+
+  describe('ChordStaff wiring (roadmap 5.50, REQ-3.5.3 "see it on staff")', () => {
+    // The gap 5.38's re-verification found: a chord was keyboard + audio
+    // only, never engraved, in BOTH `ChordScaleReference`'s own diatonic-chord
+    // rows and `ChordLookup`'s looked-up chord (covered separately in
+    // ChordLookup.test.tsx). This proves the diatonic-chord side: every row's
+    // `ChordStaff` is mounted with that row's own tones, not merely computed
+    // and thrown away.
+    it('renders every diatonic chord row\'s own chord engraved on a staff, matching its symbol', () => {
+      render(<Controlled />)
+
+      const key = keyOf(spell('C', 0, 4), 'major')
+      if (!key.ok) throw new Error('C major must be a valid key')
+      const chords = diatonicChords(key.value)
+
+      for (const chord of chords) {
+        const symbol = chordSymbol(chord)
+        const row = screen.getByTestId(
+          `diatonic-chord-${romanNumeralFor(chord, key.value)?.text}`,
+        )
+        const region = within(row).getByLabelText(`${symbol} staff notation`)
+        expect(within(region).getByTestId('mock-score-viewer')).toHaveAttribute(
+          'data-title',
+          symbol,
+        )
+      }
+    })
+
+    it('re-engraves a row\'s staff to the seventh-chord voicing when "Show seventh chords" is toggled', async () => {
+      const user = userEvent.setup()
+      render(<Controlled />)
+
+      const key = keyOf(spell('C', 0, 4), 'major')
+      if (!key.ok) throw new Error('C major must be a valid key')
+      const sevenths = diatonicChords(key.value, true)
+      const vSeventh = sevenths[4]
+      if (vSeventh === undefined) throw new Error('C major must have a V7 chord')
+
+      await user.click(screen.getByLabelText('Show seventh chords'))
+
+      const numeral = romanNumeralFor(vSeventh, key.value)
+      const row = screen.getByTestId(`diatonic-chord-${numeral?.text}`)
+      expect(
+        within(row).getByLabelText(`${chordSymbol(vSeventh)} staff notation`),
+      ).toBeInTheDocument()
+    })
+
+    it('renders a scale-degree row\'s chord (no key: dorian) engraved on a staff too', () => {
+      render(<Controlled initialType="dorian" />)
+
+      const dorian = buildScale(spell('C', 0, 4), 'dorian')
+      const firstRow = screen.getByTestId('diatonic-chord-1')
+      const expectedSymbol = [1, 3, 5]
+        .map((d) => noteAtDegree(dorian, d))
+        .map(testNoteLabel)
+        .join('–')
+      const region = within(firstRow).getByLabelText(`${expectedSymbol} staff notation`)
+      expect(within(region).getByTestId('mock-score-viewer')).toHaveAttribute(
+        'data-title',
+        expectedSymbol,
+      )
     })
   })
 
