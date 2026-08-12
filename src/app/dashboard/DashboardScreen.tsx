@@ -74,10 +74,23 @@ export function DashboardScreen(props: DashboardScreenProps) {
             <li key={l.track} data-testid={`dashboard-level-${l.track}`} className="track-level">
               <div className="level-label">
                 <span>
-                  {TRACK_LABELS[l.track]}: level <b>{l.level}</b>
+                  {TRACK_LABELS[l.track]}
+                  {/* roadmap 5.57: only sight-reading gets the "(curriculum track)"
+                      qualifier — it's the one track with a second, adaptive number
+                      shown elsewhere on this page (the accuracy-trend panel below)
+                      and on the Sight reading screen; playing/theory have no such
+                      collision, so tagging them too would only add noise. */}
+                  {l.track === 'sight-reading' ? ' (curriculum track)' : ''}: level <b>{l.level}</b>
                 </span>
                 <span>{l.overridden ? ' (overridden)' : ''}</span>
               </div>
+              {l.track === 'sight-reading' && (
+                <small data-testid="dashboard-level-sight-reading-note">
+                  Moves when you meet this level&rsquo;s exit criteria or set it by hand above
+                  &mdash; separate from the sight-reading trainer&rsquo;s own adaptive level in
+                  the accuracy-trend panel below.
+                </small>
+              )}
               <select
                 aria-label={`${TRACK_LABELS[l.track]} level`}
                 data-testid={`dashboard-level-select-${l.track}`}
@@ -155,7 +168,18 @@ export function DashboardScreen(props: DashboardScreenProps) {
 
       <section aria-label="Sight-reading accuracy trend" role="region">
         <h3>Sight-reading accuracy trend</h3>
-        <p data-testid="dashboard-sightreading-level">Level {data.sightReadingLevel}</p>
+        {/* roadmap 5.57: named and explained distinctly from the "sight-reading
+            (curriculum track)" row above — same word "level", two different
+            numbers (see useDashboard.ts's module comment). The chart below is
+            this trainer level's own accuracy history, never the track's. */}
+        <p data-testid="dashboard-sightreading-level">
+          Sight-reading trainer level: <b>{data.sightReadingLevel}</b>
+        </p>
+        <small data-testid="dashboard-sightreading-level-note">
+          This chart plots the sight-reading trainer&rsquo;s own accuracy per run &mdash; it
+          adapts automatically from your last few runs, separately from the curriculum track
+          level above.
+        </small>
         {data.sightReadingTrend.length === 0 ? (
           <p role="status" data-testid="dashboard-sightreading-empty">
             Nothing recorded yet.
@@ -164,7 +188,7 @@ export function DashboardScreen(props: DashboardScreenProps) {
           <TrendChart
             points={sightReadingPoints}
             kind="line"
-            ariaLabel="Sight-reading accuracy over time"
+            ariaLabel="Sight-reading trainer accuracy over time"
             valueSuffix="%"
           />
         )}
