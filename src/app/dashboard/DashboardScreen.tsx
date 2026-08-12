@@ -8,6 +8,7 @@
  */
 import { ExportPanel } from '@app/progress/ExportPanel.tsx'
 import { PracticeSheet } from '@app/progress/PracticeSheet.tsx'
+import { MilestonePanel } from './MilestonePanel.tsx'
 import { SrsSummary } from '@app/srs/SrsSummary.tsx'
 import { ACTIVITY_KIND_LABELS } from '@app/progress/activityKindLabels.ts'
 import { ACTIVITY_KINDS } from '@core/progress/log.ts'
@@ -253,6 +254,10 @@ export function DashboardScreen(props: DashboardScreenProps) {
           </>
         )}
       </section>
+
+      {/* roadmap B.4, REQ-3.10.3: light gamification, honest and derived —
+          see MilestonePanel's own module comment for what it demotes. */}
+      <MilestonePanel milestones={data.milestones} />
 
       {/* roadmap 5.47: a printable summary a teacher or parent can actually
           read, distinct from the raw JSON/CSV backup below. */}

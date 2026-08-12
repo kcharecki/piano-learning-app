@@ -1,0 +1,87 @@
+/* Feature stylesheet — milestones (roadmap B.4, REQ-3.10.3).
+   Single-writer by construction: exactly one parallel session owns this file, so
+   a round of concurrent worktrees never conflicts inside domain.css. Folded back
+   into domain.css by the integrator once the feature settles. */
+
+/* ---------- MilestonePanel ----------
+   Collapsed-by-default `<details>` (see MilestonePanel.tsx's own comment for
+   why) — the same disclosure look `.srs-summary-debug` already uses
+   (feature-srs-summary.css), reused rather than a new pattern. */
+.milestone-panel > details > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  cursor: pointer;
+  font-weight: var(--weight-semibold);
+  list-style: none;
+}
+.milestone-panel > details > summary::-webkit-details-marker { display: none; }
+.milestone-panel > details > summary::before {
+  content: "\25b8"; /* ▸ */
+  display: inline-block;
+  transition: transform var(--dur-1) var(--ease-out);
+}
+.milestone-panel > details[open] > summary::before { transform: rotate(90deg); }
+
+.milestone-panel > details > p[role="status"] {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+
+.milestone-panel h4 {
+  margin: var(--space-3) 0 var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+}
+
+.milestone-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.milestone-list > li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: var(--space-2);
+  padding: var(--space-2);
+  border: var(--border-w) solid var(--border-1);
+  border-radius: var(--radius-2);
+  background: var(--bg-2);
+}
+.milestone-title {
+  font-weight: var(--weight-semibold);
+  grid-column: 1;
+}
+.milestone-date {
+  grid-column: 2;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.milestone-detail,
+.milestone-progress-label {
+  grid-column: 1 / -1;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+.milestone-progress-bar {
+  grid-column: 1 / -1;
+  height: 6px;
+  border-radius: var(--radius-1);
+  background: var(--bg-3);
+  overflow: hidden;
+  margin-top: var(--space-1);
+}
+.milestone-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: var(--radius-1);
+  transition: width var(--dur-2) var(--ease-out);
+}

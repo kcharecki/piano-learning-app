@@ -111,7 +111,16 @@ for (const theme of THEMES) {
       await page.locator(selector).selectOption({ label })
     }
     for (const label of opts.clicks) {
-      await page.getByRole('button', { name: label, exact: true }).first().click()
+      const button = page.getByRole('button', { name: label, exact: true })
+      if (await button.count() > 0) {
+        await button.first().click()
+      } else {
+        // Non-<button> interactive elements (e.g. a <summary> disclosure
+        // toggle, roadmap B.4's Milestones panel) are matched by their
+        // visible text instead, so --click still reaches a post-interaction
+        // state that only a click on one of those opens.
+        await page.getByText(label, { exact: true }).first().click()
+      }
     }
     // Long enough for an OSMD engrave to settle; the gate is about what the
     // learner ends up looking at, not about first paint.

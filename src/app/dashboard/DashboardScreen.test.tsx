@@ -21,6 +21,10 @@ import { useFlashcardStore } from '@app/state/flashcardStore.ts'
 import { useRepertoireStore } from '@app/state/repertoireStore.ts'
 import { useLevelStore } from '@app/state/levelStore.ts'
 import { useTechniqueStore } from '@app/state/techniqueStore.ts'
+import { useEarTrainingStore } from '@app/state/earTrainingStore.ts'
+import { emptyEarSession } from '@core/eartraining/session.ts'
+import type { TechniqueAttempt } from '@core/technique/evenness.ts'
+import { techniqueLibrary } from '@core/technique/library.ts'
 import { DashboardScreen } from './DashboardScreen.tsx'
 
 class FakeDateSource implements DateSource {
@@ -43,6 +47,7 @@ function resetStores(): void {
   useRepertoireStore.setState({ pieces: [] })
   useLevelStore.setState({ levelState: initialLevelState() })
   useTechniqueStore.setState({ attempts: [] })
+  useEarTrainingStore.setState({ session: emptyEarSession(), itemsById: {} })
 }
 
 afterEach(() => {
@@ -96,6 +101,12 @@ describe('DashboardScreen — empty state', () => {
 
     expect(screen.getByTestId('dashboard-streak-current').textContent).toBe('0 day(s)')
     expect(screen.getByTestId('dashboard-retention-total').textContent).toBe('0')
+
+    // Milestones (roadmap B.4): a fresh profile shows the honest "0 of 5"
+    // empty state, never a fabricated achievement.
+    expect(screen.getByRole('region', { name: 'Milestones' })).toBeTruthy()
+    expect(screen.getByTestId('milestone-summary-count').textContent).toBe('0 of 5')
+    expect(screen.getByTestId('milestone-achieved-empty')).toBeTruthy()
   })
 })
 
@@ -281,6 +292,32 @@ describe('DashboardScreen — seeded data', () => {
     expect(screen.getByRole('list', { name: 'Repertoire pieces due for review' })).toBeTruthy()
     expect(screen.getByTestId('dashboard-repertoire-due-piece-1').textContent).toBe('Fur Elise')
     expect(screen.queryByTestId('dashboard-repertoire-empty')).toBeNull()
+  })
+})
+
+describe('DashboardScreen — milestones (roadmap B.4, REQ-3.10.3)', () => {
+  it('flips the first-hands-together milestone from in-progress to achieved once a real clean two-handed attempt is seeded', () => {
+    const bothHandsDrill = techniqueLibrary(3).find((d) => d.hands === 'both')
+    if (bothHandsDrill === undefined) {
+      throw new Error('fixture assumption failed: no both-hands level-3 drill in the technique library')
+    }
+    const attempt: TechniqueAttempt = {
+      drillId: bothHandsDrill.id,
+      at: NOW - 1_000,
+      bpm: bothHandsDrill.targetBpm,
+      evenness: 1,
+      accuracy: 1,
+      clean: true,
+    }
+    useTechniqueStore.setState({ attempts: [attempt] })
+
+    render(<DashboardScreen date={new FakeDateSource(NOW)} utcOffsetMinutes={0} />)
+
+    expect(screen.getByTestId('milestone-summary-count').textContent).toBe('1 of 5')
+    expect(
+      screen.getByTestId('milestone-achieved-detail-first-hands-together').textContent,
+    ).toBe(bothHandsDrill.title)
+    expect(screen.queryByTestId('milestone-progress-first-hands-together')).toBeNull()
   })
 })
 
