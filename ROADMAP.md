@@ -1081,9 +1081,13 @@ next item, no completion state, no sense of being 3 of 5 through today.
 
 ## Backlog / optional
 
-- [ ] B.1 Microphone pitch-detection fallback (REQ-3.3.7, optional). **Promoted in importance by
-      B.6's finding:** this is the ONLY way the practice loop works on an iPad at all, because
-      WebKit ships no Web MIDI (see B.6). On iPadOS it is not a fallback, it is the input.
+- [x] B.1 Microphone pitch-detection fallback (REQ-3.3.7, optional) — **shipped by roadmap 5.7**,
+      which promoted this entry into Phase 5 rather than leaving it in the backlog; the box was
+      simply never ticked here. Verified against the merged code, not inferred from 5.7's prose:
+      `src/core/audio/pitchDetection.ts` (YIN) and `src/core/audio/noteOnsetDetector.ts` exist with
+      their co-located tests, `src/adapters/audio/micPitchInput.ts` implements the same `MidiInput`
+      port `webmidi.ts` does, and Practice wires it through `useMicInput.ts` + `MicInputControl.tsx`.
+      Full proof paragraph: 5.7. On iPadOS it is not a fallback, it is the input (see B.7).
 - [ ] B.2 Bluetooth MIDI (REQ-3.3.1, if feasible)
 - [ ] B.3 Falling-note piano-roll view (REQ-3.2.4 optional half)
 - [ ] B.4 Light gamification: streaks, milestones (REQ-3.10.3)
@@ -1101,19 +1105,22 @@ next item, no completion state, no sense of being 3 of 5 through today.
         `PointerEvent`/`onTouchStart` handling anywhere if finer control is ever wanted.
       Scope: a breakpoint that collapses the nav, touch targets at 44px or more, and an on-screen
       keyboard sized for fingers (it is the primary input wherever MIDI is unavailable, which is
-      exactly the tablet case).
+      exactly the tablet case). Note the 2026-08-06 measurement predates the `responsive.css` /
+      nav-drawer work merged since — re-measure in a real browser before assuming the numbers hold.
       *Proof: at 768x1024 and 1024x1366, no control is under 44px, the page does not scroll
       horizontally, and a tapped on-screen key grades an answer — driven in a browser, not asserted
       from CSS.*
-- [ ] B.7 `docs`: state the platform reality in `requirements.md` or `ARCHITECTURE.md` — **Web MIDI
-      does not exist on iPadOS or iOS in any browser**, because every iOS browser is WebKit
-      underneath. `createWebMidi` already degrades honestly (`webmidi.ts:38` returns
-      `err('Web MIDI API is not available in this browser.')`) and the app stays usable without a
-      keyboard, but that removes sight-reading assessment, technique evenness, keyboard-answered
-      theory drills and dictation — i.e. most of what the app is for. An Android tablet with
-      Chrome has working Web MIDI and is a real target; an iPad is a viewer until B.1 lands.
-      REQ-4.4 currently implies any tablet is fine, which is not true.
-      *Proof: the doc names the constraint, and B.1/B.6 reference it instead of rediscovering it.*
+- [x] B.7 `docs`: platform reality stated in `requirements.md` as **REQ-4.4.1**, a sub-clause of the
+      REQ-4.4 it corrects, rather than a free-floating note — a per-platform table (Chrome/Edge
+      desktop and Chrome on an Android tablet have Web MIDI; desktop Firefox and **every browser on
+      iPadOS/iOS** do not, the latter because all iOS browsers are WebKit underneath), what is lost
+      without it (sight-reading assessment, technique evenness, keyboard-answered theory drills,
+      dictation), and the honest-degradation contract already met by `createWebMidi`'s
+      `err('Web MIDI API is not available in this browser.')` plus 5.6's `InputCapabilityBanner`.
+      It also records why B.1 (mic, shipped by 5.7) and 5.4/5.5 (on-screen + computer keyboard) are
+      not optional extras: they are the only playing input an iPad has.
+      *Proof: REQ-4.4.1 names the constraint with the measured table, and B.1/B.6 now reference it
+      instead of restating it. Docs only — no code, no test, nothing deleted.*
 
 ---
 

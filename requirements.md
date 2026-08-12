@@ -179,6 +179,19 @@ Ear training is a supporting track that strongly accelerates both theory and sig
 
 **REQ-4.4 Platform** — Desktop is the primary target (practice happens at the piano with a laptop/tablet). One platform is sufficient; a browser-based app using Web MIDI is an acceptable and low-effort option, provided REQ-4.1 is met.
 
+**REQ-4.4.1 Platform reality (measured, not assumed)** — "laptop/tablet" is not one platform, and Web MIDI is not available on all of it:
+
+| Platform | Web MIDI | Consequence |
+|---|---|---|
+| Chrome / Edge, desktop | yes | full app, USB and (per REQ-3.3.1) Bluetooth MIDI |
+| Chrome, Android tablet | yes | full app; a real target |
+| Firefox, desktop | no | keyboard-input features inert without a fallback |
+| **Any browser on iPadOS / iOS** | **no** | every iOS browser is WebKit underneath, so this is a platform property, not a browser choice |
+
+Where Web MIDI is absent the app SHALL degrade honestly rather than silently: `createWebMidi` already returns `err('Web MIDI API is not available in this browser.')`, and the app states the limitation on screen (roadmap 5.6, `InputCapabilityBanner`). What is lost without a MIDI keyboard is most of what the app is for — sight-reading assessment, technique evenness, keyboard-answered theory drills and dictation.
+
+The two fallbacks that make those platforms usable are therefore not optional extras: **microphone pitch detection** (REQ-3.3.7, shipped) is the only playing input an iPad has at all, and the **on-screen and computer-keyboard inputs** (roadmap 5.4/5.5) cover single-note work without any hardware. An iPad is a viewer plus a microphone, not a full practice device.
+
 **REQ-4.5 Open formats** — Scores in MusicXML/MIDI; progress data in JSON; no proprietary lock-in, so content and history survive rewrites of the app.
 
 **REQ-4.6 Simplicity over polish** — Given the single-user scope, prefer boring, maintainable solutions; skip onboarding flows, settings screens for hypothetical users, and visual polish that doesn't aid learning.
