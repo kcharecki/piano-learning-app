@@ -61,87 +61,93 @@ const sumAllSegments = (bySegment: Readonly<Record<SessionSegmentKind, number>>)
 // ---------------------------------------------------------------------------
 // worked examples — DEFAULT_MIX, literal expected minutes
 //
-// Warm-up reserves WARMUP_MINUTES (5) flat off the top when it has a
-// candidate (every worked example below uses fullCandidates(), which
-// always supplies one) — the mixable 20/20/40/20 split then runs over the
-// REMAINDER, not the raw total. See session.ts's module doc.
+// Roadmap 4.10: warm-up no longer reserves WARMUP_MINUTES off the top of the
+// raw budget. `technique`'s own 20% share IS the combined warm-up/technique
+// bucket REQ-3.1.4 names; that bucket is apportioned over the FULL budget
+// exactly like sight-reading/lesson/theory-ear, and warm-up then claims up
+// to WARMUP_MINUTES of technique's own bucket, technique keeping the rest.
+// See session.ts's module doc, "Warm-up shares technique's bucket".
 // ---------------------------------------------------------------------------
 
 describe('planSession — worked examples against DEFAULT_MIX', () => {
-  it('15 minutes: warm-up 5, remaining 10 split 2/2/4/2', () => {
+  it('15 minutes: technique bucket 3 (20% of 15) -> warm-up 3, technique 0; others their plain 20/40/20', () => {
     const result = planSession(15, { candidates: fullCandidates() })
     expect(isOk(result)).toBe(true)
     if (!result.ok) return
     expect(result.value.bySegment).toEqual({
-      warmup: 5,
-      technique: 2,
-      'sight-reading': 2,
-      lesson: 4,
-      'theory-ear': 2,
+      warmup: 3,
+      technique: 0,
+      'sight-reading': 3,
+      lesson: 6,
+      'theory-ear': 3,
     })
     expect(result.value.totalMinutes).toBe(15)
     expect(result.value.items[0]?.segment).toBe('warmup')
     expect(sumItems(result.value.items)).toBe(15)
   })
 
-  it('30 minutes: warm-up 5, remaining 25 split 5/5/10/5', () => {
+  it('30 minutes: technique bucket 6 -> warm-up 5 (its full length fits), technique keeps 1', () => {
     const result = planSession(30, { candidates: fullCandidates() })
     expect(isOk(result)).toBe(true)
     if (!result.ok) return
     expect(result.value.bySegment).toEqual({
       warmup: 5,
-      technique: 5,
-      'sight-reading': 5,
-      lesson: 10,
-      'theory-ear': 5,
+      technique: 1,
+      'sight-reading': 6,
+      lesson: 12,
+      'theory-ear': 6,
     })
     expect(sumItems(result.value.items)).toBe(30)
   })
 
-  it('60 minutes: warm-up 5, remaining 55 split 11/11/22/11', () => {
+  it('60 minutes: technique bucket 12 -> warm-up 5, technique keeps 7', () => {
     const result = planSession(60, { candidates: fullCandidates() })
     expect(isOk(result)).toBe(true)
     if (!result.ok) return
     expect(result.value.bySegment).toEqual({
       warmup: 5,
-      technique: 11,
-      'sight-reading': 11,
-      lesson: 22,
-      'theory-ear': 11,
+      technique: 7,
+      'sight-reading': 12,
+      lesson: 24,
+      'theory-ear': 12,
     })
     expect(sumItems(result.value.items)).toBe(60)
   })
 
-  it('plans every SESSION_LENGTHS entry to warm-up 5 + exact 20/20/40/20 of the remainder', () => {
+  it('plans every SESSION_LENGTHS entry so warm-up+technique together equal the plain 20% share of the FULL budget', () => {
     for (const length of SESSION_LENGTHS) {
       const result = planSession(length, { candidates: fullCandidates() })
       expect(isOk(result)).toBe(true)
       if (!result.ok) continue
       expect(sumItems(result.value.items)).toBe(length)
-      const remaining = length - WARMUP_MINUTES
-      expect(result.value.bySegment).toEqual({
-        warmup: WARMUP_MINUTES,
-        technique: Math.round(remaining * 0.2),
-        'sight-reading': Math.round(remaining * 0.2),
-        lesson: Math.round(remaining * 0.4),
-        'theory-ear': Math.round(remaining * 0.2),
+      const techniqueBucket = Math.round(length * 0.2)
+      expect(result.value.bySegment.warmup + result.value.bySegment.technique).toBe(techniqueBucket)
+      expect(result.value.bySegment.warmup).toBe(Math.min(WARMUP_MINUTES, techniqueBucket))
+      expect(result.value.bySegment).toMatchObject({
+        'sight-reading': Math.round(length * 0.2),
+        lesson: Math.round(length * 0.4),
+        'theory-ear': Math.round(length * 0.2),
       })
     }
   })
 
-  it('7 minutes: warm-up 5, remaining 2 exercises the largest-remainder tie-break literally (1/0/1/0)', () => {
-    // remaining = 2. exact shares over 2: 0.4/0.4/0.8/0.4 — floors 0/0/0/0 (sum 0),
-    // remainder 2. largest remainder is lesson (0.8) -> +1. Remaining tie at 0.4
-    // among technique/sight-reading/theory-ear broken by segment order -> technique +1.
+  it('7 minutes: technique bucket floors/apportions to 2 -> warm-up 2 (bucket too small for its full 5), technique 0', () => {
+    // Full budget of 7 across all four shares (.2/.2/.4/.2): exact
+    // 1.4/1.4/2.8/1.4 -> floors 1/1/2/1 (sum 5), remainder 2. Largest
+    // fractional remainder is lesson (0.8) -> +1. Remaining tie at 0.4 among
+    // technique/sight-reading/theory-ear broken by segment order -> technique
+    // +1. So the pre-warm-up technique bucket is 2 (allocateWholeMinutes is
+    // unchanged by roadmap 4.10 — only what total it is fed changed).
+    // Warm-up then claims min(5, 2) = 2 of that bucket, leaving technique 0.
     const result = planSession(7, { candidates: fullCandidates() })
     expect(isOk(result)).toBe(true)
     if (!result.ok) return
     expect(result.value.bySegment).toEqual({
-      warmup: 5,
-      technique: 1,
-      'sight-reading': 0,
-      lesson: 1,
-      'theory-ear': 0,
+      warmup: 2,
+      technique: 0,
+      'sight-reading': 1,
+      lesson: 3,
+      'theory-ear': 1,
     })
     expect(sumItems(result.value.items)).toBe(7)
   })
@@ -163,12 +169,20 @@ describe('planSession — warm-up segment', () => {
     }
   })
 
-  it('clamps to the total budget when the session is shorter than WARMUP_MINUTES', () => {
-    const result = planSession(3, { candidates: fullCandidates() })
+  it('clamps to the technique bucket when it is shorter than WARMUP_MINUTES', () => {
+    // Mix isolated to technique (share 1, others 0) so the whole 3-minute
+    // budget IS technique's bucket — the same shape the pre-4.10 flat
+    // reservation test exercised, just via an isolated bucket instead of the
+    // raw budget (see session.ts's module doc: warm-up now only ever draws
+    // from technique's own share, never the budget directly).
+    const result = planSession(3, {
+      candidates: fullCandidates(),
+      mix: { technique: 1, 'sight-reading': 0, lesson: 0, 'theory-ear': 0 },
+    })
     expect(isOk(result)).toBe(true)
     if (!result.ok) return
     expect(result.value.bySegment.warmup).toBe(3)
-    // Nothing left for the mixable segments.
+    // Nothing left for technique, and the other three have a zero mix share.
     expect(result.value.bySegment.technique).toBe(0)
     expect(result.value.bySegment['sight-reading']).toBe(0)
     expect(result.value.bySegment.lesson).toBe(0)
@@ -190,9 +204,11 @@ describe('planSession — warm-up segment', () => {
 
     expect(b.value.bySegment.warmup).toBe(0)
     expect(b.value.items.some((item) => item.segment === 'warmup')).toBe(false)
-    // The mixable segments get the FULL 30 minutes when warm-up declines,
-    // not the 25-minute remainder `a` gets — this is the pre-5.45 behaviour
-    // exactly, unaffected by warm-up's existence.
+    // Technique keeps its WHOLE 6-minute bucket when warm-up declines (`a`,
+    // which has a warm-up candidate, splits that same 6-minute bucket into
+    // warmup 5 + technique 1 — see the worked example above) — declining
+    // warm-up is exactly "technique keeps 100% of its own share", unaffected
+    // by warm-up existing as a segment kind at all.
     expect(b.value.bySegment).toEqual({
       warmup: 0,
       technique: 6,
@@ -538,16 +554,40 @@ describe('planSession — properties', () => {
     )
   })
 
-  it('warm-up is present and first whenever it has a candidate, at any budget 1..120', () => {
+  it('warm-up is present and first whenever it has a candidate and technique\'s isolated bucket is the whole budget, at any budget 1..120', () => {
+    // Mix isolated to technique (share 1, others 0), same isolation trick as
+    // the "clamps to the technique bucket" unit test above — this is what
+    // makes "the bucket IS the whole budget" true so `Math.min(WARMUP_MINUTES,
+    // totalMinutes)` is the right-hand side, reproducing the pre-4.10
+    // invariant exactly for this isolated case.
     fc.assert(
       fc.property(fc.integer({ min: 1, max: 120 }), (totalMinutes) => {
-        const result = planSession(totalMinutes, { candidates: fullCandidates() })
+        const result = planSession(totalMinutes, {
+          candidates: fullCandidates(),
+          mix: { technique: 1, 'sight-reading': 0, lesson: 0, 'theory-ear': 0 },
+        })
         expect(isOk(result)).toBe(true)
         if (!result.ok) return
-        expect(result.value.items[0]?.segment).toBe('warmup')
         expect(result.value.bySegment.warmup).toBe(Math.min(WARMUP_MINUTES, totalMinutes))
+        if (result.value.bySegment.warmup > 0) {
+          expect(result.value.items[0]?.segment).toBe('warmup')
+        }
       }),
       { numRuns: 200 },
+    )
+  })
+
+  it('warm-up never exceeds WARMUP_MINUTES nor technique\'s own shared bucket, at any budget and any valid mix (roadmap 4.10)', () => {
+    fc.assert(
+      fc.property(fc.integer({ min: 1, max: 120 }), mixArb, (totalMinutes, mix) => {
+        const result = planSession(totalMinutes, { candidates: fullCandidates(), mix })
+        expect(isOk(result)).toBe(true)
+        if (!result.ok) return
+        const techniqueBucket = result.value.bySegment.warmup + result.value.bySegment.technique
+        expect(result.value.bySegment.warmup).toBeLessThanOrEqual(WARMUP_MINUTES)
+        expect(result.value.bySegment.warmup).toBe(Math.min(WARMUP_MINUTES, techniqueBucket))
+      }),
+      { numRuns: 300 },
     )
   })
 })

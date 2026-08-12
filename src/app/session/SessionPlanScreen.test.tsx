@@ -18,6 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useScoreStore } from '@app/state/scoreStore.ts'
 import { useSightReadingStore } from '@app/state/sightReadingStore.ts'
 import { useProgressStore } from '@app/state/progressStore.ts'
+import { useRepertoireStore } from '@app/state/repertoireStore.ts'
 import { MIN_LEVEL } from '@core/sightreading/adaptive.ts'
 import { makeScore } from '@core/notation/score.ts'
 import type { Exercise } from '@core/curriculum/types.ts'
@@ -40,6 +41,10 @@ function resetStores(): void {
   })
   useSightReadingStore.setState({ level: MIN_LEVEL, history: [] })
   useProgressStore.setState({ assessments: [], recordings: [], practiceEntries: [] })
+  // roadmap 4.10: a cold repertoire library, so "no score loaded" tests
+  // actually exercise the curriculum fallback (candidates.ts) rather than
+  // an accidental repertoire-piece candidate left over from another test.
+  useRepertoireStore.setState({ pieces: [] })
 }
 
 /** Loads a score so all four mixable segments (including lesson) have a
@@ -114,7 +119,7 @@ describe('SessionPlanScreen — planning', () => {
     }
   })
 
-  it('splits 30 minutes as warm-up 5 + REQ-3.1.4\'s 20/20/40/20 of the remainder, now that every mixable segment has candidates', async () => {
+  it('splits 30 minutes so warm-up/technique together hold REQ-3.1.4\'s ~20%, now that every mixable segment has candidates (roadmap 4.10)', async () => {
     const user = userEvent.setup()
     loadAScore()
     render(<SessionPlanScreen onOpen={() => {}} {...freshStoreProps()} />)
@@ -122,12 +127,16 @@ describe('SessionPlanScreen — planning', () => {
 
     await user.click(screen.getByRole('button', { name: '30 min' }))
 
+    // technique's own 20% share of the FULL 30 minutes is a 6-minute bucket
+    // shared with warm-up (roadmap 4.10 — see session.ts's module doc):
+    // warm-up claims its full 5-minute routine, technique keeps the rest.
+    // sight-reading/lesson/theory-ear split the plain 20/40/20 of the same
+    // full 30 minutes, unaffected by warm-up's existence.
     expect(segmentMinutes('warmup')).toBe(5)
-    // Remaining 25 minutes split 20/20/40/20: 5/5/10/5.
-    expect(segmentMinutes('technique')).toBe(5)
-    expect(segmentMinutes('sight-reading')).toBe(5)
-    expect(segmentMinutes('lesson')).toBe(10)
-    expect(segmentMinutes('theory-ear')).toBe(5)
+    expect(segmentMinutes('technique')).toBe(1)
+    expect(segmentMinutes('sight-reading')).toBe(6)
+    expect(segmentMinutes('lesson')).toBe(12)
+    expect(segmentMinutes('theory-ear')).toBe(6)
   })
 
   it('the first item is always warm-up and opens as a checklist, not a plain "Open" link', async () => {
@@ -169,12 +178,29 @@ describe('SessionPlanScreen — planning', () => {
     expect(openedExercise.id).toBe('flashcards-staff-to-key')
   })
 
-  it('with no score loaded, shows a 0-minute lesson row and a hint to load a score', async () => {
+  it('with no score loaded and no repertoire yet, the lesson segment falls back to the curriculum and shows a note (roadmap 4.10)', async () => {
     render(<SessionPlanScreen onOpen={() => {}} {...freshStoreProps()} />)
     await waitHydrated()
 
-    expect(segmentMinutes('lesson')).toBe(0)
-    expect(screen.getByRole('status')).toHaveTextContent(/load a score/i)
+    // Defect 1b (docs/m4-acceptance-2026-08-12.md): a fresh install used to
+    // plan "Lesson / repertoire — 0 min" on Today, the app's own default
+    // screen. It no longer does — candidates.ts's fallback chain gives it
+    // the curriculum's first lesson instead.
+    expect(segmentMinutes('lesson')).toBeGreaterThan(0)
+    const items = screen.getByRole('list', { name: 'Session items' })
+    expect(within(items).getByText(/^Lesson: /)).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent(/no score loaded/i)
+  })
+
+  it('once a score is loaded, the lesson segment opens it directly and the curriculum-fallback note disappears', async () => {
+    loadAScore()
+    render(<SessionPlanScreen onOpen={() => {}} {...freshStoreProps()} />)
+    await waitHydrated()
+
+    expect(segmentMinutes('lesson')).toBeGreaterThan(0)
+    const items = screen.getByRole('list', { name: 'Session items' })
+    expect(within(items).getByText(/Test Piece/)).toBeInTheDocument()
+    expect(screen.queryByText(/no score loaded/i)).not.toBeInTheDocument()
   })
 
   it('renders the error text instead of an empty list for an unfillable request', async () => {

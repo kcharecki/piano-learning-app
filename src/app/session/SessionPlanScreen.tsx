@@ -311,8 +311,21 @@ export function SessionPlanScreen({ onOpen, clock, date, openStore }: SessionPla
             </dl>
           </section>
 
-          {plan.bySegment.lesson === 0 && (
-            <p role="status">Load a score to fill the lesson segment.</p>
+          {/* roadmap 4.10: the lesson segment now always has a candidate
+              (loaded score > first repertoire piece > curriculum's first
+              lesson — see candidates.ts), so it is never literally empty on
+              a real curriculum. What's still worth telling the learner: when
+              the ONLY reason it's filled is the generic curriculum fallback
+              (kind 'play', see lessonCandidates) rather than something of
+              their own — that's the "no score loaded, no repertoire yet"
+              state this note now targets, instead of a segment that could
+              actually read 0 min. */}
+          {plan.items.some((item) => item.segment === 'lesson' && item.exercise.kind === 'play') && (
+            <p role="status">
+              No score loaded and no repertoire saved yet — today&apos;s lesson segment opens the
+              curriculum&apos;s first lesson. Load a score or add a piece to your repertoire to
+              personalize it.
+            </p>
           )}
 
           <ul aria-label="Session items">

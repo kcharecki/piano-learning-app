@@ -1,37 +1,74 @@
 /**
  * The daily practice session builder (REQ-3.1.4): assembles a session from
  * five segments — warm-up, technique, sight-reading, lesson/repertoire,
- * theory/ear training. The four "mixable" segments split their share of the
- * budget in a 20/20/40/20 default mix, scaled to any budget in minutes; the
- * warm-up segment (roadmap 5.45) sits outside that proportional split — see
+ * theory/ear training. The four "mixable" segments split the budget in a
+ * 20/20/40/20 default mix, scaled to any budget in minutes; warm-up
+ * (roadmap 5.45, reworked for roadmap 4.10's M4 acceptance fix) is carved
+ * OUT of technique's own 20% share rather than being a fifth split — see
  * below.
  *
  * Pure and deterministic: given the same budget, mix and candidate lists it
  * always returns the same plan. No Rng, no clock — the caller decides which
  * exercises are candidates and in what preference order.
  *
- * ## Warm-up is reserved, not mixed (roadmap 5.45)
+ * ## Warm-up shares technique's bucket, it does not sit outside it (roadmap 4.10)
  *
- * Every source consulted (Juilliard's guide among them) puts a short,
- * away-from-the-keys warm-up first, and its length does not track total
- * practice time the way the other four segments' does — a 60-minute session
- * does not need a 20-minute warm-up. So warm-up is not a fifth share of
- * `DEFAULT_MIX`: it is a flat `WARMUP_MINUTES` reserved off the top of the
- * budget (clamped to the budget itself for a very short session), and the
- * REMAINDER is what the existing 20/20/40/20 mix divides among the other
- * four segments exactly as before. This keeps `DEFAULT_MIX` and the mix
- * option's shape unchanged (still four keys) and means a caller that never
- * supplies warm-up candidates gets EXACTLY the pre-5.45 behaviour, byte for
- * byte — see `fillSegment`'s "no candidates -> no items, 0 minutes" rule,
- * which already covers "warm-up declined" for free.
+ * REQ-3.1.4 names four categories, and the first of them is
+ * "warm-up/technique (~20%)" — ONE bucket, not two. Roadmap 5.45's original
+ * implementation missed that: it took a flat `WARMUP_MINUTES` off the TOP of
+ * the whole budget, before the 20/20/40/20 split ran over what was left.
+ * That silently shrank every other category too (at 15 minutes, 5 flat
+ * minutes off the top is a third of the entire session, not a third of
+ * technique's fifth) — the 2026-08-12 M4 acceptance pass caught it as a
+ * regression (`docs/m4-acceptance-2026-08-12.md`, Defect 1).
+ *
+ * The fix: `technique`'s share of `DEFAULT_MIX` (still 0.2, still one of the
+ * four keys `allocateWholeMinutes` splits) now represents the COMBINED
+ * warm-up/technique bucket the requirement names. Once that bucket's whole
+ * minutes are apportioned exactly like every other segment's — over the
+ * FULL budget, not a remainder — warm-up claims up to `WARMUP_MINUTES` OF
+ * IT, and technique keeps whatever is left:
+ *
+ *   techniqueBucket = allocateWholeMinutes(totalMinutes, shares).technique
+ *   warmup          = min(WARMUP_MINUTES, techniqueBucket)
+ *   technique       = techniqueBucket - warmup
+ *
+ * Why warm-up takes the first claim on the shared bucket rather than a
+ * proportional split of it: `WARMUP_MINUTES` is a fixed, already-justified
+ * routine length (5 steps, ~1 minute each — see `@content/curriculum/
+ * warmups.ts`), and a technique block does not stop being useful just
+ * because it is short — a partial drill is still real practice, whereas a
+ * partial warm-up routine that got proportionally shaved on every budget
+ * would be a slightly-worse version of the same five steps every single
+ * day. Capping warm-up at its own natural length and letting technique
+ * absorb the remainder keeps the warm-up routine IDENTICAL in substance at
+ * every budget (still all 5 `WARMUP_STEPS`, `WarmupChecklist` does not
+ * truncate the list by minutes) and only trims how many minutes the session
+ * clock credits it — this is what keeps a 15-minute session's warm-up
+ * "musically useful rather than rounded to zero": the requirement's own
+ * ~20% bucket at 15 minutes is already ~3 minutes, comfortably enough for
+ * most of the routine, and warm-up gets first claim on those 3 rather than
+ * being squeezed to nothing by technique.
+ *
+ * This keeps `DEFAULT_MIX` and the mix option's shape unchanged (still four
+ * keys) and means a caller that never supplies warm-up candidates gets
+ * EXACTLY the same technique allocation as if warm-up did not exist — see
+ * `fillSegment`'s "no candidates -> no items, 0 minutes" rule, which already
+ * covers "warm-up declined" for free (the whole bucket stays technique's).
  *
  * Warm-up participates in the same "no candidates anywhere -> error" and
  * "empty segment -> repeat/at-least-one-item" rules as the other four via
  * the same `fillSegment` helper; it just is not eligible to rescue an
  * otherwise-unfillable plan (see `planSession`'s ordering of checks) — a
  * plan with no real content in any of the four mixable segments still
- * errs, even if warm-up alone has candidates, matching the pre-5.45
- * contract that "no candidates for any segment" is a hard error.
+ * errs, even if warm-up alone has candidates. One consequence of warm-up now
+ * living inside technique's bucket rather than the raw budget: if
+ * `technique` itself has NO candidates (so its share renormalises to 0
+ * elsewhere), warm-up gets zero minutes too, even though it has its own
+ * candidate — there is no bucket left for it to draw from. In practice
+ * `techniqueCandidates` (`@app/session/candidates.ts`) always returns the
+ * level's drills, so this only matters for a caller that deliberately empties
+ * technique's candidate list.
  */
 import type { Exercise } from '@core/curriculum/types.ts'
 import { type Result, ok, err } from '@core/shared/result.ts'
@@ -65,10 +102,11 @@ export const DEFAULT_MIX: Readonly<Record<MixableSegmentKind, number>> = {
 }
 
 /**
- * Flat minutes reserved for warm-up off the top of the budget, before the
- * mixable segments split the remainder — see the module doc. Clamped to the
- * total budget for any session shorter than this, so warm-up never claims
- * minutes that do not exist.
+ * The warm-up routine's natural length, and the most it can claim of
+ * technique's shared bucket (roadmap 4.10) — see the module doc's "Warm-up
+ * shares technique's bucket" section. Clamped to the bucket itself (which is
+ * in turn clamped to the total budget) so warm-up never claims minutes that
+ * do not exist.
  */
 export const WARMUP_MINUTES = 5
 
@@ -232,15 +270,25 @@ export function planSession(
   // Normal case: redistribute proportionally to each eligible segment's own share.
   for (const seg of eligibleSegments) shares[seg] = rawMix[seg] / eligibleSum
 
-  // Warm-up is reserved off the top, flat, before the mixable split — see the
-  // module doc. `Math.min` clamps it to the budget itself so a session
-  // shorter than WARMUP_MINUTES still sums exactly to totalMinutes.
-  const warmupMinutes =
-    opts.candidates.warmup.length > 0 ? Math.min(WARMUP_MINUTES, totalMinutes) : 0
-  const remainingMinutes = totalMinutes - warmupMinutes
+  // The combined warm-up/technique bucket is apportioned over the FULL
+  // budget, exactly like every other segment — no off-the-top reservation
+  // (roadmap 4.10; see the module doc's "Warm-up shares technique's bucket"
+  // section for why this replaced the flat reservation).
+  const mixableBySegment = allocateWholeMinutes(totalMinutes, shares)
 
-  const mixableBySegment = allocateWholeMinutes(remainingMinutes, shares)
-  const bySegment: Record<SessionSegmentKind, number> = { warmup: warmupMinutes, ...mixableBySegment }
+  // Warm-up claims up to WARMUP_MINUTES OF technique's own bucket; technique
+  // keeps the remainder. `Math.min` clamps warm-up to the bucket itself, so
+  // a bucket smaller than WARMUP_MINUTES (a short session, or technique
+  // renormalised down by other empty segments) still sums exactly.
+  const warmupMinutes =
+    opts.candidates.warmup.length > 0 ? Math.min(WARMUP_MINUTES, mixableBySegment.technique) : 0
+  const techniqueMinutes = mixableBySegment.technique - warmupMinutes
+
+  const bySegment: Record<SessionSegmentKind, number> = {
+    ...mixableBySegment,
+    technique: techniqueMinutes,
+    warmup: warmupMinutes,
+  }
 
   const items: SessionItem[] = []
   for (const seg of SEGMENT_ORDER) {

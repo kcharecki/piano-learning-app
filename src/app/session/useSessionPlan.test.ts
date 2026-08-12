@@ -9,6 +9,7 @@ import { act, cleanup, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { useScoreStore } from '@app/state/scoreStore.ts'
 import { useSightReadingStore } from '@app/state/sightReadingStore.ts'
+import { useRepertoireStore } from '@app/state/repertoireStore.ts'
 import { MIN_LEVEL } from '@core/sightreading/adaptive.ts'
 import { makeScore } from '@core/notation/score.ts'
 import { DEFAULT_MIX } from '@core/curriculum/session.ts'
@@ -28,6 +29,10 @@ function resetStores(): void {
     },
   })
   useSightReadingStore.setState({ level: MIN_LEVEL, history: [] })
+  // roadmap 4.10: a truly cold profile's repertoire library — the lesson
+  // segment's fallback chain (candidates.ts) is only fully exercised when
+  // this is empty, so every test starts from that real cold-profile state.
+  useRepertoireStore.setState({ pieces: [] })
 }
 
 beforeEach(resetStores)
@@ -77,13 +82,15 @@ describe('useSessionPlan', () => {
     act(() => result.current.setMixShare('lesson', 0))
     act(() => result.current.setMixShare('theory-ear', 0))
 
-    // sight-reading is the only mixable segment left with any share and it
-    // always has a candidate, so it absorbs the entire REMAINING budget
-    // (technique never has candidates; lesson has none by default with no
-    // score loaded) — warm-up (roadmap 5.45) reserves its flat 5 minutes off
-    // the top first, unaffected by the mix, so the remainder is 30 - 5 = 25.
-    expect(result.current.plan?.bySegment['sight-reading']).toBe(25)
-    expect(result.current.plan?.bySegment.warmup).toBe(5)
+    // sight-reading is the only mixable segment left with any share, so it
+    // absorbs the ENTIRE 30-minute budget — technique's share is zeroed too,
+    // and (roadmap 4.10) warm-up only ever draws from technique's OWN share
+    // of the bucket, so zeroing technique's share zeroes warm-up as well,
+    // even though warm-up still has its fixed candidate. See session.ts's
+    // module doc, "Warm-up shares technique's bucket".
+    expect(result.current.plan?.bySegment['sight-reading']).toBe(30)
+    expect(result.current.plan?.bySegment.warmup).toBe(0)
+    expect(result.current.plan?.bySegment.technique).toBe(0)
   })
 
   it('surfaces planSession errors as readable text instead of swallowing them', () => {
@@ -118,7 +125,14 @@ describe('useSessionPlan', () => {
   it('recomputes candidates when the loaded score changes (memo deps are not stale)', () => {
     const { result } = renderHook(() => useSessionPlan())
 
-    expect(result.current.plan?.bySegment.lesson).toBe(0)
+    // roadmap 4.10: a cold profile (no score, no repertoire) still gets a
+    // non-zero lesson segment — the curriculum fallback — so this test's
+    // signal is no longer "0 -> non-zero" but WHICH candidate the segment's
+    // item names, which must track the loaded score once one appears.
+    expect(result.current.plan?.bySegment.lesson).toBe(12)
+    const beforeItem = result.current.plan?.items.find((item) => item.segment === 'lesson')
+    expect(beforeItem?.exercise.kind).toBe('play')
+    expect(beforeItem?.exercise.title).toMatch(/^Lesson: /)
 
     act(() => {
       useScoreStore.getState().loadScore({
@@ -133,9 +147,13 @@ describe('useSessionPlan', () => {
       })
     })
 
-    // Every mixable segment has candidates since roadmap 4.4a, so the lesson
-    // segment gets REQ-3.1.4's plain 40% of the REMAINING budget after
-    // warm-up's flat 5-minute reservation (roadmap 5.45): 40% of (30 - 5).
-    expect(result.current.plan?.bySegment.lesson).toBe(10)
+    // The share itself is unaffected by which candidate fills it — lesson
+    // stays REQ-3.1.4's plain 40% of the full 30-minute budget throughout —
+    // but the actual item now names the loaded score, proving the memo
+    // re-read scoreStore rather than caching the cold-profile candidate.
+    expect(result.current.plan?.bySegment.lesson).toBe(12)
+    const afterItem = result.current.plan?.items.find((item) => item.segment === 'lesson')
+    expect(afterItem?.exercise.kind).toBe('repertoire')
+    expect(afterItem?.exercise.title).toContain('Test Piece')
   })
 })
