@@ -325,10 +325,22 @@ The M3 gaps that are unbuilt features rather than defects. Each states its proof
         a worktree. `knip:prod` and `knip:prod:all` exit 0 (Defect 3 closed — no
         implemented-tested-unimported module left).
       - Follow-ups raised, none blocking: **F.1** make `verify:full` runnable from a worktree (or
-        document it as main-checkout-only and give worktrees the equivalent pair); **F.2**
-        `app/state/persistence.ts` has no `pagehide`/`beforeunload` flush, so a store write in
-        flight when the tab closes is lost — observed live: clicking "Advance" then reloading
-        immediately left the track back at level 1; **F.3** delete the module comments the code has
+        document it as main-checkout-only and give worktrees the equivalent pair); **F.2 — fixed**
+        `app/state/persistence.ts` had no `pagehide`/`beforeunload` flush, so a store write still
+        sitting in `createWriteQueue`'s `pending` when the tab went away was never sent at all
+        (distinct from a request already sent but not yet committed, which no in-page listener can
+        close). `createWriteQueue` now carries a synchronous, best-effort `flush()`, and
+        `startPersisting` registers one `pagehide` + `visibilitychange`→hidden listener pair that
+        flushes all eleven slices, torn down by the same unsubscribe. *Proof:* reproduced the exact
+        loss first — a deterministic two-write-per-queue race, checked with a synchronous native
+        `IDBObjectStore.put` call count so the assertion cannot be won by the ordinary (non-flush)
+        drain loop's own unrelated timing — failed 10/10 runs against the pre-fix code and passed
+        10/10 against the fix, driven in the real app (`e2e/persistence-pagehide.spec.ts`, small
+        payload `levelState` and the bigger repertoire library); `npm run verify` green (115 new/
+        changed persistence unit tests, 3908 total); full `npx playwright test` **128 passed**
+        (126 baseline + 2 new), console clean; every exit code unpiped. The "sent but not committed"
+        window — a transaction the browser kills mid-commit during an abrupt teardown — remains
+        open by design; **F.3** delete the module comments the code has
         already contradicted (`core/repertoire/repertoire.ts` "roadmap 4.5's consumer screen doesn't
         call this yet" ×7 plus `sessionFromEntry`'s "checked: no reference … in that file",
         `content/curriculum/curriculum.ts:17–22`, `app/state/techniqueStore.ts` "hydrate … is
