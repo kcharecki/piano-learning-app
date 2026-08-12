@@ -29,7 +29,10 @@
    ============================================================ */
 
 /* ---------- App shell + nav ---------- */
-.app-layout { display: flex; min-height: 100vh; }
+/* position: relative so .app-layout::before below has something to anchor
+   to — flex layout itself is unaffected by that (position only matters for
+   absolutely-positioned descendants). */
+.app-layout { display: flex; min-height: 100vh; position: relative; }
 .app-topbar, .nav-scrim { display: none; }
 .app-nav {
   width: var(--nav-w);
@@ -43,6 +46,32 @@
   border-right: var(--border-w) solid var(--border-1);
   padding: var(--space-3) var(--space-2);
   z-index: var(--z-nav);
+}
+/* roadmap 5.51: `.app-nav`'s own box is exactly `100vh` (by design — it's a
+   sticky, always-visible sidebar whose content scrolls independently of the
+   page). During ordinary interactive scrolling that is invisible: sticky
+   keeps its 100vh box pinned to the viewport top for as long as `.app-layout`
+   (which grows to match `.app-main`'s real content height) has room, so the
+   nav background always covers what's on screen. But anything that renders
+   the page WITHOUT driving a real scroll — `page.screenshot({ fullPage:
+   true })` in `scripts/visual-pass.mjs`, a print stylesheet, a very tall
+   zoomed-out viewport — paints `.app-nav`'s 100vh box once, at the top, and
+   the nav column below that is unpainted for the rest of the page's real
+   (taller) height: exactly the "background stops at ~897px" defect. This
+   pseudo-element is a plain, non-sticky background layer the full height of
+   `.app-layout`, sitting one stacking level below both `.app-nav` (--z-nav)
+   and `.app-main` (default) — during normal use it is permanently hidden
+   behind the sticky nav's own background and never intercepts a click
+   (`pointer-events: none`); it exists solely so the nav's color still fills
+   the column in a render that never scrolls. */
+.app-layout::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--nav-w);
+  background: var(--bg-1);
+  pointer-events: none;
+  z-index: -1;
 }
 /* The nav is a list for screen readers, never a bulleted list on screen —
    without this the twelve destinations render with disc markers down the

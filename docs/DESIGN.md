@@ -5,6 +5,16 @@ typography, elevation, motion, z-index tokens; primitives styled off native elem
 attributes; domain and responsive css). **Never** raw hex, raw px spacing, or ad-hoc button
 styles at point of use — always tokens and primitives.
 
+**All three text tokens are AA text (roadmap 5.51).** `--text-1`/`--text-2`/`--text-3` all hold
+≥4.5:1 against every `--bg-0`…`--bg-3` surface in their own theme — `--text-3` is the quiet
+tertiary tone (e.g. an upcoming/inactive state, a chart axis label), not a "decorative, contrast
+doesn't matter" tone. There is no token in this system whose comment says it's exempt from AA;
+if you're tempted to add one, use `--paper-muted`/opacity on a non-text element (icon stroke,
+border, placeholder hint) instead of inventing a low-contrast text color. Verify any new text
+token or reused one with `node scripts/review-probe.mjs contrast --url <dev-server>` before
+shipping — it measures the live CSSOM, not the token file, so it catches what the pair actually
+renders as, not what it was intended to be.
+
 What has been missing is not tokens but *composition*: screens accreted controls with no
 hierarchy (the Practice screen reached 30 controls in 13 groups over ~5100px of scroll).
 These rules govern composition, and the checklist below is the experience gate's visual pass
@@ -62,8 +72,10 @@ picky stranger, then fix before ticking. A screen with touch input also gets the
 - [ ] ≤ ~6 interactive controls visible before disclosure; related controls grouped, groups
       titled, advanced ones collapsed.
 - [ ] Spacing and alignment come from tokens; nothing visually floats or crowds an edge.
-- [ ] Text contrast AA (`--text-3` is decorative-only by design); focus rings visible;
-      the whole flow drivable by keyboard.
+- [ ] Text contrast AA on every text role, including `--text-3` (roadmap 5.51: it is the
+      quiet tertiary reading tone, not an AA exemption — ≥4.5:1 against every surface tone
+      in its own theme; verify with `node scripts/review-probe.mjs contrast`); focus rings
+      visible; the whole flow drivable by keyboard.
 - [ ] Empty / loading / error / no-MIDI states all render intentionally.
 - [ ] No layout shift or jank while interacting; motion uses the motion tokens.
 - [ ] Copy passes rule 7 (learner language) — read every visible string aloud.

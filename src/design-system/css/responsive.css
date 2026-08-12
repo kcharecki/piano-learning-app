@@ -44,6 +44,13 @@
 
   /* Nav collapses to drawer */
   .app-layout { display: block; }
+  /* roadmap 5.51's `.app-layout::before` (domain.css) exists only to backfill
+     the desktop sticky sidebar's background for renders that skip real
+     scrolling. At this width the nav is an off-canvas drawer, not a layout
+     column, and `.app-main` runs full-width — the same pseudo-element would
+     paint an unwanted `--nav-w`-wide strip down the left edge of every
+     screen, open drawer or not. Desktop-only. */
+  .app-layout::before { content: none; }
   .app-nav {
     position: fixed;
     /* Starts BELOW the topbar, not at the viewport top. The topbar deliberately

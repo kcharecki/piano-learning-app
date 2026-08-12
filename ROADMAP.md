@@ -1195,7 +1195,7 @@ next item, no completion state, no sense of being 3 of 5 through today.
 
 ### M5 acceptance follow-ups — from the 2026-08-12 re-score
 
-- [ ] 5.51 `design-system`: `--text-3` is documented in `tokens/colors.css:26` as "decorative only —
+- [x] 5.51 `design-system`: `--text-3` is documented in `tokens/colors.css:26` as "decorative only —
       fails AA on purpose", and two M5 tasks then used it for load-bearing text — `.nav-group-title`
       (`feature-nav-groups.css:37`, roadmap 5.43's own IA labels: 4.36 dark, **3.12 light**) and
       `.session-plan-warmup-note` (`feature-session-run.css`, roadmap 5.45: **2.90 light**). 27 AA
@@ -1207,6 +1207,37 @@ next item, no completion state, no sense of being 3 of 5 through today.
       architecture**.
       *Proof: `node scripts/review-probe.mjs contrast --url <dev>` exits **0** — it exits 1 on any AA
       failure, so this is a check and not a claim. Visual pass both widths/themes.*
+      *Done 2026-08-12: chose "raise `--text-3`", not "move to `--text-2`" — a sweep of every
+      `--text-3` use (`domain.css`, `feature-nav-groups.css`, `feature-session-run.css`,
+      `primitives.css`) found it was already load-bearing well beyond the two named selectors: the
+      running session view's 3-tier state color (current=`--text-1`, done=`--text-2`,
+      upcoming=`--text-3`, `feature-session-run.css`'s `.session-run-item-list`), item-duration
+      badges, and `.trend-chart` axis labels. Moving only the two named selectors to `--text-2` would
+      have collapsed `done` and `upcoming` into the same color; recoloring the token fixes every
+      current and future use without special-casing selectors. New values (computed against the
+      *worst-case* surface in each theme, `--bg-3` dark / `--bg-0` light, not just the two failing
+      spots): dark `#7b838e → #969ea8`, light `#858c96 → #5c646e` — both ≥4.5:1 everywhere in their
+      theme, confirmed by re-deriving the review's own luminance numbers from the CSSOM formula before
+      picking replacements. Comment rewritten to state the AA guarantee and the reasoning, not "fails
+      on purpose"; `docs/DESIGN.md` gets a standing rule against reintroducing an AA-exempt text
+      token. `.app-nav`: root cause is `height: 100vh` on a `position: sticky` sidebar — correct for
+      real interactive scroll (verified live: sticky re-pins to the viewport top at every scroll depth
+      on a 1891px page, JS-measured, no gap) but wrong for anything that renders the full document
+      without scrolling, which is exactly what `visual-pass.mjs`'s `page.screenshot({ fullPage: true
+      })` does — it paints the nav's 100vh box once at the top and leaves the rest of the column bare.
+      Fixed with a `.app-layout::before` pseudo-element, full container height, one stacking level
+      below the real nav, that only ever shows through where the always-on-top sticky nav doesn't
+      reach a non-scrolled render — zero effect on interactive use, suppressed entirely
+      (`content: none`) under the ≤1024px drawer where it would otherwise paint an unwanted stripe.
+      **Before/after (measured, `node scripts/review-probe.mjs contrast`): 27 → 0 AA failures.**
+      `npm run verify`: 190 files / 3900 tests green. Visual pass on Today/Practice/Progress at
+      1280/1024 × dark/light: console clean, nav labels and the warm-up note legible in both themes,
+      the running-session 3-tier hierarchy confirmed distinct via direct DOM read (current
+      `rgb(232,230,227)`, upcoming `rgb(150,158,168)` on `rgb(20,22,26)`), `.app-nav` background
+      confirmed filling the full 2099px Progress page and the full 1891px Practice page, not just the
+      first viewport. Files touched: `tokens/colors.css`, `css/domain.css`, `css/responsive.css`,
+      `docs/DESIGN.md`. `feature-nav-groups.css`/`feature-session-run.css` needed no edits — the fix
+      is at the token, not the call sites. Deleted nothing.
 - [ ] 5.52 `app/repertoire` + `content`: the catalogue row reads "Für Elise (Theme A) / Ludwig van
       Beethoven (1770–1827) / Level 3 / Add" and discloses nothing, while `src/content/scores/
       LICENSE.md` and `gradedPieces.ts`'s own doc say these files are "a faithful rendition of the
