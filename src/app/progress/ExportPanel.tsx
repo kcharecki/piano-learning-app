@@ -135,8 +135,9 @@ export function ExportPanel(props: ExportPanelProps) {
 
       <section aria-label="Export progress" role="group">
         <p>
-          Practice log, flashcards, sight-reading history, and assessments are exportable and
-          stay local (REQ-3.10.4).
+          Practice log, flashcards, sight-reading history, repertoire (including each piece's
+          practice history, level and notes), and assessments are exportable and stay local
+          (REQ-3.10.4).
         </p>
         <button type="button" onClick={handleDownloadJson}>
           Download JSON

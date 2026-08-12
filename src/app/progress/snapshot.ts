@@ -23,14 +23,17 @@
  *    through `RepertoirePieceLike`. This comment used to claim no such store
  *    existed (matching a now-stale claim in `useDashboard.ts`'s module
  *    comment) — that has been false since roadmap 4.5 landed
- *    `useRepertoireStore`. The projection is LOSSY the same way `assessments`
- *    is: `RepertoirePieceLike`'s structural minimum (`@core/progress/export.ts`)
- *    keeps only `id`/`title`/`composer`/`status`/`addedAt`, so a restored
- *    `RepertoirePiece`'s `level`, `sessions`, `bestAccuracy`, `notes` and
- *    `scoreId` are NOT preserved — `level` is fabricated at the curriculum
- *    minimum, `sessions` restore empty, `bestAccuracy` restores `0`, `notes`
- *    restores blank, and an unrecognised `status` string falls back to
- *    `'learning'` rather than crashing on a hand-edited file.
+ *    `useRepertoireStore`. UNLIKE `assessments` below, this projection is now
+ *    LOSSLESS (roadmap 4.10, REQ-3.10.4/4.3): `RepertoirePieceLike` was
+ *    widened to carry `level`/`sessions`/`bestAccuracy`/`notes`/`scoreId`
+ *    too, after the narrower version was found to silently destroy a piece's
+ *    practice history on restore — see `docs/m4-acceptance-2026-08-12.md`
+ *    Defect 2 and `@core/progress/export.ts`'s module comment. The one
+ *    remaining fabrication: an unrecognised `status` string (a hand-edited
+ *    file) falls back to `'learning'` rather than crashing, and an
+ *    out-of-range restored `level` is clamped to `MIN_LEVEL..MAX_LEVEL`
+ *    exactly like the sight-reading level below, rather than trusted as-is
+ *    from an untrusted file.
  *  - `assessments` — `useProgressStore().assessments`, projected through
  *    `StoredAssessmentLike`. This projection is LOSSY: `StoredAssessmentLike`
  *    keeps only `id`/`at`/`accuracy`/`kind`/`itemId` (the export module's own
@@ -78,14 +81,23 @@ import {
   MIN_LEVEL as SIGHT_READING_MIN_LEVEL,
   MAX_LEVEL as SIGHT_READING_MAX_LEVEL,
 } from '@core/sightreading/adaptive.ts'
-import { MIN_LEVEL as REPERTOIRE_MIN_LEVEL } from '@core/curriculum/types.ts'
+import {
+  MIN_LEVEL as REPERTOIRE_MIN_LEVEL,
+  MAX_LEVEL as REPERTOIRE_MAX_LEVEL,
+} from '@core/curriculum/types.ts'
 import {
   REPERTOIRE_STATUSES,
   type RepertoirePiece,
+  type RepertoireSession,
   type RepertoireStatus,
 } from '@core/repertoire/repertoire.ts'
 import type { DateSource } from '@core/ports/index.ts'
-import type { ProgressSnapshot, RepertoirePieceLike, StoredAssessmentLike } from '@core/progress/export.ts'
+import type {
+  ProgressSnapshot,
+  RepertoirePieceLike,
+  RepertoireSessionLike,
+  StoredAssessmentLike,
+} from '@core/progress/export.ts'
 
 /**
  * The only track key `levels` carries today — see the module comment. Named
@@ -99,20 +111,55 @@ function isRepertoireStatus(value: string): value is RepertoireStatus {
   return (REPERTOIRE_STATUSES as readonly string[]).includes(value)
 }
 
+function toRepertoireSessionLike(session: RepertoireSession): RepertoireSessionLike {
+  return {
+    at: session.at,
+    minutes: session.minutes,
+    ...(session.accuracy === undefined ? {} : { accuracy: session.accuracy }),
+    ...(session.tempoBpm === undefined ? {} : { tempoBpm: session.tempoBpm }),
+  }
+}
+
 function toRepertoirePieceLike(piece: RepertoirePiece): RepertoirePieceLike {
   return {
     id: piece.id,
     title: piece.title,
     composer: piece.composer,
     status: piece.status,
+    level: piece.level,
+    sessions: piece.sessions.map(toRepertoireSessionLike),
+    bestAccuracy: piece.bestAccuracy,
+    notes: piece.notes,
+    ...(piece.scoreId === undefined ? {} : { scoreId: piece.scoreId }),
+  }
+}
+
+/** Clamp a restored level into the curriculum's valid range, mirroring the
+ *  sight-reading level clamp below — an untrusted file's `level` is trusted
+ *  for its VALUE but not its RANGE. */
+function clampLevel(level: number): number {
+  return Math.min(REPERTOIRE_MAX_LEVEL, Math.max(REPERTOIRE_MIN_LEVEL, Math.round(level)))
+}
+
+function toRepertoireSession(like: RepertoireSessionLike): RepertoireSession {
+  return {
+    at: like.at,
+    minutes: like.minutes,
+    ...(like.accuracy === undefined ? {} : { accuracy: like.accuracy }),
+    ...(like.tempoBpm === undefined ? {} : { tempoBpm: like.tempoBpm }),
   }
 }
 
 /**
- * Reconstructs a `RepertoirePiece` from the structural minimum a snapshot
- * carries. `level`/`sessions`/`bestAccuracy`/`notes`/`scoreId` are fabricated
- * around the fields that survived (`id`/`title`/`composer`/`status`) — see
- * the module comment on why the rest cannot be recovered.
+ * Reconstructs a `RepertoirePiece` from a snapshot's `RepertoirePieceLike`.
+ * Since roadmap 4.10, this is lossless for every field a file THIS app wrote
+ * carries — `level`/`sessions`/`bestAccuracy`/`notes`/`scoreId` all round
+ * trip. Only two things are still not the source-of-truth value verbatim:
+ * an unrecognised `status` string falls back to `'learning'` (a hand-edited
+ * file), and `level` is clamped into range (see `clampLevel`) rather than
+ * trusted as-is. A genuinely OLDER export (written before this widening)
+ * simply has these fields absent, so every `?? default` below is what makes
+ * that file still import cleanly instead of crashing.
  */
 function toRepertoirePiece(like: RepertoirePieceLike): RepertoirePiece {
   const status: RepertoireStatus =
@@ -121,11 +168,12 @@ function toRepertoirePiece(like: RepertoirePieceLike): RepertoirePiece {
     id: like.id,
     title: like.title,
     composer: like.composer ?? '',
-    level: REPERTOIRE_MIN_LEVEL,
+    level: like.level === undefined ? REPERTOIRE_MIN_LEVEL : clampLevel(like.level),
     status,
-    sessions: [],
-    bestAccuracy: 0,
-    notes: '',
+    sessions: (like.sessions ?? []).map(toRepertoireSession),
+    bestAccuracy: like.bestAccuracy === undefined ? 0 : Math.min(1, Math.max(0, like.bestAccuracy)),
+    notes: like.notes ?? '',
+    ...(like.scoreId === undefined ? {} : { scoreId: like.scoreId }),
   }
 }
 

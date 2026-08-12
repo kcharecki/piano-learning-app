@@ -16,13 +16,26 @@
  *
  * `RepertoirePieceLike` and `StoredAssessmentLike` are structural minimums
  * declared here (not imported from `@core/repertoire` or the app's store
- * types, both being written concurrently by other agents) so this module
- * only depends on the fields it actually serialises. If the real types carry
- * more fields, those are simply unknown-and-dropped by this module today —
- * widening these two types is a follow-up, not a round-trip break, since
- * every field they currently declare is optional except `id`.
+ * types) so this module only depends on the fields it actually serialises. If
+ * the real types carry more fields, those are simply unknown-and-dropped by
+ * this module today — widening either type is a follow-up, not a round-trip
+ * break, since every field they declare is optional except `id`.
+ *
+ * `RepertoirePieceLike` WAS such a follow-up (roadmap 4.10, REQ-3.10.4/4.3):
+ * it used to keep only `id`/`title`/`composer`/`status`/`addedAt`, silently
+ * dropping a piece's `level`/`sessions`/`bestAccuracy`/`notes`/`scoreId` on
+ * export and fabricating them back at defaults on import. That was harmless
+ * while those fields were always empty; once roadmap T.5 wired real practice
+ * sessions into the repertoire store, the same code path became a real
+ * restore-time data loss — see `docs/m4-acceptance-2026-08-12.md` Defect 2.
+ * `RepertoirePieceLike` now carries every field `@core/repertoire`'s
+ * `RepertoirePiece` does, so exporting-then-restoring one's own backup is
+ * lossless. `StoredAssessmentLike` is deliberately NOT widened the same way —
+ * its lossy fields (`timingConsistency`, per-measure `measures`, `tempoBpm`)
+ * are a full `AssessmentResult` re-derivation, not "data the learner typed
+ * in", and are covered by the same "known gap" reasoning as before.
  */
-import { ACTIVITY_KINDS, toCsv, type ActivityKind, type PracticeEntry } from '@core/progress/log.ts'
+import { toCsv, type PracticeEntry } from '@core/progress/log.ts'
 import type { Card } from '@core/srs/scheduler.ts'
 import type { SightReadingRecord } from '@core/sightreading/session.ts'
 import type { TechniqueAttempt } from '@core/technique/evenness.ts'
@@ -40,14 +53,35 @@ import {
   optionalFiniteNumber,
   requireBoolean,
   parseArray,
+  optionalArray,
+  parsePracticeEntry,
+  parseCard,
+  parseSightReadingRecord,
 } from '@core/progress/parseHelpers.ts'
 
 // ------------------------------------------------------------------- types
 
 /**
+ * Structural minimum for one recorded practice session on a repertoire
+ * piece — mirrors `@core/repertoire`'s `RepertoireSession` exactly, but
+ * declared locally rather than imported (see `RepertoirePieceLike`'s doc
+ * comment for why).
+ */
+export type RepertoireSessionLike = {
+  /** Epoch ms. */
+  readonly at: number
+  readonly minutes: number
+  /** Best assessment accuracy in that session, 0..1, when one was run. */
+  readonly accuracy?: number
+  readonly tempoBpm?: number
+}
+
+/**
  * Structural minimum for a repertoire piece. Deliberately NOT imported from
- * `@core/repertoire` (owned by another in-flight agent) — only the fields
- * this module reads and writes back.
+ * `@core/repertoire` — only the fields this module reads and writes back.
+ * Widened (roadmap 4.10) to carry every field `RepertoirePiece` has: see the
+ * module doc comment for why the earlier, narrower version silently
+ * destroyed practice history on restore.
  */
 export type RepertoirePieceLike = {
   readonly id: string
@@ -57,6 +91,18 @@ export type RepertoirePieceLike = {
   readonly status?: string
   /** Epoch ms the piece was added to the learner's repertoire, if known. */
   readonly addedAt?: number
+  /** 1..5, the manually-assignable level (REQ-3.8.3), when known. */
+  readonly level?: number
+  /** Practice history (REQ-3.8.2). Present-but-empty on any export written by
+   *  this app; genuinely absent only on a file exported before this field
+   *  existed — `importProgress` leaves it absent rather than fabricating `[]`
+   *  so a caller can tell "no history" apart from "history not exported". */
+  readonly sessions?: readonly RepertoireSessionLike[]
+  /** Best assessment accuracy ever recorded for this piece, 0..1 (REQ-3.8.2). */
+  readonly bestAccuracy?: number
+  readonly notes?: string
+  /** The imported score's id, when this piece came from an import (REQ-3.8.3). */
+  readonly scoreId?: string
 }
 
 /**
@@ -126,15 +172,42 @@ export type EarTrainingSnapshot = {
   readonly itemsById: Readonly<Record<string, EarItem>>
 }
 
-/** One CSV per collection — a single flat CSV cannot represent this without lying. */
+/**
+ * One CSV per collection — a single flat CSV cannot represent this without
+ * lying. `repertoireSessions` is its own file (rather than a nested column on
+ * `repertoire`) for the same reason: a piece can carry many practice
+ * sessions, and a flat `repertoire.csv` row cannot hold a one-to-many
+ * relationship without either truncating history or inventing a
+ * mini-serialization format inside one cell. Rows carry the owning piece's
+ * `id` so the relationship survives as an ordinary foreign key, which is how
+ * every other per-collection CSV here already relates back to its parent
+ * (e.g. `assessments.itemId`).
+ */
 export type CsvBundle = Readonly<
   Record<
-    'practiceEntries' | 'srsCards' | 'sightReadingHistory' | 'levels' | 'repertoire' | 'assessments',
+    | 'practiceEntries'
+    | 'srsCards'
+    | 'sightReadingHistory'
+    | 'levels'
+    | 'repertoire'
+    | 'repertoireSessions'
+    | 'assessments',
     string
   >
 >
 
 // -------------------------------------------------------------- JSON export
+
+/** Project a `RepertoireSessionLike` down to exactly the fields
+ *  `parseRepertoireSessionLike` accepts (see `projectRepertoirePieceLike`). */
+function projectRepertoireSessionLike(s: RepertoireSessionLike): RepertoireSessionLike {
+  return {
+    at: s.at,
+    minutes: s.minutes,
+    ...(s.accuracy === undefined ? {} : { accuracy: s.accuracy }),
+    ...(s.tempoBpm === undefined ? {} : { tempoBpm: s.tempoBpm }),
+  }
+}
 
 /** Project a `RepertoirePieceLike` down to exactly the fields `parseRepertoirePieceLike`
  *  accepts, so a caller's real (wider) object can never write a field to the export
@@ -146,6 +219,11 @@ function projectRepertoirePieceLike(p: RepertoirePieceLike): RepertoirePieceLike
     ...(p.composer === undefined ? {} : { composer: p.composer }),
     ...(p.status === undefined ? {} : { status: p.status }),
     ...(p.addedAt === undefined ? {} : { addedAt: p.addedAt }),
+    ...(p.level === undefined ? {} : { level: p.level }),
+    ...(p.sessions === undefined ? {} : { sessions: p.sessions.map(projectRepertoireSessionLike) }),
+    ...(p.bestAccuracy === undefined ? {} : { bestAccuracy: p.bestAccuracy }),
+    ...(p.notes === undefined ? {} : { notes: p.notes }),
+    ...(p.scoreId === undefined ? {} : { scoreId: p.scoreId }),
   }
 }
 
@@ -183,91 +261,28 @@ export function exportJson(snapshot: ProgressSnapshot): string {
 }
 
 // --------------------------------------------------------- parsing helpers
+//
+// `parsePracticeEntry`, `parseCard` and `parseSightReadingRecord` live in
+// `@core/progress/parseHelpers.ts`, not here — purely to keep this file under
+// the project's 500-code-line limit (same reasoning as that module's own
+// doc comment). They are self-contained item parsers with no dependency on
+// any type this file declares, so moving them created no cycle.
 
-function parsePracticeEntry(item: unknown, path: string): Result<PracticeEntry, string> {
+function parseRepertoireSessionLike(item: unknown, path: string): Result<RepertoireSessionLike, string> {
   if (!isRecord(item)) return err(`${path}: expected object, got ${typeOf(item)}`)
-  const id = requireString(item, 'id', path)
-  if (!id.ok) return id
-  const startedAt = requireFiniteNumber(item, 'startedAt', path)
-  if (!startedAt.ok) return startedAt
-  const endedAt = requireFiniteNumber(item, 'endedAt', path)
-  if (!endedAt.ok) return endedAt
-  if (endedAt.value < startedAt.value) {
-    return err(
-      `${path}.endedAt: ${endedAt.value} is before startedAt (${startedAt.value})`,
-    )
-  }
-  const kindStr = requireString(item, 'kind', path)
-  if (!kindStr.ok) return kindStr
-  if (!ACTIVITY_KINDS.includes(kindStr.value as ActivityKind)) {
-    return err(`${path}.kind: '${kindStr.value}' is not a valid ActivityKind`)
-  }
-  const kind = kindStr.value as ActivityKind
-  const itemName = requireString(item, 'itemName', path)
-  if (!itemName.ok) return itemName
-  const itemId = optionalString(item, 'itemId', path)
-  if (!itemId.ok) return itemId
-  const tempoBpm = optionalFiniteNumber(item, 'tempoBpm', path)
-  if (!tempoBpm.ok) return tempoBpm
+  const at = requireFiniteNumber(item, 'at', path)
+  if (!at.ok) return at
+  const minutes = requireFiniteNumber(item, 'minutes', path)
+  if (!minutes.ok) return minutes
   const accuracy = optionalFiniteNumber(item, 'accuracy', path)
   if (!accuracy.ok) return accuracy
-  const note = optionalString(item, 'note', path)
-  if (!note.ok) return note
+  const tempoBpm = optionalFiniteNumber(item, 'tempoBpm', path)
+  if (!tempoBpm.ok) return tempoBpm
   return ok({
-    id: id.value,
-    startedAt: startedAt.value,
-    endedAt: endedAt.value,
-    kind,
-    ...(itemId.value === undefined ? {} : { itemId: itemId.value }),
-    itemName: itemName.value,
-    ...(tempoBpm.value === undefined ? {} : { tempoBpm: tempoBpm.value }),
+    at: at.value,
+    minutes: minutes.value,
     ...(accuracy.value === undefined ? {} : { accuracy: accuracy.value }),
-    ...(note.value === undefined ? {} : { note: note.value }),
-  })
-}
-
-function parseCard(item: unknown, path: string): Result<Card, string> {
-  if (!isRecord(item)) return err(`${path}: expected object, got ${typeOf(item)}`)
-  const id = requireString(item, 'id', path)
-  if (!id.ok) return id
-  const due = requireFiniteNumber(item, 'due', path)
-  if (!due.ok) return due
-  const intervalDays = requireFiniteNumber(item, 'intervalDays', path)
-  if (!intervalDays.ok) return intervalDays
-  const ease = requireFiniteNumber(item, 'ease', path)
-  if (!ease.ok) return ease
-  const reps = requireFiniteNumber(item, 'reps', path)
-  if (!reps.ok) return reps
-  const lapses = requireFiniteNumber(item, 'lapses', path)
-  if (!lapses.ok) return lapses
-  const introducedAt = requireFiniteNumber(item, 'introducedAt', path)
-  if (!introducedAt.ok) return introducedAt
-  return ok({
-    id: id.value,
-    due: due.value,
-    intervalDays: intervalDays.value,
-    ease: ease.value,
-    reps: reps.value,
-    lapses: lapses.value,
-    introducedAt: introducedAt.value,
-  })
-}
-
-function parseSightReadingRecord(item: unknown, path: string): Result<SightReadingRecord, string> {
-  if (!isRecord(item)) return err(`${path}: expected object, got ${typeOf(item)}`)
-  const pieceId = requireString(item, 'pieceId', path)
-  if (!pieceId.ok) return pieceId
-  const readAt = requireFiniteNumber(item, 'readAt', path)
-  if (!readAt.ok) return readAt
-  const accuracy = requireFiniteNumber(item, 'accuracy', path)
-  if (!accuracy.ok) return accuracy
-  const level = requireFiniteNumber(item, 'level', path)
-  if (!level.ok) return level
-  return ok({
-    pieceId: pieceId.value,
-    readAt: readAt.value,
-    accuracy: accuracy.value,
-    level: level.value,
+    ...(tempoBpm.value === undefined ? {} : { tempoBpm: tempoBpm.value }),
   })
 }
 
@@ -283,12 +298,27 @@ function parseRepertoirePieceLike(item: unknown, path: string): Result<Repertoir
   if (!status.ok) return status
   const addedAt = optionalFiniteNumber(item, 'addedAt', path)
   if (!addedAt.ok) return addedAt
+  const level = optionalFiniteNumber(item, 'level', path)
+  if (!level.ok) return level
+  const sessions = optionalArray(item['sessions'], `${path}.sessions`, parseRepertoireSessionLike)
+  if (!sessions.ok) return sessions
+  const bestAccuracy = optionalFiniteNumber(item, 'bestAccuracy', path)
+  if (!bestAccuracy.ok) return bestAccuracy
+  const notes = optionalString(item, 'notes', path)
+  if (!notes.ok) return notes
+  const scoreId = optionalString(item, 'scoreId', path)
+  if (!scoreId.ok) return scoreId
   return ok({
     id: id.value,
     title: title.value,
     ...(composer.value === undefined ? {} : { composer: composer.value }),
     ...(status.value === undefined ? {} : { status: status.value }),
     ...(addedAt.value === undefined ? {} : { addedAt: addedAt.value }),
+    ...(level.value === undefined ? {} : { level: level.value }),
+    ...(sessions.value === undefined ? {} : { sessions: sessions.value }),
+    ...(bestAccuracy.value === undefined ? {} : { bestAccuracy: bestAccuracy.value }),
+    ...(notes.value === undefined ? {} : { notes: notes.value }),
+    ...(scoreId.value === undefined ? {} : { scoreId: scoreId.value }),
   })
 }
 
@@ -604,14 +634,33 @@ export function exportCsv(snapshot: ProgressSnapshot): CsvBundle {
       Object.entries(snapshot.levels).map(([key, level]) => [key, String(level)]),
     ),
     repertoire: rowsToCsv(
-      ['id', 'title', 'composer', 'status', 'addedAt'],
+      ['id', 'title', 'composer', 'status', 'addedAt', 'level', 'bestAccuracy', 'notes', 'scoreId'],
       snapshot.repertoire.map((p) => [
         p.id,
         p.title,
         p.composer ?? '',
         p.status ?? '',
         p.addedAt === undefined ? '' : String(p.addedAt),
+        p.level === undefined ? '' : String(p.level),
+        p.bestAccuracy === undefined ? '' : String(p.bestAccuracy),
+        p.notes ?? '',
+        p.scoreId ?? '',
       ]),
+    ),
+    // See `CsvBundle`'s doc comment for why this is a separate file rather
+    // than a column on `repertoire`. `pieceId` is the foreign key back to
+    // `repertoire.id`.
+    repertoireSessions: rowsToCsv(
+      ['pieceId', 'at', 'minutes', 'accuracy', 'tempoBpm'],
+      snapshot.repertoire.flatMap((p) =>
+        (p.sessions ?? []).map((s) => [
+          p.id,
+          String(s.at),
+          String(s.minutes),
+          s.accuracy === undefined ? '' : String(s.accuracy),
+          s.tempoBpm === undefined ? '' : String(s.tempoBpm),
+        ]),
+      ),
     ),
     assessments: rowsToCsv(
       ['id', 'at', 'accuracy', 'kind', 'itemId'],
