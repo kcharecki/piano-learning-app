@@ -1132,7 +1132,31 @@ next item, no completion state, no sense of being 3 of 5 through today.
       Full proof paragraph: 5.7. On iPadOS it is not a fallback, it is the input (see B.7).
 - [ ] B.2 Bluetooth MIDI (REQ-3.3.1, if feasible)
 - [ ] B.3 Falling-note piano-roll view (REQ-3.2.4 optional half)
-- [ ] B.4 Light gamification: streaks, milestones (REQ-3.10.3)
+- [x] B.4 Light gamification: streaks, milestones (REQ-3.10.3). New pure core module
+      `src/core/progress/milestones.ts` (`computeMilestones`): five DERIVED milestones — all 12
+      major scales clean at their own curriculum target tempo (REQ-3.10.3's own example, read via
+      `tempoHistory`/`techniqueLibrary`), a repertoire piece at 90% assessed accuracy (read via
+      each piece's `sessions`, never the timestamp-less `bestAccuracy` alone), first drill played
+      hands together clean (any `hands: 'both'` drill, via `techniqueDrillById`), a 7-day practice
+      streak (reuses `longestStreakDays` verbatim — deliberately the LONGEST-ever run, not the live
+      current one, so it can never un-achieve itself: no streak-loss guilt), and ear training at
+      level 3 in every kind (`EarSessionState.levels`/`attempts`). No points, no badges for showing
+      up, nothing re-derives the streak or clean/evenness logic that already exists. Surfaced as a
+      new `MilestonePanel` on the Dashboard, behind a closed-by-default `<details>` (same convention
+      as `SrsSummary`'s "Scheduler details") — demotes nothing else on the screen; adds exactly one
+      summary line ("Milestones — N of 5 achieved") when collapsed.
+      *Proof: 21 core tests + 2 property tests on `milestones.ts` (streak achievement date derived
+      by walking real entry prefixes through `longestStreakDays`, never reimplementing day-bucketing);
+      5 `MilestonePanel` render tests; `useDashboard`/`DashboardScreen` wiring tests, incl. one
+      seeding a real clean hands-together technique attempt and asserting the milestone flips;
+      `e2e/milestones.spec.ts` seeds a real `TechniqueAttempt` into IndexedDB and reads the live
+      Dashboard before ("0 of 5", empty state) and after reload ("1 of 5", the achieved card and the
+      12-scales progress label both changing) — 2/2 passing. `npm run verify` green (184 files,
+      3767 tests). Visual pass on Progress at 1280/1024, dark/light, both the honest-empty and a
+      seeded-achieved state — console clean in all runs. Ambiguity resolved and reported: the task
+      brief said "Clock" but this module's only wall-clock need is `DateSource` (per this repo's own
+      Clock=monotonic/DateSource=wall-clock split, `@core/ports/clock.ts`) — used once, to drop any
+      input timestamp later than "now" (clock-skew defence), not for elapsed time.
 - [ ] B.5 Audio recording alongside MIDI recording (REQ-3.9.2 optional)
 - [ ] B.6 `app`: make the UI usable on a tablet (REQ-4.4 names "a laptop/tablet" as where practice
       happens, so this is in scope, not a new ambition). Measured in a real browser at 768x1024 on

@@ -30,6 +30,7 @@ import {
   type ProgressEvidence,
 } from '@core/progress/levels.ts'
 import { levelAt } from '@core/curriculum/model.ts'
+import { computeMilestones } from '@core/progress/milestones.ts'
 import { CURRICULUM } from '@content/curriculum/curriculum.ts'
 import { act, renderHook, cleanup } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -169,6 +170,42 @@ describe('useDashboard — empty stores', () => {
 
     expect(data.techniqueTrend).toEqual([])
     expect(data.techniqueBestBpmByDrill).toEqual({})
+
+    // Milestones (roadmap B.4): honest zeros on a fresh profile, never a
+    // fabricated achievement — five milestones, all unachieved.
+    expect(data.milestones).toHaveLength(5)
+    for (const m of data.milestones) {
+      expect(m.achieved).toBe(false)
+      expect(m.achievedAt).toBeNull()
+      expect(m.progress).toBe(0)
+    }
+  })
+})
+
+describe('useDashboard — milestones (roadmap B.4, REQ-3.10.3)', () => {
+  it('matches computeMilestones exactly for the same seeded inputs — never re-derived by hand', () => {
+    const attempts: TechniqueAttempt[] = [
+      { drillId: 'scale-c-major-2oct-hands-together', at: NOW - 1_000, bpm: 84, evenness: 1, accuracy: 1, clean: true },
+    ]
+    useTechniqueStore.setState({ attempts })
+
+    const { result } = setup()
+    const expected = computeMilestones(
+      {
+        practiceEntries: [],
+        utcOffsetMinutes: 0,
+        techniqueAttempts: attempts,
+        repertoirePieces: [],
+        earTraining: emptyEarSession(),
+      },
+      new FakeDateSource(NOW),
+    )
+    expect(result.current.milestones).toEqual(expected)
+    // Sanity: this seed is a real clean hands-together attempt, so the
+    // first-hands-together milestone must actually be achieved, not just
+    // structurally equal to some other empty computation.
+    const handsTogether = result.current.milestones.find((m) => m.id === 'first-hands-together')
+    expect(handsTogether?.achieved).toBe(true)
   })
 })
 

@@ -86,6 +86,15 @@
  * theory-drill kinds (`key-signature-*`, `interval-on-staff-*` ids) — the
  * store also holds reading-drill cards (`note-name`, `staff-to-key`), which
  * are excluded so "Theory retention" does not overstate itself.
+ *
+ * **Milestones (roadmap B.4, REQ-3.10.3)**: `milestones` is
+ * `@core/progress/milestones.ts`'s `computeMilestones`, fed the same
+ * `practiceEntries`/`techniqueAttempts`/`repertoirePieces` this hook already
+ * reads plus the full ear-training `session` (not just `earTrainingLevels`,
+ * which is only the per-kind numbers — the milestone module also needs
+ * `attempts` to date when a kind first reached its target level) and this
+ * hook's own `date`/`utcOffsetMinutes`. Nothing new is read from a store;
+ * see that module's own comment for exactly what each input feeds.
  */
 import { useMemo } from 'react'
 import type { DateSource } from '@core/ports/index.ts'
@@ -100,6 +109,7 @@ import {
 import { DAY_MS, retentionStats, type RetentionStats } from '@core/srs/scheduler.ts'
 import { TRACKS, type Track } from '@core/curriculum/types.ts'
 import { trackProgress, type CriterionStatus, type ProgressEvidence } from '@core/progress/levels.ts'
+import { computeMilestones, type Milestone } from '@core/progress/milestones.ts'
 import { levelAt } from '@core/curriculum/model.ts'
 import { tempoHistory, bestCleanBpm, type TechniqueAttempt, type TempoPoint } from '@core/technique/evenness.ts'
 import { maintenanceDue, type RepertoirePiece } from '@core/repertoire/repertoire.ts'
@@ -215,6 +225,8 @@ export type DashboardData = {
    * frozen contract — a new field, no existing field's name or type changes).
    */
   readonly evidence: ProgressEvidence
+  /** REQ-3.10.3's light gamification — see `@core/progress/milestones.ts`'s own module comment. */
+  readonly milestones: readonly Milestone[]
 }
 
 const defaultDate: DateSource = { epochMillis: () => Date.now() }
@@ -234,6 +246,8 @@ export function useDashboard(options: UseDashboardOptions = {}): DashboardData {
   const earTrainingLevels = useEarTrainingStore((s) => s.session.levels)
   /** Only used to detect "no attempts recorded anywhere yet" — see the module comment. */
   const earTrainingAttemptCount = useEarTrainingStore((s) => s.session.attempts.length)
+  /** The full session (levels + attempts + cards + kinds) — milestones need `attempts`, not just `levels`. */
+  const earTrainingSession = useEarTrainingStore((s) => s.session)
 
   return useMemo(() => {
     // `now` is a snapshot taken when this memo last recomputed (on mount, or
@@ -367,6 +381,17 @@ export function useDashboard(options: UseDashboardOptions = {}): DashboardData {
       }
     })
 
+    const milestones = computeMilestones(
+      {
+        practiceEntries,
+        utcOffsetMinutes,
+        techniqueAttempts,
+        repertoirePieces,
+        earTraining: earTrainingSession,
+      },
+      date,
+    )
+
     return {
       now,
       streak: {
@@ -389,6 +414,7 @@ export function useDashboard(options: UseDashboardOptions = {}): DashboardData {
       levels,
       curriculumAvailable,
       evidence,
+      milestones,
     }
   }, [
     date,
@@ -403,5 +429,6 @@ export function useDashboard(options: UseDashboardOptions = {}): DashboardData {
     levelState,
     earTrainingLevels,
     earTrainingAttemptCount,
+    earTrainingSession,
   ])
 }
