@@ -1187,12 +1187,110 @@ next item, no completion state, no sense of being 3 of 5 through today.
       5.18's disclosures. REQ-3.3.2 in `requirements.md` states it too.
       *Proof: one click from Practice; `e2e/practice-accuracy-caveat.spec.ts` (new) drives the click
       and asserts the revealed text; matching `PracticeScreen.test.tsx` block; REQ-3.3.2 records it.*
-- [ ] 5.49 M5 acceptance pass — re-run the 2026-08-06 review's method (drive all 12 destinations as a
-      beginner, measure contrast from the live CSSOM, verify pedagogy claims against the same primary
-      sources) and re-score all 17 aspects. Any aspect still under 9 gets its own task here rather
-      than a softened score.
-      *Proof: a dated review doc alongside the first one, with the score table and a per-aspect diff
-      against 2026-08-06.*
+- [x] 5.49 M5 acceptance pass — re-ran the 2026-08-06 review's method adversarially and re-scored all
+      17 aspects: [docs/ux-pedagogy-review-2026-08-12.md](docs/ux-pedagogy-review-2026-08-12.md).
+      **M5 DOES NOT EXIT.** Nine aspects reach ≥ 9 (breadth 10, engineering 9, first-run 9, practice
+      usability 9, input accessibility 9, lesson content 9, technique 9, theory reference 9, progress
+      9); **eight do not** — visual design system 7, information architecture 8, playable content 7,
+      sight reading 7, ear training 7, rhythm 8, accessibility 7, and overall **4.5 → 8**. Each gets a
+      task below (5.51–5.58); no score was softened to reach the bar.
+      *Proof: the nav has **13** destinations now, not 12 (Settings, from 5.40) — all 13 driven from an
+      empty IndexedDB, console clean on every one. `npm run verify` green (190 files / 3900 tests);
+      `npx playwright test` 123/123 green on port 5280; `npm run verify:full` **exits 1** at the `knip`
+      step only, an artefact of this worktree's empty local `node_modules` shadowing the root install —
+      localised, not proven clean, stated as such in the doc. New `scripts/review-probe.mjs`
+      (`walk`/`contrast`/`claims`) makes the method re-runnable instead of prose: it reads the
+      destination list off the running app, measures **every** visible text element against its own
+      effective background at both themes (27 AA failures found, all `--text-3`, worst 2.90:1), and
+      seeds IndexedDB behind the app's back. Progress passes that seed test exactly — 5 days × 41 min
+      of `eartraining` reads back as "Longest streak 5 day(s) / This week 205 min / Ear training:
+      205 min", every other category 0. Sight-reading leaps measured off the engraved output, not the
+      table (level 1 max 2 st, level 2 max 10 st). Pedagogy re-checked against RCM 2022, ABRSM 2025–26
+      and Faber's own scope-and-sequence; one 2026-08-06 claim found **false** and corrected in the
+      app's favour (ABRSM does test interval identification, Grades 6–8). Screenshots in
+      `visual-pass/5-49*`.* Deleted nothing.
+
+### M5 acceptance follow-ups — from the 2026-08-12 re-score
+
+- [ ] 5.51 `design-system`: `--text-3` is documented in `tokens/colors.css:26` as "decorative only —
+      fails AA on purpose", and two M5 tasks then used it for load-bearing text — `.nav-group-title`
+      (`feature-nav-groups.css:37`, roadmap 5.43's own IA labels: 4.36 dark, **3.12 light**) and
+      `.session-plan-warmup-note` (`feature-session-run.css`, roadmap 5.45: **2.90 light**). 27 AA
+      failures across all 13 destinations, both themes. Move information-bearing text to `--text-2`
+      (the AA-compliant secondary tone `feature-ear-reveal.css` already names), or raise `--text-3`
+      and retire the comment — not both. Found in the same pass, fix alongside: `.app-nav`'s
+      background stops at ~897px on a page taller than the viewport instead of filling the scroll
+      height. Blocks aspects **visual design system**, **accessibility** and half of **information
+      architecture**.
+      *Proof: `node scripts/review-probe.mjs contrast --url <dev>` exits **0** — it exits 1 on any AA
+      failure, so this is a check and not a claim. Visual pass both widths/themes.*
+- [ ] 5.52 `app/repertoire` + `content`: the catalogue row reads "Für Elise (Theme A) / Ludwig van
+      Beethoven (1770–1827) / Level 3 / Add" and discloses nothing, while `src/content/scores/
+      LICENSE.md` and `gradedPieces.ts`'s own doc say these files are "a faithful rendition of the
+      named melody/theme… **not a verified note-for-note transcription**", with four classical pieces
+      "a stylistically-faithful excerpt", most 2–6 bars, and 14 of 5.3's 20 additions "this app's own
+      rendition". Surface that per piece — a provenance field on `GradedPiece` rendered on the row and
+      on the Practice heading when a catalogue piece is loaded, with the excerpt length. Same sweep:
+      `warmups.ts`'s "Piano tension hides in the jaw first" is unsourced (Juilliard's guide verifies
+      shoulders/posture at the bench and never mentions the jaw) — soften to what is supportable.
+      Blocks **playable content**.
+      *Proof: an e2e reads a per-piece provenance line off the real Repertoire row for a
+      research-verified piece AND for a flagged excerpt, and the two differ; a content test fails the
+      build if a `GRADED_PIECES` entry has no provenance value.*
+- [ ] 5.53 `core/generator/levelDefaults`: level 1 is genuinely stepwise (measured max leap **2
+      semitones**) and level 2 immediately permits **10** — a minor seventh — with levels 2/3/4 all
+      sharing `maxLeap: 10`, because the column is sized for the cadence walk's reachability, not for
+      pedagogy (the file's own comment says so). Faber Level 1 prepares reading "with intervals up
+      through the 5th"; the 2026-08-06 "level 1 → 2 is a cliff" finding still stands and the cliff is
+      now wider than the P5 it objected to. Re-grade the leap column so it rises monotonically and
+      no level below 4 exceeds a 5th (7 st), decoupling the cadence-reachability constraint from the
+      pedagogical ceiling. Blocks **sight reading**.
+      *Proof: `node scripts/review-probe.mjs claims` re-run — measured max leap off the ENGRAVED
+      output rises level by level and level 2 never exceeds 7 st over ≥ 50 sampled intervals; the
+      existing `levelDefaults.test.ts` cadence-reachability property stays green.*
+- [ ] 5.54 `core/generator/levelDefaults`: level 1's rhythm is `'whole-half'` and level 2 is the first
+      `'quarters'` — a level-1 exercise engraves four whole notes. Faber Piano Adventures Primer
+      introduces **quarter → half → whole, all inside Unit 2** (official Teacher Guide, verified
+      2026-08-12). This is the identical inversion roadmap 5.20 fixed for the Rhythm drill on exactly
+      this source and never applied here. Blocks **sight reading**.
+      *Proof: a driven level-1 exercise engraves quarter and half notes and no whole notes; the
+      monotonic-ladder property test in `levelDefaults.test.ts`/`melody.test.ts` extended to rhythm.*
+- [ ] 5.55 `app/eartraining` + `core/eartraining`: 5.28's "tonal context" is documented in its own code
+      as "a drone: tonic + fifth" — an **open fifth, with no third**, so it cannot establish major or
+      minor. Both cited authorities specify something that can: RCM 2022 "identify the key, **play the
+      tonic triad once**"; ABRSM 2025–26 aural p.45 "**play a tonic chord** (to establish the key)".
+      Level 1's answer set is exactly {major 3rd, minor 3rd} — mode is the one thing a bare fifth
+      withholds and the one thing that distinguishes the two answers. Play a real tonic triad, and name
+      the key on screen the way RCM's examiner does. Second, smaller: the drone anchors on the item's
+      own lower sounding note (`chords.ts:221`), not on a key, so for an interval item it hands over
+      the bottom note. Blocks **ear training**.
+      *Proof: the recorded `AudioOutput` calls carry three distinct pitch classes forming the key's own
+      tonic triad before the item's first note (the 5.28/3.13 pattern — assert the calls, not the
+      projection), a minor-key item sounds a minor triad, and the key is read off the running screen.*
+- [ ] 5.56 `app/rhythm` + `core/generator/rhythm`: the engraved rhythm pattern is titled **"Untitled
+      Score"**. That is verbatim the defect the 2026-08-06 review named and roadmap **5.13 is ticked as
+      fixing** — 5.13 titled `generateMelody` and `techniqueScore` (both confirmed fixed) and never
+      touched `rhythmToScore`. Give it the drill's own title, and sweep for any remaining untitled
+      generated score. Blocks **rhythm drill**.
+      *Proof: a driven complexity-1 drill engraves a real title naming the drill and complexity, and no
+      screen in the app renders "Untitled Score" — asserted across all 13 destinations by
+      `review-probe.mjs walk`.*
+- [ ] 5.57 `app`: one skill, two numbers, both called "level". Driven in one session, the Progress
+      screen read "Sight-reading: level 4 (overridden)" while the Sight reading screen read "Level 1" —
+      the curriculum track level (`settings/levelState`) and the trainer's adaptive level
+      (`sightReadingHistory`, REQ-3.4.6's 80–90% band). Both are legitimate and neither is broken; the
+      product never says they are different things, so a learner who sets level 4 on Progress and gets
+      level-1 exercises has been misled by omission. Name them distinctly on both screens and say what
+      each does. Blocks **information architecture**.
+      *Proof: an e2e seeds the two stores to different values and asserts both screens render distinct,
+      self-explaining labels; the Progress accuracy-trend panel states which of the two it is charting.*
+- [ ] 5.58 `core/eartraining/dictation`: 5.34's per-level bounds are systematically shorter than the
+      syllabus they cite — app level 1 is **2–3 notes**, RCM is **4 at Preparatory A and 5 at Level 1**
+      (verified 2026-08-12); app level 5 is 7–8 against RCM's 8–10. Re-anchor the ladder on the quoted
+      RCM figures, keeping REQ-3.6.1's outer 2–8 bracket or raising it deliberately and saying so.
+      Contributes to **ear training** (smaller than 5.55).
+      *Proof: `dictation.test.ts`'s property tests updated to the RCM-quoted per-level bounds, with the
+      source figures recorded in the module doc.*
 
 ## Backlog / optional
 
