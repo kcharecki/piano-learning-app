@@ -1,0 +1,70 @@
+/* Feature stylesheet — piano-roll (roadmap B.3, REQ-3.2.4's optional half).
+   Single-writer by construction, like its sibling feature-*.css files. */
+
+/* ---------- The falling-note roll ----------
+   Sits ABOVE `.notation-frame` (ScoreViewer's own "paper" surface) rather
+   than on it — a distinct shell-toned panel, not a paper one, so the two
+   never compete for the same visual register. `.practice-setup-body`'s own
+   `gap` (feature-practice-sections.css) provides the spacing above the
+   checkbox that reveals this; the margin here is what separates the roll
+   from the engraving directly below it. */
+.piano-roll {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2);
+  border: var(--border-w) solid var(--border-1);
+  border-radius: var(--radius-2);
+  background: var(--bg-2);
+}
+
+/* A fixed band, not "however tall the notes make it" — a piano roll with N
+   lanes and a piano roll with 2N lanes should occupy the same footprint on
+   the screen; `viewBox` is what makes that possible (see PianoRoll.tsx). */
+.piano-roll-svg {
+  display: block;
+  width: 100%;
+  height: clamp(96px, 16vw, 160px);
+}
+
+/* Hand colour (docs/DESIGN.md rule 8: colour is never the ONLY signal) —
+   `data-hand` on the same element duplicates the distinction for anything
+   reading the DOM rather than the rendered pixels (e2e, assistive tech).
+   No literal "hand" pair exists yet in design-system/tokens/colors.css (see
+   the roadmap-B.3 report) — `--fb-early`/`--fb-late` are reused here as the
+   most neutral, already-theme-aware two-colour pair on hand, deliberately
+   NOT `--fb-correct`/`--fb-wrong` (those read as a verdict, not an identity)
+   and NOT `--accent` (already means "current position" elsewhere on this
+   exact screen). Flagged, not silently decided — see the roadmap-B.3 report
+   for the full reasoning and the follow-up this leaves for whoever adds
+   real `--hand-left`/`--hand-right` tokens. */
+.piano-roll-note-right {
+  fill: var(--fb-early);
+}
+.piano-roll-note-left {
+  fill: var(--fb-late);
+}
+
+/* The current-position highlight (REQ-3.2.4) — a note actually sounding
+   under the now-line gets BOTH a brightness lift (keeps its hand colour
+   readable — rows are only a handful of pixels tall, so a heavier stroke
+   alone would read as a plain outline colour and lose which hand it is)
+   AND a thin outline, never colour alone. */
+.piano-roll-note[data-lit="true"] {
+  filter: brightness(1.55) saturate(1.15);
+  stroke: var(--text-1);
+  stroke-width: 1px;
+}
+
+/* The now-line itself: a themed neutral, not a hand colour and not
+   `--accent` alone reused a second time on the same screen for a different
+   meaning (the score's own playing cursor already uses `--fb-playing`,
+   i.e. `--accent` — see domain.css). */
+.piano-roll-now-line {
+  fill: var(--text-1);
+  opacity: 0.85;
+}
+
+@media (max-width: 1024px) {
+  .piano-roll-svg {
+    height: clamp(80px, 22vw, 128px);
+  }
+}

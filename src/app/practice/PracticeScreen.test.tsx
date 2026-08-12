@@ -969,3 +969,121 @@ describe('PracticeScreen — accuracy caveat (roadmap 5.48)', () => {
     expect(screen.getByText(/hand position, wrist, or posture/i)).toBeInTheDocument()
   })
 })
+
+// Roadmap B.3 (REQ-3.2.4's optional half): the falling-note piano roll.
+describe('PracticeScreen — piano roll (roadmap B.3)', () => {
+  it('is off by default and lives inside "Practice setup", not as a new top-level control', () => {
+    loadSampleScoreWithMusicXml()
+    render(<PracticeScreen midiInput={new FakeMidiInput()} />)
+
+    const checkbox = screen.getByRole('checkbox', { name: 'Piano roll' })
+    expect(checkbox).not.toBeChecked()
+    const section = screen.getByText('Practice setup').closest('details')
+    invariant(section !== null, 'Practice setup <details> must exist')
+    expect(section).toContainElement(checkbox)
+    expect(screen.queryByTestId('piano-roll')).not.toBeInTheDocument()
+  })
+
+  it('renders the roll once toggled on, and removes it when toggled back off', async () => {
+    loadSampleScoreWithMusicXml()
+    const user = userEvent.setup()
+    render(<PracticeScreen midiInput={new FakeMidiInput()} />)
+
+    await user.click(screen.getByRole('checkbox', { name: 'Piano roll' }))
+    expect(screen.getByTestId('piano-roll')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: /piano roll/i })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('checkbox', { name: 'Piano roll' }))
+    expect(screen.queryByTestId('piano-roll')).not.toBeInTheDocument()
+  })
+
+  // Design constraint: the roll is meant to sit ABOVE the engraving, never
+  // alone — when there is no MusicXML to engrave (`ScoreViewer` itself does
+  // not render either, see `loadSampleScore` vs `loadSampleScoreWithMusicXml`
+  // above), showing the roll by itself would defeat the "bridge from roll to
+  // notation" point, so it stays gated on the exact same condition.
+  it('stays hidden when there is no notation to sit above, even with the toggle checked from a prior score', async () => {
+    loadSampleScoreWithMusicXml()
+    const user = userEvent.setup()
+    render(<PracticeScreen midiInput={new FakeMidiInput()} />)
+    await user.click(screen.getByRole('checkbox', { name: 'Piano roll' }))
+    expect(screen.getByTestId('piano-roll')).toBeInTheDocument()
+
+    act(() => loadSampleScore()) // same score, musicXml now undefined
+    expect(screen.queryByTestId('piano-roll')).not.toBeInTheDocument()
+  })
+
+  it("advances from the SAME per-frame call that moves the real score cursor — never a second clock", async () => {
+    loadSampleScoreWithMusicXml()
+    const user = userEvent.setup()
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const midiInput = new FakeMidiInput()
+    const manual = manualDriver()
+
+    render(
+      <PracticeScreen
+        clock={clock}
+        audioOutput={audio}
+        midiInput={midiInput}
+        frameDriver={manual.driver}
+      />,
+    )
+
+    await user.click(screen.getByRole('checkbox', { name: 'Piano roll' }))
+    // C_MAJOR_SCALE_RH's first note: `m0.r.0.60` (measure 0, right hand, tick
+    // 0, C4) — see `score.ts`'s `noteId`. The roll scrolls right-to-left as
+    // time advances (a FIXED note's x strictly decreases, see PianoRoll.tsx's
+    // module comment), so this is the general, always-true observable —
+    // unlike the now-line itself, whose x only moves during the very first
+    // frame's clamp-at-tick-0 transition (see PianoRoll.test.tsx).
+    const noteRect = () => screen.getByTestId('piano-roll-svg').querySelector('[data-note-id="m0.r.0.60"]')
+    const xAtStart = Number(noteRect()?.getAttribute('x'))
+
+    await user.click(screen.getByRole('button', { name: 'Play' }))
+    act(() => {
+      clock.advance(700)
+      manual.pump()
+    })
+
+    // The SAME frame that moved the real score cursor (the mocked
+    // `ScoreViewer`'s `moveCursorToSpy`) also moved the roll — proof this is
+    // the one existing call site, not an independent timer.
+    expect(moveCursorToSpy).toHaveBeenCalled()
+    expect(Number(noteRect()?.getAttribute('x'))).toBeLessThan(xAtStart)
+  })
+
+  it('Stop moves the roll back to the rewound position too, not just the score cursor (roadmap 2.20a\'s pattern, extended)', async () => {
+    loadSampleScoreWithMusicXml()
+    const user = userEvent.setup()
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const midiInput = new FakeMidiInput()
+    const manual = manualDriver()
+
+    render(
+      <PracticeScreen
+        clock={clock}
+        audioOutput={audio}
+        midiInput={midiInput}
+        frameDriver={manual.driver}
+      />,
+    )
+
+    await user.click(screen.getByRole('checkbox', { name: 'Piano roll' }))
+    await user.click(screen.getByRole('button', { name: 'Play' }))
+    act(() => {
+      clock.advance(700)
+      manual.pump()
+    })
+    // Same note/reasoning as the previous test.
+    const noteRect = () => screen.getByTestId('piano-roll-svg').querySelector('[data-note-id="m0.r.0.60"]')
+    const xWhilePlaying = Number(noteRect()?.getAttribute('x'))
+
+    await user.click(screen.getByRole('button', { name: 'Stop' }))
+
+    // Stop rewinds the transport to tick 0 — the window follows it back, so
+    // the SAME note's x rises back toward where it started.
+    expect(Number(noteRect()?.getAttribute('x'))).toBeGreaterThan(xWhilePlaying)
+  })
+})

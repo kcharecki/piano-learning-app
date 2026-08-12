@@ -1169,7 +1169,6 @@ next item, no completion state, no sense of being 3 of 5 through today.
       emitting real BLE-MIDI packet bytes through the notify listener is graded by the real matcher
       (`feedback-correct` moves) — no physical BLE keyboard was available, both halves rest on the
       fake; visual pass clean (1280/1024, dark/light, console clean).
-- [ ] B.3 Falling-note piano-roll view (REQ-3.2.4 optional half)
 - [x] B.4 Light gamification: streaks, milestones (REQ-3.10.3). New pure core module
       `src/core/progress/milestones.ts` (`computeMilestones`): five DERIVED milestones — all 12
       major scales clean at their own curriculum target tempo (REQ-3.10.3's own example, read via
@@ -1195,6 +1194,30 @@ next item, no completion state, no sense of being 3 of 5 through today.
       brief said "Clock" but this module's only wall-clock need is `DateSource` (per this repo's own
       Clock=monotonic/DateSource=wall-clock split, `@core/ports/clock.ts`) — used once, to drop any
       input timestamp later than "now" (clock-skew defence), not for elapsed time.
+- [x] B.3 Falling-note piano-roll view (REQ-3.2.4 optional half). A toggle inside Practice's
+      existing "Practice setup" disclosure (off by default; demotes nothing — it is a sixth
+      control sharing the same already-collapsible slot loop range/hand mute/metronome/wait
+      mode/record already share), rendering ABOVE the engraving, both visible together. Geometry
+      is pure (`src/core/notation/pianoRoll.ts`): given a Score, a tick window and a lane range,
+      returns the rectangles to draw — property-tested (visibility, no same-pitch overlap,
+      monotonic lane-per-pitch, degrade-clean on a zero-length/out-of-range note or a degenerate
+      window/range). The React side (`PianoRoll.tsx`) does layout/paint only, driven by the SAME
+      per-frame `moveCursorTo` call `usePracticeEngine` already makes for the score cursor —
+      `PracticeScreen` wraps `useNoteFeedback`'s own intercepting ref one layer further (its
+      established pattern) rather than adding a second clock. No literal `--hand-left`/
+      `--hand-right` tokens exist in `design-system/tokens/colors.css` — flagged, not silently
+      decided: reused `--fb-early`/`--fb-late` as the most neutral existing two-colour pair.
+      *Proof: `npm run verify` green (184 files/3766 tests); `e2e/piano-roll.spec.ts` drives a
+      real bundled piece (Twinkle Twinkle) with the transport RUNNING, samples two positions and
+      asserts the lit lanes exactly match the score's own pitches at each (`[48,52,55,60]` then
+      `[48,52,55,67]`) and that a tracked note's x moved left by a bounded, expected tick range;
+      `e2e/perf-large-score.spec.ts` stays green unmodified (roll off, no regression) and a
+      second perf test in `piano-roll.spec.ts` reproduces its exact method with the roll ON
+      against the same 102-measure/1603-note score (p95 frame gap 18ms, worst 46ms, 0 long
+      tasks — both perf tests exceeded the original roll-off numbers well within the pre-set
+      budget slack); visual pass clean at 1280/1024, dark/light, roll off and on
+      (`scripts/visual-pass.mjs`, extended with `--file` since Practice needs a score imported
+      first).
 - [ ] B.5 Audio recording alongside MIDI recording (REQ-3.9.2 optional)
 - [x] B.6 `app`: make the UI usable on a tablet (REQ-4.4 names "a laptop/tablet" as where practice
       happens, so this is in scope, not a new ambition). Measured in a real browser at 768x1024 on
