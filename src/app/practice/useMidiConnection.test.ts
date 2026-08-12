@@ -5,11 +5,13 @@
  * asserts the hook publishes into it correctly).
  */
 import { useScoreStore } from '@app/state/scoreStore.ts'
-import type { MidiDevice } from '@core/ports/index.ts'
+import type { MidiDevice, MidiEvent } from '@core/ports/index.ts'
+import { midi, millis } from '@core/shared/units.ts'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { FakeMidiInput } from '@test/fakes.ts'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { useMidiConnection, type ConnectMidi } from './useMidiConnection.ts'
+import { useBluetoothMidi, type ConnectBluetoothMidi } from './useBluetoothMidi.ts'
 
 const DEVICE_A: MidiDevice = { id: 'a', name: 'Keyboard A', manufacturer: 'Test' }
 const DEVICE_B: MidiDevice = { id: 'b', name: 'Keyboard B', manufacturer: 'Test' }
@@ -86,5 +88,69 @@ describe('useMidiConnection', () => {
     await waitFor(() => expect(result.current.input).toBe(fake))
     await waitFor(() => expect(result.current.devices).toEqual([DEVICE_A]))
     await waitFor(() => expect(result.current.selectedDeviceId).toBe('a'))
+  })
+})
+
+describe('useMidiConnection — Bluetooth MIDI fan-in (roadmap B.2)', () => {
+  const BLE_DEVICE: MidiDevice = { id: 'bluetooth-midi', name: 'BLE Keyboard', manufacturer: 'Bluetooth LE' }
+
+  it('when only BLE is paired (no Web MIDI in this browser), input IS the BLE input', async () => {
+    const ble = new FakeMidiInput([BLE_DEVICE])
+    const connectBle: ConnectBluetoothMidi = () => Promise.resolve({ ok: true, value: { input: ble, dispose: () => {} } })
+    const connectMidi: ConnectMidi = () => new Promise(() => {}) // never resolves: no Web MIDI here
+    const { result } = renderHook(() => ({
+      midi: useMidiConnection({ connect: connectMidi }),
+      bluetooth: useBluetoothMidi({ connect: connectBle }),
+    }))
+
+    act(() => result.current.bluetooth.pair())
+    await waitFor(() => expect(result.current.bluetooth.device).toEqual(BLE_DEVICE))
+
+    expect(result.current.midi.input).toBe(ble)
+  })
+
+  it('when both a USB device and BLE are connected, a note from either reaches the merged input', async () => {
+    const usb = new FakeMidiInput([DEVICE_A])
+    const ble = new FakeMidiInput([BLE_DEVICE])
+    const connectBle: ConnectBluetoothMidi = () => Promise.resolve({ ok: true, value: { input: ble, dispose: () => {} } })
+    const { result } = renderHook(() => ({
+      midi: useMidiConnection({ midiInput: usb }),
+      bluetooth: useBluetoothMidi({ connect: connectBle }),
+    }))
+    await waitFor(() => expect(result.current.midi.input).toBe(usb))
+
+    act(() => result.current.bluetooth.pair())
+    await waitFor(() => expect(result.current.bluetooth.device).toEqual(BLE_DEVICE))
+
+    const seen: MidiEvent[] = []
+    act(() => {
+      result.current.midi.input?.onEvent((event) => seen.push(event))
+    })
+    act(() => usb.emit({ type: 'noteOn', note: midi(60), velocity: 100, time: millis(1) }))
+    act(() => ble.emit({ type: 'noteOn', note: midi(64), velocity: 90, time: millis(2) }))
+
+    expect(seen).toEqual([
+      { type: 'noteOn', note: 60, velocity: 100, time: 1 },
+      { type: 'noteOn', note: 64, velocity: 90, time: 2 },
+    ])
+    // Device selection/list stays anchored to the USB side, unaffected by BLE.
+    expect(result.current.midi.devices).toEqual([DEVICE_A])
+  })
+
+  it('disconnecting BLE removes it from the merged stream without disturbing the USB connection', async () => {
+    const usb = new FakeMidiInput([DEVICE_A])
+    const ble = new FakeMidiInput([BLE_DEVICE])
+    const connectBle: ConnectBluetoothMidi = () => Promise.resolve({ ok: true, value: { input: ble, dispose: () => {} } })
+    const { result } = renderHook(() => ({
+      midi: useMidiConnection({ midiInput: usb }),
+      bluetooth: useBluetoothMidi({ connect: connectBle }),
+    }))
+    await waitFor(() => expect(result.current.midi.input).toBe(usb))
+    act(() => result.current.bluetooth.pair())
+    await waitFor(() => expect(result.current.midi.input).not.toBe(usb))
+
+    act(() => result.current.bluetooth.disconnect())
+
+    await waitFor(() => expect(result.current.midi.input).toBe(usb))
   })
 })

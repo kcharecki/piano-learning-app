@@ -1084,7 +1084,20 @@ next item, no completion state, no sense of being 3 of 5 through today.
 - [ ] B.1 Microphone pitch-detection fallback (REQ-3.3.7, optional). **Promoted in importance by
       B.6's finding:** this is the ONLY way the practice loop works on an iPad at all, because
       WebKit ships no Web MIDI (see B.6). On iPadOS it is not a fallback, it is the input.
-- [ ] B.2 Bluetooth MIDI (REQ-3.3.1, if feasible)
+- [x] B.2 Bluetooth MIDI (REQ-3.3.1, if feasible). Feasible: shipped as a second, explicit-gesture
+      `MidiInput` alongside Web MIDI. `core/midi/bleMidiPacket.ts` decodes the BLE-MIDI wire format
+      (header/timestamp bytes, running status, a message split across two packets, 13-bit timestamp
+      unwrap) — fast-check round-trips a random event stream including a wrap, a running-status run
+      and a split message. `adapters/midi/blemidi.ts` pairs via `navigator.bluetooth.requestDevice`,
+      decodes GATT notifications through it, and anchors the device's own clock onto the host clock so
+      timing feedback works like a USB note's. `MidiDeviceStatus` (all eight screens, none edited)
+      grew a "Pair Bluetooth MIDI" control via `useBluetoothMidi.ts`; a module-level registry feeds
+      `useMidiConnection.ts`, which fans a BLE note into the same `input` a USB note flows through,
+      additive to its returned shape. Proof: `npm run verify` green (185 files / 3773 tests); e2e
+      `bluetooth-midi.spec.ts` — API absent states the limitation without crashing, and a fake device
+      emitting real BLE-MIDI packet bytes through the notify listener is graded by the real matcher
+      (`feedback-correct` moves) — no physical BLE keyboard was available, both halves rest on the
+      fake; visual pass clean (1280/1024, dark/light, console clean).
 - [ ] B.3 Falling-note piano-roll view (REQ-3.2.4 optional half)
 - [ ] B.4 Light gamification: streaks, milestones (REQ-3.10.3)
 - [ ] B.5 Audio recording alongside MIDI recording (REQ-3.9.2 optional)

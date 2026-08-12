@@ -1,3 +1,5 @@
 export { createWebMidi } from './webmidi.ts'
 export type { WebMidi } from './webmidi.ts'
 export { isWebMidiSupported } from './capability.ts'
+export { connectBluetoothMidi, isWebBluetoothSupported, BLE_MIDI_SERVICE, BLE_MIDI_CHARACTERISTIC } from './blemidi.ts'
+export type { BluetoothMidi } from './blemidi.ts'
