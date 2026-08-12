@@ -1250,7 +1250,7 @@ next item, no completion state, no sense of being 3 of 5 through today.
       *Proof: the recorded `AudioOutput` calls carry three distinct pitch classes forming the key's own
       tonic triad before the item's first note (the 5.28/3.13 pattern — assert the calls, not the
       projection), a minor-key item sounds a minor triad, and the key is read off the running screen.*
-- [ ] 5.56 `app/rhythm` + `core/generator/rhythm`: the engraved rhythm pattern is titled **"Untitled
+- [x] 5.56 `app/rhythm` + `core/generator/rhythm`: the engraved rhythm pattern is titled **"Untitled
       Score"**. That is verbatim the defect the 2026-08-06 review named and roadmap **5.13 is ticked as
       fixing** — 5.13 titled `generateMelody` and `techniqueScore` (both confirmed fixed) and never
       touched `rhythmToScore`. Give it the drill's own title, and sweep for any remaining untitled
@@ -1258,6 +1258,31 @@ next item, no completion state, no sense of being 3 of 5 through today.
       *Proof: a driven complexity-1 drill engraves a real title naming the drill and complexity, and no
       screen in the app renders "Untitled Score" — asserted across all 13 destinations by
       `review-probe.mjs walk`.*
+      **Done 2026-08-12.** 1 reported, 3 found: `rhythmToScore` (`core/generator/rhythm.ts`) had
+      exactly the same missing-title bug 5.13 fixed in `generateMelody`/`techniqueScore`, and it has
+      three production callers, all of which built an untitled `Score` — `useRhythmDrill.ts` (the
+      reported sight-reading-style tap drill, `ExerciseScore`-engraved with `drawTitle: true`),
+      `useClapbackDrill.ts` (never engraved — the hook's own return type structurally excludes
+      `Score` — but titled anyway for the same class-level guarantee), and
+      `core/eartraining/dictation.ts`'s `generateRhythmicDictation` (out of this task's file scope,
+      fixed for free — see below). Fixed at the class, not the instance: `rhythmToScore` now always
+      writes a real `meta.title` — the caller's `opts.title` when given (`useRhythmDrill.ts` passes
+      `Rhythm — complexity N`, matching the label already used for the practice log; `useClapbackDrill.ts`
+      passes `Clap back — level N`), or else a generated fallback (`Rhythm pattern, N bars (B/T)`) — so
+      no path through this function can produce an empty title, which is what silently fixes
+      `generateRhythmicDictation`'s identical call without touching that file. Also swept and confirmed
+      legitimately untitled: `ScaleStaff.tsx`, `ChordStaff.tsx`, `LessonBody.tsx`'s diagram scores and
+      `RevealPanel.tsx`'s ear-training prompt (`intervals.ts`/`chords.ts`/dictation's melodic path) all
+      render through `createReferenceEngraver`'s `drawTitle: false` (`osmdEngraver.ts`), which never
+      draws a title at all — the title would duplicate the surrounding screen's own heading (that
+      module's own doc). *Proof:* `npm run verify` green (190 files, 3903 tests, 0 lint warnings).
+      `e2e/rhythm-title.spec.ts` drives a real complexity-1 run and reads `Rhythm — complexity 1` off
+      the live OSMD engraving, asserting `"Untitled Score"` is absent. `review-probe.mjs walk` reported
+      no `"Untitled Score"` occurrence before OR after the fix — it never clicks Start, so it cannot
+      reach generated notation on any drill screen; recorded as a known gap in that tool rather than a
+      false pass; e2e and `visual-pass.mjs` (which does click Start) are the real proof here.
+      `visual-pass.mjs Rhythm --click Start` at 1280/1024px, dark/light: all four screenshots show
+      "Rhythm — complexity 1" engraved where "Untitled Score" used to sit, console clean in all four.
 - [x] 5.57 `app`: one skill, two numbers, both called "level". Driven in one session, the Progress
       screen read "Sight-reading: level 4 (overridden)" while the Sight reading screen read "Level 1" —
       the curriculum track level (`settings/levelState`) and the trainer's adaptive level

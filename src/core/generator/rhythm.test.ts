@@ -389,6 +389,23 @@ describe('rhythmToScore', () => {
     expect(score.notes.every((n) => n.midi === 67)).toBe(true)
   })
 
+  // roadmap 5.56: a generated score with no title engraves as "Untitled
+  // Score" — 5.13 fixed `generateMelody`/`techniqueScore` but never reached
+  // this function, so every one of its callers kept engraving untitled.
+  it('gives the score a real, non-empty title even when the caller passes none', () => {
+    const pattern = generateRhythm(DEFAULT_PARAMS, seededRng(7))
+    const score = rhythmToScore(pattern)
+    expect(score.meta.title.length).toBeGreaterThan(0)
+    expect(score.meta.title).toContain(`${pattern.bars}`)
+    expect(score.meta.title).toContain(`${pattern.timeSignature.beats}/${pattern.timeSignature.beatType}`)
+  })
+
+  it('uses the caller-supplied title verbatim when one is given', () => {
+    const pattern = generateRhythm(DEFAULT_PARAMS, seededRng(7))
+    const score = rhythmToScore(pattern, { title: 'Rhythm — complexity 3' })
+    expect(score.meta.title).toBe('Rhythm — complexity 3')
+  })
+
   it('one measure per bar, matching the pattern time signature', () => {
     const pattern = generateRhythm(
       {

@@ -17,9 +17,11 @@ import { RhythmScreen } from './RhythmScreen.tsx'
 // to this file is that the screen hands a score to the viewer; that OSMD then
 // draws it is e2e's job.
 vi.mock('@app/score/ScoreViewer.tsx', () => ({
-  ScoreViewer: ({ score }: { readonly score: { readonly id: string } }) => (
-    <div data-testid="mock-score-viewer" data-score-id={score.id} />
-  ),
+  ScoreViewer: ({
+    score,
+  }: {
+    readonly score: { readonly id: string; readonly meta: { readonly title: string } }
+  }) => <div data-testid="mock-score-viewer" data-score-id={score.id} data-score-title={score.meta.title} />,
 }))
 
 afterEach(cleanup)
@@ -63,10 +65,40 @@ describe('RhythmScreen', () => {
     const tapButton = screen.getByRole('button', { name: 'Tap' })
     expect(tapButton).toBeEnabled()
     expect(screen.getByTestId('mock-score-viewer')).toBeInTheDocument()
+    // roadmap 5.56: the engraved pattern must never carry an empty/"Untitled
+    // Score" title — 5.13 fixed `generateMelody`/`techniqueScore` but never
+    // reached `rhythmToScore`, which is what this screen's drill calls.
+    expect(screen.getByTestId('mock-score-viewer').dataset.scoreTitle).toBe(
+      'Rhythm — complexity 1',
+    )
 
     await user.click(tapButton)
 
     expect(screen.getByTestId('rhythm-tap-count')).toHaveTextContent('Taps: 1')
+  })
+
+  it('the engraved title names the complexity the pattern was actually generated at (roadmap 5.56)', async () => {
+    const user = userEvent.setup()
+    const clock = new FakeClock()
+
+    render(
+      <RhythmScreen
+        clock={clock}
+        midiInput={new FakeMidiInput()}
+        audioOutput={new RecordingAudioOutput(clock)}
+        rng={seededRng(7)}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Increase complexity' }))
+    await user.click(screen.getByRole('button', { name: 'Increase complexity' }))
+    expect(screen.getByTestId('rhythm-complexity')).toHaveTextContent('Complexity 3')
+
+    await user.click(screen.getByRole('button', { name: 'Start' }))
+
+    expect(screen.getByTestId('mock-score-viewer').dataset.scoreTitle).toBe(
+      'Rhythm — complexity 3',
+    )
   })
 
   it('the Tap button is disabled before a run starts', () => {
