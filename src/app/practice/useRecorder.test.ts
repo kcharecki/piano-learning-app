@@ -6,13 +6,17 @@
  * `usePracticeEngine`'s pump (see `usePracticeEngine.test.ts`'s `manualDriver`,
  * copied here for the same reason: no real timers, no `requestAnimationFrame`).
  */
-import type { MidiEvent, MidiInput } from '@core/ports/index.ts'
+import type { AudioPlayback, AudioRecorder } from '@adapters/audio/audioRecorder.ts'
+import { getRecordingAudio, putRecordingAudio } from '@adapters/store/idb.ts'
+import type { MidiEvent, MidiInput, Store } from '@core/ports/index.ts'
+import { err, ok, type Result } from '@core/shared/result.ts'
 import { midi, millis } from '@core/shared/units.ts'
+import type { Recording } from '@core/practice/recorder.ts'
 import { act, renderHook } from '@testing-library/react'
-import { FakeClock, FakeMidiInput } from '@test/fakes.ts'
+import { FakeClock, FakeMidiInput, MemoryStore } from '@test/fakes.ts'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useProgressStore } from '@app/state/progressStore.ts'
-import { useRecorder, type UseRecorderOptions } from './useRecorder.ts'
+import { useAudioRecording, useRecorder, type UseAudioRecordingOptions, type UseRecorderOptions } from './useRecorder.ts'
 import type { FrameDriver } from './useTransportLoop.ts'
 
 afterEach(() => {
@@ -564,5 +568,527 @@ describe('useRecorder', () => {
     act(() => result.current.startReplay())
     expect(result.current.phase).toBe('recording')
     expect(rewindToTop).not.toHaveBeenCalled()
+  })
+})
+
+// --------------------------------------------------------- useAudioRecording
+
+class FakeAudioRecorder implements AudioRecorder {
+  mimeType = 'audio/webm'
+  state: 'inactive' | 'recording' = 'inactive'
+  startCalls = 0
+  disposeCalls = 0
+  /** What `stop()` resolves with — settable per test. */
+  private stopDeferred: { promise: Promise<Blob>; resolve: (blob: Blob) => void } | undefined
+
+  start(): void {
+    this.startCalls += 1
+    this.state = 'recording'
+  }
+
+  stop(): Promise<Blob> {
+    this.state = 'inactive'
+    let resolve!: (blob: Blob) => void
+    const promise = new Promise<Blob>((r) => {
+      resolve = r
+    })
+    this.stopDeferred = { promise, resolve }
+    return promise
+  }
+
+  /** Resolves the most recent `stop()` call's promise — the test's hand on the "encoder finished" event. */
+  resolveStop(blob: Blob): void {
+    this.stopDeferred?.resolve(blob)
+  }
+
+  dispose(): void {
+    this.disposeCalls += 1
+  }
+}
+
+class FakeAudioPlayback implements AudioPlayback {
+  playCalls: number[] = []
+  stopCalls = 0
+  disposeCalls = 0
+  play(fromSeconds = 0): void {
+    this.playCalls.push(fromSeconds)
+  }
+  stop(): void {
+    this.stopCalls += 1
+  }
+  dispose(): void {
+    this.disposeCalls += 1
+  }
+}
+
+function makeAudioOptions(
+  overrides: Partial<UseAudioRecordingOptions> = {},
+): UseAudioRecordingOptions {
+  return {
+    phase: 'idle',
+    recording: undefined,
+    openStore: () => Promise.resolve(new MemoryStore()),
+    now: () => 0,
+    ...overrides,
+  }
+}
+
+function recordingOf(id: string): Recording {
+  return { id, recordedAt: 0, durationMs: 100, events: [] }
+}
+
+/** Flushes the microtask queue — enough for the resolved promises this hook chains through. */
+async function flush(): Promise<void> {
+  await act(async () => {
+    await Promise.resolve()
+    await Promise.resolve()
+  })
+}
+
+describe('useAudioRecording', () => {
+  it('starts disabled, idle, with no error and no audio', async () => {
+    const { result } = renderHook((p: UseAudioRecordingOptions) => useAudioRecording(p), {
+      initialProps: makeAudioOptions(),
+    })
+    await flush()
+
+    expect(result.current.enabled).toBe(false)
+    expect(result.current.status).toBe('idle')
+    expect(result.current.error).toBeUndefined()
+    expect(result.current.audio).toBeUndefined()
+  })
+
+  it('setEnabled(true) requests a recorder and becomes ready on success', async () => {
+    const fakeRecorder = new FakeAudioRecorder()
+    const createRecorder = vi.fn<() => Promise<Result<AudioRecorder, string>>>(() =>
+      Promise.resolve(ok(fakeRecorder)),
+    )
+    const { result } = renderHook((p: UseAudioRecordingOptions) => useAudioRecording(p), {
+      initialProps: makeAudioOptions({ createRecorder }),
+    })
+
+    act(() => result.current.setEnabled(true))
+    expect(result.current.enabled).toBe(true)
+    expect(result.current.status).toBe('requesting')
+
+    await flush()
+    expect(result.current.status).toBe('ready')
+    expect(createRecorder).toHaveBeenCalledTimes(1)
+  })
+
+  it('setEnabled(true) becomes unavailable and surfaces the error on failure (permission denied / no device / unsupported)', async () => {
+    const createRecorder = vi.fn<() => Promise<Result<AudioRecorder, string>>>(() =>
+      Promise.resolve(err('Microphone access failed: Permission denied')),
+    )
+    const { result } = renderHook((p: UseAudioRecordingOptions) => useAudioRecording(p), {
+      initialProps: makeAudioOptions({ createRecorder }),
+    })
+
+    act(() => result.current.setEnabled(true))
+    await flush()
+
+    expect(result.current.status).toBe('unavailable')
+    expect(result.current.error).toBe('Microphone access failed: Permission denied')
+    // The optimistic toggle reverts on failure — a checkbox left "checked"
+    // after a denied request would claim audio will be captured when it will not.
+    expect(result.current.enabled).toBe(false)
+  })
+
+  it('setEnabled(false) disposes the recorder, returns to idle, and clears any error', async () => {
+    const fakeRecorder = new FakeAudioRecorder()
+    const { result } = renderHook((p: UseAudioRecordingOptions) => useAudioRecording(p), {
+      initialProps: makeAudioOptions({ createRecorder: () => Promise.resolve(ok(fakeRecorder)) }),
+    })
+
+    act(() => result.current.setEnabled(true))
+    await flush()
+    expect(result.current.status).toBe('ready')
+
+    act(() => result.current.setEnabled(false))
+    expect(result.current.status).toBe('idle')
+    expect(result.current.enabled).toBe(false)
+    expect(fakeRecorder.disposeCalls).toBe(1)
+  })
+
+  it('beginCapture is a no-op unless enabled and ready', async () => {
+    const fakeRecorder = new FakeAudioRecorder()
+    const { result } = renderHook((p: UseAudioRecordingOptions) => useAudioRecording(p), {
+      initialProps: makeAudioOptions({ createRecorder: () => Promise.resolve(ok(fakeRecorder)) }),
+    })
+
+    // Not enabled at all.
+    act(() => result.current.beginCapture())
+    expect(fakeRecorder.startCalls).toBe(0)
+    expect(result.current.status).toBe('idle')
+
+    // Enabled but still 'requesting' (the mic promise has not resolved yet).
+    act(() => result.current.setEnabled(true))
+    act(() => result.current.beginCapture())
+    expect(fakeRecorder.startCalls).toBe(0)
+  })
+
+  it('beginCapture starts the recorder and moves status to recording', async () => {
+    const fakeRecorder = new FakeAudioRecorder()
+    const { result } = renderHook((p: UseAudioRecordingOptions) => useAudioRecording(p), {
+      initialProps: makeAudioOptions({ createRecorder: () => Promise.resolve(ok(fakeRecorder)) }),
+    })
+
+    act(() => result.current.setEnabled(true))
+    await flush()
+
+    act(() => result.current.beginCapture())
+    expect(fakeRecorder.startCalls).toBe(1)
+    expect(result.current.status).toBe('recording')
+  })
+
+  it('markMidiOrigin is a no-op unless status is recording', async () => {
+    const fakeRecorder = new FakeAudioRecorder()
+    const now = vi.fn(() => 0)
+    const { result } = renderHook((p: UseAudioRecordingOptions) => useAudioRecording(p), {
+      initialProps: makeAudioOptions({ createRecorder: () => Promise.resolve(ok(fakeRecorder)), now }),
+    })
+
+    act(() => result.current.markMidiOrigin())
+    now.mockClear()
+    act(() => result.current.setEnabled(true))
+    await flush()
+    act(() => result.current.markMidiOrigin())
+    // Still 'ready', not 'recording' — no clock read.
+    expect(now).not.toHaveBeenCalled()
+  })
+
+  it('measures a real offset between beginCapture and markMidiOrigin, and stores it — never assumes zero', async () => {
+    const fakeRecorder = new FakeAudioRecorder()
+    const reads = [1_000, 1_037] // beginCapture's read, then markMidiOrigin's read
+    let i = 0
+    const now = () => reads[i++] ?? 0
+    const store = new MemoryStore()
+
+    const { result, rerender } = renderHook((p: UseAudioRecordingOptions) => useAudioRecording(p), {
+      initialProps: makeAudioOptions({
+        createRecorder: () => Promise.resolve(ok(fakeRecorder)),
+        openStore: () => Promise.resolve(store),
+        now,
+        recording: undefined,
+      }),
+    })
+
+    act(() => result.current.setEnabled(true))
+    await flush()
+
+    act(() => result.current.beginCapture()) // reads 1000
+    act(() => result.current.markMidiOrigin()) // reads 1037
+    act(() => result.current.endCapture())
+
+    const blob = new Blob(['abc'], { type: 'audio/webm' })
+    act(() => fakeRecorder.resolveStop(blob))
+    await flush()
+
+    rerender(
+      makeAudioOptions({
+        createRecorder: () => Promise.resolve(ok(fakeRecorder)),
+        openStore: () => Promise.resolve(store),
+        now,
+        recording: recordingOf('rec-1'),
+      }),
+    )
+    await flush()
+
+    const stored = await getRecordingAudio(store, 'rec-1')
+    expect(stored?.offsetMs).toBe(1_000 - 1_037) // -37: audio started before the MIDI origin
+  })
+
+  it('persists the captured blob once BOTH it resolves and the recording id changes — recording changes first, blob resolves after', async () => {
+    const fakeRecorder = new FakeAudioRecorder()
+    const store = new MemoryStore()
+    const { result, rerender } = renderHook((p: UseAudioRecordingOptions) => useAudioRecording(p), {
+      initialProps: makeAudioOptions({
+        createRecorder: () => Promise.resolve(ok(fakeRecorder)),
+        openStore: () => Promise.resolve(store),
+        recording: undefined,
+      }),
+    })
+
+    act(() => result.current.setEnabled(true))
+    await flush()
+    act(() => result.current.beginCapture())
+    act(() => result.current.markMidiOrigin())
+    act(() => result.current.endCapture())
+
+    // The MIDI side finishes and re-renders with the new recording BEFORE
+    // the audio encoder has flushed its final blob.
+    rerender(
+      makeAudioOptions({
+        createRecorder: () => Promise.resolve(ok(fakeRecorder)),
+        openStore: () => Promise.resolve(store),
+        recording: recordingOf('rec-2'),
+      }),
+    )
+    await flush()
+    expect(await getRecordingAudio(store, 'rec-2')).toBeUndefined()
+
+    const blob = new Blob(['late blob'], { type: 'audio/webm' })
+    act(() => fakeRecorder.resolveStop(blob))
+    await flush()
+
+    const stored = await getRecordingAudio(store, 'rec-2')
+    expect(stored).toBeDefined()
+    expect(await stored?.blob.text()).toBe('late blob')
+    expect(result.current.audio).toEqual({ mimeType: 'audio/webm', sizeBytes: blob.size })
+  })
+
+  it('persists the captured blob once BOTH it resolves and the recording id changes — blob resolves first, recording changes after', async () => {
+    const fakeRecorder = new FakeAudioRecorder()
+    const store = new MemoryStore()
+    const { result, rerender } = renderHook((p: UseAudioRecordingOptions) => useAudioRecording(p), {
+      initialProps: makeAudioOptions({
+        createRecorder: () => Promise.resolve(ok(fakeRecorder)),
+        openStore: () => Promise.resolve(store),
+        recording: undefined,
+      }),
+    })
+
+    act(() => result.current.setEnabled(true))
+    await flush()
+    act(() => result.current.beginCapture())
+    act(() => result.current.markMidiOrigin())
+    act(() => result.current.endCapture())
+
+    const blob = new Blob(['early blob'], { type: 'audio/webm' })
+    act(() => fakeRecorder.resolveStop(blob))
+    await flush()
+    // Nothing to attach to yet — `recording` has not changed.
+    expect(result.current.audio).toBeUndefined()
+
+    rerender(
+      makeAudioOptions({
+        createRecorder: () => Promise.resolve(ok(fakeRecorder)),
+        openStore: () => Promise.resolve(store),
+        recording: recordingOf('rec-3'),
+      }),
+    )
+    await flush()
+
+    const stored = await getRecordingAudio(store, 'rec-3')
+    expect(await stored?.blob.text()).toBe('early blob')
+  })
+
+  it('audio is undefined for a recording that was never given audio — the migration path for pre-existing recordings', async () => {
+    const store = new MemoryStore()
+    const { result, rerender } = renderHook((p: UseAudioRecordingOptions) => useAudioRecording(p), {
+      initialProps: makeAudioOptions({ openStore: () => Promise.resolve(store), recording: undefined }),
+    })
+    await flush()
+
+    rerender(makeAudioOptions({ openStore: () => Promise.resolve(store), recording: recordingOf('old-recording') }))
+    await flush()
+
+    expect(result.current.audio).toBeUndefined()
+  })
+
+  it('deleteAudio removes the stored audio and clears audio state', async () => {
+    const store = new MemoryStore()
+    await putRecordingAudio(store, {
+      recordingId: 'rec-1',
+      blob: new Blob(['x'], { type: 'audio/webm' }),
+      mimeType: 'audio/webm',
+      offsetMs: 0,
+    })
+
+    const { result, rerender } = renderHook((p: UseAudioRecordingOptions) => useAudioRecording(p), {
+      initialProps: makeAudioOptions({ openStore: () => Promise.resolve(store), recording: undefined }),
+    })
+    rerender(makeAudioOptions({ openStore: () => Promise.resolve(store), recording: recordingOf('rec-1') }))
+    await flush()
+    expect(result.current.audio).toEqual({ mimeType: 'audio/webm', sizeBytes: 1 })
+
+    act(() => result.current.deleteAudio())
+    await flush()
+
+    expect(result.current.audio).toBeUndefined()
+    expect(await getRecordingAudio(store, 'rec-1')).toBeUndefined()
+  })
+
+  it('a save failure (e.g. storage quota exceeded) surfaces an error without throwing', async () => {
+    const fakeRecorder = new FakeAudioRecorder()
+    const failingStore: Store = {
+      get: () => Promise.resolve(undefined),
+      getAll: () => Promise.resolve([]),
+      put: () => Promise.reject(new DOMException('Quota exceeded', 'QuotaExceededError')),
+      delete: () => Promise.resolve(undefined),
+      clear: () => Promise.resolve(undefined),
+      collections: () => Promise.resolve([]),
+    }
+
+    const { result, rerender } = renderHook((p: UseAudioRecordingOptions) => useAudioRecording(p), {
+      initialProps: makeAudioOptions({
+        createRecorder: () => Promise.resolve(ok(fakeRecorder)),
+        openStore: () => Promise.resolve(failingStore),
+        recording: undefined,
+      }),
+    })
+
+    act(() => result.current.setEnabled(true))
+    await flush()
+    act(() => result.current.beginCapture())
+    act(() => result.current.markMidiOrigin())
+    act(() => result.current.endCapture())
+    act(() => fakeRecorder.resolveStop(new Blob(['x'])))
+    await flush()
+
+    rerender(
+      makeAudioOptions({
+        createRecorder: () => Promise.resolve(ok(fakeRecorder)),
+        openStore: () => Promise.resolve(failingStore),
+        recording: recordingOf('rec-4'),
+      }),
+    )
+    await flush()
+
+    expect(result.current.error).toMatch(/storage/i)
+    expect(result.current.audio).toBeUndefined()
+  })
+
+  it('beginPlayback schedules play() to fire after offsetMs once the audio has a positive offset', async () => {
+    vi.useFakeTimers()
+    try {
+      const store = new MemoryStore()
+      await putRecordingAudio(store, {
+        recordingId: 'rec-1',
+        blob: new Blob(['x'], { type: 'audio/webm' }),
+        mimeType: 'audio/webm',
+        offsetMs: 80,
+      })
+      const playback = new FakeAudioPlayback()
+      const { result, rerender } = renderHook((p: UseAudioRecordingOptions) => useAudioRecording(p), {
+        initialProps: makeAudioOptions({
+          openStore: () => Promise.resolve(store),
+          createPlayback: () => playback,
+          recording: undefined,
+        }),
+      })
+      rerender(
+        makeAudioOptions({
+          openStore: () => Promise.resolve(store),
+          createPlayback: () => playback,
+          recording: recordingOf('rec-1'),
+        }),
+      )
+      await vi.waitFor(() => expect(result.current.audio).toBeDefined())
+
+      act(() => result.current.beginPlayback())
+      await act(async () => {
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+      expect(playback.playCalls).toEqual([])
+
+      await act(async () => {
+        vi.advanceTimersByTime(80)
+      })
+      expect(playback.playCalls).toEqual([0])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('beginPlayback seeks into the clip and plays immediately when the offset is zero or negative', async () => {
+    const store = new MemoryStore()
+    await putRecordingAudio(store, {
+      recordingId: 'rec-1',
+      blob: new Blob(['x'], { type: 'audio/webm' }),
+      mimeType: 'audio/webm',
+      offsetMs: -250,
+    })
+    const playback = new FakeAudioPlayback()
+    const { result, rerender } = renderHook((p: UseAudioRecordingOptions) => useAudioRecording(p), {
+      initialProps: makeAudioOptions({
+        openStore: () => Promise.resolve(store),
+        createPlayback: () => playback,
+        recording: undefined,
+      }),
+    })
+    rerender(
+      makeAudioOptions({
+        openStore: () => Promise.resolve(store),
+        createPlayback: () => playback,
+        recording: recordingOf('rec-1'),
+      }),
+    )
+    await flush()
+
+    act(() => result.current.beginPlayback())
+    await flush()
+
+    expect(playback.playCalls).toEqual([0.25])
+  })
+
+  it('beginPlayback is a no-op when the current recording has no stored audio', async () => {
+    const store = new MemoryStore()
+    const playback = new FakeAudioPlayback()
+    const { result, rerender } = renderHook((p: UseAudioRecordingOptions) => useAudioRecording(p), {
+      initialProps: makeAudioOptions({
+        openStore: () => Promise.resolve(store),
+        createPlayback: () => playback,
+        recording: undefined,
+      }),
+    })
+    rerender(
+      makeAudioOptions({
+        openStore: () => Promise.resolve(store),
+        createPlayback: () => playback,
+        recording: recordingOf('audio-less-recording'),
+      }),
+    )
+    await flush()
+
+    act(() => result.current.beginPlayback())
+    await flush()
+
+    expect(playback.playCalls).toEqual([])
+  })
+
+  it('endPlayback clears a pending scheduled play and stops/disposes any active playback', async () => {
+    vi.useFakeTimers()
+    try {
+      const store = new MemoryStore()
+      await putRecordingAudio(store, {
+        recordingId: 'rec-1',
+        blob: new Blob(['x'], { type: 'audio/webm' }),
+        mimeType: 'audio/webm',
+        offsetMs: 500,
+      })
+      const playback = new FakeAudioPlayback()
+      const { result, rerender } = renderHook((p: UseAudioRecordingOptions) => useAudioRecording(p), {
+        initialProps: makeAudioOptions({
+          openStore: () => Promise.resolve(store),
+          createPlayback: () => playback,
+          recording: undefined,
+        }),
+      })
+      rerender(
+        makeAudioOptions({
+          openStore: () => Promise.resolve(store),
+          createPlayback: () => playback,
+          recording: recordingOf('rec-1'),
+        }),
+      )
+      await vi.waitFor(() => expect(result.current.audio).toBeDefined())
+
+      act(() => result.current.beginPlayback())
+      await act(async () => {
+        await Promise.resolve()
+      })
+      act(() => result.current.endPlayback())
+
+      await act(async () => {
+        vi.advanceTimersByTime(500)
+      })
+      // The scheduled play() never fires — endPlayback cleared the timeout
+      // before it could.
+      expect(playback.playCalls).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

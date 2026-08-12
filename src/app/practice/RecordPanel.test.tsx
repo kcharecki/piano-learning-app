@@ -1,16 +1,51 @@
 /**
  * `RecordPanel` (roadmap 2.14, REQ-3.9.2): thin per house style (render, wire,
- * roles) — the actual recording/replay behaviour is `useRecorder`'s, already
- * covered in `useRecorder.test.ts`.
+ * roles) — the actual MIDI recording/replay behaviour is `useRecorder`'s,
+ * already covered in `useRecorder.test.ts`. The audio half (roadmap B.5) is
+ * `useAudioRecording`'s, covered in the same file — this only checks that
+ * `RecordPanel` wires its buttons to it in the right order and renders the
+ * states `useAudioRecording` reports (checkbox, error, summary row, delete).
+ * Every test here that mounts `RecordPanel` picks up `useAudioRecording`'s
+ * REAL default `openStore` (`createIdbStore`) — there is no IndexedDB in this
+ * project's `ui` (happy-dom) test environment, so that open always fails and
+ * is swallowed (see `useAudioRecording`'s module comment); `audio.store`
+ * simply never resolves, which is exactly the "no IndexedDB" case and is
+ * itself a useful thing to exercise without special-casing it away.
  */
+import type { AudioPlayback, AudioRecorder } from '@adapters/audio/audioRecorder.ts'
+import { putRecordingAudio } from '@adapters/store/idb.ts'
 import type { Recording } from '@core/practice/recorder.ts'
+import { err, ok, type Result } from '@core/shared/result.ts'
 import { midi, millis } from '@core/shared/units.ts'
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { act, cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryStore } from '@test/fakes.ts'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { RecordPanel, type RecordPanelProps } from './RecordPanel.tsx'
 
 afterEach(cleanup)
+
+class FakeAudioRecorder implements AudioRecorder {
+  mimeType = 'audio/webm'
+  state: 'inactive' | 'recording' = 'inactive'
+  start(): void {
+    this.state = 'recording'
+  }
+  stop(): Promise<Blob> {
+    this.state = 'inactive'
+    return Promise.resolve(new Blob(['x'], { type: this.mimeType }))
+  }
+  dispose(): void {}
+}
+
+class FakeAudioPlayback implements AudioPlayback {
+  playCalls: number[] = []
+  play(fromSeconds = 0): void {
+    this.playCalls.push(fromSeconds)
+  }
+  stop(): void {}
+  dispose(): void {}
+}
 
 const RECORDING: Recording = {
   id: 'rec-1',
@@ -121,5 +156,148 @@ describe('RecordPanel', () => {
     render(<RecordPanel {...makeProps()} />)
 
     expect(screen.queryByTestId('record-duration')).not.toBeInTheDocument()
+  })
+})
+
+describe('RecordPanel — audio (roadmap B.5)', () => {
+  it('shows an unchecked "Record audio too" checkbox by default, enabled while idle', () => {
+    render(<RecordPanel {...makeProps()} />)
+
+    const toggle = screen.getByRole('checkbox', { name: /record audio too/i })
+    expect(toggle).not.toBeChecked()
+    expect(toggle).toBeEnabled()
+  })
+
+  it('disables the audio toggle whenever phase is not idle', () => {
+    render(<RecordPanel {...makeProps({ phase: 'recording', recording: RECORDING })} />)
+
+    expect(screen.getByRole('checkbox', { name: /record audio too/i })).toBeDisabled()
+  })
+
+  it('checking the toggle requests the microphone and becomes checked once granted', async () => {
+    const user = userEvent.setup()
+    const fakeRecorder = new FakeAudioRecorder()
+    const createRecorder = vi.fn<() => Promise<Result<AudioRecorder, string>>>(() =>
+      Promise.resolve(ok(fakeRecorder)),
+    )
+    render(
+      <RecordPanel
+        {...makeProps({ audioTestSeams: { createRecorder, openStore: () => Promise.resolve(new MemoryStore()) } })}
+      />,
+    )
+
+    await user.click(screen.getByRole('checkbox', { name: /record audio too/i }))
+
+    expect(createRecorder).toHaveBeenCalledTimes(1)
+    await screen.findByRole('checkbox', { name: /record audio too/i, checked: true } as never)
+  })
+
+  it('a failed microphone request surfaces an error alert without crashing the panel', async () => {
+    const user = userEvent.setup()
+    const createRecorder = vi.fn<() => Promise<Result<AudioRecorder, string>>>(() =>
+      Promise.resolve(err('Microphone access failed: Permission denied')),
+    )
+    render(
+      <RecordPanel
+        {...makeProps({ audioTestSeams: { createRecorder, openStore: () => Promise.resolve(new MemoryStore()) } })}
+      />,
+    )
+
+    await user.click(screen.getByRole('checkbox', { name: /record audio too/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/permission denied/i)
+    // The rest of the panel is still usable — this is additive, not fatal.
+    expect(screen.getByRole('button', { name: 'Record' })).toBeEnabled()
+  })
+
+  it('clicking Record starts audio capture before the MIDI side, and Stop recording stops it', async () => {
+    const user = userEvent.setup()
+    const fakeRecorder = new FakeAudioRecorder()
+    const calls: string[] = []
+    const createRecorder = vi.fn<() => Promise<Result<AudioRecorder, string>>>(() => {
+      fakeRecorder.start = () => {
+        calls.push('audio-start')
+        fakeRecorder.state = 'recording'
+      }
+      return Promise.resolve(ok(fakeRecorder))
+    })
+    const onStartRecording = vi.fn(() => calls.push('midi-start'))
+    const onStopRecording = vi.fn(() => calls.push('midi-stop'))
+
+    render(
+      <RecordPanel
+        {...makeProps({
+          onStartRecording,
+          onStopRecording,
+          audioTestSeams: { createRecorder, openStore: () => Promise.resolve(new MemoryStore()) },
+        })}
+      />,
+    )
+
+    await user.click(screen.getByRole('checkbox', { name: /record audio too/i }))
+    await screen.findByRole('checkbox', { name: /record audio too/i, checked: true } as never)
+
+    await user.click(screen.getByRole('button', { name: 'Record' }))
+    expect(calls).toEqual(['audio-start', 'midi-start'])
+  })
+
+  it('renders a stored recording\'s audio summary with a working Delete audio control', async () => {
+    const user = userEvent.setup()
+    const store = new MemoryStore()
+    await putRecordingAudio(store, {
+      recordingId: RECORDING.id,
+      blob: new Blob(['x'], { type: 'audio/webm;codecs=opus' }),
+      mimeType: 'audio/webm;codecs=opus',
+      offsetMs: 0,
+    })
+
+    render(
+      <RecordPanel
+        {...makeProps({ recording: RECORDING, audioTestSeams: { openStore: () => Promise.resolve(store) } })}
+      />,
+    )
+
+    const summary = await screen.findByTestId('record-audio-summary')
+    expect(summary).toHaveTextContent(/webm/i)
+
+    await user.click(within(summary).getByRole('button', { name: 'Delete audio' }))
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(screen.queryByTestId('record-audio-summary')).not.toBeInTheDocument()
+  })
+
+  it('replaying a recording with stored audio starts playback', async () => {
+    const store = new MemoryStore()
+    await putRecordingAudio(store, {
+      recordingId: RECORDING.id,
+      blob: new Blob(['x'], { type: 'audio/webm' }),
+      mimeType: 'audio/webm',
+      offsetMs: 0,
+    })
+    const playback = new FakeAudioPlayback()
+
+    render(
+      <RecordPanel
+        {...makeProps({
+          recording: RECORDING,
+          audioTestSeams: {
+            openStore: () => Promise.resolve(store),
+            createPlayback: () => playback,
+          },
+        })}
+      />,
+    )
+    await screen.findByTestId('record-audio-summary')
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Replay' }))
+
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(playback.playCalls).toEqual([0])
   })
 })

@@ -4,7 +4,14 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import type { Store } from '@core/ports/store.ts'
 import { COLLECTIONS } from '@core/ports/store.ts'
 import { MemoryStore } from '@test/fakes.ts'
-import { createIdbStore, createMissingStores } from './idb.ts'
+import {
+  createIdbStore,
+  createMissingStores,
+  deleteRecordingAudio,
+  getRecordingAudio,
+  putRecordingAudio,
+  type StoredRecordingAudio,
+} from './idb.ts'
 
 let dbCounter = 0
 /** A fresh, never-before-used IndexedDB database name for the test that asks for it. */
@@ -183,3 +190,90 @@ describe('createIdbStore', () => {
     v2.close()
   })
 })
+
+/**
+ * roadmap B.5 (REQ-3.9.2): the recording-audio side-store. Run against both
+ * `Store` implementations, same reasoning as `defineStoreContract` above —
+ * behaviour that differs between `MemoryStore` and the real IndexedDB store
+ * (a real `Blob` round-tripping through IndexedDB's structured-clone
+ * algorithm, in particular) has to be caught here, not assumed.
+ */
+function defineRecordingAudioContract(label: string, createStore: () => Promise<Store>): void {
+  describe(`recording audio (${label})`, () => {
+    it('put then get round-trips the blob, mime type, and offset', async () => {
+      const store = await createStore()
+      const blob = new Blob(['fake webm bytes'], { type: 'audio/webm' })
+      const audio: StoredRecordingAudio = {
+        recordingId: 'rec-1',
+        blob,
+        mimeType: 'audio/webm',
+        offsetMs: -12,
+      }
+
+      await putRecordingAudio(store, audio)
+      const found = await getRecordingAudio(store, 'rec-1')
+
+      expect(found).toBeDefined()
+      expect(found?.recordingId).toBe('rec-1')
+      expect(found?.mimeType).toBe('audio/webm')
+      expect(found?.offsetMs).toBe(-12)
+      expect(found?.blob).toBeInstanceOf(Blob);
+      expect(await found?.blob.text()).toBe('fake webm bytes')
+    })
+
+    it('an old recording that never had audio stored returns undefined — the migration path', async () => {
+      const store = await createStore()
+      // No `putRecordingAudio` call at all for this id, exactly as every
+      // `Recording` made before roadmap B.5 shipped.
+      expect(await getRecordingAudio(store, 'pre-existing-recording')).toBeUndefined()
+    })
+
+    it('deleteRecordingAudio removes just the audio, not the MIDI recording under the shared collection', async () => {
+      const store = await createStore()
+      await store.put(COLLECTIONS.recordings, 'recordings', {
+        recordings: [{ id: 'rec-1', recordedAt: 0, durationMs: 100, events: [] }],
+      })
+      await putRecordingAudio(store, {
+        recordingId: 'rec-1',
+        blob: new Blob(['x']),
+        mimeType: 'audio/webm',
+        offsetMs: 0,
+      })
+
+      await deleteRecordingAudio(store, 'rec-1')
+
+      expect(await getRecordingAudio(store, 'rec-1')).toBeUndefined()
+      expect(await store.get(COLLECTIONS.recordings, 'recordings')).toEqual({
+        recordings: [{ id: 'rec-1', recordedAt: 0, durationMs: 100, events: [] }],
+      })
+    })
+
+    it('deleting audio for an id that never had any is a no-op', async () => {
+      const store = await createStore()
+      await expect(deleteRecordingAudio(store, 'never-had-audio')).resolves.toBeUndefined()
+    })
+
+    it('a second put for the same recordingId replaces the first', async () => {
+      const store = await createStore()
+      await putRecordingAudio(store, {
+        recordingId: 'rec-1',
+        blob: new Blob(['first']),
+        mimeType: 'audio/webm',
+        offsetMs: 0,
+      })
+      await putRecordingAudio(store, {
+        recordingId: 'rec-1',
+        blob: new Blob(['second']),
+        mimeType: 'audio/ogg',
+        offsetMs: 5,
+      })
+
+      const found = await getRecordingAudio(store, 'rec-1')
+      expect(found?.mimeType).toBe('audio/ogg')
+      expect(await found?.blob.text()).toBe('second')
+    })
+  })
+}
+
+defineRecordingAudioContract('MemoryStore', () => Promise.resolve(new MemoryStore()))
+defineRecordingAudioContract('createIdbStore', () => createIdbStore(freshDbName()))
