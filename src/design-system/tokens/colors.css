@@ -20,10 +20,25 @@
   --paper-fg: #191712;
   --paper-muted: #6d675a;
 
-  /* Text roles */
+  /* Text roles.
+     roadmap 5.51: --text-3 used to read "decorative only — fails AA on
+     purpose", but by the time of the 2026-08-12 review it was already the
+     ONLY tone behind a 3-way state hierarchy (.session-run-item-list:
+     current=--text-1, done=--text-2, upcoming=--text-3), chart axis labels
+     (.trend-chart text) and item-duration badges — none of those are
+     decorative, they're just the quietest reading tier. Only two of its
+     many uses (.nav-group-title, .session-plan-warmup-note) were ever
+     measured failing; the token's own claim was already false before those
+     two shipped. Raising --text-3 itself to AA — rather than moving the
+     two named selectors to --text-2 — is the fix that doesn't collapse
+     `done` and `upcoming` into the same color. Genuinely decorative spots
+     (placeholder hints, hover borders, empty-state icon strokes) keep using
+     it too; they simply render a bit more visibly now, which is not a
+     defect for them. Values below hold ≥4.5:1 against every surface tone
+     (--bg-0…--bg-3) in their own theme — see docs/DESIGN.md. */
   --text-1: #e8e6e3;          /* primary reading text */
   --text-2: #adb4bc;          /* secondary, labels, captions */
-  --text-3: #7b838e;          /* decorative only — fails AA on purpose */
+  --text-3: #969ea8;          /* tertiary reading text — AA-compliant, dimmer than --text-2 */
   --text-inverse: #1d2126;
 
   /* Borders */
@@ -99,7 +114,7 @@
   --bg-3: #ffffff;
   --text-1: #20242a;
   --text-2: #4b535c;
-  --text-3: #858c96;
+  --text-3: #5c646e;
   --text-inverse: #f5f4f2;
   --border-1: #dbd7cf;
   --border-2: #b9b4a9;
@@ -133,7 +148,7 @@
     --bg-3: #ffffff;
     --text-1: #20242a;
     --text-2: #4b535c;
-    --text-3: #858c96;
+    --text-3: #5c646e;
     --text-inverse: #f5f4f2;
     --border-1: #dbd7cf;
     --border-2: #b9b4a9;
