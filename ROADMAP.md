@@ -1047,7 +1047,7 @@ next item, no completion state, no sense of being 3 of 5 through today.
       first viewport. Files touched: `tokens/colors.css`, `css/domain.css`, `css/responsive.css`,
       `docs/DESIGN.md`. `feature-nav-groups.css`/`feature-session-run.css` needed no edits — the fix
       is at the token, not the call sites. Deleted nothing.
-- [ ] 5.52 `app/repertoire` + `content`: the catalogue row reads "Für Elise (Theme A) / Ludwig van
+- [x] 5.52 `app/repertoire` + `content`: the catalogue row reads "Für Elise (Theme A) / Ludwig van
       Beethoven (1770–1827) / Level 3 / Add" and discloses nothing, while `src/content/scores/
       LICENSE.md` and `gradedPieces.ts`'s own doc say these files are "a faithful rendition of the
       named melody/theme… **not a verified note-for-note transcription**", with four classical pieces
@@ -1060,6 +1060,29 @@ next item, no completion state, no sense of being 3 of 5 through today.
       *Proof: an e2e reads a per-piece provenance line off the real Repertoire row for a
       research-verified piece AND for a flagged excerpt, and the two differ; a content test fails the
       build if a `GRADED_PIECES` entry has no provenance value.*
+      **Done:** `GradedPiece.provenance` (`gradedPieces.ts`) adds a `tier` — `source-verified` /
+      `confirmed-contour` / `stylistic-excerpt` / `own-rendition`, four classes lifted verbatim from
+      LICENSE.md's own groupings, never invented or upgraded — plus an optional `excerptNote` naming
+      what portion is bundled (own-rendition count == 14, stylistic-excerpt count == 4, pinned by a
+      test against the review's own numbers). Rendered as a secondary line on the Repertoire catalogue
+      row (`.repertoire-catalogue-provenance`) and, only when the loaded score resolves to a catalogue
+      entry, on Practice (`.practice-piece-provenance`, sitting under `ScoreScreen`'s existing title
+      heading rather than duplicating it — a second title-repeating `<h2>` there broke
+      `ScoreScreen.test.tsx` on an ambiguous match and was reverted). `gradedPieces.test.ts` fails the
+      build if any `GRADED_PIECES` entry has no provenance. `warmups.ts`'s jaw step lost the "hides...
+      first" claim; the jaw/neck roll action stays as a general release, sourced comment explains what
+      Juilliard's guide does and does not support. `npm run verify` green (190 files / 3907 tests).
+      `e2e/repertoire-provenance.spec.ts` green against the real dev server: Mary Had a Little Lamb
+      reads "Source-verified transcription", Für Elise reads "Source-verified transcription — Opening
+      A section only, not the full rondo." (the two differ, asserted), and the Practice heading area
+      shows the same line after "Open in Practice". Visual pass (Repertoire, Practice; 1280/1024,
+      dark/light) console-clean. Demotes: the catalogue row's composer and level move from full-weight
+      row text to the same secondary caption line the new provenance text uses, so the row gained a
+      fourth fact without four equally-loud facts. States: empty library unaffected (pre-existing copy);
+      a non-catalogue score (import/manual add) shows no provenance line, proven by a `PracticeScreen`
+      component test asserting `.practice-piece-provenance` is absent (the default-load screenshot
+      instead shows the OTHER edge — Twinkle IS a catalogue piece, so it correctly shows one); the
+      sonatina/Bach-Prelude rows carry the longest strings shipped and wrap cleanly at both widths.
 - [ ] 5.53 `core/generator/levelDefaults`: level 1 is genuinely stepwise (measured max leap **2
       semitones**) and level 2 immediately permits **10** — a minor seventh — with levels 2/3/4 all
       sharing `maxLeap: 10`, because the column is sized for the cadence walk's reachability, not for

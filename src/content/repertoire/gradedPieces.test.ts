@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { addPiece, type RepertoirePiece } from '@core/repertoire/repertoire.ts'
 import { gradedScoreById } from '@content/scores/gradedScoreFiles.ts'
-import { GRADED_PIECES } from './gradedPieces.ts'
+import { GRADED_PIECES, PROVENANCE_LABELS, type ProvenanceTier } from './gradedPieces.ts'
+
+const KNOWN_TIERS: ReadonlySet<ProvenanceTier> = new Set([
+  'source-verified',
+  'confirmed-contour',
+  'stylistic-excerpt',
+  'own-rendition',
+])
 
 /** The key signature (fifths) each entry's bundled score is stated to be in — the roadmap 5.1
  *  proof action's "key signature matches the entry's stated key" check. */
@@ -114,6 +121,38 @@ describe('GRADED_PIECES', () => {
       notes.add(piece.gradingNote)
     }
     expect(notes.size).toBe(GRADED_PIECES.length)
+  })
+
+  it('roadmap 5.52: every entry discloses a real provenance value — unfalsifiable going forward', () => {
+    // A new GRADED_PIECES entry that arrives with no `provenance` fails here
+    // even if some future refactor loosens the `GradedPiece` type (an `as
+    // any`, a spread from a looser shape, etc.) — the type system alone is
+    // not the whole guard the roadmap asks for.
+    for (const piece of GRADED_PIECES) {
+      expect(piece.provenance, `${piece.id} has no provenance`).toBeDefined()
+      expect(KNOWN_TIERS.has(piece.provenance.tier), `${piece.id}: unknown tier "${piece.provenance.tier}"`).toBe(
+        true,
+      )
+      expect(PROVENANCE_LABELS[piece.provenance.tier].trim().length).toBeGreaterThan(0)
+      if (piece.provenance.excerptNote !== undefined) {
+        expect(piece.provenance.excerptNote.trim().length).toBeGreaterThan(0)
+      }
+    }
+  })
+
+  it('roadmap 5.52: provenance tiers are never invented or upgraded — matches LICENSE.md\'s own counts', () => {
+    // LICENSE.md/gradedPieces.ts's own module doc state exact counts this
+    // pass verified against LICENSE.md's text: the ux-pedagogy review
+    // (2026-08-12) states "14 of roadmap 5.3's 20 additions are 'this app's
+    // own rendition'" — this pins that count so a future edit cannot quietly
+    // reclassify a piece to a stronger tier than LICENSE.md supports without
+    // a human noticing the count move.
+    const counts = new Map<ProvenanceTier, number>()
+    for (const piece of GRADED_PIECES) {
+      counts.set(piece.provenance.tier, (counts.get(piece.provenance.tier) ?? 0) + 1)
+    }
+    expect(counts.get('own-rendition')).toBe(14)
+    expect(counts.get('stylistic-excerpt')).toBe(4)
   })
 
   it('resolves every scoreId to a real, non-empty Score whose key signature matches the stated key (roadmap 5.1)', () => {

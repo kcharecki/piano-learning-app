@@ -189,6 +189,13 @@ describe('useRepertoire', () => {
     expect(result.current.catalogueAddedIds.size).toBe(0)
   })
 
+  it('roadmap 5.52: every catalogue entry the hook exposes carries a provenance value', () => {
+    const { result } = renderHook(() => useRepertoire())
+    for (const piece of result.current.catalogue) {
+      expect(piece.provenance).toBeDefined()
+    }
+  })
+
   it('addFromCatalogue is a no-op for an id not in GRADED_PIECES', () => {
     const { result } = renderHook(() => useRepertoire())
     act(() => result.current.addFromCatalogue('not-a-catalogue-id'))

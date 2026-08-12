@@ -29,6 +29,17 @@ describe('WARMUP_STEPS', () => {
       expect(step.instruction).not.toMatch(bannedWords)
     }
   })
+
+  it('roadmap 5.52: makes no unsourced claim about where piano tension "hides"', () => {
+    // Juilliard's Basic Warm-Up Guide (the source named in this module's own
+    // comment) verifies shoulders/posture at the bench; it never mentions
+    // the jaw. The step may still tell the learner to release the jaw and
+    // neck (a reasonable general action), it just may not assert a specific
+    // unsupported fact about it.
+    const jawStep = WARMUP_STEPS.find((s) => s.id === 'jaw-and-neck')
+    expect(jawStep).toBeDefined()
+    expect(jawStep?.instruction).not.toMatch(/tension hides|hides.*first|first.*hides/i)
+  })
 })
 
 describe('WARMUP_EXERCISE', () => {

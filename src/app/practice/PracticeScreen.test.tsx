@@ -12,7 +12,7 @@ import { C_MAJOR_SCALE_RH } from '@test/fixtures.ts'
 import { at, invariant } from '@core/shared/invariant.ts'
 import { measureRange } from '@core/notation/score.ts'
 import { midi, millis } from '@core/shared/units.ts'
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FakeClock, FakeMidiInput, RecordingAudioOutput } from '@test/fakes.ts'
 import { readFileSync } from 'node:fs'
@@ -20,6 +20,7 @@ import { join } from 'node:path'
 import { forwardRef, useImperativeHandle } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ScoreViewerHandle } from '@app/score/ScoreViewer.tsx'
+import { GRADED_PIECES, PROVENANCE_LABELS } from '@content/repertoire/gradedPieces.ts'
 import type { FrameDriver } from './useTransportLoop.ts'
 
 // `ScoreViewer` wraps OSMD, which does not run in happy-dom (see
@@ -152,6 +153,45 @@ describe('PracticeScreen', () => {
     render(<PracticeScreen midiInput={new FakeMidiInput()} />)
     expect(screen.getByText(/load a score/i)).toBeInTheDocument()
     expect(screen.queryByRole('group', { name: 'Transport' })).toBeNull()
+  })
+
+  it('roadmap 5.52: renders no provenance line for a score that is not a catalogue piece', () => {
+    loadSampleScore()
+    render(<PracticeScreen midiInput={new FakeMidiInput()} />)
+
+    // Fixture score ids never collide with a GRADED_PIECES id — this is the
+    // explicit "manually added / imported piece, no catalogue entry" state
+    // roadmap 5.52 asks for: nothing renders rather than a guessed provenance.
+    expect(document.querySelector('.practice-piece-provenance')).toBeNull()
+  })
+
+  it('roadmap 5.52: follows a catalogue piece into Practice with its own provenance disclosure', () => {
+    const excerptEntry = GRADED_PIECES.find((p) => p.provenance.excerptNote !== undefined)
+    if (excerptEntry === undefined) throw new Error('expected an excerpt-flagged catalogue entry')
+
+    useScoreStore.getState().loadScore({
+      score: {
+        ...C_MAJOR_SCALE_RH,
+        id: excerptEntry.id,
+        meta: { title: excerptEntry.title, composer: excerptEntry.composer },
+      },
+      sourceName: excerptEntry.title,
+      musicXml: undefined,
+    })
+    render(<PracticeScreen midiInput={new FakeMidiInput()} />)
+
+    const provenanceLine = document.querySelector('.practice-piece-provenance')
+    if (provenanceLine === null) throw new Error('expected a provenance line to render')
+    expect(
+      within(provenanceLine as HTMLElement).getByText(
+        new RegExp(PROVENANCE_LABELS[excerptEntry.provenance.tier]),
+      ),
+    ).toBeInTheDocument()
+    if (excerptEntry.provenance.excerptNote !== undefined) {
+      expect(
+        within(provenanceLine as HTMLElement).getByText(new RegExp(excerptEntry.provenance.excerptNote)),
+      ).toBeInTheDocument()
+    }
   })
 
   it('is fully usable with no MIDI keyboard connected — REQ-4.1', async () => {

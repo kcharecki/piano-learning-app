@@ -34,13 +34,80 @@
  * Levels are graded against requirements.md §2's ladder (playing / sight
  * reading / theory columns per level); each entry's `gradingNote` cites the
  * specific ladder cell(s) it was matched against, not an invented scale.
+ *
+ * Roadmap 5.52: `LICENSE.md` was always candid about what each bundled file
+ * actually is — a source-verified transcription, a confirmed-shape rendition,
+ * a stylistic excerpt, or this app's own from-memory rendition — but none of
+ * that reached the learner: the Repertoire row showed only title/composer/
+ * level. `provenance` (below) makes that ledger a real, per-piece field
+ * instead of prose only a maintainer reads. Every value here is transcribed
+ * FROM `LICENSE.md`'s own classification of the piece, never invented and
+ * never upgraded past what LICENSE.md claims — where LICENSE.md groups a
+ * piece as "this app's own rendition, not confirmed against an external
+ * written source this session", `provenance.tier` is `'own-rendition'`, full
+ * stop.
  */
 import type { NewPieceInput } from '@core/repertoire/repertoire.ts'
+
+/**
+ * Four provenance classes, exactly matching `LICENSE.md`'s own groupings —
+ * ordered here from strongest to weakest evidential claim:
+ *
+ * - `source-verified` — melody checked against a named written source
+ *   (Wikipedia, IMSLP, a hymn-tune archive, or a letter-note transcription
+ *   site) before transcribing.
+ * - `confirmed-contour` — key/mode and general melodic shape confirmed
+ *   against a source, but not the exact historical note sequence (no text
+ *   source gives one); this app's own plausible rendition within that
+ *   confirmed shape.
+ * - `stylistic-excerpt` — only harmonic/textural facts (chord alternation,
+ *   cadence shape, register, device) are confirmed; the exact opening
+ *   pitches are explicitly NOT recoverable from any source checked. A short
+ *   excerpt genuinely in the composer's idiom and era, but not a verified
+ *   transcription of the actual notes.
+ * - `own-rendition` — transcribed from memory of a tune with a single,
+ *   widely-taught melody; attempted but not checked against an external
+ *   written source this session.
+ */
+export type ProvenanceTier = 'source-verified' | 'confirmed-contour' | 'stylistic-excerpt' | 'own-rendition'
+
+export type PieceProvenance = {
+  readonly tier: ProvenanceTier
+  /**
+   * Present ONLY when this bundled file is a partial excerpt of a larger
+   * work (an opening section, a chorus-only setting, a handful of bars) —
+   * states what portion is bundled and what is not, per LICENSE.md/this
+   * file's own `gradingNote`s. Absent means the file is the full remembered
+   * tune, not a partial extract of a longer piece.
+   */
+  readonly excerptNote?: string
+}
+
+/** Learner-facing label for each tier — rendered on the Repertoire catalogue
+ *  row and the Practice heading (roadmap 5.52). Sentence case, no internal
+ *  vocabulary, honest without being alarming: DESIGN.md's "learner language"
+ *  screen rule applies to this text same as any other. */
+export const PROVENANCE_LABELS: Readonly<Record<ProvenanceTier, string>> = {
+  'source-verified': 'Source-verified transcription',
+  'confirmed-contour': 'Confirmed melody shape, not note-verified',
+  'stylistic-excerpt': 'Stylistic excerpt, not a verified transcription',
+  'own-rendition': "This app's own rendition, not source-verified",
+}
 
 export type GradedPiece = NewPieceInput & {
   /** Why this level, against requirements.md §2. One sentence. */
   readonly gradingNote: string
+  /**
+   * What this bundled file actually is, per `src/content/scores/LICENSE.md`
+   * (roadmap 5.52). Required on every entry — see `gradedPieces.test.ts`'s
+   * "every graded piece discloses its provenance" test, which fails the
+   * build if any entry omits it.
+   */
+  readonly provenance: PieceProvenance
 }
+
+const STYLISTIC_EXCERPT_NOTE =
+  'Short excerpt (2–6 bars) in the confirmed key, meter and device — the exact opening pitches are not recoverable from any source checked.'
 
 /** 40 public-domain pieces, ascending by level then title. */
 export const GRADED_PIECES: readonly GradedPiece[] = [
@@ -56,6 +123,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 1,
     gradingNote:
       'Entirely stepwise five-finger melody in quarter and half notes — matches level 1 "five-finger positions... simple hands-together" and "quarter/half/whole notes".',
+    provenance: { tier: 'source-verified' },
   },
   {
     id: 'frere-jacques',
@@ -65,6 +133,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 1,
     gradingNote:
       'Repeated stepwise five-finger motif with hands separately and a brief eighth-note turn — level 1 "five-finger positions... quarter/half/whole notes", roadmap 5.3.',
+    provenance: { tier: 'own-rendition' },
   },
   {
     id: 'hot-cross-buns',
@@ -74,6 +143,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 1,
     gradingNote:
       "Three-note five-finger melody, quarter notes only — the canonical first five-finger-position piece in level 1's playing column.",
+    provenance: { tier: 'source-verified' },
   },
   {
     id: 'jolly-old-saint-nicholas',
@@ -83,6 +153,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 1,
     gradingNote:
       'Stepwise five-finger melody, hands separately, quarter/half notes throughout — the exact level 1 shape method books use it for, roadmap 5.3.',
+    provenance: { tier: 'own-rendition' },
   },
   {
     id: 'lightly-row',
@@ -92,6 +163,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 1,
     gradingNote:
       'The canonical five-finger-position teaching tune (mi-re-do-re-mi), quarter/half notes, hands separately — level 1, roadmap 5.3.',
+    provenance: { tier: 'own-rendition' },
   },
   {
     id: 'london-bridge-is-falling-down',
@@ -101,6 +173,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 1,
     gradingNote:
       'Stepwise five-finger melody around middle C with simple quarter/half rhythm — level 1 "note names... around middle C, quarter/half/whole notes".',
+    provenance: { tier: 'source-verified' },
   },
   {
     id: 'mary-had-a-little-lamb',
@@ -110,6 +183,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 1,
     gradingNote:
       'Five-finger-position melody, hands separately, quarter notes throughout — textbook level 1 playing-column fit.',
+    provenance: { tier: 'source-verified' },
   },
   {
     id: 'merrily-we-roll-along',
@@ -119,6 +193,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 1,
     gradingNote:
       'Five-finger stepwise-plus-skip melody, quarter/half notes, simple hands-together phrase at the cadence — still level 1, no eighth notes or key-signature demands.',
+    provenance: { tier: 'source-verified' },
   },
   {
     id: 'ode-to-joy-theme',
@@ -128,6 +203,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 1,
     gradingNote:
       'The unadorned melodic theme (as universally published in beginner method books, not the full symphonic setting): five-finger stepwise motion with one small skip, quarter/half notes — level 1, and the "easy classics" half of REQ-3.8.1\'s level-1-2 guidance.',
+    provenance: { tier: 'source-verified' },
   },
   {
     id: 'old-macdonald-had-a-farm',
@@ -137,6 +213,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 1,
     gradingNote:
       'Five-finger melody built from repeated scale steps, hands separately, quarter/half notes — level 1 "note names around middle C", roadmap 5.3.',
+    provenance: { tier: 'source-verified' },
   },
   {
     id: 'rain-rain-go-away',
@@ -146,6 +223,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 1,
     gradingNote:
       'Three-note (mi-re-do) five-finger chant in quarter notes, hands separately — the simplest tier of level 1\'s playing column, roadmap 5.3.',
+    provenance: { tier: 'own-rendition' },
   },
   {
     id: 'ring-around-the-rosie',
@@ -155,6 +233,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 1,
     gradingNote:
       'Three-note (mi-re-do) five-finger chant, quarter and whole notes, hands separately — level 1, roadmap 5.3.',
+    provenance: { tier: 'own-rendition' },
   },
   {
     id: 'row-row-row-your-boat',
@@ -164,6 +243,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 1,
     gradingNote:
       'Five-finger stepwise-plus-skip melody reaching one note above the octave at its "merrily" peak, quarter/half notes — level 1, roadmap 5.3.',
+    provenance: { tier: 'source-verified' },
   },
   {
     id: 'the-farmer-in-the-dell',
@@ -173,6 +253,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 1,
     gradingNote:
       'Stepwise five-finger melody, hands separately, quarter/half notes with a repeated verse/refrain shape — level 1, roadmap 5.3.',
+    provenance: { tier: 'own-rendition' },
   },
   {
     id: 'this-old-man',
@@ -182,6 +263,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 1,
     gradingNote:
       'Short stepwise-plus-skip five-finger phrase, hands separately, quarter/half notes — level 1\'s playing column, roadmap 5.3.',
+    provenance: { tier: 'own-rendition' },
   },
   {
     id: 'twinkle-twinkle-little-star',
@@ -191,6 +273,12 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 1,
     gradingNote:
       'Five-finger stepwise-plus-skip melody over a simple hands-together I/IV/V left hand, quarter notes — level 1, the app\'s own default score (roadmap 1.17), added to the catalogue by 5.3.',
+    // LICENSE.md's own "Twinkle" section (roadmap 1.17, predates the 5.1/5.3
+    // provenance classification) says only that the arrangement is this
+    // app's own and reproduces no existing edition — it makes no claim of
+    // having been checked against an external melodic source. Absent a
+    // verification claim, this does not upgrade to `source-verified`.
+    provenance: { tier: 'own-rendition' },
   },
   {
     id: 'when-the-saints-go-marching-in',
@@ -200,6 +288,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 1,
     gradingNote:
       'Five-finger arpeggio-and-step melody (do-mi-fa-sol), hands separately, quarter/half notes — level 1, roadmap 5.3.',
+    provenance: { tier: 'source-verified' },
   },
   {
     id: 'yankee-doodle',
@@ -209,6 +298,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 1,
     gradingNote:
       'Five-finger stepwise-plus-skip melody, hands separately, quarter/half notes — level 1, roadmap 5.3.',
+    provenance: { tier: 'source-verified' },
   },
 
   // ---------------------------------------------------------------------
@@ -225,6 +315,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 2,
     gradingNote:
       "Simple hands-together hymn texture with room for legato phrasing and dynamic shaping, one-octave range, harmony sitting on tonic/dominant — level 2's playing and theory columns.",
+    provenance: { tier: 'source-verified' },
   },
   {
     id: 'auld-lang-syne',
@@ -234,6 +325,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 2,
     gradingNote:
       'Legato hands-together melody in G major (1 sharp), one-octave range, simple tonic/dominant harmony — level 2, roadmap 5.3.',
+    provenance: { tier: 'source-verified' },
   },
   {
     id: 'camptown-races',
@@ -243,6 +335,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 2,
     gradingNote:
       'Hands-together chorus in G major (1 sharp) with dynamic contrast between verse and "doo-dah" refrain, one-octave range — level 2, roadmap 5.3.',
+    provenance: { tier: 'own-rendition', excerptNote: 'Chorus only, not the verse.' },
   },
   {
     id: 'danny-boy',
@@ -252,6 +345,10 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 2,
     gradingNote:
       'Legato hands-together opening phrase in G major (1 sharp) with room for dynamic shaping, one-octave range — level 2, roadmap 5.3.',
+    provenance: {
+      tier: 'own-rendition',
+      excerptNote: 'Opening phrase only — a famously intricate melody, no claim on the rest.',
+    },
   },
   {
     id: 'home-on-the-range',
@@ -261,6 +358,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 2,
     gradingNote:
       'Hands-together waltz-time chorus in F major (1 flat), one-octave range with a simple waltz-bass accompaniment — level 2, roadmap 5.3.',
+    provenance: { tier: 'own-rendition', excerptNote: 'Chorus only, not the verse.' },
   },
   {
     id: 'jingle-bells',
@@ -270,6 +368,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 2,
     gradingNote:
       'Hands-together chorus in G major (1 sharp) with a boom-chick accompaniment and one-octave melodic range — level 2, roadmap 5.3.',
+    provenance: { tier: 'own-rendition', excerptNote: 'Chorus only, not the verse.' },
   },
   {
     id: 'long-long-ago',
@@ -279,6 +378,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 2,
     gradingNote:
       'Gentle legato hands-together parlor song with eighth-note pickups and simple tonic-dominant harmony — level 2\'s "legato... basic dynamics" and "tonic and dominant chords".',
+    provenance: { tier: 'confirmed-contour' },
   },
   {
     id: 'minuet-in-g-major-bwv-anh-114',
@@ -288,6 +388,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 2,
     gradingNote:
       'Key of G major (1 sharp), hands together throughout, mostly stepwise with some eighth-note motion within an octave — level 2\'s "simple key signatures (0–1 sharps/flats)" and "major scales C/G/F".',
+    provenance: { tier: 'source-verified' },
   },
   {
     id: 'my-bonnie-lies-over-the-ocean',
@@ -297,6 +398,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 2,
     gradingNote:
       'Legato hands-together waltz in G major (1 sharp), one-octave range, simple tonic/dominant waltz bass — level 2, roadmap 5.3.',
+    provenance: { tier: 'own-rendition' },
   },
   {
     id: 'oh-susanna',
@@ -306,6 +408,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 2,
     gradingNote:
       'Hands-together folk song in G major (1 sharp) with a boom-chick accompaniment, one-octave range — level 2, roadmap 5.3.',
+    provenance: { tier: 'source-verified' },
   },
   {
     id: 'scarborough-fair',
@@ -315,6 +418,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 2,
     gradingNote:
       'Legato modal melody, hands together, one-octave range with a simple block-chord accompaniment — level 2\'s "legato... basic dynamics" playing column.',
+    provenance: { tier: 'confirmed-contour' },
   },
   {
     id: 'simple-gifts',
@@ -324,6 +428,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 2,
     gradingNote:
       'Legato hands-together hymn in F major (1 flat), one-octave range, simple tonic/dominant harmony — level 2, roadmap 5.3.',
+    provenance: { tier: 'own-rendition' },
   },
   {
     id: 'skip-to-my-lou',
@@ -333,6 +438,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 2,
     gradingNote:
       'Hands-together folk song with eighth-note pairs on the refrain and verse/chorus dynamic contrast, one-octave range each hand — level 2.',
+    provenance: { tier: 'confirmed-contour' },
   },
 
   // ---------------------------------------------------------------------
@@ -348,6 +454,10 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 3,
     gradingNote:
       'The opening A section only (not the full rondo): alternating broken-chord left hand under a stepwise right-hand melody in A minor — level 3\'s "broken chords" and "relative minors", two-hand coordination without the later sections\' wider leaps.',
+    provenance: {
+      tier: 'source-verified',
+      excerptNote: 'Opening A section only, not the full rondo.',
+    },
   },
   {
     id: 'greensleeves',
@@ -357,6 +467,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 3,
     gradingNote:
       'Natural-minor folk melody in simple triple meter, phrased across a two-octave range with hands-together dotted-rhythm accompaniment — level 3\'s "relative minors" and "dotted rhythms".',
+    provenance: { tier: 'confirmed-contour' },
   },
 
   // ---------------------------------------------------------------------
@@ -373,6 +484,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 4,
     gradingNote:
       'Continuous sixteenth-note passagework requiring position shifts and finger independence between melody and accompaniment fragments — level 4\'s "voicing melody over accompaniment" and "leaps and position shifts", a standard progressing-intermediate study.',
+    provenance: { tier: 'stylistic-excerpt', excerptNote: STYLISTIC_EXCERPT_NOTE },
   },
   {
     id: 'bach-prelude-in-c-major-bwv-846',
@@ -382,6 +494,10 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 4,
     gradingNote:
       'Continuous arpeggiated broken chords in both hands outlining a I–IV–V–I-and-beyond harmonic progression bar by bar, with sustained voicing/pedal control across the whole piece — level 4\'s "arpeggios" and "primary progressions (I–IV–V–I, ii–V–I)".',
+    provenance: {
+      tier: 'source-verified',
+      excerptNote: '4-bar opening phrase only, not the full 35-bar piece.',
+    },
   },
   {
     id: 'kuhlau-sonatina-op-20-no-1',
@@ -391,6 +507,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 4,
     gradingNote:
       'Alberti-bass broken-chord left hand under a scalar right-hand melody in C major, requiring genuine two-hand coordination at tempo — level 4\'s "easier sonatinas" playing-column example, named alongside Clementi sonatinas in requirements.md §1.3.',
+    provenance: { tier: 'stylistic-excerpt', excerptNote: STYLISTIC_EXCERPT_NOTE },
   },
   {
     id: 'clementi-sonatina-op-36-no-1',
@@ -400,6 +517,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 4,
     gradingNote:
       'The archetypal easier sonatina: Alberti-bass accompaniment, scale-run passages, and hands-together coordination in C major — level 4\'s "easier sonatinas" playing-column example, per requirements.md §1.3.',
+    provenance: { tier: 'stylistic-excerpt', excerptNote: STYLISTIC_EXCERPT_NOTE },
   },
   {
     id: 'beethoven-sonatina-op-49-no-1',
@@ -409,6 +527,7 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 4,
     gradingNote:
       'Full sonata-allegro form in a minor key with syncopated accompaniment figures and wider leaps than the Kuhlau/Clementi sonatinas at the bottom of this level — level 4\'s "easier sonatinas", "syncopation" and "minor scale forms".',
+    provenance: { tier: 'stylistic-excerpt', excerptNote: STYLISTIC_EXCERPT_NOTE },
   },
 
   // ---------------------------------------------------------------------
@@ -424,6 +543,10 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 5,
     gradingNote:
       'Two-voice invertible counterpoint with independent hands trading the same subject — level 5\'s "polyphony (inventions)" bullet by name, matching REQ-3.8.1\'s own level-5 example.',
+    provenance: {
+      tier: 'source-verified',
+      excerptNote: 'Subject/answer/countersubject only, 2 bars, not the full piece.',
+    },
   },
   {
     id: 'chopin-prelude-op-28-no-4',
@@ -433,5 +556,10 @@ export const GRADED_PIECES: readonly GradedPiece[] = [
     level: 5,
     gradingNote:
       'Chromatic, sighing chordal accompaniment under a rubato-dependent singing melody, moving through secondary dominants toward the relative major before returning — level 5\'s "rubato basics" and "secondary dominants, modulation to close keys", and REQ-3.8.1\'s own "easier Chopin... pieces at level 5" example.',
+    provenance: {
+      tier: 'confirmed-contour',
+      excerptNote:
+        '2-bar excerpt reproducing the confirmed melodic shape and descending bass, not the full piece.',
+    },
   },
 ]

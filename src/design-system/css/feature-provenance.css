@@ -1,0 +1,51 @@
+/* Feature stylesheet — provenance (roadmap 5.52).
+   Single-writer by construction: exactly one parallel session owns this file, so
+   a round of concurrent worktrees never conflicts inside domain.css. Rules that
+   outlive their feature's round get folded back into domain.css by the integrator. */
+
+/* roadmap 5.52: the Repertoire catalogue row ("Für Elise (Theme A) / Ludwig
+   van Beethoven / Level 3 / Add") gained a fourth text field — what the
+   bundled file actually is (source-verified, a stylistic excerpt, this
+   app's own rendition...). Per DESIGN.md's "adding means demoting" rule,
+   that is not a free addition: the composer and level move off the row's
+   primary line onto a secondary meta line with the new provenance text
+   (`--text-sm`/`--text-2`, the same secondary tone the rest of the design
+   system already reserves for captions), demoted from full-weight row text
+   down to caption weight so a fourth field fits without the row reading as
+   four equally-loud facts. Title and Add/Already-in-library stay primary. */
+.repertoire-catalogue-piece {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--space-3);
+  row-gap: var(--space-1);
+  padding-block: var(--space-2);
+}
+
+.repertoire-catalogue-title {
+  font-weight: var(--weight-medium);
+}
+
+.repertoire-catalogue-composer,
+.repertoire-catalogue-level {
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+
+.repertoire-catalogue-provenance {
+  flex-basis: 100%;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+
+/* The Practice screen (roadmap 5.52): immediately under `ScoreScreen.tsx`'s
+   own piece-title heading (outside this task's file boundary) — only when
+   the loaded score resolves to a `GRADED_PIECES` catalogue entry — the same
+   provenance disclosure the Repertoire catalogue row carries, so the
+   honesty follows the piece off the Repertoire screen instead of staying
+   behind on it. Secondary tone/size, same as the catalogue row's line. */
+.practice-piece-provenance {
+  margin: 0 0 var(--space-4) 0;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
