@@ -304,13 +304,23 @@ The M3 gaps that are unbuilt features rather than defects. Each states its proof
         defaults on import — and the restore hydrates by replacement. Harmless while those fields
         were always empty; the T.5 fix made them real, and the data loss with them. *Proof:*
         `e2e/m4-acceptance-export-repertoire-history.spec.ts` passes with its `test.fail()` deleted.
-      - **`npm run knip:prod` is red** — `src/app/sightreading/noteDisplay.ts` is implemented and
-        tested but imported by nothing (its stated consumer `PatternPreview.tsx` no longer exists);
-        `midiToFrequency` is a dead core export duplicated privately in `webaudio.ts`. Not M4 scope,
-        so not counted against the 21, but a hard gate failure. *Proof:* `npm run knip:prod` exits 0.
-      - **`npm run verify:full` cannot be green** — it exits 1 at `knip` (2 unused devDependencies,
-        8 unlisted binaries) and never reaches `test:e2e`. Pre-existing; confirmed by re-running on
-        a clean HEAD. Needs a `package.json`/knip-config change. *Proof:* `npm run verify:full` exits 0.
+      - **FIXED 2026-08-12 (integrator).** `npm run knip:prod` was red on
+        `src/app/sightreading/noteDisplay.ts` — implemented and tested, imported by nothing, its
+        stated consumer `PatternPreview.tsx` deleted by 5.19. Deleted the module and its test; the
+        evidence for pruning the test is the module going with it, not a judgement call. The other
+        finding, `midiToFrequency` dead in core and duplicated privately in `webaudio.ts`, is fixed
+        the other way round: the adapter now imports core's, so one function has one home (its local
+        copy's comment also read "A2 = 440 Hz at MIDI note 69", which is A4). *Proof:*
+        `npm run knip`, `knip:prod` and `knip:prod:all` all exit 0, unpiped; `npm run verify` green
+        at 3774 tests.
+      - **`npm run verify:full` now reaches `test:e2e` for the first time** — the audit saw it exit 1
+        at `knip` (2 unused devDependencies, 8 unlisted binaries); on master today `knip` exits 0
+        unpiped, and the only remaining blocker was `knip:prod:all`, fixed above. No `package.json`
+        change was needed. NOT yet green end to end: the first full run past those gates died inside
+        `test:e2e` with exit `-1073740791` (0xC0000409, a native browser crash), while six sibling
+        worktree sessions were each running their own Playwright browsers on the same machine — an
+        environment collision, not a repo failure, and stated as unproven rather than assumed benign.
+        *Proof still owed: `npm run verify:full` exits 0 end to end on a quiet machine.*
       - Process hazard found while auditing: `npm run … | tail -N` reports *tail's* exit code. Two
         results previously read as green (the full e2e run, `knip:prod`) were red underneath.
 

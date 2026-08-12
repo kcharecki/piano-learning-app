@@ -39,6 +39,7 @@
  * `toCtxSeconds`, so `toCtxSeconds(now())` is still `ctx.currentTime` as long
  * as both reads happen without an intervening anchor update.
  */
+import { midiToFrequency } from '@core/audio/pitchDetection.ts'
 import type { AudioOutput } from '@core/ports/audio.ts'
 import { millis, type Midi, type Millis } from '@core/shared/units.ts'
 
@@ -68,11 +69,6 @@ const CLICK_PEAK_GAIN = 0.5
 const ACCENTED_CLICK_PEAK_GAIN = 0.8
 /** `exponentialRampToValueAtTime` can never target exactly 0. */
 const CLICK_RAMP_FLOOR = 0.0001
-
-/** A2 = 440 Hz at MIDI note 69, twelve notes to the octave. */
-function midiToFrequency(note: Midi): number {
-  return 440 * 2 ** ((note - 69) / 12)
-}
 
 /** 0 (silent) .. 1 (loudest), from a 0–127 MIDI velocity. */
 function velocityToGain(velocity: number): number {
