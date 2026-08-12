@@ -290,14 +290,6 @@ The M3 gaps that are unbuilt features rather than defects. Each states its proof
       also fixed. But **two criteria that passed on 2026-08-11 fail today**, so the score went 20/21
       → 19/21. Full per-criterion table, diff and proposed tasks: `docs/m4-acceptance-2026-08-12.md`.
       New blockers, each with a driven proof left in the suite:
-      - **REQ-3.1.4 — the daily session no longer holds the stated 20/20/40/20 mix** (regression
-        from 5.45). Two causes: warm-up reserves a flat 5 min off the top of the budget rather than
-        coming out of technique's own share, so at 15 min warm-up/technique takes 46.7%; and the
-        `lesson` segment is fed only by a loaded score, so on Today — the app's DEFAULT screen — a
-        fresh install plans "Lesson / repertoire — 0 min" and inflates technique to absorb the 40%.
-        `e2e/screens.spec.ts` cannot catch it: it asserts the minutes *sum* to the budget, which is
-        true of any split. *Proof:* `e2e/m4-acceptance-session-mix.spec.ts` passes with both
-        `test.fail()` markers deleted.
       - **FIXED 2026-08-12 (integrator).** `npm run knip:prod` was red on
         `src/app/sightreading/noteDisplay.ts` — implemented and tested, imported by nothing, its
         stated consumer `PatternPreview.tsx` deleted by 5.19. Deleted the module and its test; the
@@ -336,6 +328,35 @@ The M3 gaps that are unbuilt features rather than defects. Each states its proof
         a corrupt file surfaces a readable error and leaves the library untouched (never a silent
         wipe), and an empty profile exports `repertoire: []` with no crash. Visual pass on Progress
         clean at 1280/1024, dark/light, console clean throughout.
+      - **FIXED (task/M4.F1, 2026-08-12).** REQ-3.1.4 — the daily session no longer held the stated
+        20/20/40/20 mix (regression from 5.45). Two causes, both fixed:
+        (a) `core/curriculum/session.ts` no longer reserves a flat `WARMUP_MINUTES` off the top of
+        the budget. `technique`'s own 20% mix share IS the combined "warm-up/technique" bucket
+        REQ-3.1.4 names; it is apportioned over the FULL budget exactly like the other three
+        segments, and warm-up then claims up to `WARMUP_MINUTES` OF that bucket, technique keeping
+        the rest — so warm-up stays at its full 5-step, ~1-minute-a-step routine (`WarmupChecklist`
+        never truncates by minutes) whenever the bucket allows it, and is never squeezed to zero by
+        technique. (b) `app/session/candidates.ts`'s `lessonCandidates` now falls back — loaded
+        score, then the learner's own first repertoire piece, then the curriculum's first lesson —
+        so the `lesson` segment always has a real candidate, even on a cold profile with an empty
+        score store AND an empty repertoire library (the repertoire library is never auto-seeded;
+        confirmed via `repertoire-seed.spec.ts`). Measured on the running app (`npm run dev -- --port
+        5816`), cold and warm profiles now both hold the mix EXACTLY at 15/30/60 minutes: warm-up +
+        technique 20.0% at every budget (15 min: 3+0=3; 30 min: 5+1=6; 60 min: 5+7=12), sight-reading
+        20.0%, lesson/repertoire 40.0%, theory/ear 20.0% — well inside the spec's ±8-point tolerance,
+        exactly on target because 15/30/60 divide evenly into the default shares. *Proof:*
+        `e2e/m4-acceptance-session-mix.spec.ts` passes with both `test.fail()` markers deleted (2/2),
+        full `npx playwright test` 110/110, `npm run verify` green (docs budget, typecheck, lint,
+        3757 tests), visual pass on Today at 1280/1024 × dark/light on both a cold and a
+        score-loaded profile, console clean throughout. Files touched:
+        `src/core/curriculum/session.ts`, `src/app/session/candidates.ts`,
+        `src/app/session/useSessionPlan.ts`, `src/app/session/SessionPlanScreen.tsx` (the dead
+        "load a score" hint became a real "no score/no repertoire yet" note, shown only when the
+        lesson item is the generic curriculum fallback), plus their tests. Not personalized: the
+        curriculum fallback is always level 1's first lesson, not the learner's actual progress —
+        flagged, not fixed, since REQ-3.1.4 is about proportions, not content relevance, and a
+        learner this far into a cold state almost always has a repertoire piece by then, which takes
+        priority anyway.
       - Process hazard found while auditing: `npm run … | tail -N` reports *tail's* exit code. Two
         results previously read as green (the full e2e run, `knip:prod`) were red underneath.
 

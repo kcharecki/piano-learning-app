@@ -87,19 +87,60 @@ describe('sessionCandidates', () => {
     expect(drillKinds).toEqual(expect.arrayContaining(openableKinds))
   })
 
-  it('lesson segment is empty when no score is loaded', () => {
+  // roadmap 4.10, M4 acceptance Defect 1b (docs/m4-acceptance-2026-08-12.md):
+  // a fresh install has no loaded score AND an empty repertoire library (the
+  // library is never auto-seeded from the graded catalogue — see
+  // repertoire-seed.spec.ts), so the lesson segment used to plan "0 min" on
+  // exactly the profile Today (the app's default screen) actually shows.
+  it('lesson segment falls back to the curriculum\'s first lesson on a cold profile (no score, no repertoire)', () => {
     const result = sessionCandidates({ sightReadingLevel: 1, loadedScore: undefined })
-    expect(result.lesson).toEqual([])
+
+    expect(result.lesson).toHaveLength(1)
+    expect(result.lesson[0]?.kind).toBe('play')
+    expect(result.lesson[0]?.title).toMatch(/^Lesson: /)
   })
 
-  it('lesson segment offers the loaded score when one is loaded', () => {
+  it('lesson segment offers the loaded score when one is loaded, even with repertoire pieces present', () => {
     const result = sessionCandidates({
       sightReadingLevel: 1,
       loadedScore: loadedScore('Twinkle Twinkle'),
+      repertoirePieces: [{ id: 'minuet-in-g', title: 'Minuet in G' }],
     })
 
     expect(result.lesson).toHaveLength(1)
     expect(result.lesson[0]?.kind).toBe('repertoire')
     expect(result.lesson[0]?.title).toContain('Twinkle Twinkle')
+  })
+
+  it('lesson segment falls back to the first repertoire piece when no score is loaded but the library is not empty', () => {
+    const result = sessionCandidates({
+      sightReadingLevel: 1,
+      loadedScore: undefined,
+      repertoirePieces: [
+        { id: 'minuet-in-g', title: 'Minuet in G' },
+        { id: 'fur-elise', title: 'Für Elise' },
+      ],
+    })
+
+    expect(result.lesson).toHaveLength(1)
+    expect(result.lesson[0]?.kind).toBe('repertoire')
+    expect(result.lesson[0]?.title).toContain('Minuet in G')
+    expect(result.lesson[0]?.title).not.toContain('Für Elise')
+  })
+
+  it('lesson segment never returns empty, whatever state is supplied', () => {
+    const cold = sessionCandidates({ sightReadingLevel: 1, loadedScore: undefined })
+    const withRepertoire = sessionCandidates({
+      sightReadingLevel: 1,
+      loadedScore: undefined,
+      repertoirePieces: [{ id: 'x', title: 'X' }],
+    })
+    const withScore = sessionCandidates({
+      sightReadingLevel: 1,
+      loadedScore: loadedScore('Y'),
+    })
+    expect(cold.lesson.length).toBeGreaterThan(0)
+    expect(withRepertoire.lesson.length).toBeGreaterThan(0)
+    expect(withScore.lesson.length).toBeGreaterThan(0)
   })
 })

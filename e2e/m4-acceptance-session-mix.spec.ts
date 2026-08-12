@@ -106,18 +106,20 @@ async function mixDeviations(page: Page): Promise<string[]> {
 }
 
 /**
- * The mix on the screen the app opens on, with nothing loaded yet. This is
- * what a fresh install actually plans: `candidates.ts`'s `lesson` segment is
- * fed ONLY by the currently loaded score, so before anything is opened the
- * whole ~40% "current lesson or repertoire" block is empty and `planSession`
- * renormalises its share onto the other segments.
+ * The mix on the screen the app opens on, with nothing loaded yet — the
+ * fresh-install / cold-profile case (roadmap 4.10). Before the fix,
+ * `candidates.ts`'s `lesson` segment was fed ONLY by the currently loaded
+ * score, so the whole ~40% "current lesson or repertoire" block was empty
+ * here and `planSession` renormalised its share onto the other segments.
+ * `lessonCandidates` now falls back to the learner's repertoire library and
+ * then the curriculum's first lesson, so this segment holds real minutes
+ * even on a brand-new profile.
  */
 test('REQ-3.1.4: the planned session holds the stated mix at 15, 30 and 60 minutes (nothing loaded)', async ({
   page,
 }) => {
   test.setTimeout(60_000)
   const errors = collectErrors(page)
-  test.fail() // see docs/m4-acceptance-2026-08-12.md — remove when the mix holds
 
   await page.goto('/')
   await expect(page.getByRole('heading', { name: "Today's session" })).toBeVisible()
@@ -139,7 +141,6 @@ test('REQ-3.1.4: the planned session holds the stated mix at 15, 30 and 60 minut
 }) => {
   test.setTimeout(60_000)
   const errors = collectErrors(page)
-  test.fail() // see docs/m4-acceptance-2026-08-12.md — remove when the mix holds
 
   await page.goto('/')
   // Visiting Practice loads the bundled sample score into `scoreStore`, which

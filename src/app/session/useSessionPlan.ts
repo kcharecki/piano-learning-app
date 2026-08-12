@@ -1,17 +1,19 @@
 /**
  * Wires `planSession` (`core/curriculum/session.ts`) to the app's real state
- * (roadmap 4.7a, REQ-3.1.4): the loaded score and the sight-reading level from
- * their stores become today's candidates (`candidates.ts`), the learner picks
- * a budget — 15/30/60 or any typed value — and an optionally adjusted mix,
- * and this hook returns the resulting `PlannedSession` or a readable error.
+ * (roadmap 4.7a, REQ-3.1.4): the loaded score, the sight-reading level and
+ * (roadmap 4.10) the repertoire library, each from their own store, become
+ * today's candidates (`candidates.ts`), the learner picks a budget — 15/30/60
+ * or any typed value — and an optionally adjusted mix, and this hook returns
+ * the resulting `PlannedSession` or a readable error.
  *
- * `planSession` is pure; this hook's only job is reading the two stores,
- * holding the two pieces of UI state (`budgetMinutes`, `mix`) and re-running
- * the pure computation on every render where an input changed.
+ * `planSession` is pure; this hook's only job is reading the stores, holding
+ * the two pieces of UI state (`budgetMinutes`, `mix`) and re-running the pure
+ * computation on every render where an input changed.
  */
 import { useMemo, useState } from 'react'
 import { useScoreStore } from '@app/state/scoreStore.ts'
 import { useSightReadingStore } from '@app/state/sightReadingStore.ts'
+import { useRepertoireStore } from '@app/state/repertoireStore.ts'
 import {
   DEFAULT_MIX,
   SESSION_LENGTHS,
@@ -49,6 +51,9 @@ export type UseSessionPlanResult = {
 export function useSessionPlan(): UseSessionPlanResult {
   const loadedScore = useScoreStore((s) => s.loaded)
   const sightReadingLevel = useSightReadingStore((s) => s.level)
+  // roadmap 4.10: the lesson segment's second-priority fallback when nothing
+  // is loaded — see candidates.ts's `lessonCandidates` for the full chain.
+  const repertoirePieces = useRepertoireStore((s) => s.pieces)
 
   const [budgetMinutes, setBudgetMinutesRaw] = useState<number>(DEFAULT_BUDGET_MINUTES)
   const [mix, setMix] = useState<Readonly<Record<MixableSegmentKind, number>>>(DEFAULT_MIX)
@@ -66,8 +71,8 @@ export function useSessionPlan(): UseSessionPlanResult {
   const resetMix = (): void => setMix(DEFAULT_MIX)
 
   const candidates = useMemo(
-    () => sessionCandidates({ sightReadingLevel, loadedScore }),
-    [sightReadingLevel, loadedScore],
+    () => sessionCandidates({ sightReadingLevel, loadedScore, repertoirePieces }),
+    [sightReadingLevel, loadedScore, repertoirePieces],
   )
 
   const result = useMemo(
