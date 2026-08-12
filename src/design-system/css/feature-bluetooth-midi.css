@@ -1,0 +1,31 @@
+/* Bluetooth MIDI pairing control (roadmap B.2), rendered inside
+   `MidiDeviceStatus` alongside the existing USB status line — a small
+   secondary control, never competing visually with the primary status text
+   or the transport controls elsewhere on the screen. */
+.bluetooth-midi-control {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+.bluetooth-midi-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+.bluetooth-midi-status[data-state="connected"] { color: var(--fb-correct-ink); }
+.bluetooth-midi-status[data-state="error"] { color: var(--fb-wrong-ink); }
+/* "Not available in this browser" is a platform fact, not a warning — muted,
+   matching the tone `.midi-status` already uses for its own graceful state
+   (both are already `--text-2` by default; this rule exists to make that
+   intent explicit rather than implicit in the base selector). */
+.bluetooth-midi-status[data-state="unsupported"] { color: var(--text-2); }
+
+.bluetooth-midi-status .btn-ghost {
+  min-height: auto;
+  padding: 0 var(--space-2);
+  font-size: var(--text-sm);
+}

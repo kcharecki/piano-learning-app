@@ -1140,7 +1140,20 @@ next item, no completion state, no sense of being 3 of 5 through today.
       their co-located tests, `src/adapters/audio/micPitchInput.ts` implements the same `MidiInput`
       port `webmidi.ts` does, and Practice wires it through `useMicInput.ts` + `MicInputControl.tsx`.
       Full proof paragraph: 5.7. On iPadOS it is not a fallback, it is the input (see B.7).
-- [ ] B.2 Bluetooth MIDI (REQ-3.3.1, if feasible)
+- [x] B.2 Bluetooth MIDI (REQ-3.3.1, if feasible). Feasible: shipped as a second, explicit-gesture
+      `MidiInput` alongside Web MIDI. `core/midi/bleMidiPacket.ts` decodes the BLE-MIDI wire format
+      (header/timestamp bytes, running status, a message split across two packets, 13-bit timestamp
+      unwrap) — fast-check round-trips a random event stream including a wrap, a running-status run
+      and a split message. `adapters/midi/blemidi.ts` pairs via `navigator.bluetooth.requestDevice`,
+      decodes GATT notifications through it, and anchors the device's own clock onto the host clock so
+      timing feedback works like a USB note's. `MidiDeviceStatus` (all eight screens, none edited)
+      grew a "Pair Bluetooth MIDI" control via `useBluetoothMidi.ts`; a module-level registry feeds
+      `useMidiConnection.ts`, which fans a BLE note into the same `input` a USB note flows through,
+      additive to its returned shape. Proof: `npm run verify` green (185 files / 3773 tests); e2e
+      `bluetooth-midi.spec.ts` — API absent states the limitation without crashing, and a fake device
+      emitting real BLE-MIDI packet bytes through the notify listener is graded by the real matcher
+      (`feedback-correct` moves) — no physical BLE keyboard was available, both halves rest on the
+      fake; visual pass clean (1280/1024, dark/light, console clean).
 - [ ] B.3 Falling-note piano-roll view (REQ-3.2.4 optional half)
 - [x] B.4 Light gamification: streaks, milestones (REQ-3.10.3). New pure core module
       `src/core/progress/milestones.ts` (`computeMilestones`): five DERIVED milestones — all 12
