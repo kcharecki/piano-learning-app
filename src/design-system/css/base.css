@@ -95,11 +95,15 @@ svg.icon, .icon > svg {
    flex `gap` IS the rhythm, so a screen never hand-rolls margins between its
    own sections. Pick an archetype for width; unmodified `.page` falls back
    to the wide default rather than an unbounded 100%. */
+   No `padding-inline` here: `.app-main` (domain.css) already owns the page
+   gutter, and declaring it in both doubled it — measured at 24px against a
+   12px `--content-pad` below the 768px breakpoint, and it also made
+   `.page--focus` deliver a 736px column rather than the 48rem it declares,
+   because the padding sat inside the max-width. */
 .page {
   width: 100%;
   max-width: var(--content-max);
   margin-inline: auto;
-  padding-inline: var(--content-pad);
   display: flex;
   flex-direction: column;
   gap: var(--space-5);

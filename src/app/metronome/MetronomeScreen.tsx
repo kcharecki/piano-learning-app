@@ -134,7 +134,11 @@ export function MetronomeScreen(props: MetronomeScreenProps) {
         onChange={metronome.setAccents}
       />
 
-      <button type="button" onClick={metronome.running ? metronome.stop : metronome.start}>
+      <button
+        type="button"
+        className="btn-primary"
+        onClick={metronome.running ? metronome.stop : metronome.start}
+      >
         {metronome.running ? 'Stop' : 'Start'}
       </button>
 

@@ -16,6 +16,7 @@ import {
   FEEDBACK_MISSED_COLOR,
   FEEDBACK_WRONG_COLOR,
   HIDDEN_NOTE_COLOR,
+  resolveOsmdOptions,
   type OsmdLike,
   type ScoreEngraverWithMeasureLabels,
 } from './osmdEngraver.ts'
@@ -435,6 +436,26 @@ async function load(
 }
 
 // ----------------------------------------------------------------------- tests
+
+// `resolveOsmdOptions` is the pure function `defaultCreateOsmd` hands
+// straight to `new OpenSheetMusicDisplay(container, options)` — real OSMD
+// cannot run in happy-dom (see this file's own module doc comment), so this
+// is the only way a test reads the ACTUAL constructor options a `chrome`
+// value produces, rather than merely asserting a prop was accepted
+// (roadmap UI-06's acceptance criterion 1).
+describe('resolveOsmdOptions (roadmap UI-06 — chrome.title)', () => {
+  it('chrome absent, empty, title:true, or compact-only all return the SAME options reference as no chrome — every existing caller\'s engraving is byte-for-byte unchanged', () => {
+    const practice = resolveOsmdOptions('practice')
+    for (const chrome of [undefined, {}, { title: true }, { compact: true }] as const)
+      expect(resolveOsmdOptions('practice', chrome)).toBe(practice)
+    expect(practice).toEqual(expect.objectContaining({ drawTitle: true, autoResize: true }))
+  })
+
+  it('chrome.title: false suppresses drawTitle AND drawComposer, leaving other practice defaults untouched', () => {
+    const options = resolveOsmdOptions('practice', { title: false })
+    expect(options).toEqual(expect.objectContaining({ drawTitle: false, drawComposer: false, autoResize: true }))
+  })
+})
 
 describe('createOsmdEngraver: id -> engraved-note mapping', () => {
   it('maps ids in the documented order: our notes by startTick/midi vs theirs flattened by container/staff/voice/halfTone', async () => {

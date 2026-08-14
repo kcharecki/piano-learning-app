@@ -171,6 +171,14 @@ select {
    Rule of thumb: if you typed a label as bare text next to a control, you
    skipped one of these. See docs/DESIGN.md's "Form primitives" section for
    the when-to-use-each guide.
+
+   HONEST STATUS (UI-01 review, measured in the running app): `.stepper` has
+   NO callers yet, so the label-between-the-buttons bug above is still on
+   screen. The five screens that hand-roll their own stepper markup, each
+   migrating in its own task: TechniqueScreen.tsx (UI-15), RhythmScreen.tsx
+   and RhythmClapback.tsx (UI-14), FlashcardScreen.tsx (UI-12),
+   TheoryDrillPanel.tsx (UI-17). This block describes a primitive that is
+   ready, not a defect that is fixed — do not read it as the latter.
    ============================================================ */
 
 /* ---------- Field: vertical label-above-control unit ----------
@@ -374,10 +382,21 @@ input[type="file"]::file-selector-button:hover { background: var(--bg-3); }
 /* De-emphasized region inside a screen (collapsed config, secondary
    context) — sinks into the surrounding background instead of lifting off
    it, e.g. a `.page-header` action slot or the sight-reading trainer's
-   metronome/customizer block. */
+   metronome/customizer block.
+
+   Deliberately STANDALONE, not a modifier that requires `.card` beside it.
+   The UI-01/UI-02 review caught the reason: `SrsSummary` wrote
+   `className="card--sunken"` alone, which under a modifier-only rule paints
+   a tinted rectangle with the text flush against all four edges (measured:
+   padding 0, radius 0, on four separate screens). Thirteen screen tasks are
+   about to write this class, and a variant that silently degrades to
+   zero-padding when composed the obvious way is a trap, not a primitive.
+   Both `card card--sunken` and bare `card--sunken` now render correctly. */
 .card--sunken {
   background: var(--bg-1);
+  border-radius: var(--radius-2);
   box-shadow: none;
+  padding: var(--space-5);
 }
 
 /* ---------- Toolbar: horizontal control band ----------
@@ -404,10 +423,10 @@ input[type="file"]::file-selector-button:hover { background: var(--bg-3); }
    `.stat-group`) — kills every "label 0 label 0" strip in the app (roadmap
    UI-02, 2026-08-12 UI audit). Value color-coding (e.g. a percentage in a
    feedback color) is the caller's job — this only sets size/weight/case,
-   never a semantic color. `b`/`small` children are matched directly too, so
-   the pre-existing `.srs-summary-counts .stat` shape (`<b>`+`<small>`,
-   `SrsSummary.tsx`, feature-srs-summary.css) keeps working unrenamed — this
-   primitive generalizes what that file already discovered on its own. */
+   never a semantic color. `b`/`small` children are matched directly too: that
+   fallback was written for `SrsSummary.tsx`'s hand-rolled `<b>`+`<small>` stat
+   shape, which UI-07 has since replaced with this primitive. It is kept
+   because it costs nothing and lets a caller write the plain-HTML form. */
 .stat-group {
   display: flex;
   flex-wrap: wrap;

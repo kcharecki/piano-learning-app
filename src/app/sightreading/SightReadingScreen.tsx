@@ -91,7 +91,7 @@ export function SightReadingScreen(props: SightReadingScreenProps) {
       )}
 
       {trainer.phase === 'idle' && (
-        <button type="button" onClick={trainer.start}>
+        <button type="button" className="btn-primary" onClick={trainer.start}>
           Start exercise
         </button>
       )}

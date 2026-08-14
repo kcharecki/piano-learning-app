@@ -6,9 +6,20 @@
 import { makeScore, type Score } from '@core/notation/score.ts'
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { createRef } from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ScoreEngraver } from './engraver.ts'
+import { createOsmdEngraver } from './osmdEngraver.ts'
 import { ScoreViewer, type ScoreViewerHandle } from './ScoreViewer.tsx'
+
+// `createOsmdEngraver` is `ScoreViewer`'s DEFAULT engraver factory — the only
+// path `chrome.title` travels down (see `ScoreViewer.tsx`'s load effect).
+// Real OSMD cannot run in happy-dom (see `osmdEngraver.ts`'s own module doc
+// comment), so this mock intercepts the call BEFORE it would ever construct
+// one, letting these tests assert on the wiring (what `ScoreViewer` passed to
+// the factory) without touching OSMD at all — the actual OSMD-options
+// behaviour for a given `chrome` value is covered separately, and more
+// rigorously, by `osmdEngraver.test.ts`'s `resolveOsmdOptions` suite.
+vi.mock('./osmdEngraver.ts', () => ({ createOsmdEngraver: vi.fn() }))
 
 function makeTestScore(): Score {
   return makeScore({
@@ -351,6 +362,108 @@ describe('ScoreViewer', () => {
           />,
         ),
       ).not.toThrow()
+    })
+  })
+
+  describe('chrome (roadmap UI-06)', () => {
+    beforeEach(() => {
+      vi.mocked(createOsmdEngraver).mockReset()
+    })
+
+    it('forwards chrome.title to the default engraver factory when no createEngraver override is given', async () => {
+      // `createOsmdEngraver`'s real return type is `ScoreEngraverWithMeasureLabels`
+      // (setMeasureLabels REQUIRED, not optional) — `mockReturnValue` is typed
+      // against that, so the fake needs the label method too.
+      const engraver = createFakeEngraverWithLabels()
+      vi.mocked(createOsmdEngraver).mockReturnValue(engraver)
+      const score = makeTestScore()
+
+      render(<ScoreViewer musicXml="<xml/>" score={score} chrome={{ title: false }} />)
+
+      await waitFor(() => expect(engraver.load).toHaveBeenCalledTimes(1))
+      expect(createOsmdEngraver).toHaveBeenCalledTimes(1)
+      expect(createOsmdEngraver).toHaveBeenCalledWith({ chrome: { title: false } })
+    })
+
+    it('calls the default factory with NO arguments at all when chrome is absent — pins that an existing caller\'s construction call is unchanged (roadmap UI-06 acceptance criterion 3)', async () => {
+      const engraver = createFakeEngraverWithLabels()
+      vi.mocked(createOsmdEngraver).mockReturnValue(engraver)
+      const score = makeTestScore()
+
+      render(<ScoreViewer musicXml="<xml/>" score={score} />)
+
+      await waitFor(() => expect(engraver.load).toHaveBeenCalledTimes(1))
+      expect(createOsmdEngraver).toHaveBeenCalledTimes(1)
+      expect(createOsmdEngraver).toHaveBeenCalledWith()
+    })
+
+    it('ignores chrome entirely when a createEngraver override is given — the override owns its own construction', async () => {
+      const engraver = createFakeEngraver()
+      const factory = vi.fn(() => engraver)
+      const score = makeTestScore()
+
+      render(
+        <ScoreViewer
+          musicXml="<xml/>"
+          score={score}
+          chrome={{ title: false }}
+          createEngraver={factory}
+        />,
+      )
+
+      await waitFor(() => expect(engraver.load).toHaveBeenCalledTimes(1))
+      expect(factory).toHaveBeenCalledWith()
+      expect(createOsmdEngraver).not.toHaveBeenCalled()
+    })
+
+    it('applies .paper--compact to the frame when chrome.compact is true, and omits it by default', async () => {
+      const engraver = createFakeEngraver()
+      const score = makeTestScore()
+      const { container, rerender } = render(
+        <ScoreViewer musicXml="<xml/>" score={score} createEngraver={() => engraver} />,
+      )
+      await waitFor(() => expect(engraver.load).toHaveBeenCalledTimes(1))
+      const frame = container.querySelector('.score-viewer')
+      expect(frame?.classList.contains('paper--compact')).toBe(false)
+
+      rerender(
+        <ScoreViewer
+          musicXml="<xml/>"
+          score={score}
+          createEngraver={() => engraver}
+          chrome={{ compact: true }}
+        />,
+      )
+      expect(frame?.classList.contains('paper--compact')).toBe(true)
+    })
+
+    it('a chrome.compact-only value does not recreate the engraver — compact never reaches the load effect', async () => {
+      const engraver = createFakeEngraver()
+      const factory = (): typeof engraver => engraver // stable identity across the rerender below
+      const score = makeTestScore()
+      const { rerender } = render(
+        <ScoreViewer
+          musicXml="<xml/>"
+          score={score}
+          createEngraver={factory}
+          chrome={{ compact: false }}
+        />,
+      )
+      await waitFor(() => expect(engraver.load).toHaveBeenCalledTimes(1))
+
+      rerender(
+        <ScoreViewer
+          musicXml="<xml/>"
+          score={score}
+          createEngraver={factory}
+          chrome={{ compact: true }}
+        />,
+      )
+
+      // Still exactly one load — the frame's className changed, but the
+      // engraver itself was never torn down and reloaded for it.
+      expect(engraver.load).toHaveBeenCalledTimes(1)
+      expect(engraver.destroy).not.toHaveBeenCalled()
     })
   })
 })

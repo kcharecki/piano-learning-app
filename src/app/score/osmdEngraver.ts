@@ -43,9 +43,9 @@
  */
 import type { Score, ScoreNote } from '@core/notation/score.ts'
 import { TICKS_PER_QUARTER } from '@core/shared/units.ts'
-import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
+import { OpenSheetMusicDisplay, type IOSMDOptions } from 'opensheetmusicdisplay'
 import { stepsToOnsetAtOrBefore } from './cursorSteps.ts'
-import type { ScoreEngraver } from './engraver.ts'
+import type { ScoreChrome, ScoreEngraver } from './engraver.ts'
 
 /**
  * The slice of OSMD's `Note` this file actually touches. `NoteheadColor`
@@ -297,9 +297,45 @@ const REFERENCE_OSMD_OPTIONS = {
   drawMetronomeMarks: false,
 }
 
+/**
+ * Pure: the exact `IOSMDOptions` object `defaultCreateOsmd` hands to
+ * `new OpenSheetMusicDisplay(container, options)` for a given
+ * presentation/chrome combination (roadmap UI-06, `ScoreChrome` in
+ * `engraver.ts`). Exported and unit-tested directly, because the real OSMD
+ * cannot run in happy-dom (see this file's module doc comment) — this
+ * function is the only way a test can read the actual constructor options
+ * rather than merely asserting that a prop was accepted.
+ *
+ * `chrome.title === false` suppresses the title block: OSMD's own
+ * `drawTitle: false` already disables the subtitle too (see `IOSMDOptions`'s
+ * own doc comment on `drawTitle`), but NOT the composer name — that is
+ * `drawComposer`, a separate flag OSMD draws top-right regardless of
+ * `drawTitle` — so both are set together to fully remove the block.
+ *
+ * `chrome` absent, or `chrome.title` `true`/`undefined` (every existing
+ * caller, since none passes `chrome` at all), returns the exact SAME options
+ * object `presentation` alone already produced before this option existed —
+ * not a copy of it — so every current engraving is byte-for-byte unchanged
+ * (this task's central constraint). `chrome.compact` is deliberately never
+ * read here: it never reaches OSMD at all, only `ScoreViewer`'s own CSS
+ * (`.paper--compact` in domain.css) — see `ScoreChrome`'s doc comment.
+ */
+export function resolveOsmdOptions(
+  presentation: ScorePresentation,
+  chrome?: ScoreChrome,
+): IOSMDOptions {
+  const base = presentation === 'reference' ? REFERENCE_OSMD_OPTIONS : DEFAULT_OSMD_OPTIONS
+  if (chrome?.title === false) return { ...base, drawTitle: false, drawComposer: false }
+  return base
+}
+
 /** The only place the real OSMD library is constructed. */
-function defaultCreateOsmd(container: HTMLElement, presentation: ScorePresentation): OsmdLike {
-  const options = presentation === 'reference' ? REFERENCE_OSMD_OPTIONS : DEFAULT_OSMD_OPTIONS
+function defaultCreateOsmd(
+  container: HTMLElement,
+  presentation: ScorePresentation,
+  chrome?: ScoreChrome,
+): OsmdLike {
+  const options = resolveOsmdOptions(presentation, chrome)
   const instance = new OpenSheetMusicDisplay(container, options)
   if (presentation === 'reference') {
     // A scale has no meter. `ScaleStaff` sizes its single measure to the
@@ -673,6 +709,9 @@ export type OsmdEngraverOptions = {
   /** Defaults to `'practice'`, i.e. exactly the behaviour every existing caller
    *  already gets. See `ScorePresentation`. */
   readonly presentation?: ScorePresentation
+  /** Absent by default, i.e. exactly the behaviour every existing caller
+   *  already gets. See `ScoreChrome` in `engraver.ts` and `resolveOsmdOptions`. */
+  readonly chrome?: ScoreChrome
 }
 
 /**
@@ -692,7 +731,9 @@ export type ScoreEngraverWithMeasureLabels = ScoreEngraver & {
 export function createOsmdEngraver(opts?: OsmdEngraverOptions): ScoreEngraverWithMeasureLabels {
   const scheduleRender = opts?.scheduleRender ?? defaultScheduleRender
   const presentation = opts?.presentation ?? 'practice'
-  const createOsmd = opts?.createOsmd ?? ((container) => defaultCreateOsmd(container, presentation))
+  const chrome = opts?.chrome
+  const createOsmd =
+    opts?.createOsmd ?? ((container) => defaultCreateOsmd(container, presentation, chrome))
 
   let osmd: OsmdLike | undefined
   /** The element `load()` rendered into — bounds the walk `noteIdAt` does. */

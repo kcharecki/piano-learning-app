@@ -13,7 +13,7 @@ import {
   useState,
   type MouseEvent,
 } from 'react'
-import type { EngraverFactory, ScoreEngraver } from './engraver.ts'
+import type { EngraverFactory, ScoreChrome, ScoreEngraver } from './engraver.ts'
 import { createOsmdEngraver } from './osmdEngraver.ts'
 
 /**
@@ -53,6 +53,13 @@ export type ScoreViewerProps = {
   /** Text to place under each measure, keyed by 1-based measure number
    *  (roadmap 3.18a). Absent means today's behaviour exactly. */
   readonly measureLabels?: ReadonlyMap<number, string>
+  /** How to chrome the frame around this engraving — title block and paper
+   *  padding (roadmap UI-06). Absent means today's behaviour exactly: title
+   *  drawn, default paper padding. See `ScoreChrome` in `engraver.ts`.
+   *  Ignored when `createEngraver` is also given — an injected factory owns
+   *  its own construction, the same way it already owns everything else
+   *  about how the engraver is built. */
+  readonly chrome?: ScoreChrome
 }
 
 export const ScoreViewer = forwardRef<ScoreViewerHandle, ScoreViewerProps>(function ScoreViewer(
@@ -60,20 +67,40 @@ export const ScoreViewer = forwardRef<ScoreViewerHandle, ScoreViewerProps>(funct
     musicXml,
     score,
     cursorPosition,
-    createEngraver = createOsmdEngraver,
+    createEngraver,
     onSelectNote,
     measureLabels,
+    chrome,
   },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const engraverRef = useRef<EngraverWithMeasureLabels | undefined>(undefined)
   const [error, setError] = useState<string | undefined>(undefined)
+  const chromeTitle = chrome?.title
 
   useEffect(() => {
     const container = containerRef.current
     if (container === null) return undefined
-    const engraver = createEngraver()
+    // No `createEngraver` override: build the real OSMD-backed engraver
+    // ourselves so `chrome.title` (a construction-time OSMD option, see
+    // `ScoreChrome` in engraver.ts) can reach it. An override supplied by the
+    // caller is called exactly as before — bare, no arguments — because it
+    // owns its own construction already (roadmap 3.18a's `createEngraver`
+    // contract predates this prop). `chromeTitle === undefined` (every
+    // existing caller, since none passes `chrome` at all) calls
+    // `createOsmdEngraver()` with literally zero arguments — the exact call
+    // today's callers already make — rather than
+    // `createOsmdEngraver({ chrome: { title: undefined } })`, which
+    // `exactOptionalPropertyTypes` treats as a different (invalid) shape from
+    // omitting the key entirely.
+    const engraver = (
+      createEngraver ??
+      (() =>
+        chromeTitle === undefined
+          ? createOsmdEngraver()
+          : createOsmdEngraver({ chrome: { title: chromeTitle } }))
+    )()
     engraverRef.current = engraver
     setError(undefined)
     let cancelled = false
@@ -95,7 +122,13 @@ export const ScoreViewer = forwardRef<ScoreViewerHandle, ScoreViewerProps>(funct
       // resolving one container to two `<svg>` elements.
       container.replaceChildren()
     }
-  }, [musicXml, score, createEngraver])
+    // Depends on `chromeTitle` (the primitive `chrome?.title`), not `chrome`
+    // itself — `chrome.compact` never reaches the engraver (it only ever
+    // changes the frame's className below, no reload needed), so a caller
+    // that passes a fresh `chrome` object literal every render (only
+    // `compact` differing, or no difference at all) must not pay for a
+    // spurious engraver reload it didn't ask for.
+  }, [musicXml, score, createEngraver, chromeTitle])
 
   useEffect(() => {
     if (cursorPosition === undefined) return
@@ -146,8 +179,13 @@ export const ScoreViewer = forwardRef<ScoreViewerHandle, ScoreViewerProps>(funct
     onSelectNote?.(engraverRef.current?.noteIdAt(event.target))
   }
 
+  // `chrome.compact` never touches the engraver (see the load effect above)
+  // — it is read directly here, every render, same as any other className.
+  const frameClassName =
+    chrome?.compact === true ? 'score-viewer notation-frame paper--compact' : 'score-viewer notation-frame'
+
   return (
-    <div className="score-viewer notation-frame" style={{ position: 'relative' }}>
+    <div className={frameClassName} style={{ position: 'relative' }}>
       {error !== undefined && (
         <p role="alert" className="score-viewer-error">
           Could not display this score: {error}

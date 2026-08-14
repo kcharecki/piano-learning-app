@@ -37,3 +37,28 @@ export type ScoreEngraver = {
 }
 
 export type EngraverFactory = () => ScoreEngraver
+
+/**
+ * How `ScoreViewer` chromes the frame around an engraving (roadmap UI-06).
+ * The two fields travel through entirely different paths, not one:
+ *
+ * - `title` reaches the engraver at CONSTRUCTION time — it becomes an OSMD
+ *   drawing option (`drawTitle`/`drawComposer`; see `osmdEngraver.ts`'s
+ *   `OsmdEngraverOptions.chrome` and `resolveOsmdOptions`), because OSMD only
+ *   reads that option when the score is engraved, not afterwards.
+ * - `compact` never reaches the engraver at all. `ScoreViewer` applies it
+ *   directly as a CSS modifier (`.paper--compact` in domain.css) on its own
+ *   frame element — there is nothing OSMD-specific about tighter padding.
+ *
+ * Absent (the default) means today's behaviour exactly: title chrome drawn,
+ * default (non-compact) paper padding. This type is not part of the
+ * `ScoreEngraver` interface itself — like `setMeasureLabels` before it, it is
+ * additive, so every existing `ScoreEngraver` implementation (including every
+ * test fake) is unaffected by its existence.
+ */
+export type ScoreChrome = {
+  /** `false` suppresses the title/subtitle/composer block OSMD would otherwise draw. Default true (drawn). */
+  readonly title?: boolean
+  /** `true` applies the tighter `.paper--compact` padding instead of the default paper margins. Default false. */
+  readonly compact?: boolean
+}

@@ -3,83 +3,90 @@
    a round of concurrent worktrees never conflicts inside domain.css. Folded back
    into domain.css by the integrator once the feature settles. */
 
-/* ---------- Shared SRS summary (roadmap 5.31) ----------
+/* ---------- Shared SRS summary (roadmap 5.31, reworked UI-07) ----------
    One component (`src/app/srs/SrsSummary.tsx`) rendered by all four SRS-backed
-   screens (dashboard, flashcards, ear training, theory drills). The counts row
-   mirrors the pre-existing `.eartraining-stats`/`.retention-stats` tile layout
-   in domain.css (number-first `.stat` tile, `<dt>` visually hidden but still in
-   the accessibility tree) so this reads as the same design already shipped,
-   just under a name this file alone owns. */
-.srs-summary { width: 100%; }
-.srs-summary-counts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2) var(--space-6);
-  justify-content: center;
-  padding: var(--space-3);
-  border-top: var(--border-w) solid var(--border-1);
+   screens (dashboard, flashcards, ear training, theory drills). Renders as a
+   `.card--sunken` footer of its parent column (class applied in the component
+   itself) — never full-bleed, so it never needs a screen-specific wrapper. */
+.srs-summary {
   width: 100%;
+}
+
+/* ---------- Headline: icon + learner-language counts ----------
+   "12 cards · 3 to review" — a single line, never a multi-column row. Wraps
+   like ordinary text at narrow widths; there is no grid here to orphan. */
+.srs-summary-headline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   margin: 0;
+  color: var(--text-1);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
 }
-.srs-summary-counts > dt {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-.srs-summary-counts .stat { display: grid; justify-items: center; gap: 2px; }
-.srs-summary-counts .stat b {
-  font-size: var(--text-xl);
-  font-weight: var(--weight-semibold);
-  font-variant-numeric: tabular-nums;
-}
-.srs-summary-counts .stat small {
-  font-size: var(--text-xs);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-caps);
+.srs-summary-headline svg {
+  flex: none;
   color: var(--text-2);
 }
 
-.srs-summary > p[role="status"] {
-  margin: 0 var(--space-3) var(--space-3);
+/* ---------- Empty state (rule 6): exactly one sentence ---------- */
+.srs-summary-empty {
+  margin: 0;
+  color: var(--text-2);
   font-size: var(--text-sm);
-  color: var(--text-2);
-  text-align: center;
 }
 
-/* The scheduler's own vocabulary (Young/Mature/ease) — kept for debugging,
-   never shown by default. Same disclosure convention as
-   `.practice-accuracy-caveat` (feature-practice-sections.css): one quiet
-   line, not a bordered section, since this is a debug aside, not a feature. */
-.srs-summary-debug {
-  margin: 0 var(--space-3) var(--space-3);
+/* ---------- Disclosure: swallows both the breakdown and the scheduler's
+   own vocabulary behind one toggle (roadmap UI-07) — previously two nested
+   elements (an always-open counts row plus a separate "Scheduler details"
+   disclosure), now one closed-by-default `<details>`. Native `<details>`/
+   `<summary>` are keyboard-operable (focusable, Enter/Space toggles) with no
+   extra script. */
+.srs-summary-details {
+  margin-top: var(--space-3);
 }
-.srs-summary-debug > summary {
+.srs-summary-details > summary {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
   cursor: pointer;
-  font-size: var(--text-sm);
   color: var(--text-2);
+  font-size: var(--text-sm);
   list-style: none;
 }
-.srs-summary-debug > summary::-webkit-details-marker { display: none; }
-.srs-summary-debug > summary::before {
-  content: "\25b8"; /* ▸ */
-  display: inline-block;
+.srs-summary-details > summary::-webkit-details-marker {
+  display: none;
+}
+.srs-summary-details > summary svg {
   transition: transform var(--dur-1) var(--ease-out);
 }
-.srs-summary-debug[open] > summary::before { transform: rotate(90deg); }
+.srs-summary-details[open] > summary svg {
+  transform: rotate(180deg);
+}
+
+/* The five-way breakdown reuses `.stat-group`/`.stat` (primitives.css)
+   as-is: `display:flex; flex-wrap:wrap` — an auto-wrapping run, never a
+   fixed-column grid, so five tiles cannot produce a 2-2-1 orphan at 768px. */
+.srs-summary-details .stat-group {
+  margin-top: var(--space-3);
+}
+
+/* The scheduler's own words (Young/Mature/average ease) — kept for
+   debugging, only reachable once the disclosure above is already open. */
 .srs-summary-debug-list {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-1) var(--space-4);
-  margin: var(--space-2) 0 0;
-  font-size: var(--text-sm);
+  margin: var(--space-3) 0 0;
   color: var(--text-2);
+  font-size: var(--text-sm);
 }
-.srs-summary-debug-list dt { font-weight: var(--weight-semibold); }
-.srs-summary-debug-list dt::after { content: ":"; }
-.srs-summary-debug-list dd { margin: 0; }
+.srs-summary-debug-list dt {
+  font-weight: var(--weight-semibold);
+}
+.srs-summary-debug-list dt::after {
+  content: ':';
+}
+.srs-summary-debug-list dd {
+  margin: 0;
+}

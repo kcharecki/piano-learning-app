@@ -201,6 +201,14 @@
   padding: var(--space-5) var(--space-6);
   overflow-x: auto;
 }
+/* Compact paper variant (roadmap UI-06): tighter padding for a single-staff
+   drill frame, applied ALONGSIDE `.notation-frame` (never instead of it) via
+   `ScoreViewer`'s opt-in `chrome={{ compact: true }}` prop. Every other
+   `.notation-frame` rule — background, border, shadow, feedback overlays —
+   is untouched, so a caller that never opts in renders pixel-identical. */
+.notation-frame.paper--compact {
+  padding: var(--space-4);
+}
 .notation-frame svg { display: block; max-width: 100%; }
 /* Playback cursor: OSMD's cursor image/element gets this color */
 .notation-frame .osmd-cursor, .notation-frame img[id^="cursorImg"] {
