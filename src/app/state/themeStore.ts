@@ -37,6 +37,24 @@ export type ThemeStoreActions = {
 
 export type ThemeStore = ThemeStoreState & ThemeStoreActions
 
+/**
+ * The paint hint (roadmap UI-05 follow-up). IndexedDB stays the ONLY source
+ * of truth for the theme; this is a write-through cache that exists purely
+ * because IndexedDB cannot be read synchronously.
+ *
+ * Without it the learner sees a flash of the wrong theme on every load:
+ * `App.tsx` mounts the shell synchronously and calls `restoreSession` from a
+ * `useEffect`, which by definition runs after React's first paint. Restoring
+ * theme first among the twelve slices narrows that window; it cannot close
+ * it. `index.html` reads this key in a blocking inline script before the
+ * module bundle is even fetched, so the first paint is already correct.
+ *
+ * It is deliberately NOT read back by the app: restore still reads
+ * IndexedDB, and every write refreshes this key. So if the two ever
+ * disagree, IndexedDB wins on the very next frame and the cache self-heals.
+ */
+export const THEME_PAINT_HINT_KEY = 'piano-theme'
+
 /** Writes or clears `data-theme` on the root element — see the module comment. */
 export function applyTheme(theme: ThemePreference): void {
   const root = document.documentElement
@@ -44,6 +62,13 @@ export function applyTheme(theme: ThemePreference): void {
     root.removeAttribute('data-theme')
   } else {
     root.setAttribute('data-theme', theme)
+  }
+  // Best-effort: a browser with storage disabled still themes correctly, it
+  // just flashes. Never let a cache write break the actual theme change.
+  try {
+    localStorage.setItem(THEME_PAINT_HINT_KEY, theme)
+  } catch {
+    /* storage unavailable — the app is fully functional without the hint */
   }
 }
 

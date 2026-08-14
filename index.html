@@ -4,6 +4,24 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Piano Learning App</title>
+    <!--
+      Apply the saved theme before the first paint (roadmap UI-05).
+      IndexedDB holds the real preference but cannot be read synchronously,
+      and restoreSession runs from a useEffect — i.e. after React's first
+      paint — so without this a learner on Light sees the dark palette flash
+      on every load. `themeStore.ts` write-throughs to this key on every
+      theme change; IndexedDB remains the source of truth and overwrites the
+      DOM a frame later if the two ever disagree.
+      Kept inline and blocking on purpose: an external script would defeat it.
+    -->
+    <script>
+      try {
+        var t = localStorage.getItem('piano-theme')
+        if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t)
+      } catch (e) {
+        /* storage unavailable — fall through to prefers-color-scheme */
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
