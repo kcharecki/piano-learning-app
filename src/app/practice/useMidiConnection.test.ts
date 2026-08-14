@@ -11,7 +11,11 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import { FakeMidiInput } from '@test/fakes.ts'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { useMidiConnection, type ConnectMidi } from './useMidiConnection.ts'
-import { useBluetoothMidi, type ConnectBluetoothMidi } from './useBluetoothMidi.ts'
+import {
+  useBluetoothMidi,
+  resetBluetoothMidiForTests,
+  type ConnectBluetoothMidi,
+} from './useBluetoothMidi.ts'
 
 const DEVICE_A: MidiDevice = { id: 'a', name: 'Keyboard A', manufacturer: 'Test' }
 const DEVICE_B: MidiDevice = { id: 'b', name: 'Keyboard B', manufacturer: 'Test' }
@@ -33,6 +37,15 @@ function resetStore(): void {
 
 beforeEach(resetStore)
 afterEach(resetStore)
+
+// A BLE pairing is app-global state that deliberately outlives every component
+// (see useBluetoothMidi.ts — tying it to a mount is what silently killed a
+// learner's pairing the moment they clicked anything). That means it also
+// outlives a TEST: without this, one case's pairing stays in the shared
+// registry and the next case's `useMidiConnection` merges a BLE input it never
+// asked for, so `input` is a merged stream rather than the USB input.
+beforeEach(resetBluetoothMidiForTests)
+afterEach(resetBluetoothMidiForTests)
 
 describe('useMidiConnection', () => {
   it('reports no connection and no devices when nothing is injected and connect is never asked to resolve', () => {

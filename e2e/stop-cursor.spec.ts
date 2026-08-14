@@ -77,14 +77,18 @@ test('pressing Stop snaps the score cursor back to its at-rest position, matchin
   // Confirms the readout actually left bar 1 while playing, so the
   // post-Stop assertion below has something to contradict — otherwise it
   // would be a tautology that no mutant of the fix could fail.
-  await expect(transport.getByLabel('Position')).not.toContainText('Measure 1,')
+  // UI-09: the readout's separator changed from a comma to a middle dot
+  // ("Measure 1 · beat 1") and dropped its "of N" suffix — "Measure 1 ·"
+  // still disambiguates from "Measure 10 ·"/"Measure 11 ·"/"Measure 12 ·"
+  // the same way the old "Measure 1," did.
+  await expect(transport.getByLabel('Position')).not.toContainText('Measure 1 ·')
 
   await transport.getByRole('button', { name: 'Stop', exact: true }).click()
 
   // The bug this task fixes: without it, the cursor would still read
   // wherever Play last left it while this readout already says bar 1.
   await expect.poll(cursorPosition, { timeout: 5_000 }).toEqual(restPosition)
-  await expect(transport.getByLabel('Position')).toContainText('Measure 1,')
+  await expect(transport.getByLabel('Position')).toContainText('Measure 1 ·')
 
   expect(errors).toEqual([])
 })

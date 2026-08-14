@@ -194,16 +194,28 @@ test('Skip leaves levels untouched and never shows the banner again; Settings re
   await expect(page.getByTestId('dashboard-level-playing')).toContainText('level 1')
 
   // Re-runnable from Settings regardless of the banner already being gone.
+  // Roadmap UI-05: Settings redesigned its "Practice plan" section to a
+  // collapsed one-line summary with an Edit button that embeds the
+  // questionnaire inline (`OnboardingFlow`'s `embedded` mode) — it no longer
+  // takes over the whole screen, and in that mode it renders no visible
+  // "Set up your practice" <h2> (only the wrapping <section>'s aria-label
+  // carries that accessible name, exposing it as a region instead).
   await page
     .getByRole('navigation', { name: /main/i })
     .getByRole('button', { name: 'Settings', exact: true })
     .click()
-  await expect(page.getByRole('heading', { name: 'Set up your practice' })).toBeVisible()
+  const planSection = page.getByRole('region', { name: 'Practice plan' })
+  await expect(planSection.getByText("I'm new to piano")).toBeVisible()
+  await planSection.getByRole('button', { name: 'Edit' }).click()
+  await expect(page.getByRole('region', { name: 'Set up your practice' })).toBeVisible()
 
   await page.getByLabel('I can already read music comfortably').check()
   await page.getByRole('button', { name: 'Finish setup' }).click()
 
-  await expect(page.getByRole('status').filter({ hasText: /setup updated/i })).toBeVisible()
+  // Embedded mode collapses back to the summary line on finish — there is no
+  // separate "setup updated" toast any more; the updated summary line IS the
+  // confirmation (SettingsScreen.tsx's `summarizePlan`).
+  await expect(planSection.getByText('I can already read music comfortably')).toBeVisible()
   await page.getByRole('button', { name: 'Back to Today' }).click()
   await expect(page.getByRole('heading', { name: "Today's session" })).toBeVisible()
 

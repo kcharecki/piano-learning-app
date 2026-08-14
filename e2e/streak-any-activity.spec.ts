@@ -88,8 +88,20 @@ test('a day containing only an ear-training session extends the streak; a day wi
   await page.goto('/')
   await page.waitForTimeout(200)
 
-  const now = Date.now()
-  const todayStart = Math.floor(now / DAY_MS) * DAY_MS + 9 * 60 * 60 * 1000 // today, 09:00 UTC-anchored day bucket
+  // `core/progress/log.ts` buckets by LOCAL midnight (its own module doc), and
+  // `Shell.tsx` feeds it the real `-new Date().getTimezoneOffset()` — so the
+  // seeded timestamps must land in "today" and "yesterday" by the same local
+  // calendar, not a fixed UTC-hour anchor. A UTC-anchored anchor (the
+  // previous approach here) drifts onto the wrong local day whenever the
+  // test happens to run close to local midnight in a timezone ahead of UTC,
+  // which is exactly the kind of environment-dependent flake this rewrite
+  // removes: `setHours` below is local-time by definition, so it is always
+  // "today, 09:00" in whatever timezone the browser and this test process
+  // both already share (see e2e/screens.spec.ts's own TodayLabel comment for
+  // the same local/UTC distinction elsewhere in this suite).
+  const todayLocalNine = new Date()
+  todayLocalNine.setHours(9, 0, 0, 0)
+  const todayStart = todayLocalNine.getTime()
   const yesterdayStart = todayStart - DAY_MS
 
   // Two consecutive days, NEITHER of them repertoire — proves the streak is

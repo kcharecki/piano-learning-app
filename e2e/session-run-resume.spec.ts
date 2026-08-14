@@ -86,7 +86,7 @@ test('a 15-minute plan runs: warm-up opens a real checklist, completing items ad
   await nav(page, 'Today').click()
   await expect(page.getByRole('heading', { name: /today.?s session/i })).toBeVisible()
 
-  await page.getByRole('button', { name: '15 min', exact: true }).click()
+  await page.getByRole('radio', { name: '15 min', exact: true }).click()
   await page.getByRole('button', { name: 'Start session', exact: true }).click()
 
   await expect(page.getByTestId('session-run-position')).toContainText('Item 1 of')

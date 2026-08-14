@@ -282,14 +282,28 @@ test('REQ-3.1.4: the session mix is adjustable by the learner, and the plan foll
 
   await page.goto('/')
   await expect(page.getByRole('heading', { name: "Today's session" })).toBeVisible()
-  await page.getByRole('group', { name: 'Session length' }).getByRole('button', { name: '60 min', exact: true }).click()
-  await expect(page.getByTestId('session-plan-total')).toHaveText('Total: 60 minutes')
+  await page
+    .getByRole('radiogroup', { name: 'Session length' })
+    .getByRole('radio', { name: '60 min', exact: true })
+    .click()
+  // `session-plan-total`'s text changed from "Total: N minutes" to "N minutes
+  // planned" in the UI-08 redesign (see SessionPlanScreen.tsx's `pluralize`).
+  await expect(page.getByTestId('session-plan-total')).toHaveText('60 minutes planned')
 
-  const lesson = page.getByTestId('session-plan-segment-lesson')
-  const theoryEar = page.getByTestId('session-plan-segment-theory-ear')
+  // The "Minutes by segment" `<dl>` (`data-testid="session-plan-segment-*"`)
+  // was deleted; the same numbers now live on each item card's duration badge
+  // (`.session-plan-item-duration`), summed per segment because a segment can
+  // hold more than one card.
+  async function segmentMinutes(segment: string): Promise<number> {
+    const badges = await page
+      .locator(`li[data-segment="${segment}"] .session-plan-item-duration`)
+      .allTextContents()
+    return badges.reduce((sum, text) => sum + Number(text.match(/(\d+)/)?.[1] ?? '0'), 0)
+  }
+
   // The stated defaults at a 60-minute budget: 40% and 20%.
-  await expect(lesson).toHaveText('24 min')
-  await expect(theoryEar).toHaveText('12 min')
+  await expect.poll(() => segmentMinutes('lesson')).toBe(24)
+  await expect.poll(() => segmentMinutes('theory-ear')).toBe(12)
 
   await page.getByText('Adjust mix', { exact: true }).click()
   const mix = page.getByRole('group', { name: 'Session mix' })
@@ -299,16 +313,22 @@ test('REQ-3.1.4: the session mix is adjustable by the learner, and the plan foll
   await mix.getByLabel('Theory / ear training share').fill('0')
   await mix.getByLabel('Lesson / repertoire share').fill('0.6')
 
-  await expect(theoryEar).toHaveText('0 min')
-  await expect(lesson).not.toHaveText('24 min')
-  const lessonMinutes = Number((await lesson.textContent())?.match(/(\d+)/)?.[1] ?? '0')
-  expect(lessonMinutes, 'raising the lesson share did not give the lesson segment more minutes').toBeGreaterThan(24)
+  await expect.poll(() => segmentMinutes('theory-ear')).toBe(0)
+  await expect
+    .poll(
+      () => segmentMinutes('lesson'),
+      { message: 'raising the lesson share did not give the lesson segment more minutes' },
+    )
+    .toBeGreaterThan(24)
   // The budget is still the budget — the adjustment redistributes, never inflates.
-  await expect(page.getByTestId('session-plan-total')).toHaveText('Total: 60 minutes')
+  await expect(page.getByTestId('session-plan-total')).toHaveText('60 minutes planned')
 
-  await mix.getByRole('button', { name: 'Reset mix' }).click()
-  await expect(lesson).toHaveText('24 min')
-  await expect(theoryEar).toHaveText('12 min')
+  // "Reset mix" is a sibling of the "Session mix" group in the markup (the
+  // `<details>` wraps summary + group + button as three siblings), not a
+  // descendant of it — scope to the page instead of `mix`.
+  await page.getByRole('button', { name: 'Reset mix' }).click()
+  await expect.poll(() => segmentMinutes('lesson')).toBe(24)
+  await expect.poll(() => segmentMinutes('theory-ear')).toBe(12)
 
   expect(errors).toEqual([])
 })

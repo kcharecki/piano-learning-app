@@ -30,11 +30,21 @@ function collectErrors(page: Page): string[] {
 const SEGMENTS = ['warmup', 'technique', 'sight-reading', 'lesson', 'theory-ear'] as const
 type Segment = (typeof SEGMENTS)[number]
 
+/**
+ * The "Minutes by segment" `<dl>` and its `data-testid="session-plan-segment-*"`
+ * hooks were deleted in the UI-08 redesign — the same numbers now live on each
+ * item card's duration badge (`.session-plan-item-duration`, e.g. "12 min"),
+ * and a segment can hold more than one card (`li[data-segment="…"]`), so the
+ * segment's total is the SUM of its cards' badges, not a single element's text.
+ */
 async function readSegmentMinutes(page: Page): Promise<Record<Segment, number>> {
   const entries = await Promise.all(
     SEGMENTS.map(async (segment) => {
-      const text = (await page.getByTestId(`session-plan-segment-${segment}`).textContent()) ?? ''
-      return [segment, Number(text.match(/(\d+)\s*min/)?.[1] ?? '0')] as const
+      const badges = await page
+        .locator(`li[data-segment="${segment}"] .session-plan-item-duration`)
+        .allTextContents()
+      const total = badges.reduce((sum, text) => sum + Number(text.match(/(\d+)\s*min/)?.[1] ?? '0'), 0)
+      return [segment, total] as const
     }),
   )
   return Object.fromEntries(entries) as Record<Segment, number>
@@ -72,12 +82,15 @@ function nav(page: Page, label: string) {
  * one REQ-3.1.4 states by more than `TOLERANCE`, as readable sentences.
  */
 async function mixDeviations(page: Page): Promise<string[]> {
-  const lengthGroup = page.getByRole('group', { name: 'Session length' })
+  const lengthGroup = page.getByRole('radiogroup', { name: 'Session length' })
   const failures: string[] = []
 
   for (const budget of [15, 30, 60]) {
-    await lengthGroup.getByRole('button', { name: `${budget} min`, exact: true }).click()
-    await expect(page.getByTestId('session-plan-total')).toHaveText(`Total: ${budget} minutes`)
+    await lengthGroup.getByRole('radio', { name: `${budget} min`, exact: true }).click()
+    // The "Minutes by segment" testid's sibling — `session-plan-total` — still
+    // exists (see the redesign digest), but its text changed from "Total: N
+    // minutes" to "N minutes planned" (SessionPlanScreen.tsx's `pluralize`).
+    await expect(page.getByTestId('session-plan-total')).toHaveText(`${budget} minutes planned`)
 
     const bySegment = await readSegmentMinutes(page)
     const actual: Readonly<Record<string, number>> = {
@@ -149,7 +162,11 @@ test('REQ-3.1.4: the planned session holds the stated mix at 15, 30 and 60 minut
   await expect(page.getByRole('group', { name: 'Transport' })).toBeVisible()
   await nav(page, 'Today').click()
   await expect(page.getByRole('heading', { name: "Today's session" })).toBeVisible()
-  await expect(page.getByTestId('session-plan-segment-lesson')).not.toHaveText('0 min')
+  await expect
+    .poll(async () => (await readSegmentMinutes(page)).lesson, {
+      message: 'the lesson segment stayed empty after loading a score',
+    })
+    .toBeGreaterThan(0)
 
   const failures = await mixDeviations(page)
   expect(errors).toEqual([])

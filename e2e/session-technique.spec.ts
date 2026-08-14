@@ -48,8 +48,8 @@ test("opening a non-first planned technique item opens THAT drill, not the level
   // of risking a smaller default budget collapsing the segment to one item,
   // which would leave no non-first technique item to open at all.
   await page
-    .getByRole('group', { name: 'Session length' })
-    .getByRole('button', { name: '60 min', exact: true })
+    .getByRole('radiogroup', { name: 'Session length' })
+    .getByRole('radio', { name: '60 min', exact: true })
     .click()
 
   const items = page.getByRole('list', { name: 'Session items' }).getByRole('listitem')

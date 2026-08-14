@@ -29,13 +29,23 @@ function collectErrors(page: Page): string[] {
   return errors
 }
 
-/** No score container, no SVG, no OSMD-authored note element — anywhere on
- *  the page, not just inside some presumed "notation region". Checked by
- *  COUNT, never by visibility, per the module doc. */
+/** No score container, no SVG, no OSMD-authored note element — anywhere in
+ *  the screen's own content, not just inside some presumed "notation
+ *  sub-region". Checked by COUNT, never by visibility, per the module doc.
+ *
+ *  Scoped to `<main>` (roadmap UI-04a, 2026-08-12 UI audit): nav items now
+ *  carry their own decorative `<svg>` icon beside their label, and the
+ *  topbar's input-status chip and Reference button do too — real chrome that
+ *  has nothing to do with notation. A bare `page.locator('svg')` would count
+ *  those and fail this assertion on every screen, defeating its own purpose;
+ *  `<main>` is exactly the region `Shell.tsx` renders the active screen into,
+ *  so this still proves the same thing the un-scoped check proved before
+ *  icons existed — the RHYTHM SCREEN ITSELF never engraves anything. */
 async function expectNoNotationAnywhere(page: Page): Promise<void> {
-  await expect(page.getByTestId('score-container')).toHaveCount(0)
-  await expect(page.locator('svg')).toHaveCount(0)
-  await expect(page.locator('[data-note-id]')).toHaveCount(0)
+  const main = page.locator('main')
+  await expect(main.getByTestId('score-container')).toHaveCount(0)
+  await expect(main.locator('svg')).toHaveCount(0)
+  await expect(main.locator('[data-note-id]')).toHaveCount(0)
 }
 
 test('the clap-back mode plays the phrase audibly, never engraves it, and grades the real tapped answer (roadmap 3.21)', async ({

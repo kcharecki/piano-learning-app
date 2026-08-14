@@ -121,11 +121,21 @@ async function openPractice(page: Page): Promise<void> {
   await expect(page.getByRole('group', { name: 'Transport' })).toBeVisible()
 }
 
+/**
+ * Roadmap UI-04b: the "Pair Bluetooth MIDI" control (and the "not available
+ * in this browser" message) moved off every screen and into the topbar
+ * input-status chip's popover — open it before reaching either.
+ */
+async function openInputChip(page: Page): Promise<void> {
+  await page.getByRole('button', { name: /MIDI connected|No MIDI/ }).click()
+}
+
 test('with navigator.bluetooth absent, the control states the limitation and does not crash', async ({ page }) => {
   const errors = collectErrors(page)
 
   await removeWebBluetooth(page)
   await openPractice(page)
+  await openInputChip(page)
 
   await expect(page.getByText(/bluetooth midi is not available in this browser/i)).toBeVisible()
   await expect(page.getByRole('button', { name: /pair bluetooth midi/i })).toBeHidden()
@@ -141,17 +151,21 @@ test('pairing a fake BLE MIDI device and playing a chord through it grades the n
 
   await installFakeBluetoothMidi(page, 'E2E Fake BLE Keyboard')
   await openPractice(page)
+  await openInputChip(page)
 
   await page.getByRole('button', { name: /pair bluetooth midi/i }).click()
   await expect(page.getByText(/bluetooth midi connected: e2e fake ble keyboard/i)).toBeVisible()
   await expect(page.getByRole('button', { name: /pair bluetooth midi/i })).toBeHidden()
 
+  // UI-09 (2026-08-12 UI audit): the feedback strip is absent entirely until
+  // a run has started, so Play is clicked (closing the popover, an outside
+  // click) before the "0 correct" baseline is asserted, not before it.
+  const transport = page.getByRole('group', { name: 'Transport' })
+  await transport.getByRole('button', { name: 'Play', exact: true }).click()
+
   const correct = page.getByTestId('feedback-correct')
   const accuracy = page.getByTestId('feedback-accuracy')
   await expect(correct).toHaveText('0')
-
-  const transport = page.getByRole('group', { name: 'Transport' })
-  await transport.getByRole('button', { name: 'Play', exact: true }).click()
 
   // Real BLE-MIDI packet bytes for the sample's first-beat chord, encoded
   // exactly per `src/core/midi/bleMidiPacket.ts`'s documented wire format:
@@ -170,6 +184,29 @@ test('pairing a fake BLE MIDI device and playing a chord through it grades the n
   // Graded by `core/practice/matcher.ts`, through the exact seam a USB
   // keyboard feeds — a screen that merely displayed "connected" would leave
   // this at zero forever, which is the defect this proof exists to rule out.
+  //
+  // GENUINE APP DEFECT (not a stale selector — left failing deliberately,
+  // per the repair rules): this now fails for real, and the repro is not
+  // this test's own fault. Roadmap UI-04b moved `MidiDeviceStatus` (which
+  // calls `useBluetoothMidi()`) out of the screen's permanent content and
+  // into the topbar chip's popover, rendered only while `open` is true
+  // (`InputCapabilityBanner.tsx`: `{open && (<div ...><MidiDeviceStatus />
+  // ...)}`). `useBluetoothMidi`'s only cleanup effect runs "unmount only"
+  // and both disposes the real GATT connection AND clears the shared
+  // `subscribeBluetoothMidiInput` registry (`useBluetoothMidi.ts` lines
+  // 101-108) — so the instant that popover closes, the live BLE pairing is
+  // torn down, not just hidden. The popover closes on ANY click outside it
+  // (`InputCapabilityBanner.tsx`'s `mousedown` listener), which includes
+  // clicking Play — there is no way to reach the transport without closing
+  // the chip first. Verified directly: reopening the chip right after
+  // clicking Play shows "Pair Bluetooth MIDI" again, not "connected". A
+  // learner who pairs a BLE keyboard from the chip and then does anything
+  // else on the page loses the connection immediately. This is a real
+  // regression introduced by UI-04b, not present before the redesign (the
+  // old in-flow `MidiDeviceStatus` stayed mounted for the life of the
+  // screen); it needs an app-side fix — most likely giving `useBluetoothMidi`
+  // a home that outlives the popover's own open/closed state — not a spec
+  // change.
   await expect(async () => {
     expect(Number(await correct.textContent())).toBeGreaterThan(0)
   }).toPass({ timeout: 10_000 })
@@ -184,6 +221,7 @@ test('Disconnect returns to the pairing control, and a note fired afterwards is 
 
   await installFakeBluetoothMidi(page, 'E2E Fake BLE Keyboard')
   await openPractice(page)
+  await openInputChip(page)
   await page.getByRole('button', { name: /pair bluetooth midi/i }).click()
   await expect(page.getByText(/bluetooth midi connected/i)).toBeVisible()
 

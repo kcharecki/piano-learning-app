@@ -72,6 +72,29 @@ function collectErrors(page: Page): string[] {
   return errors
 }
 
+/**
+ * UI-09 (2026-08-12 UI audit): file import moved behind a "Change piece…"
+ * button that opens a modal `<dialog>` — closes it again once the new
+ * score's title is confirmed, so the rest of the screen is interactable.
+ */
+async function importScore(page: Page, fixturePath: string, title: string): Promise<void> {
+  await page.getByRole('button', { name: 'Change piece…' }).click()
+  await page.getByLabel(/Import a score/i).setInputFiles(fixturePath)
+  await expect(page.getByRole('heading', { name: title })).toBeVisible()
+  await page.getByRole('dialog', { name: 'Change piece' }).getByRole('button', { name: 'Close' }).click()
+}
+
+/**
+ * UI-04b: the MIDI status line moved into the shell topbar's input-status
+ * chip popover — open it, check the text, then Escape closes it again.
+ */
+async function expectMidiStatusText(page: Page, pattern: RegExp): Promise<void> {
+  const chip = page.getByRole('button', { name: /MIDI connected|No MIDI/ })
+  await chip.click()
+  await expect(page.getByText(pattern)).toBeVisible()
+  await page.keyboard.press('Escape')
+}
+
 type RollNoteSample = {
   readonly noteId: string
   readonly midi: number
@@ -89,7 +112,10 @@ type RollSnapshot = {
 async function readRollSnapshot(page: Page): Promise<RollSnapshot> {
   return page.evaluate(() => {
     const posText = document.querySelector('[aria-label="Position"]')?.textContent ?? ''
-    const match = /Measure (\d+), beat (\d+) of/.exec(posText)
+    // UI-09: the readout dropped its "of N" beats-per-measure suffix and
+    // switched its separator from a comma to a middle dot ("Measure N ·
+    // beat N").
+    const match = /Measure (\d+) . beat (\d+)/.exec(posText)
     const measure = match?.[1] === undefined ? 0 : Number(match[1])
     const beat = match?.[2] === undefined ? 0 : Number(match[2])
     const notes = Array.from(document.querySelectorAll('[data-testid="piano-roll-note"]')).map(
@@ -147,11 +173,8 @@ test('falling-note piano roll tracks the real transport position, lighting exact
     .getByRole('button', { name: 'Practice', exact: true })
     .click()
 
-  await page.getByLabel(/Import a score/i).setInputFiles(FIXTURE_PATH)
-  await expect(page.getByRole('heading', { name: FIXTURE_TITLE })).toBeVisible()
-  await expect(
-    page.getByText(new RegExp(`MIDI keyboard connected: ${FAKE_MIDI_DEVICE_NAME}`)),
-  ).toBeVisible()
+  await importScore(page, FIXTURE_PATH, FIXTURE_TITLE)
+  await expectMidiStatusText(page, new RegExp(`MIDI keyboard connected: ${FAKE_MIDI_DEVICE_NAME}`))
 
   // Settle point (see e2e/read-ahead.spec.ts and e2e/note-colour.spec.ts):
   // only the newly-imported 12-measure piece clamps "to measure" to 12 — the
@@ -185,7 +208,10 @@ test('falling-note piano roll tracks the real transport position, lighting exact
   // solo and failed inside the full suite. Slower beats do not weaken a single
   // assertion below — the lit pitches and the scroll direction are properties of
   // the score and the geometry, not of the tempo.
-  await page.getByLabel('Tempo', { exact: true }).fill('30')
+  // UI-09: the slider's label now carries "% of written" detail ("Tempo —
+  // X% of written Y") — the em dash disambiguates it from the unrelated
+  // "Tempo ramp" checkbox's label (roadmap 2.27).
+  await page.getByLabel(/^Tempo —/).fill('30')
 
   const transport = page.getByRole('group', { name: 'Transport' })
   await transport.getByRole('button', { name: 'Play', exact: true }).click()
@@ -314,8 +340,13 @@ test('the roll stays within a perf budget against a 102-measure, 1603-note score
     .getByRole('button', { name: 'Practice', exact: true })
     .click()
 
+  // UI-09: import lives behind the "Change piece…" dialog now — a large
+  // score can take a while to parse and engrave, so the heading wait keeps
+  // its own generous timeout before the dialog is closed again.
+  await page.getByRole('button', { name: 'Change piece…' }).click()
   await page.getByLabel(/Import a score/i).setInputFiles(CANON_FIXTURE_PATH)
-  await expect(page.getByRole('heading', { name: CANON_TITLE })).toBeVisible()
+  await expect(page.getByRole('heading', { name: CANON_TITLE })).toBeVisible({ timeout: 60_000 })
+  await page.getByRole('dialog', { name: 'Change piece' }).getByRole('button', { name: 'Close' }).click()
   const loopRange = page.getByRole('group', { name: 'Loop range' })
   await expect(loopRange.getByLabel('to measure')).toHaveAttribute('max', '102', { timeout: 60_000 })
   await expect(page.locator('[data-testid="score-container"] svg')).toBeVisible()

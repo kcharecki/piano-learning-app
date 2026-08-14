@@ -46,15 +46,22 @@ test('a note played late is reported as late, with its signed deviation (roadmap
     .getByRole('button', { name: 'Practice', exact: true })
     .click()
 
+  // UI-04b: the MIDI status line moved into the topbar chip's popover.
+  const chip = page.getByRole('button', { name: /MIDI connected|No MIDI/ })
+  await chip.click()
   await expect(
     page.getByText(new RegExp(`MIDI keyboard connected: ${FAKE_MIDI_DEVICE_NAME}`)),
   ).toBeVisible()
+  await page.keyboard.press('Escape')
 
+  // UI-09: the feedback strip (and `timing-last` inside it) does not exist
+  // at all until a run has started — so this arms the schedule and clicks
+  // Play FIRST, then reads `timing-last` in the brief window before the
+  // scheduled note (LATE_BY_MS later) has actually fired. That is still the
+  // "no judgement yet" state, just reached through the new UI's own gate
+  // rather than before Play exists at all — what stops the test passing
+  // against a component that always renders "late".
   const timingLast = page.getByTestId('timing-last')
-  // Nothing has been played, so there is no judgement to report yet. Asserting
-  // this first is what stops the test passing against a component that always
-  // renders "late".
-  await expect(timingLast).toHaveText('—')
 
   // The transport anchors tick 0 to the Play click, and the sample's first
   // note is at tick 0 — so an event armed at +LATE_BY_MS from the same click
@@ -64,6 +71,7 @@ test('a note played late is reported as late, with its signed deviation (roadmap
     { type: 'off', note: FIRST_NOTE, offsetMs: LATE_BY_MS + 200 },
   ])
   await page.getByRole('group', { name: 'Transport' }).getByRole('button', { name: 'Play', exact: true }).click()
+  await expect(timingLast).toHaveText('—')
   await waitForArmedFakeMidiSchedule(page)
 
   await expect(timingLast).toContainText('late', { timeout: 10_000 })

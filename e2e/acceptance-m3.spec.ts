@@ -148,20 +148,23 @@ test('ear-training adapted difficulty survives a reload instead of resetting to 
   await page.goto('/')
   await nav(page, 'Ear training').click()
 
-  await expect(page.getByTestId('eartraining-level')).toHaveText('Level 1')
+  // Roadmap UI-13: this testid holds only the number now — the "Level" label
+  // moved outside into its own `.field` label (same change as flashcard-level).
+  await expect(page.getByTestId('eartraining-level')).toHaveText('1')
 
-  const playback = page.getByRole('group', { name: 'Playback' })
+  // Roadmap UI-13: the "Playback" role="group" wrapper is gone (the stage is
+  // the grouping now) and the button reads "Play item" the first round, then
+  // "Next" every round after.
   const answers = page.getByRole('group', { name: 'Interval answer' })
 
   for (const buttonName of plan.buttonNames) {
-    // Label reads "Play" the first round, "Next" every round after.
-    await playback.getByRole('button', { name: /^(Play|Next)$/ }).click()
+    await page.getByRole('button', { name: /^(Play item|Next)$/, exact: true }).click()
     await answers.getByRole('button', { name: buttonName, exact: true }).click()
     await expect(page.getByTestId('eartraining-feedback')).toHaveText('Correct')
   }
 
   // The promotion itself, on screen, before any reload.
-  await expect(page.getByTestId('eartraining-level')).toHaveText('Level 2')
+  await expect(page.getByTestId('eartraining-level')).toHaveText('2')
 
   // Gate the reload on the raised level actually being in IndexedDB, not just
   // in the on-screen zustand state — same race as round6.spec's annotation
@@ -180,8 +183,8 @@ test('ear-training adapted difficulty survives a reload instead of resetting to 
 
   // THE KILLER ASSERTION. Before the fix, `useEarTrainingStore` was never
   // wired into `persistence.ts`, so this reload would land back on
-  // `emptyEarSession()` and read "Level 1" here.
-  await expect(page.getByTestId('eartraining-level')).toHaveText('Level 2')
+  // `emptyEarSession()` and read level 1 here.
+  await expect(page.getByTestId('eartraining-level')).toHaveText('2')
 
   expect(errors).toEqual([])
 })
@@ -241,6 +244,11 @@ async function runDictationCase(
   await freezeDateNow(page, FROZEN_NOW)
   await page.goto('/')
   await nav(page, 'Ear training').click()
+
+  // Roadmap UI-04b: the MIDI status line no longer renders in any screen's
+  // own content flow — it lives in the topbar chip's popover, opened here
+  // before asserting on its detail text.
+  await page.getByRole('button', { name: /MIDI connected|No MIDI/ }).click()
   await expect(
     page.getByText(new RegExp(`MIDI keyboard connected: ${FAKE_MIDI_DEVICE_NAME}`)),
   ).toBeVisible()
@@ -323,13 +331,19 @@ test('opening "The Circle of Fifths" lesson quiz lands on the key-signature deck
   await expect(page.getByLabel('Drill', { exact: true })).toHaveValue('key-signature')
   // Level 1 holds only fifths -1..+1, so a circle-of-fifths quiz that opened
   // at the default level would drill three signatures out of fifteen.
-  await expect(page.getByTestId('flashcard-level')).toHaveText('Level 7')
+  // Roadmap UI-12: this testid holds only the number now — the "Level" label
+  // moved outside the `.stepper` group into its own `.field` label.
+  await expect(page.getByTestId('flashcard-level')).toHaveText('7')
 
   // Proves the deck is usable, not merely selected: a real key-signature
   // prompt is showing, and answering it produces a real graded result.
+  // (The pill's copy changed under UI-12 from "Correct/Not quite — graded
+  // <n>" to "Correct" / "Not quite — it comes back for review"; either one
+  // proves a real grade landed, which a pill that never left its unrendered,
+  // pre-answer state could not.)
   await expect(page.getByTestId('key-signature-prompt')).not.toHaveText('')
   await page.getByRole('group', { name: 'Key signature answer' }).getByRole('button').first().click()
-  await expect(page.getByTestId('flashcard-feedback')).toContainText(/graded/)
+  await expect(page.getByTestId('flashcard-feedback')).toHaveText(/^(Correct|Not quite — it comes back for review)$/)
 
   expect(errors).toEqual([])
 })

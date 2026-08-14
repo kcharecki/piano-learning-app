@@ -86,10 +86,18 @@ test('with no Web MIDI, the on-screen keyboard is shown and its notes are graded
   await removeWebMidi(page)
   await openPractice(page)
 
-  // The status line tells the truth about the browser...
-  await expect(page.getByText(/^No MIDI keyboard connected/)).toBeVisible()
+  // The status line tells the truth about the browser — UI-04b moved it into
+  // the topbar chip's own accessible name, so this reads straight off the
+  // chip rather than opening its popover.
+  await expect(page.getByRole('button', { name: /No MIDI — using on-screen keys/ })).toBeVisible()
   // ...and the screen is still playable, without the learner setting anything up.
   await expect(keyboard(page)).toBeVisible()
+
+  // UI-09: the feedback strip (and `feedback-correct`/`feedback-accuracy`
+  // inside it) does not exist at all until a run has started — this is the
+  // first point they exist, and they read 0 before any note has been judged.
+  const transport = page.getByRole('group', { name: 'Transport' })
+  await transport.getByRole('button', { name: 'Play', exact: true }).click()
 
   const correct = page.getByTestId('feedback-correct')
   const accuracy = page.getByTestId('feedback-accuracy')
@@ -97,8 +105,6 @@ test('with no Web MIDI, the on-screen keyboard is shown and its notes are graded
 
   // Play the score's own first beat by clicking its keys. Nothing about this
   // path involves MIDI: these are pointer events on <button>s.
-  const transport = page.getByRole('group', { name: 'Transport' })
-  await transport.getByRole('button', { name: 'Play', exact: true }).click()
   for (const pitch of FIRST_BEAT_PITCHES) await key(page, pitch).click()
 
   // Graded — by `core/practice/matcher.ts`, through the same seam a MIDI
@@ -170,9 +176,13 @@ test('a connected MIDI keyboard leaves the on-screen one hidden until it is aske
 
   await installFakeMidi(page)
   await openPractice(page)
+  // UI-04b: the MIDI status line moved into the topbar chip's popover.
+  const chip = page.getByRole('button', { name: /MIDI connected|No MIDI/ })
+  await chip.click()
   await expect(
     page.getByText(new RegExp(`MIDI keyboard connected: ${FAKE_MIDI_DEVICE_NAME}`)),
   ).toBeVisible()
+  await page.keyboard.press('Escape')
 
   await expect(keyboard(page)).toBeHidden()
 

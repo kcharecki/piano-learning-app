@@ -51,6 +51,29 @@ function collectErrors(page: Page): string[] {
   return errors
 }
 
+/**
+ * UI-09 (2026-08-12 UI audit): file import moved behind a "Change piece…"
+ * button that opens a modal `<dialog>` — closes it again once the new
+ * score's title is confirmed, so the rest of the screen is interactable.
+ */
+async function importScore(page: Page, fixturePath: string, title: string): Promise<void> {
+  await page.getByRole('button', { name: 'Change piece…' }).click()
+  await page.getByLabel(/Import a score/i).setInputFiles(fixturePath)
+  await expect(page.getByRole('heading', { name: title })).toBeVisible()
+  await page.getByRole('dialog', { name: 'Change piece' }).getByRole('button', { name: 'Close' }).click()
+}
+
+/**
+ * UI-04b: the MIDI status line moved into the shell topbar's input-status
+ * chip popover — open it, check the text, then Escape closes it again.
+ */
+async function expectMidiStatusText(page: Page, pattern: RegExp): Promise<void> {
+  const chip = page.getByRole('button', { name: /MIDI connected|No MIDI/ })
+  await chip.click()
+  await expect(page.getByText(pattern)).toBeVisible()
+  await page.keyboard.press('Escape')
+}
+
 type StoredAudioProbe = {
   readonly mimeType: string
   readonly offsetMs: number
@@ -134,11 +157,8 @@ test('records audio alongside a MIDI take, stores a non-empty blob with a real m
     .getByRole('navigation', { name: /main/i })
     .getByRole('button', { name: 'Practice', exact: true })
     .click()
-  await page.getByLabel(/Import a score/i).setInputFiles(FIXTURE_PATH)
-  await expect(page.getByRole('heading', { name: FIXTURE_TITLE })).toBeVisible()
-  await expect(
-    page.getByText(new RegExp(`MIDI keyboard connected: ${FAKE_MIDI_DEVICE_NAME}`)),
-  ).toBeVisible()
+  await importScore(page, FIXTURE_PATH, FIXTURE_TITLE)
+  await expectMidiStatusText(page, new RegExp(`MIDI keyboard connected: ${FAKE_MIDI_DEVICE_NAME}`))
   await page.waitForTimeout(300)
 
   const recordPanel = page.getByRole('group', { name: 'Record and replay' })
@@ -233,8 +253,7 @@ test('a denied microphone permission surfaces a real error, without crashing the
     .getByRole('navigation', { name: /main/i })
     .getByRole('button', { name: 'Practice', exact: true })
     .click()
-  await page.getByLabel(/Import a score/i).setInputFiles(FIXTURE_PATH)
-  await expect(page.getByRole('heading', { name: FIXTURE_TITLE })).toBeVisible()
+  await importScore(page, FIXTURE_PATH, FIXTURE_TITLE)
 
   const recordPanel = page.getByRole('group', { name: 'Record and replay' })
   await recordPanel.getByText('Audio recording', { exact: true }).click()

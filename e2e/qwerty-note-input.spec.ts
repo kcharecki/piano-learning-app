@@ -108,12 +108,16 @@ test('with no Web MIDI and no mouse, typing on the QWERTY row plays and grades n
   const reachable = FIRST_BEAT_PITCHES.filter((pitch) => pitch - low >= 0 && pitch - low <= 16)
   expect(reachable.length).toBeGreaterThan(0)
 
+  // UI-09 (2026-08-12 UI audit): the feedback strip is absent entirely until
+  // a run has started — never a fake 0/accuracy before Play, so the "0
+  // correct" baseline is now asserted right after Play, not before it.
+  const transport = page.getByRole('group', { name: 'Transport' })
+  await transport.getByRole('button', { name: 'Play', exact: true }).click()
+
   const correct = page.getByTestId('feedback-correct')
   const accuracy = page.getByTestId('feedback-accuracy')
   await expect(correct).toHaveText('0')
 
-  const transport = page.getByRole('group', { name: 'Transport' })
-  await transport.getByRole('button', { name: 'Play', exact: true }).click()
   for (const pitch of reachable) await typeKey(page, codeForOffset(pitch - low))
 
   // Graded by `core/practice/matcher.ts`, through the same seam a MIDI
@@ -141,11 +145,10 @@ test('with no Web MIDI and no mouse, typing on the QWERTY row records notes on D
     .click()
   await page.getByLabel('Drill', { exact: true }).selectOption('melodic-dictation')
 
-  // The answer pad only renders once an item is loaded.
-  await page
-    .getByRole('group', { name: 'Playback' })
-    .getByRole('button', { name: 'Play', exact: true })
-    .click()
+  // The answer pad only renders once an item is loaded. Roadmap UI-13: the
+  // "Playback" role="group" wrapper is gone (the stage is the grouping now)
+  // and the button reads "Play item".
+  await page.getByRole('button', { name: 'Play item', exact: true }).click()
 
   const keyboard = page.getByRole('group', { name: 'On-screen keyboard' })
   await expect(keyboard).toBeVisible()

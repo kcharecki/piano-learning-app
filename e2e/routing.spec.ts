@@ -81,7 +81,9 @@ test('Practice → Lessons → a lesson exercise changes the URL at each step, B
   // not just "which screen".
   await expect(page.getByRole('heading', { name: 'Flashcards' })).toBeVisible()
   await expect(page.getByLabel('Drill', { exact: true })).toHaveValue('key-signature')
-  await expect(page.getByTestId('flashcard-level')).toHaveText('Level 7')
+  // Roadmap UI-12: `flashcard-level` holds only the number now — the "Level"
+  // label moved outside the stepper into its own `.field` label.
+  await expect(page.getByTestId('flashcard-level')).toHaveText('7')
   expect(pathOf(page)).toBe('/flashcards/key-signature/7')
   const deepLinkUrl = page.url()
 
@@ -104,7 +106,9 @@ test('Practice → Lessons → a lesson exercise changes the URL at each step, B
   await page.goForward()
   await expect(page.getByRole('heading', { name: 'Flashcards' })).toBeVisible()
   await expect(page.getByLabel('Drill', { exact: true })).toHaveValue('key-signature')
-  await expect(page.getByTestId('flashcard-level')).toHaveText('Level 7')
+  // Roadmap UI-12: `flashcard-level` holds only the number now — the "Level"
+  // label moved outside the stepper into its own `.field` label.
+  await expect(page.getByTestId('flashcard-level')).toHaveText('7')
   expect(pathOf(page)).toBe('/flashcards/key-signature/7')
 
   // Reload proof: loading the deep-link URL directly (a fresh navigation,
@@ -112,7 +116,9 @@ test('Practice → Lessons → a lesson exercise changes the URL at each step, B
   await page.goto(deepLinkUrl)
   await expect(page.getByRole('heading', { name: 'Flashcards' })).toBeVisible()
   await expect(page.getByLabel('Drill', { exact: true })).toHaveValue('key-signature')
-  await expect(page.getByTestId('flashcard-level')).toHaveText('Level 7')
+  // Roadmap UI-12: `flashcard-level` holds only the number now — the "Level"
+  // label moved outside the stepper into its own `.field` label.
+  await expect(page.getByTestId('flashcard-level')).toHaveText('7')
   await expect(nav(page, 'Flashcards')).toHaveAttribute('aria-current', 'page')
 
   expect(errors).toEqual([])

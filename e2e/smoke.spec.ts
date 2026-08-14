@@ -173,6 +173,10 @@ test('the app stays usable with no MIDI keyboard connected', async ({ page }) =>
 
   await page.goto('/practice')
 
+  // Roadmap UI-04b: the MIDI status is no longer in any screen's own content
+  // flow — it's a topbar chip whose popover holds the detail (see
+  // e2e/input-capability-banner.spec.ts, already rewritten for this).
+  await page.getByRole('button', { name: /MIDI connected|No MIDI/ }).click()
   await expect(page.getByText(/no midi keyboard connected/i)).toBeVisible()
   await expect(page.getByRole('group', { name: 'Transport' })).toBeVisible()
 
@@ -194,7 +198,7 @@ test('the Sight reading nav destination renders the real trainer, plays a full e
   await page.getByRole('button', { name: 'Sight reading', exact: true }).click()
 
   await expect(page.getByRole('heading', { name: 'Sight reading' })).toBeVisible()
-  await expect(page.getByTestId('sight-reading-level')).toHaveText('Level 1')
+  await expect(page.getByTestId('sight-reading-level')).toHaveText('Sight-reading trainer level: 1')
 
   await page.getByRole('button', { name: 'Start exercise' }).click()
   await expect(page.getByTestId('preview-countdown')).toBeVisible()

@@ -75,12 +75,16 @@ test('adding a graded piece and opening it in Practice loads and plays that piec
   expect(await score.locator('svg *').count()).toBeGreaterThan(50)
 
   // Not just engraved — playable. Real notes, graded by the real matcher.
+  // Roadmap UI-09: the feedback strip moved under the score and does not
+  // render at all until playback/input has started, so it only exists (and
+  // starts honest at 0) once Play has been clicked.
+  const transport = page.getByRole('group', { name: 'Transport' })
+  await transport.getByRole('button', { name: 'Play', exact: true }).click()
+
   const correct = page.getByTestId('feedback-correct')
   const accuracy = page.getByTestId('feedback-accuracy')
   await expect(correct).toHaveText('0')
 
-  const transport = page.getByRole('group', { name: 'Transport' })
-  await transport.getByRole('button', { name: 'Play', exact: true }).click()
   for (const pitch of FIRST_BEAT_PITCHES) await key(page, pitch).click()
 
   await expect(async () => {

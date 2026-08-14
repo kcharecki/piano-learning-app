@@ -154,6 +154,11 @@ test('running a technique drill through a real MIDI keyboard scores evenness and
   await nav(page, 'Technique').click()
 
   await expect(page.getByRole('heading', { name: /technique/i })).toBeVisible()
+
+  // Roadmap UI-04b: the MIDI status line was pulled out of every screen's own
+  // content flow (Technique included) into the topbar chip's popover — open
+  // it before asserting on the connected-device detail text.
+  await page.getByRole('button', { name: /MIDI connected|No MIDI/ }).click()
   await expect(
     page.getByText(new RegExp(`MIDI keyboard connected: ${FAKE_MIDI_DEVICE_NAME}`)),
   ).toBeVisible()

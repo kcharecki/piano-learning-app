@@ -41,17 +41,22 @@ async function openPractice(page: Page): Promise<void> {
   await expect(page.getByRole('heading', { name: 'Twinkle, Twinkle, Little Star' })).toBeVisible()
 }
 
-/** Presses Shift+Tab up to `max` times until the focused element's exact
- *  trimmed text content is `targetText`, or throws if it never is — the
+/** Presses Shift+Tab up to `max` times until the focused element's
+ *  accessible name (its `aria-label` when present — UI-09 made Pause/Stop
+ *  icon-only `.btn-icon`s whose visible text content is empty, so their
+ *  name comes from `aria-label` only — falling back to trimmed text content
+ *  for everything else) is `targetText`, or throws if it never is — the
  *  deterministic way to prove an element is reachable by keyboard navigation
  *  without asserting a fixed number of hops (a change to any other
  *  focusable element's position would otherwise make this test flaky, not
  *  the behaviour it drives). */
 async function shiftTabUntil(page: Page, targetText: string, max = 40): Promise<void> {
   for (let i = 0; i < max; i += 1) {
-    const focusedText = await page.evaluate(
-      () => document.activeElement?.textContent?.trim() ?? null,
-    )
+    const focusedText = await page.evaluate(() => {
+      const el = document.activeElement
+      if (el === null) return null
+      return el.getAttribute('aria-label')?.trim() ?? el.textContent?.trim() ?? null
+    })
     if (focusedText === targetText) return
     await page.keyboard.press('Shift+Tab')
   }
@@ -130,7 +135,9 @@ test('the reference panel stays open over a running Practice transport, is not f
   // that proves Tab is not captured — see ReferencePanel.tsx's module doc).
   await page.getByRole('button', { name: 'Close reference' }).focus()
   await shiftTabUntil(page, 'Pause', 60)
-  await expect(page.locator(':focus')).toHaveText('Pause')
+  // UI-09: Pause is icon-only now (`.btn-icon`) — its accessible name comes
+  // from `aria-label`, not visible text, which is empty.
+  await expect(page.locator(':focus')).toHaveAccessibleName('Pause')
   await page.keyboard.press('Enter')
   await expect(transport.getByRole('button', { name: 'Play', exact: true })).toBeVisible()
   // The panel is still open — reaching the transport did not close it.

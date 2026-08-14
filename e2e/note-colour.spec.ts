@@ -66,6 +66,29 @@ function collectErrors(page: Page): string[] {
   return errors
 }
 
+/**
+ * UI-09 (2026-08-12 UI audit): file import moved behind a "Change piece…"
+ * button that opens a modal `<dialog>` — closes it again once the new
+ * score's title is confirmed, so the rest of the screen is interactable.
+ */
+async function importScore(page: Page, fixturePath: string, title: string): Promise<void> {
+  await page.getByRole('button', { name: 'Change piece…' }).click()
+  await page.getByLabel(/Import a score/i).setInputFiles(fixturePath)
+  await expect(page.getByRole('heading', { name: title })).toBeVisible()
+  await page.getByRole('dialog', { name: 'Change piece' }).getByRole('button', { name: 'Close' }).click()
+}
+
+/**
+ * UI-04b: the MIDI status line moved into the shell topbar's input-status
+ * chip popover — open it, check the text, then Escape closes it again.
+ */
+async function expectMidiStatusText(page: Page, pattern: RegExp): Promise<void> {
+  const chip = page.getByRole('button', { name: /MIDI connected|No MIDI/ })
+  await chip.click()
+  await expect(page.getByText(pattern)).toBeVisible()
+  await page.keyboard.press('Escape')
+}
+
 test('playing a wrong pitch colours the expected note the wrong-pitch colour (roadmap 2.22)', async ({
   page,
 }) => {
@@ -83,18 +106,17 @@ test('playing a wrong pitch colours the expected note the wrong-pitch colour (ro
     .getByRole('button', { name: 'Practice', exact: true })
     .click()
 
-  // Import the six-bar fixture through the real file input, and wait for the
-  // score title to reflect it — the direct, reliable proof the new score
-  // (not the bundled Twinkle sample) is what is now loaded.
-  await page.getByLabel(/Import a score/i).setInputFiles(FIXTURE_PATH)
-  await expect(page.getByRole('heading', { name: FIXTURE_TITLE })).toBeVisible()
+  // Import the six-bar fixture through the real file input (behind the
+  // "Change piece…" dialog, UI-09), and wait for the score title to reflect
+  // it — the direct, reliable proof the new score (not the bundled Twinkle
+  // sample) is what is now loaded.
+  await importScore(page, FIXTURE_PATH, FIXTURE_TITLE)
 
   // The harness is live and the app adopted it as the connected device —
   // proves the fake isn't just installed but actually wired through
-  // useMidiConnection's auto-select.
-  await expect(
-    page.getByText(new RegExp(`MIDI keyboard connected: ${FAKE_MIDI_DEVICE_NAME}`)),
-  ).toBeVisible()
+  // useMidiConnection's auto-select. UI-04b: this now lives behind the
+  // topbar's input-status chip, not in the screen's own content flow.
+  await expectMidiStatusText(page, new RegExp(`MIDI keyboard connected: ${FAKE_MIDI_DEVICE_NAME}`))
 
   // Settle point: only the newly-imported 6-bar fixture clamps "to measure"
   // to 6 (LoopRangeControl clamps endMeasure to the score's lastMeasure), so

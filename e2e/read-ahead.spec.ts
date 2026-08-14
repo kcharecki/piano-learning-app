@@ -87,6 +87,29 @@ function collectErrors(page: Page): string[] {
   return errors
 }
 
+/**
+ * UI-09 (2026-08-12 UI audit): file import moved behind a "Change piece…"
+ * button that opens a modal `<dialog>` — closes it again once the new
+ * score's title is confirmed, so the rest of the screen is interactable.
+ */
+async function importScore(page: Page, fixturePath: string, title: string): Promise<void> {
+  await page.getByRole('button', { name: 'Change piece…' }).click()
+  await page.getByLabel(/Import a score/i).setInputFiles(fixturePath)
+  await expect(page.getByRole('heading', { name: title })).toBeVisible()
+  await page.getByRole('dialog', { name: 'Change piece' }).getByRole('button', { name: 'Close' }).click()
+}
+
+/**
+ * UI-04b: the MIDI status line moved into the shell topbar's input-status
+ * chip popover — open it, check the text, then Escape closes it again.
+ */
+async function expectMidiStatusText(page: Page, pattern: RegExp): Promise<void> {
+  const chip = page.getByRole('button', { name: /MIDI connected|No MIDI/ })
+  await chip.click()
+  await expect(page.getByText(pattern)).toBeVisible()
+  await page.keyboard.press('Escape')
+}
+
 type Snapshot = { readonly measure: number; readonly hidden: number }
 
 /** One atomic in-page read of the position readout and the hidden-notes count — see the module comment on why these must not be read separately. */
@@ -137,12 +160,9 @@ test('read-ahead progressively hides notation strictly behind the cursor, leavin
     .getByRole('button', { name: 'Practice', exact: true })
     .click()
 
-  await page.getByLabel(/Import a score/i).setInputFiles(FIXTURE_PATH)
-  await expect(page.getByRole('heading', { name: FIXTURE_TITLE })).toBeVisible()
+  await importScore(page, FIXTURE_PATH, FIXTURE_TITLE)
 
-  await expect(
-    page.getByText(new RegExp(`MIDI keyboard connected: ${FAKE_MIDI_DEVICE_NAME}`)),
-  ).toBeVisible()
+  await expectMidiStatusText(page, new RegExp(`MIDI keyboard connected: ${FAKE_MIDI_DEVICE_NAME}`))
 
   // Settle point: only the newly-imported 6-bar fixture clamps "to measure"
   // to 6 (see note-colour.spec.ts for why this is the reliable proof the

@@ -95,9 +95,16 @@
 /* ---------- Popovers (Change piece / accuracy info) ----------
    The box itself (background, border, radius, shadow, backdrop, max-width,
    z-index) is the `dialog` primitive (primitives.css); this only lays out
-   what each one puts inside it. */
-.score-change-piece-dialog,
-.practice-accuracy-info-dialog {
+   what each one puts inside it.
+
+   Scoped to `[open]` for a reason worth keeping: a bare `display: flex` here
+   is normal author CSS, which beats the UA's `dialog:not([open]) { display:
+   none }`, so BOTH dialogs rendered permanently — the import form and the
+   accuracy caveat sat visible in the page flow about 2800px down, gated
+   behind nothing. Caught by e2e (`practice-accuracy-caveat.spec.ts` asserts
+   the caveat is closed by default) after a code reading had passed it. */
+.score-change-piece-dialog[open],
+.practice-accuracy-info-dialog[open] {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);

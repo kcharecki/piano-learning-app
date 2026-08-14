@@ -123,9 +123,14 @@ test('a repertoire assessment run through the UI is surfaced on the dashboard af
   await page.getByLabel(/Import a score/i).setInputFiles(FIXTURE_PATH)
   await expect(page.getByRole('heading', { name: FIXTURE_TITLE })).toBeVisible()
 
+  // Roadmap UI-04b: the MIDI status is no longer in any screen's own content
+  // flow — it's a topbar chip whose popover holds the detail (see
+  // e2e/input-capability-banner.spec.ts, already rewritten for this).
+  await page.getByRole('button', { name: /MIDI connected|No MIDI/ }).click()
   await expect(
     page.getByText(new RegExp(`MIDI keyboard connected: ${FAKE_MIDI_DEVICE_NAME}`)),
   ).toBeVisible()
+  await page.keyboard.press('Escape')
 
   // Settle point (see e2e/assessment.spec.ts): only the newly-imported 6-bar
   // fixture clamps "to measure" to 6, proving the async score load finished.

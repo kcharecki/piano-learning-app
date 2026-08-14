@@ -44,8 +44,8 @@ test('opening the planned "Interval flashcards" item opens the interval deck, no
   // FLASHCARD_DECK_MINUTES) per item — see candidates.ts's `theoryEarCandidates`
   // comment), which the default 30-minute budget never clears. 60 minutes does.
   await page
-    .getByRole('group', { name: 'Session length' })
-    .getByRole('button', { name: '60 min', exact: true })
+    .getByRole('radiogroup', { name: 'Session length' })
+    .getByRole('radio', { name: '60 min', exact: true })
     .click()
 
   const items = page.getByRole('list', { name: 'Session items' }).getByRole('listitem')

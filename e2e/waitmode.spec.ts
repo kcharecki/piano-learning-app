@@ -60,9 +60,13 @@ test('wait mode holds playback until the owed notes are played, then releases it
     .getByRole('button', { name: 'Practice', exact: true })
     .click()
 
+  // UI-04b: the MIDI status line moved into the topbar chip's popover.
+  const chip = page.getByRole('button', { name: /MIDI connected|No MIDI/ })
+  await chip.click()
   await expect(
     page.getByText(new RegExp(`MIDI keyboard connected: ${FAKE_MIDI_DEVICE_NAME}`)),
   ).toBeVisible()
+  await page.keyboard.press('Escape')
 
   const waitMode = page.getByRole('group', { name: 'Wait mode' })
   await waitMode.getByRole('checkbox', { name: 'Wait for me' }).check()

@@ -34,6 +34,29 @@ function collectErrors(page: Page): string[] {
   return errors
 }
 
+/**
+ * UI-09 (2026-08-12 UI audit): file import moved behind a "Change piece…"
+ * button that opens a modal `<dialog>` — closes it again once the new
+ * score's title is confirmed, so the rest of the screen is interactable.
+ */
+async function importScore(page: Page, fixturePath: string, title: string): Promise<void> {
+  await page.getByRole('button', { name: 'Change piece…' }).click()
+  await page.getByLabel(/Import a score/i).setInputFiles(fixturePath)
+  await expect(page.getByRole('heading', { name: title })).toBeVisible()
+  await page.getByRole('dialog', { name: 'Change piece' }).getByRole('button', { name: 'Close' }).click()
+}
+
+/**
+ * UI-04b: the MIDI status line moved into the shell topbar's input-status
+ * chip popover — open it, check the text, then Escape closes it again.
+ */
+async function expectMidiStatusText(page: Page, pattern: RegExp): Promise<void> {
+  const chip = page.getByRole('button', { name: /MIDI connected|No MIDI/ })
+  await chip.click()
+  await expect(page.getByText(pattern)).toBeVisible()
+  await page.keyboard.press('Escape')
+}
+
 test('tempo, loop range and Pause/Stop are disabled while an assessment runs, and re-enabled once it finishes (REQ-3.3.4)', async ({
   page,
 }) => {
@@ -56,12 +79,9 @@ test('tempo, loop range and Pause/Stop are disabled while an assessment runs, an
     .getByRole('button', { name: 'Practice', exact: true })
     .click()
 
-  await page.getByLabel(/Import a score/i).setInputFiles(FIXTURE_PATH)
-  await expect(page.getByRole('heading', { name: FIXTURE_TITLE })).toBeVisible()
+  await importScore(page, FIXTURE_PATH, FIXTURE_TITLE)
 
-  await expect(
-    page.getByText(new RegExp(`MIDI keyboard connected: ${FAKE_MIDI_DEVICE_NAME}`)),
-  ).toBeVisible()
+  await expectMidiStatusText(page, new RegExp(`MIDI keyboard connected: ${FAKE_MIDI_DEVICE_NAME}`))
 
   // Settle point: only the newly-imported 6-bar fixture clamps "to measure"
   // to 6 (LoopRangeControl clamps endMeasure to the score's lastMeasure), so
@@ -76,9 +96,11 @@ test('tempo, loop range and Pause/Stop are disabled while an assessment runs, an
   // either.
   await page.getByText('More tools').click()
 
-  // `exact` matters since roadmap 2.27 added a "Tempo ramp" control beside
-  // this one — a substring match now resolves to two elements.
-  const tempoSlider = page.getByLabel('Tempo', { exact: true })
+  // UI-09: the slider's own label now carries "% of written" detail
+  // ("Tempo — X% of written Y"), so a bare substring match on "Tempo" would
+  // also resolve the unrelated "Tempo ramp" checkbox (roadmap 2.27) — the
+  // em dash is what's unique to this control's label.
+  const tempoSlider = page.getByLabel(/^Tempo —/)
   const fromMeasure = loopRange.getByLabel('From measure')
   const toMeasure = loopRange.getByLabel('to measure')
   const transport = page.getByRole('group', { name: 'Transport' })

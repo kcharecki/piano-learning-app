@@ -4,8 +4,13 @@
  * registry `useMidiConnection.ts` subscribes to (`subscribeBluetoothMidiInput`).
  */
 import { act, renderHook, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
-import { subscribeBluetoothMidiInput, useBluetoothMidi, type ConnectBluetoothMidi } from './useBluetoothMidi.ts'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  resetBluetoothMidiForTests,
+  subscribeBluetoothMidiInput,
+  useBluetoothMidi,
+  type ConnectBluetoothMidi,
+} from './useBluetoothMidi.ts'
 import type { BluetoothMidi } from '@adapters/midi/index.ts'
 import type { MidiDevice, MidiInput } from '@core/ports/index.ts'
 
@@ -25,7 +30,37 @@ function fakeBluetoothMidi(devices?: MidiDevice[]): BluetoothMidi & { dispose: R
   return { input: fakeBleInput(devices), dispose: vi.fn() }
 }
 
+/** Reads the registry's current value without leaving a listener subscribed. */
+function registrySnapshot(): MidiInput | undefined {
+  let snapshot: MidiInput | undefined
+  subscribeBluetoothMidiInput((input) => {
+    snapshot = input
+  })()
+  return snapshot
+}
+
 describe('useBluetoothMidi', () => {
+  beforeEach(() => {
+    resetBluetoothMidiForTests()
+  })
+
+  it('unmounting a consumer does not dispose the connection (regression: pairing must outlive a popover mount)', async () => {
+    const ble = fakeBluetoothMidi()
+    const connect: ConnectBluetoothMidi = () => Promise.resolve({ ok: true, value: ble })
+    const { result, unmount } = renderHook(() => useBluetoothMidi({ connect }))
+
+    act(() => result.current.pair())
+    await waitFor(() => expect(result.current.device).toEqual(DEVICE))
+
+    unmount()
+
+    expect(ble.dispose).not.toHaveBeenCalled()
+    const seen: (MidiInput | undefined)[] = []
+    const unsubscribe = subscribeBluetoothMidiInput((input) => seen.push(input))
+    expect(seen.at(-1)).toBe(ble.input)
+    unsubscribe()
+  })
+
   it('starts unpaired, not pairing, with no error', () => {
     const { result } = renderHook(() => useBluetoothMidi({ connect: () => new Promise(() => {}) }))
     expect(result.current.pairing).toBe(false)
@@ -110,24 +145,50 @@ describe('useBluetoothMidi', () => {
     await waitFor(() => expect(result.current.device).toBeUndefined())
   })
 
-  it('unmounting while paired disposes the connection and withdraws from the registry', async () => {
+  it('two simultaneous consumers share one connection: pairing from one is seen by both, and unmounting one leaves the other (and the registry) untouched', async () => {
     const ble = fakeBluetoothMidi()
     const connect: ConnectBluetoothMidi = () => Promise.resolve({ ok: true, value: ble })
-    const { result, unmount } = renderHook(() => useBluetoothMidi({ connect }))
-    const seen: (MidiInput | undefined)[] = []
-    const unsubscribe = subscribeBluetoothMidiInput((input) => seen.push(input))
+    const a = renderHook(() => useBluetoothMidi({ connect }))
+    const b = renderHook(() => useBluetoothMidi({ connect: () => new Promise(() => {}) }))
 
-    act(() => result.current.pair())
-    await waitFor(() => expect(result.current.device).toEqual(DEVICE))
+    act(() => a.result.current.pair())
+    await waitFor(() => expect(a.result.current.device).toEqual(DEVICE))
+    // The second consumer never called its own pair() — it must still observe
+    // the pairing the first consumer made, because there is one connection.
+    expect(b.result.current.device).toEqual(DEVICE)
+    expect(b.result.current.pairing).toBe(false)
 
-    unmount()
+    a.unmount()
 
-    expect(ble.dispose).toHaveBeenCalledTimes(1)
-    expect(seen.at(-1)).toBeUndefined()
-    unsubscribe()
+    expect(ble.dispose).not.toHaveBeenCalled()
+    expect(b.result.current.device).toEqual(DEVICE)
+    expect(registrySnapshot()).toBe(ble.input)
+
+    b.unmount()
   })
 
-  it('unmounting before a pending pair() resolves disposes it as soon as it arrives, instead of adopting it', async () => {
+  it('disconnect() tears down for every consumer at once', async () => {
+    const ble = fakeBluetoothMidi()
+    const connect: ConnectBluetoothMidi = () => Promise.resolve({ ok: true, value: ble })
+    const a = renderHook(() => useBluetoothMidi({ connect }))
+    const b = renderHook(() => useBluetoothMidi({ connect }))
+
+    act(() => a.result.current.pair())
+    await waitFor(() => expect(a.result.current.device).toEqual(DEVICE))
+    expect(b.result.current.device).toEqual(DEVICE)
+
+    act(() => a.result.current.disconnect())
+
+    expect(ble.dispose).toHaveBeenCalledTimes(1)
+    expect(a.result.current.device).toBeUndefined()
+    expect(b.result.current.device).toBeUndefined()
+    expect(registrySnapshot()).toBeUndefined()
+
+    a.unmount()
+    b.unmount()
+  })
+
+  it('a pair() that is still in flight when disconnect() runs is disposed on late arrival, not adopted', async () => {
     const ble = fakeBluetoothMidi()
     let resolveConnect: (value: { ok: true; value: BluetoothMidi }) => void = () => {}
     const connect: ConnectBluetoothMidi = () =>
@@ -137,12 +198,42 @@ describe('useBluetoothMidi', () => {
     const { result, unmount } = renderHook(() => useBluetoothMidi({ connect }))
 
     act(() => result.current.pair())
-    unmount()
+    act(() => result.current.disconnect())
     await act(async () => {
       resolveConnect({ ok: true, value: ble })
     })
 
     expect(ble.dispose).toHaveBeenCalledTimes(1)
+    expect(result.current.device).toBeUndefined()
+    unmount()
+  })
+
+  it('a pair() superseded by a newer pair() (after a disconnect frees the guard) is disposed on late arrival, not adopted', async () => {
+    const stale = fakeBluetoothMidi([{ id: 'stale', name: 'Stale Keyboard', manufacturer: 'Bluetooth LE' }])
+    const fresh = fakeBluetoothMidi()
+    let resolveStale: (value: { ok: true; value: BluetoothMidi }) => void = () => {}
+    let calls = 0
+    const connect: ConnectBluetoothMidi = () => {
+      calls += 1
+      if (calls === 1) return new Promise((resolve) => (resolveStale = resolve))
+      return Promise.resolve({ ok: true, value: fresh })
+    }
+    const { result, unmount } = renderHook(() => useBluetoothMidi({ connect }))
+
+    act(() => result.current.pair()) // stale pairing, left in flight
+    act(() => result.current.disconnect()) // frees the `pairing` guard without resolving it
+    act(() => result.current.pair()) // fresh pairing, resolves immediately
+    await waitFor(() => expect(result.current.device).toEqual(DEVICE))
+
+    await act(async () => {
+      resolveStale({ ok: true, value: stale })
+    })
+
+    expect(stale.dispose).toHaveBeenCalledTimes(1)
+    expect(fresh.dispose).not.toHaveBeenCalled()
+    // The late, disposed pairing must not have clobbered the fresh one.
+    expect(result.current.device).toEqual(DEVICE)
+    unmount()
   })
 
   it('re-pairing after a failed attempt clears the previous error', async () => {

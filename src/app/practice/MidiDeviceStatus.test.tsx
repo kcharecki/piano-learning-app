@@ -2,10 +2,15 @@ import type { MidiDevice } from '@core/ports/index.ts'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MidiDeviceStatus } from './MidiDeviceStatus.tsx'
+import { resetBluetoothMidiForTests } from './useBluetoothMidi.ts'
 
+// `useBluetoothMidi`'s pairing now lives in module scope (it must outlive a
+// component's mount — see that file's module comment), so it otherwise
+// leaks a pairing from one test into the next within this file.
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+  resetBluetoothMidiForTests()
 })
 
 const DEVICE: MidiDevice = { id: 'a', name: 'Keyboard A', manufacturer: 'Test' }

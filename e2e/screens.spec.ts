@@ -130,7 +130,11 @@ test('dictation states its tempo and count-in, and grades a played-back answer (
   // sounds first. Before roadmap 3.23 the phrase arrived cold and the answer
   // was graded against a fixed absolute tolerance.
   await expect(page.getByTestId('dictation-tempo')).toHaveText(/Tempo: \d+ bpm/)
-  await expect(page.getByRole('region', { name: 'Answer' })).toContainText('count-in')
+  // Roadmap UI-13: there is no `role="region"` named "Answer" any more — the
+  // count-in/tempo reference lives in the stage's own caption paragraph
+  // (`.eartraining-stage-caption`, `DRILL_META['melodic-dictation'].caption`
+  // in EarTrainingScreen.tsx).
+  await expect(page.locator('.eartraining-stage-caption')).toContainText('count-in')
 
   // Answering must reach the grader. The generated phrase is unknown to this
   // spec, so what is asserted is that a submitted answer is GRADED — a verdict
@@ -178,11 +182,16 @@ test("Today's session plans to the exact budget and its items navigate (roadmap 
   // them off the screen and add them up — the arithmetic is the requirement.
   const items = page.getByRole('list', { name: 'Session items' }).getByRole('listitem')
   expect(await items.count()).toBeGreaterThan(0)
+  // Roadmap UI-08: the duration badge's text is upper-cased by CSS
+  // (`text-transform`), which `innerText` reflects but `textContent` does
+  // not — match case-insensitively rather than depending on that styling.
   const minutes = (await items.allInnerTexts()).map(
-    (text) => Number(text.match(/(\d+) min/)?.[1] ?? '0'),
+    (text) => Number(text.match(/(\d+)\s*min/i)?.[1] ?? '0'),
   )
   const total = minutes.reduce((sum, m) => sum + m, 0)
-  await expect(page.getByTestId('session-plan-total')).toHaveText(`Total: ${total} minutes`)
+  // `session-plan-total`'s text changed from "Total: N minutes" to "N minutes
+  // planned" in the UI-08 redesign (see SessionPlanScreen.tsx's `pluralize`).
+  await expect(page.getByTestId('session-plan-total')).toHaveText(`${total} minutes planned`)
 
   // And an item opens the drill it names, which is what makes the plan a plan
   // rather than a list.
