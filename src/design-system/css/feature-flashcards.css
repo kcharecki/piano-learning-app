@@ -1,3 +1,139 @@
-/* Feature stub for the Flashcards screen — empty on purpose, filled by that screen's
-   own later UI-overhaul task. Registered in styles.css now (roadmap UI-02) so
-   no parallel screen task has to touch the aggregator. */
+/* Feature stylesheet — flashcards (roadmap UI-12, 2026-08-12 UI audit).
+   Single-writer by construction: exactly one parallel session owns this file, so
+   a round of concurrent worktrees never conflicts inside domain.css. Rules that
+   outlive their feature's round get folded back into domain.css by the integrator.
+
+   REWORKED (UI-12): the screen used to be its own island — a metronome
+   `<fieldset>` with a browser-default `<legend>` up top, a centered level
+   stepper and drill `<select>` floating mid-column, a left-hanging keyboard
+   under a wide staff card, and a full-width feedback bar. `FlashcardScreen.tsx`
+   now renders `.page.page--focus`, so the class names below intentionally do
+   NOT reuse domain.css's old `.flashcard-screen`/`.flashcard-prompt`/
+   `.drill-feedback` selectors (domain.css:470-519) — those are out of this
+   task's file list, so they are left in place but orphaned (nothing on this
+   screen emits those class names any more); flagged for the integrator to
+   prune when this task folds back in, rather than silently relying on
+   load-order to shadow them. `.answer-pad button` below replaces the sizing
+   `.flashcard-screen .answer-pad button` used to provide, scoped to the class
+   the three answer pads already render on their own root (verified: no other
+   screen's answer UI shares the bare `answer-pad` token — `DictationAnswerPad`
+   uses `dictation-answer-pad` only). */
+
+/* ---------- Stage: one centered column (staff card -> prompt -> answer) ----------
+   `align-items: center` is what makes the on-screen keyboard (a `max-content`,
+   horizontally-scrolling diagram) and the answer-pad button grids (which wrap
+   at their own natural width) sit on the same central axis as the full-width
+   staff card beneath the header, rather than the old left-hanging keyboard
+   under a centered card. */
+.flashcard-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  text-align: center;
+}
+
+/* ---------- Staff / key-signature card ----------
+   Composed with the `.card` primitive (radius + padding), overriding its
+   `--bg-2` surface for `--paper` — screen rule 8: notation always sits on
+   paper, in both themes. `min-height` keeps the card's footprint stable
+   whether it holds a single note, a two-note interval, or the key-signature
+   text readout, so switching decks does not jump the stage. */
+.flashcard-stage-card {
+  width: 100%;
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  background: var(--paper);
+  color: var(--paper-fg);
+  border: var(--border-w) solid var(--paper-edge);
+  box-shadow: var(--elev-paper);
+}
+.flashcard-key-signature-prompt {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+}
+
+.flashcard-prompt-text {
+  margin: 0;
+  color: var(--text-2);
+}
+
+/* ---------- Answer input ----------
+   Centers whichever answer UI the current deck renders (on-screen keyboard or
+   one of the three answer pads) on the stage's shared axis. */
+.flashcard-answer {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+/* Every answer pad (`NoteNameAnswerPad`/`KeySignatureAnswerPad`/
+   `IntervalAnswerPad`) renders `role="group"` + this shared class on its own
+   root; sizing lives here rather than per-component so the three stay
+   visually identical. */
+.answer-pad {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: center;
+}
+.answer-pad button {
+  min-width: var(--touch-min);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+/* ---------- QWERTY hint: collapsed to one line by default ----------
+   `FlashcardScreen.tsx` wraps the shared `<QwertyHint>` (owned by a sibling
+   screen too — `@app/keyboardInput/QwertyHint.tsx` is not in this task's file
+   list) in a `<details>` it renders itself, so the full A-; map only prints
+   on demand instead of wrapping mid-list under the answer input. Same closed-
+   disclosure convention as `SrsSummary` (`feature-srs-summary.css`). */
+.flashcard-qwerty-hint {
+  margin: 0;
+}
+.flashcard-qwerty-hint > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  cursor: pointer;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  list-style: none;
+}
+.flashcard-qwerty-hint > summary::-webkit-details-marker {
+  display: none;
+}
+.flashcard-qwerty-hint > summary svg {
+  transition: transform var(--dur-1) var(--ease-out);
+}
+.flashcard-qwerty-hint[open] > summary svg {
+  transform: rotate(180deg);
+}
+.flashcard-qwerty-hint .qwerty-hint {
+  justify-content: center;
+  margin-top: var(--space-2);
+}
+
+/* ---------- Graded-answer pill ----------
+   Reuses `[role="status"]` (primitives.css) for the box itself — border,
+   padding and `min-height: var(--control-h)` are already that primitive's
+   job, which is exactly what reserves the pill's line height whether or not
+   a grade exists yet, so a fresh card never jumps the stage when its
+   feedback appears. `.is-ok`/`.is-error` (also primitives.css) supply the
+   feedback color; this file only centers the pill on the stage and fades it
+   in/out via `--dur-1` so an ungraded card shows an empty, invisible-but-
+   present box rather than a visible neutral one. */
+.flashcard-feedback {
+  width: fit-content;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity var(--dur-1) var(--ease-out);
+}
+.flashcard-feedback[data-visible='true'] {
+  opacity: 1;
+}
+.flashcard-feedback svg {
+  flex: none;
+}

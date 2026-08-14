@@ -249,7 +249,7 @@ describe('PracticeScreen', () => {
     expect(useScoreStore.getState().settings.metronomeEnabled).toBe(true)
   })
 
-  it('shows live note feedback (REQ-3.3.2) and keeps it on screen once the transport stops (roadmap 2.14)', async () => {
+  it('shows live note feedback (REQ-3.3.2), honestly, and keeps it on screen once the transport stops (roadmap 2.14, UI-09)', async () => {
     loadSampleScore()
     const user = userEvent.setup()
     const clock = new FakeClock()
@@ -266,12 +266,17 @@ describe('PracticeScreen', () => {
       />,
     )
 
-    // Before anything is played, the panel reads a clean slate.
-    expect(screen.getByTestId('feedback-accuracy')).toHaveTextContent('100%')
-    expect(screen.getByTestId('feedback-correct')).toHaveTextContent('0')
+    // Before anything is played, the honest feedback strip is ABSENT
+    // entirely (roadmap UI-09) — never a fake 100% clean slate.
+    expect(screen.queryByTestId('feedback-accuracy')).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Play' }))
     act(() => manual.pump()) // parks the cursor on tick 0, arming the matcher
+
+    // The strip is visible now that a run has started, but no note has been
+    // judged yet — accuracy reads an honest em dash, never a fake 100%.
+    expect(screen.getByTestId('feedback-accuracy')).toHaveTextContent('—')
+    expect(screen.getByTestId('feedback-correct')).toHaveTextContent('0')
 
     // C_MAJOR_SCALE_RH's first note is C4 (60) at tick 0.
     act(() => midiInput.emit({ type: 'noteOn', note: midi(60), velocity: 80, time: millis(0) }))
@@ -473,7 +478,7 @@ describe('PracticeScreen', () => {
     // would make this test depend on incidental phase timing instead of the
     // one thing REQ-3.3.4 actually requires.
     function assertNonTransportEnabled(): void {
-      expect(screen.getByLabelText('Tempo')).toBeEnabled()
+      expect(screen.getByRole('slider')).toBeEnabled()
       expect(screen.getByLabelText('From measure')).toBeEnabled()
       expect(screen.getByLabelText('to measure')).toBeEnabled()
       expect(screen.getByRole('checkbox', { name: 'Loop' })).toBeEnabled()
@@ -483,7 +488,7 @@ describe('PracticeScreen', () => {
     }
 
     function assertNonTransportDisabled(): void {
-      expect(screen.getByLabelText('Tempo')).toBeDisabled()
+      expect(screen.getByRole('slider')).toBeDisabled()
       expect(screen.getByLabelText('From measure')).toBeDisabled()
       expect(screen.getByLabelText('to measure')).toBeDisabled()
       expect(screen.getByRole('checkbox', { name: 'Loop' })).toBeDisabled()
@@ -548,56 +553,74 @@ describe('PracticeScreen', () => {
     expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled()
   })
 
-  it('lifts the playing controls into one strip above the score (roadmap 1.21, REQ-4.6)', () => {
+  it('lifts transport and tempo into one toolbar above the score (roadmap 1.21, REQ-4.6, UI-09)', () => {
     loadSampleScoreWithMusicXml()
     render(<PracticeScreen midiInput={new FakeMidiInput()} />)
 
-    const controls = document.querySelector('.practice-controls')
-    invariant(controls instanceof HTMLElement, '.practice-controls missing')
+    const toolbar = document.querySelector('.practice-toolbar')
+    invariant(toolbar instanceof HTMLElement, '.practice-toolbar missing')
 
-    // The transport, tempo and live accuracy readout all live inside the
-    // sticky strip — not scattered across the screen. (The MIDI status used
-    // to live here too; roadmap UI-04b moved it to the shell's topbar chip,
-    // present on every screen instead of just this one — see
-    // InputCapabilityBanner.test.tsx.)
-    expect(controls).toContainElement(screen.getByRole('group', { name: 'Transport' }))
-    expect(controls).toContainElement(screen.getByLabelText('Tempo'))
-    expect(controls).toContainElement(screen.getByTestId('feedback-accuracy'))
+    // Transport and tempo live inside the sticky toolbar — not scattered
+    // across the screen. (The MIDI status used to live here too; roadmap
+    // UI-04b moved it to the shell's topbar chip, present on every screen
+    // instead of just this one — see InputCapabilityBanner.test.tsx. The
+    // honest feedback strip, roadmap UI-09, moved OUT of this toolbar and
+    // under the score instead — see the "honest feedback strip" tests below.)
+    expect(toolbar).toContainElement(screen.getByRole('group', { name: 'Transport' }))
+    expect(toolbar).toContainElement(screen.getByRole('slider'))
 
-    // The strip precedes the score in actual DOM order — this fails if
+    // The toolbar precedes the score in actual DOM order — this fails if
     // someone moves the controls back below the score, even though both
     // elements would still exist. It also fails if the score is instead
-    // nested INSIDE the sticky strip (which would make the whole score
+    // nested INSIDE the sticky toolbar (which would make the whole score
     // sticky too): `compareDocumentPosition` reports a contained descendant
     // as both FOLLOWING and NOT PRECEDING, so the two direction checks alone
     // pass for that mutant — the explicit `not.toContainElement` below is
     // what catches it.
     const scoreViewer = screen.getByTestId('mock-score-viewer')
-    const relation = controls.compareDocumentPosition(scoreViewer)
+    const relation = toolbar.compareDocumentPosition(scoreViewer)
     expect(relation & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(relation & Node.DOCUMENT_POSITION_PRECEDING).toBeFalsy()
-    expect(controls).not.toContainElement(scoreViewer)
+    expect(toolbar).not.toContainElement(scoreViewer)
 
-    // The setup controls stay below the score, outside the sticky strip.
+    // The setup controls stay below the score, outside the sticky toolbar.
     const startAssessment = screen.getByRole('button', { name: 'Start assessment' })
-    expect(controls).not.toContainElement(startAssessment)
+    expect(toolbar).not.toContainElement(startAssessment)
   })
 
-  it('keeps .practice-controls pinned on screen while the score scrolls (roadmap 1.21, REQ-4.6)', () => {
+  it('renders the honest feedback strip UNDER the score, not inside the toolbar above it (roadmap UI-09)', async () => {
+    loadSampleScoreWithMusicXml()
+    const user = userEvent.setup()
+    const audio = new RecordingAudioOutput(new FakeClock())
+    render(<PracticeScreen midiInput={new FakeMidiInput()} audioOutput={audio} />)
+
+    await user.click(screen.getByRole('button', { name: 'Play' }))
+
+    const toolbar = document.querySelector('.practice-toolbar')
+    invariant(toolbar instanceof HTMLElement, '.practice-toolbar missing')
+    const accuracy = screen.getByTestId('feedback-accuracy')
+    expect(toolbar).not.toContainElement(accuracy)
+
+    const scoreViewer = screen.getByTestId('mock-score-viewer')
+    const relation = scoreViewer.compareDocumentPosition(accuracy)
+    expect(relation & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('keeps the toolbar pinned on screen while the score scrolls (roadmap 1.21, REQ-4.6, UI-09)', () => {
     // styles.css is never loaded by the vitest/happy-dom module graph (no
     // setup file imports CSS), so nothing above would fail if the sticky
     // rule were deleted. Read the stylesheet directly and pin its content —
-    // this fails if `position: sticky`, `top: 0`, `background` or `z-index`
-    // are removed from `.practice-controls`.
-    const cssPath = join(process.cwd(), 'src', 'design-system', 'css', 'domain.css')
+    // this fails if `position: sticky`, `top: 0` or `z-index` are removed
+    // from `.practice-toolbar` (feature-practice.css) — `.toolbar`
+    // (primitives.css) already supplies the background.
+    const cssPath = join(process.cwd(), 'src', 'design-system', 'css', 'feature-practice.css')
     const css = readFileSync(cssPath, 'utf-8')
-    const ruleMatch = /\.practice-controls\s*\{([^}]*)\}/.exec(css)
-    invariant(ruleMatch !== null, '.practice-controls rule missing from domain.css')
+    const ruleMatch = /\.practice-toolbar\s*\{([^}]*)\}/.exec(css)
+    invariant(ruleMatch !== null, '.practice-toolbar rule missing from feature-practice.css')
     const rule = at(ruleMatch, 1)
 
     expect(rule).toMatch(/position:\s*sticky/)
     expect(rule).toMatch(/top:\s*0/)
-    expect(rule).toMatch(/background:\s*var\(--bg-1\)/)
     expect(rule).toMatch(/z-index:\s*var\(--z-sticky\)/)
   })
 
@@ -872,7 +895,7 @@ describe('PracticeScreen — progressive disclosure by track level (roadmap 5.17
 
     // Base controls a level-1 learner keeps: transport, tempo, hands, metronome.
     expect(screen.getByRole('group', { name: 'Transport' })).toBeInTheDocument()
-    expect(screen.getByLabelText('Tempo')).toBeInTheDocument()
+    expect(screen.getByRole('slider')).toBeInTheDocument()
     expect(screen.getByRole('radio', { name: 'Right hand only' })).toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: 'Metronome' })).toBeInTheDocument()
 
@@ -986,29 +1009,40 @@ describe('PracticeScreen — control hierarchy (roadmap 5.18)', () => {
 
 // Roadmap 5.48 (REQ-3.3.2): the matcher judges onset pitch and timing only —
 // duration is never scored — and the screen has to say so, reachable from
-// Practice in one click.
-describe('PracticeScreen — accuracy caveat (roadmap 5.48)', () => {
-  it('states the onsets-only limitation behind a one-click, closed-by-default disclosure', async () => {
+// Practice in one click. UI-09 (2026-08-12 UI audit): moved from a permanent
+// disclosure under the controls into an info popover beside the honest
+// feedback strip's Accuracy stat — still one click away, still closed until
+// asked for.
+describe('PracticeScreen — accuracy caveat (roadmap 5.48, UI-09)', () => {
+  it('states the onsets-only limitation behind a one-click info popover beside Accuracy, reachable by keyboard', async () => {
     loadSampleScore()
     const user = userEvent.setup()
-    render(<PracticeScreen midiInput={new FakeMidiInput()} />)
+    const audio = new RecordingAudioOutput(new FakeClock())
+    render(<PracticeScreen midiInput={new FakeMidiInput()} audioOutput={audio} />)
 
-    const summary = screen.getByText("What this screen doesn't check")
-    const details = summary.closest('details')
-    expect(details).not.toBeNull()
-    // Closed by default — not a permanent block of prose (roadmap 5.18's own
-    // decluttering goal). Native `<details>` keeps its body in the DOM even
-    // while closed (the browser hides it at the rendering layer, which is
-    // exactly what the `open` attribute check below stands in for here), so
-    // this asserts the `open` state rather than the body's DOM presence — the
-    // same pattern the "More tools" disclosure (roadmap 5.17) already uses.
-    expect(details).not.toHaveAttribute('open')
+    // The trigger lives beside "Accuracy" inside the honest feedback strip,
+    // which only exists once a run has started (roadmap UI-09) — before
+    // that, there is nothing to reach it from and it is absent too.
+    expect(
+      screen.queryByRole('button', { name: "What this screen doesn't check" }),
+    ).not.toBeInTheDocument()
 
-    await user.click(summary)
+    await user.click(screen.getByRole('button', { name: 'Play' }))
 
-    expect(details).toHaveAttribute('open')
-    expect(screen.getByText(/not how long you held them/i)).toBeInTheDocument()
-    expect(screen.getByText(/hand position, wrist, or posture/i)).toBeInTheDocument()
+    const trigger = screen.getByRole('button', { name: "What this screen doesn't check" })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    await user.click(trigger)
+
+    const dialog = screen.getByRole('dialog', { name: "What this screen doesn't check" })
+    expect(within(dialog).getByText(/not how long you held them/i)).toBeInTheDocument()
+    expect(within(dialog).getByText(/hand position, wrist, or posture/i)).toBeInTheDocument()
+
+    // Escape closes it and restores focus to the trigger (accessibility
+    // acceptance criteria: overlays close on Escape and restore focus).
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
   })
 })
 

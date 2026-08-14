@@ -48,9 +48,21 @@ export function KeySignatureAnswerPad({ onAnswer }: KeySignatureAnswerPadProps) 
   return (
     <div className="key-signature-answer-pad answer-pad" role="group" aria-label="Key signature answer">
       {KEY_SIGNATURE_BUTTONS.map((answer) => (
+        // `.music-glyph` (roadmap 5.26, `feature-music-font.css`) puts the
+        // accidentals in the bundled Bravura font instead of plain body text
+        // — the same fix `StaffNote.tsx` already has. Applied to the WHOLE
+        // label, not just the accidental substrings: CSS font-family
+        // fallback resolves per-glyph, so the plain letters and " major / "
+        // " minor" still render in the UI font (Bravura's cmap has no Latin
+        // text) while the accidentals render in Bravura, and the label stays
+        // ONE text node — splitting it into per-tonic wrapped nodes was tried
+        // first and broken the accessible name, because the accessible-name
+        // algorithm joins sibling child nodes with a space
+        // ("C ♯ major / A ♯ minor", not "C♯ major / A♯ minor").
         <button
           key={tonicLabel(answer.majorTonic)}
           type="button"
+          className="music-glyph"
           onClick={() => onAnswer(answer)}
         >
           {label(answer)}

@@ -1,84 +1,38 @@
-/* Feature stylesheet — session-run.
-   Single-writer by construction: exactly one parallel session owns this file, so
-   a round of concurrent worktrees never conflicts inside domain.css. Rules that
-   outlive their feature's round get folded back into domain.css by the integrator. */
+/* Feature stylesheet — session-run (the RUNNING session). Redesign UI-08
+   (2026-08-12 UI audit): planning-only rules moved to feature-today.css —
+   this file now owns only what renders once "Start session" has been
+   clicked. Single-writer by construction: exactly one parallel session owns
+   this file, so a round of concurrent worktrees never conflicts inside
+   domain.css. Rules that outlive their feature's round get folded back into
+   domain.css by the integrator. */
 
-/* ---------- Today screen shell (roadmap 4.7a, 5.44, 5.45) ---------- */
+/* ---------- Screen shell, shared with planning (SessionPlanScreen.tsx
+   applies `.session-plan-screen` in every state) ---------- */
 .session-plan-screen {
-  display: flex;
-  flex-direction: column;
   gap: var(--space-4);
-  max-width: 40rem;
+}
+.session-run-active {
+  gap: var(--space-4);
 }
 
-/* ---------- Planning: length + custom minutes ---------- */
-.session-plan-screen [role="group"][aria-label="Session length"] {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-/* ---------- Planning: mix, collapsed behind <details> ---------- */
-.session-plan-mix-disclosure {
-  border: var(--border-w) solid var(--border-1);
-  border-radius: var(--radius-2);
-  padding: var(--space-3) var(--space-4);
-  background: var(--bg-1);
-}
-.session-plan-mix-disclosure > summary {
-  cursor: pointer;
-  font-weight: var(--weight-medium);
-  color: var(--text-2);
-}
-.session-plan-mix-disclosure[open] > summary { margin-bottom: var(--space-3); }
-.session-plan-mix-disclosure [role="group"][aria-label="Session mix"] {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-/* ---------- Planning: item preview list ---------- */
-.session-plan-screen ul[aria-label="Session items"] {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-.session-plan-screen ul[aria-label="Session items"] > li {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: var(--control-h);
-  padding: var(--space-2) var(--space-3);
-  border-bottom: var(--border-w) solid var(--border-1);
-}
-.session-plan-screen ul[aria-label="Session items"] > li:last-child { border-bottom: 0; }
-.session-plan-warmup-note {
-  color: var(--text-3);
-  font-size: var(--text-sm);
-  font-style: italic;
-}
-
-/* ---------- Running view (roadmap 5.44) ---------- */
-.session-run-active { gap: var(--space-3); }
-
-.session-run-position {
-  font-size: var(--text-lg);
-  font-weight: var(--weight-semibold);
-  color: var(--text-1);
-  margin: 0;
-}
-
+/* ---------- Current item card ----------
+   `.card.session-run-current` (base `.card` from primitives.css, roadmap
+   UI-02) was the only pre-existing `.card` caller in the app; it keeps that
+   exact class combination through this redesign, so it inherits UI-02's
+   elevation rework unchanged. */
 .session-run-current {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
 }
-.session-run-current > h3 { margin: 0; font-size: var(--text-xl); }
+.session-run-current > h2 {
+  margin: 0;
+}
 
 .session-run-segment {
   display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
   align-self: flex-start;
   margin: 0;
   padding: var(--space-1) var(--space-3);
@@ -90,6 +44,10 @@
   font-weight: var(--weight-medium);
   text-transform: uppercase;
   letter-spacing: var(--tracking-caps);
+}
+.session-run-segment > svg {
+  width: 1em;
+  height: 1em;
 }
 
 .session-run-current [data-testid="session-run-elapsed"] {
@@ -103,6 +61,7 @@
   font-size: var(--text-sm);
 }
 
+/* ---------- Warm-up checklist ---------- */
 .warmup-checklist { display: flex; flex-direction: column; gap: var(--space-1); }
 .warmup-checklist > li {
   min-height: var(--control-h);
@@ -115,7 +74,14 @@
   cursor: pointer;
 }
 
-/* ---------- Running: full item list with per-item completion state ---------- */
+/* ---------- Queue: the rest of today's items ----------
+   UI-08: wrapped in `.card--sunken` so it reads as a secondary region under
+   the active step card (rule 4 — status sits WITH the thing it describes),
+   and each row now carries a per-state icon (check/play/clock) alongside
+   `--text-2` text — never the `--text-3` "Upcoming" label the audit flagged. */
+.session-run-queue {
+  padding: var(--space-3) var(--space-4);
+}
 .session-run-item-list {
   list-style: none;
   margin: 0;
@@ -131,14 +97,13 @@
   min-height: var(--control-h);
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-1);
-  color: var(--text-3);
+  color: var(--text-2);
 }
 .session-run-item-list > li[data-status="current"] {
   color: var(--text-1);
-  background: var(--accent-dim);
+  background: var(--bg-2);
   font-weight: var(--weight-medium);
 }
-.session-run-item-list > li[data-status="done"] { color: var(--text-2); }
 .session-run-item-status {
   display: inline-flex;
   align-items: center;
@@ -148,7 +113,15 @@
   flex: none;
   border-radius: var(--radius-round);
   border: var(--border-w) solid var(--border-2);
-  font-size: var(--text-xs);
+  color: var(--text-2);
+}
+.session-run-item-status > svg {
+  width: 0.8em;
+  height: 0.8em;
+}
+.session-run-item-list > li[data-status="current"] .session-run-item-status {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .session-run-item-list > li[data-status="done"] .session-run-item-status {
   border-color: var(--fb-correct);
@@ -156,7 +129,7 @@
 }
 .session-run-item-badge {
   margin-left: auto;
-  color: var(--text-3);
+  color: var(--text-2);
   font-size: var(--text-sm);
 }
 

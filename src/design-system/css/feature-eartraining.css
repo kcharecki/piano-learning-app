@@ -1,3 +1,143 @@
-/* Feature stub for the Ear training screen — empty on purpose, filled by that screen's
-   own later UI-overhaul task. Registered in styles.css now (roadmap UI-02) so
-   no parallel screen task has to touch the aggregator. */
+/* Feature stylesheet — Ear training (roadmap UI-13, 2026-08-12 UI audit):
+   "answers as the interface". Single-writer by construction: exactly one
+   parallel session owns this file, so a round of concurrent worktrees never
+   conflicts inside domain.css. Rules that outlive their feature's round get
+   folded back into domain.css by the integrator. */
+
+/* ---------- Header level readout (`.page-header-actions`) ----------
+   Mirrors `.field > label`'s own type treatment (primitives.css) for a
+   static (non-form) value: "Level" has no control to label a real `<label>`
+   element to, so it can only borrow the same visual language, not the tag. */
+.eartraining-level-label {
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+
+/* ---------- Singing callout ----------
+   roadmap UI-13: the six-line wall of singing-pedagogy prose (roadmap 5.32)
+   that used to open this screen before any control collapses to one
+   sentence here; the original wording survives verbatim inside the "Why?"
+   disclosure below (EarTrainingScreen.tsx), never paraphrased away. */
+.eartraining-sing-callout-lead {
+  margin: 0;
+  font-weight: var(--weight-medium);
+}
+.eartraining-sing-callout details {
+  margin-top: var(--space-2);
+}
+.eartraining-sing-callout summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+.eartraining-vocal-note {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  max-width: 60ch;
+}
+
+/* ---------- Stage ----------
+   The Play/Replay transport, the caption naming what is about to sound, and
+   the actual answer surface (a card grid, or the dictation pad) all live in
+   ONE region (hierarchy rule 4: what am I doing -> the content -> how I act
+   on it) — switching drills only ever swaps what renders at the bottom of
+   this same container, never the container itself (acceptance criterion 4). */
+.eartraining-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  text-align: center;
+}
+.eartraining-stage-caption {
+  margin: 0;
+  font-size: var(--text-lg);
+  max-width: 52ch;
+}
+.eartraining-stage-transport {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-3);
+}
+.eartraining-play-btn {
+  min-width: 12rem;
+  font-size: var(--text-lg);
+}
+.eartraining-context-toggle {
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+.eartraining-stage-meta {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+/* The answer surface (whichever one is on screen) spans the stage's own
+   width rather than shrink-wrapping like the caption/transport above it. */
+.eartraining-stage > .interval-answer-buttons,
+.eartraining-stage > .quality-answer-buttons,
+.eartraining-stage > .dictation-answer-pad {
+  width: 100%;
+}
+.interval-answer-buttons > [role="group"][aria-label="Direction"] {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+/* ---------- Answer cards: the point of this screen ----------
+   Each option is a `.card` (primitives.css), well past the 44px touch
+   minimum, `--text-lg` label, hover raise to `--elev-2`. Only the picked
+   card ever carries a `data-state` — every other option just disables
+   (`button:disabled` already dims to .45 opacity, primitives.css), so the
+   one answer that mattered stays the only thing that changed color. */
+.eartraining-answer-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  width: 100%;
+}
+.eartraining-answer-grid .answer-card {
+  flex: 1 1 11rem;
+  min-height: var(--space-8);
+  border: none;
+  justify-content: center;
+  text-align: center;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  transition: box-shadow var(--dur-1) var(--ease-out), transform var(--dur-1) var(--ease-out);
+}
+.eartraining-answer-grid .answer-card:hover:not(:disabled) {
+  box-shadow: var(--elev-2);
+  transform: translateY(-2px);
+}
+.eartraining-answer-grid .answer-card:disabled {
+  cursor: default;
+}
+/* The picked card stays at full opacity even though it is `:disabled` —
+   every unpicked sibling keeps the base button rule's default .45 dimming. */
+.eartraining-answer-grid .answer-card[data-state] {
+  opacity: 1;
+}
+.eartraining-answer-grid .answer-card[data-state="correct"] {
+  background: var(--fb-correct-dim);
+  color: var(--fb-correct-ink);
+  box-shadow: inset 0 0 0 2px var(--fb-correct);
+}
+.eartraining-answer-grid .answer-card[data-state="wrong"] {
+  background: var(--fb-wrong-dim);
+  color: var(--fb-wrong-ink);
+  box-shadow: inset 0 0 0 2px var(--fb-wrong);
+}
+
+/* ---------- Feedback line ---------- */
+.eartraining-feedback {
+  text-align: center;
+  font-weight: var(--weight-medium);
+}
+.eartraining-feedback[data-state="correct"] { color: var(--fb-correct-ink); }
+.eartraining-feedback[data-state="wrong"] { color: var(--fb-wrong-ink); }

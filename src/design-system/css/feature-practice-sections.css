@@ -54,35 +54,9 @@
   margin-top: var(--space-3);
 }
 
-/* ---------- Accuracy caveat (roadmap 5.48) ----------
-   Deliberately NOT the bordered-box treatment above: this is one quiet line,
-   not a section, so it never competes for weight with Play or the score. */
-.practice-accuracy-caveat {
-  margin: 0 0 var(--space-3);
-}
-.practice-accuracy-caveat > summary {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  cursor: pointer;
-  font-size: var(--text-sm);
-  color: var(--text-2);
-  list-style: none;
-}
-.practice-accuracy-caveat > summary::-webkit-details-marker {
-  display: none;
-}
-.practice-accuracy-caveat > summary::before {
-  content: "\25b8"; /* ▸ */
-  display: inline-block;
-  transition: transform var(--dur-1) var(--ease-out);
-}
-.practice-accuracy-caveat[open] > summary::before {
-  transform: rotate(90deg);
-}
-.practice-accuracy-caveat p {
-  max-width: 60ch;
-  margin: var(--space-2) 0 0;
-  font-size: var(--text-sm);
-  color: var(--text-2);
-}
+/* `.practice-accuracy-caveat` (roadmap 5.48's permanent disclosure) removed
+   here (roadmap UI-09, 2026-08-12 UI audit): "What this screen doesn't
+   check" is now an info popover beside the honest feedback strip's Accuracy
+   stat — see `.practice-accuracy-info-trigger` / `.practice-accuracy-info-
+   dialog` in feature-practice.css. Deleted, not left dead: nothing in
+   `PracticeScreen.tsx` writes this class any more. */

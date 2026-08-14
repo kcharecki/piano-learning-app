@@ -171,7 +171,12 @@ export function RevealPanel({ kind, item, onPlayReference }: RevealPanelProps): 
   const tune = parsedInterval === undefined ? undefined : referenceTuneFor(parsedInterval.interval)
 
   return (
-    <section aria-label="Answer reveal" className="eartraining-reveal">
+    // roadmap UI-13: restyled onto `.card` (primitives.css) so the reveal
+    // reads as its own surface sitting under the answered card, not a plain
+    // block of text — the class list order does not matter to the cascade,
+    // but `.eartraining-reveal` keeps owning layout (flex/gap) while `.card`
+    // supplies the surface (background/radius/elevation/padding).
+    <section aria-label="Answer reveal" className="card eartraining-reveal">
       <AnswerNaming kind={kind} item={item} />
 
       <div

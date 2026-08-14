@@ -16,7 +16,7 @@ describe('TransportControls', () => {
         onStop={() => {}}
       />,
     )
-    expect(screen.getByLabelText('Position')).toHaveTextContent('Measure 3, beat 2 of 4')
+    expect(screen.getByLabelText('Position')).toHaveTextContent('Measure 3 · beat 2')
   })
 
   it('shows a placeholder position when nothing is loaded', () => {
@@ -124,5 +124,38 @@ describe('TransportControls', () => {
     )
     expect(screen.getByRole('button', { name: 'Pause' })).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled()
+  })
+
+  // UI-09 (2026-08-12 UI audit): Play is icon+label and the screen's one
+  // `.btn-primary`; Pause/Stop are icon-only `.btn-icon`s. All three always
+  // mount — a rerender across phases only ever flips `disabled`, so the
+  // group's own width never changes (no layout shift toggling Play/Pause).
+  it('renders Play as the primary action and Pause/Stop as icon buttons, unconditionally, at every phase', () => {
+    const { rerender } = render(
+      <TransportControls
+        phase="stopped"
+        position={undefined}
+        onPlay={() => {}}
+        onPause={() => {}}
+        onStop={() => {}}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Play' })).toHaveClass('btn-primary')
+    expect(screen.getByRole('button', { name: 'Pause' })).toHaveClass('btn-icon')
+    expect(screen.getByRole('button', { name: 'Stop' })).toHaveClass('btn-icon')
+
+    rerender(
+      <TransportControls
+        phase="playing"
+        position={undefined}
+        onPlay={() => {}}
+        onPause={() => {}}
+        onStop={() => {}}
+      />,
+    )
+    // Still all three, same classes — only `disabled` moved.
+    expect(screen.getByRole('button', { name: 'Play' })).toHaveClass('btn-primary')
+    expect(screen.getByRole('button', { name: 'Pause' })).toHaveClass('btn-icon')
+    expect(screen.getByRole('button', { name: 'Stop' })).toHaveClass('btn-icon')
   })
 })

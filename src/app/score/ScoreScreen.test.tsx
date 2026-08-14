@@ -8,7 +8,8 @@ import sampleMusicXml from '@content/scores/twinkle-twinkle-little-star.musicxml
 import { useScoreStore } from '@app/state/scoreStore.ts'
 import { useLevelStore } from '@app/state/levelStore.ts'
 import { initialLevelState } from '@core/progress/levels.ts'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const scoreViewerSpy = vi.fn()
@@ -76,10 +77,32 @@ describe('ScoreScreen', () => {
     expect(useScoreStore.getState().loaded?.sourceName).toContain('bundled sample')
   })
 
-  it('always renders the import panel', async () => {
+  // UI-09 (2026-08-12 UI audit): the raw file input used to be the FIRST
+  // thing on screen. It now lives in a popover opened from "Change piece…" —
+  // never rendered open on its own.
+  it('names the piece in a page header, and keeps the import panel behind "Change piece…" until asked for', async () => {
+    const user = userEvent.setup()
     render(<ScoreScreen />)
-    expect(screen.getByLabelText(/import a score/i)).toBeInTheDocument()
     await screen.findByText('Twinkle, Twinkle, Little Star')
+
+    // The title is the page heading, not a bare paragraph or a second-level
+    // heading buried under an import row.
+    expect(screen.getByRole('heading', { level: 1, name: 'Twinkle, Twinkle, Little Star' })).toBeInTheDocument()
+
+    // Closed by default: not reachable as an open dialog, even though its
+    // label text technically still exists in the (closed) DOM node.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    const trigger = screen.getByRole('button', { name: 'Change piece…' })
+    await user.click(trigger)
+
+    const dialog = screen.getByRole('dialog', { name: 'Change piece' })
+    expect(within(dialog).getByLabelText(/import a score/i)).toBeInTheDocument()
+
+    // Escape closes it and restores focus to the trigger.
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
   })
 
   describe('analysis panel gating (roadmap 3.18, REQ-3.5.5)', () => {

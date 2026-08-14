@@ -11,17 +11,26 @@
  * card renders `NoteNameAnswerPad`, and a `'key-signature'` card renders a
  * plain-text fifths readout plus `KeySignatureAnswerPad`. All four share the
  * same feedback/stats testids below.
+ *
+ * REWORKED (roadmap UI-12, 2026-08-12 UI audit): the standalone metronome
+ * fieldset (roadmap 2.28a) is deleted outright, not just moved — a metronome
+ * has its own screen (`@app/metronome/MetronomeScreen.tsx`), and this drill
+ * grades single answers with no tempo involved, so the control never earned
+ * its place here. The level stepper and drill picker move into the header's
+ * action slot as labelled `.field`s, the level stepper migrates onto the
+ * `.stepper` primitive (label outside the group, not between the +/- buttons
+ * — see `MIN_DRILL_LEVEL`'s call site below), and the whole stage (staff card
+ * → prompt → answer input) reads as one centered column instead of the old
+ * centered-card/left-hanging-keyboard mismatch.
  */
+import { Icon } from '@app/ui/Icon.tsx'
 import { QwertyHint } from '@app/keyboardInput/QwertyHint.tsx'
 import { defaultBaseNote } from '@app/keyboardInput/qwertyNoteMap.ts'
 import { useQwertyNoteInput } from '@app/keyboardInput/useQwertyNoteInput.ts'
 import type { ConnectMidi } from '@app/practice/useMidiConnection.ts'
-import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
-import { useMetronome } from '@app/metronome/useMetronome.ts'
 import { SrsSummary } from '@app/srs/SrsSummary.tsx'
 import type { GradeResult } from '@core/drills/flashcards.ts'
-import type { AudioOutput, Clock, DateSource, MidiInput, Rng } from '@core/ports/index.ts'
-import { MAX_BPM, MIN_BPM } from '@core/timing/metronome.ts'
+import type { Clock, DateSource, MidiInput, Rng } from '@core/ports/index.ts'
 import { useId, useState } from 'react'
 import { IntervalAnswerPad } from './IntervalAnswerPad.tsx'
 import { KeySignatureAnswerPad } from './KeySignatureAnswerPad.tsx'
@@ -38,9 +47,6 @@ export type FlashcardScreenProps = {
   readonly midiInput?: MidiInput
   readonly connectMidi?: ConnectMidi
   readonly rng?: Rng
-  /** Injection seams for the standalone metronome (roadmap 2.28a, REQ-3.9.1); each defaults to the real browser adapter. */
-  readonly audioOutput?: AudioOutput
-  readonly frameDriver?: FrameDriver
   /** Which deck to open first. Defaults to `'staff-to-key'`. The learner's own
    *  picker owns the kind after the first render — this only seeds it. Read
    *  once at mount — the shell must `key` this element by the kind to
@@ -61,20 +67,42 @@ export const MIN_DRILL_LEVEL = 1
 // at 6 left the ±7 buttons (Cb/Ab minor, C#/A# minor) permanently unreachable.
 export const MAX_DRILL_LEVEL = 7
 
+/** Learner-language subtitle naming the deck currently open (rule 7: no
+ *  internal vocabulary like "staff-to-key" or "interval-on-staff" on screen). */
+const DECK_SUBTITLE: Record<DrillKind, string> = {
+  'staff-to-key': 'Find the note on your keyboard',
+  'interval-on-staff': 'Name the interval on the staff',
+  'note-name': 'Name the note on the staff',
+  'key-signature': 'Name the key from its signature',
+}
+
 function clampLevel(level: number): number {
   return Math.min(MAX_DRILL_LEVEL, Math.max(MIN_DRILL_LEVEL, Math.floor(level)))
 }
 
+/**
+ * The graded-answer pill (rule 5: feedback within 100ms; rule 8: color is
+ * never the only signal). Always rendered — even before the first answer —
+ * so the stage never gains or loses this element's reserved line height; only
+ * its content and the `is-ok`/`is-error` primitive class toggle, faded via
+ * `--dur-1` (`feature-flashcards.css`). See `FlashcardScreen.test.tsx`'s
+ * "no layout shift" test for the structural proof.
+ */
 function AnswerFeedback({ grade }: { readonly grade: GradeResult | undefined }) {
-  if (grade === undefined) return null
+  const stateClass = grade === undefined ? '' : grade.correct ? ' is-ok' : ' is-error'
   return (
     <p
       role="status"
       data-testid="flashcard-feedback"
-      className="drill-feedback"
-      data-state={grade.correct ? 'correct' : 'wrong'}
+      className={`flashcard-feedback${stateClass}`}
+      data-visible={grade !== undefined}
     >
-      {grade.correct ? 'Correct' : 'Not quite'} — graded {grade.grade}
+      {grade !== undefined && (
+        <>
+          <Icon name={grade.correct ? 'check' : 'x'} />
+          {grade.correct ? 'Correct' : 'Not quite — it comes back for review'}
+        </>
+      )}
     </p>
   )
 }
@@ -82,16 +110,7 @@ function AnswerFeedback({ grade }: { readonly grade: GradeResult | undefined }) 
 export function FlashcardScreen(props: FlashcardScreenProps) {
   const [level, setLevel] = useState(clampLevel(props.initialLevel ?? MIN_DRILL_LEVEL))
   const [kind, setKind] = useState<DrillKind>(props.initialKind ?? 'staff-to-key')
-  // Metronome-only seams pulled out first: `useFlashcardDrill` declares
-  // neither `audioOutput` nor `frameDriver`, so leaving them in the spread
-  // would rely on TypeScript's excess-property-check exemption for spreads.
-  const {
-    audioOutput,
-    frameDriver,
-    initialKind: _initialKind,
-    initialLevel: _initialLevel,
-    ...drillProps
-  } = props
+  const { initialKind: _initialKind, initialLevel: _initialLevel, ...drillProps } = props
   const drill = useFlashcardDrill({ level, kind, ...drillProps })
   // Only the 'staff-to-key' card answers with a note at all — the other
   // three kinds have their own answer pads (roadmap 5.5).
@@ -102,133 +121,118 @@ export function FlashcardScreen(props: FlashcardScreenProps) {
     baseNote: defaultBaseNote(drill.range.low, drill.range.high),
     onPress: drill.answerNote,
   })
-  const metronome = useMetronome({
-    ...(props.clock === undefined ? {} : { clock: props.clock }),
-    ...(audioOutput === undefined ? {} : { audioOutput }),
-    ...(frameDriver === undefined ? {} : { frameDriver }),
-  })
-  const tempoId = useId()
-
-  // Held as raw text and only committed on blur/Enter: a controlled input
-  // bound directly to the clamped `metronome.bpm` rewrites mid-keystroke
-  // every time the clamp kicks in (typing "8" toward "80" clamps to MIN_BPM
-  // after the first digit, then the next keystroke produces "200"), making
-  // most tempi impossible to type. Same fix as MetronomeScreen.tsx.
-  const [bpmText, setBpmText] = useState(() => String(metronome.bpm))
-  const [bpmEditing, setBpmEditing] = useState(false)
-  const displayedBpm = bpmEditing ? bpmText : String(metronome.bpm)
-
-  function commitBpm(): void {
-    setBpmEditing(false)
-    const parsed = Number(bpmText)
-    if (Number.isFinite(parsed)) metronome.setBpm(parsed)
-  }
+  const levelLabelId = useId()
 
   return (
-    <div className="flashcard-screen">
-      <h2>Flashcards</h2>
-
-      <fieldset>
-        <legend>Metronome</legend>
-        <button type="button" onClick={metronome.running ? metronome.stop : metronome.start}>
-          {metronome.running ? 'Stop' : 'Start'}
-        </button>
-        <label htmlFor={tempoId}>Tempo (BPM)</label>
-        <input
-          id={tempoId}
-          type="number"
-          min={MIN_BPM}
-          max={MAX_BPM}
-          value={displayedBpm}
-          onChange={(event) => {
-            setBpmEditing(true)
-            setBpmText(event.target.value)
-          }}
-          onBlur={commitBpm}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') commitBpm()
-          }}
-        />
-        <p data-testid="flashcard-metronome-beat">
-          {metronome.lastClick === undefined ? '—' : `beat ${metronome.lastClick.beat + 1}`}
-        </p>
-      </fieldset>
-      <div className="flashcard-level" role="group" aria-label="Level">
-        <button
-          type="button"
-          aria-label="Decrease level"
-          disabled={level <= MIN_DRILL_LEVEL}
-          onClick={() => setLevel((l) => Math.max(MIN_DRILL_LEVEL, l - 1))}
-        >
-          −
-        </button>
-        <span data-testid="flashcard-level">Level {level}</span>
-        <button
-          type="button"
-          aria-label="Increase level"
-          disabled={level >= MAX_DRILL_LEVEL}
-          onClick={() => setLevel((l) => Math.min(MAX_DRILL_LEVEL, l + 1))}
-        >
-          +
-        </button>
-      </div>
-
-      <div className="flashcard-kind">
-        <label htmlFor="flashcard-kind-select">Drill</label>
-        <select
-          id="flashcard-kind-select"
-          value={kind}
-          onChange={(e) => setKind(e.target.value as DrillKind)}
-        >
-          <option value="staff-to-key">Note → key</option>
-          <option value="interval-on-staff">Interval</option>
-          <option value="note-name">Name the note</option>
-          <option value="key-signature">Key signature</option>
-        </select>
-      </div>
+    <div className="page page--focus">
+      <header className="page-header">
+        <div>
+          <h1>Flashcards</h1>
+          <p className="page-header-subtitle">{DECK_SUBTITLE[kind]}</p>
+        </div>
+        <div className="page-header-actions">
+          <div className="field">
+            <label htmlFor="flashcard-kind-select">Drill</label>
+            <select
+              id="flashcard-kind-select"
+              value={kind}
+              onChange={(e) => setKind(e.target.value as DrillKind)}
+            >
+              <option value="staff-to-key">Note → key</option>
+              <option value="interval-on-staff">Interval</option>
+              <option value="note-name">Name the note</option>
+              <option value="key-signature">Key signature</option>
+            </select>
+          </div>
+          <div className="field">
+            {/* The label lives OUTSIDE `.stepper` — the exact defect the
+                primitive was built to fix (see primitives.css's file header)
+                is a label rendered BETWEEN the +/- buttons, which is what
+                this screen's own hand-rolled `role="group"` used to do. */}
+            <label id={levelLabelId}>Level</label>
+            <div className="stepper" role="group" aria-labelledby={levelLabelId}>
+              <button
+                type="button"
+                aria-label="Decrease level"
+                disabled={level <= MIN_DRILL_LEVEL}
+                onClick={() => setLevel((l) => Math.max(MIN_DRILL_LEVEL, l - 1))}
+              >
+                −
+              </button>
+              <span className="stepper-value" data-testid="flashcard-level">
+                {level}
+              </span>
+              <button
+                type="button"
+                aria-label="Increase level"
+                disabled={level >= MAX_DRILL_LEVEL}
+                onClick={() => setLevel((l) => Math.min(MAX_DRILL_LEVEL, l + 1))}
+              >
+                +
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
 
       {drill.card === undefined ? (
-        <p role="status">No cards at this level yet.</p>
+        <p role="status" className="empty-state">
+          No cards at this level yet — try a lower level or a different drill.
+        </p>
       ) : drill.card.kind === 'staff-to-key' ? (
-        <section aria-label="Flashcard">
-          <div className="flashcard-prompt">
+        <section className="flashcard-stage" aria-label="Flashcard">
+          <div className="card flashcard-stage-card">
             <StaffNote midi={drill.card.prompt.midi} clef={drill.card.prompt.clef} />
           </div>
-          <p>Play the note shown, on the keyboard below or your MIDI keyboard.</p>
-          <OnScreenKeyboard
-            low={drill.range.low}
-            high={drill.range.high}
-            onPress={drill.answerNote}
-          />
-          <QwertyHint />
+          <p className="flashcard-prompt-text">
+            Play the note shown, on the keyboard below or your MIDI keyboard.
+          </p>
+          <div className="flashcard-answer">
+            <OnScreenKeyboard
+              low={drill.range.low}
+              high={drill.range.high}
+              onPress={drill.answerNote}
+            />
+          </div>
+          <details className="flashcard-qwerty-hint">
+            <summary>
+              <Icon name="chevron-down" />
+              Show keys
+            </summary>
+            <QwertyHint />
+          </details>
           <AnswerFeedback grade={drill.lastGrade} />
         </section>
       ) : drill.card.kind === 'interval-on-staff' ? (
-        <section aria-label="Flashcard">
-          <div className="flashcard-prompt">
+        <section className="flashcard-stage" aria-label="Flashcard">
+          <div className="card flashcard-stage-card">
             <StaffNote
               low={drill.card.prompt.low}
               high={drill.card.prompt.high}
               clef={drill.card.prompt.clef}
             />
           </div>
-          <p>Name the interval shown.</p>
-          <IntervalAnswerPad onAnswer={drill.answerInterval} />
+          <p className="flashcard-prompt-text">Name the interval shown.</p>
+          <div className="flashcard-answer">
+            <IntervalAnswerPad onAnswer={drill.answerInterval} />
+          </div>
           <AnswerFeedback grade={drill.lastGrade} />
         </section>
       ) : drill.card.kind === 'note-name' ? (
-        <section aria-label="Flashcard">
-          <div className="flashcard-prompt">
+        <section className="flashcard-stage" aria-label="Flashcard">
+          <div className="card flashcard-stage-card">
             <StaffNote midi={drill.card.prompt.midi} clef={drill.card.prompt.clef} />
           </div>
-          <p>Name the note shown.</p>
-          <NoteNameAnswerPad onAnswer={drill.answerNoteName} />
+          <p className="flashcard-prompt-text">Name the note shown.</p>
+          <div className="flashcard-answer">
+            <NoteNameAnswerPad onAnswer={drill.answerNoteName} />
+          </div>
           <AnswerFeedback grade={drill.lastGrade} />
         </section>
       ) : (
-        <section aria-label="Flashcard">
-          <div className="flashcard-prompt">
-            <p data-testid="key-signature-prompt">
+        <section className="flashcard-stage" aria-label="Flashcard">
+          <div className="card flashcard-stage-card">
+            <p data-testid="key-signature-prompt" className="flashcard-key-signature-prompt">
               {drill.card.prompt.fifths === 0
                 ? 'No sharps or flats'
                 : `${Math.abs(drill.card.prompt.fifths)} ${
@@ -236,8 +240,12 @@ export function FlashcardScreen(props: FlashcardScreenProps) {
                   }${Math.abs(drill.card.prompt.fifths) === 1 ? '' : 's'}`}
             </p>
           </div>
-          <p>Name the major key and its relative minor for this key signature.</p>
-          <KeySignatureAnswerPad onAnswer={drill.answerKeySignature} />
+          <p className="flashcard-prompt-text">
+            Name the major key and its relative minor for this key signature.
+          </p>
+          <div className="flashcard-answer">
+            <KeySignatureAnswerPad onAnswer={drill.answerKeySignature} />
+          </div>
           <AnswerFeedback grade={drill.lastGrade} />
         </section>
       )}

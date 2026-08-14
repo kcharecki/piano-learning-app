@@ -6,7 +6,11 @@ import { TempoControl } from './TempoControl.tsx'
 afterEach(cleanup)
 
 describe('TempoControl', () => {
-  it('shows the percentage and both the written and effective bpm', () => {
+  // UI-09: the old readout printed three formats at once ("50% — 60 bpm
+  // (written 120)"). Now there are exactly two — the field's own label
+  // carries the "% of written" detail, and the output shows one number: the
+  // effective bpm a learner would actually hear.
+  it('puts the percent-of-written detail in the field label, and the effective bpm alone in the value', () => {
     render(
       <TempoControl
         tempoScale={0.5}
@@ -16,7 +20,11 @@ describe('TempoControl', () => {
       />,
     )
     expect(screen.getByRole('slider')).toHaveValue('50')
-    expect(screen.getByText(/50%/)).toHaveTextContent('50% — 60 bpm (written 120)')
+    expect(screen.getByText('Tempo — 50% of written 120')).toBeInTheDocument()
+    expect(screen.getByText('60 bpm')).toBeInTheDocument()
+    // The accessible name still says "Tempo" — WCAG 2.5.3 Label in Name, and
+    // context for a screen-reader user tabbing straight to the slider.
+    expect(screen.getByLabelText(/^Tempo/)).toBe(screen.getByRole('slider'))
   })
 
   it('shows just the percentage when nothing is loaded', () => {
@@ -29,6 +37,7 @@ describe('TempoControl', () => {
       />,
     )
     expect(screen.getByText('100%')).toBeInTheDocument()
+    expect(screen.getByLabelText('Tempo')).toBe(screen.getByRole('slider'))
   })
 
   it('reports the slider range as 30%-200% (REQ-3.2.2)', () => {

@@ -1,16 +1,20 @@
 /**
- * `SessionPlanScreen`'s own wiring (roadmap 4.7a, 5.44, 5.45, REQ-3.1.4):
- * the rendered minutes sum to the chosen budget, the per-segment split
- * matches `DEFAULT_MIX` (plus warm-up's flat reservation), clicking an
- * item's "Open" button calls `onOpen` with that item's own `Exercise`, an
- * unfillable plan renders the error text instead of an empty list, and —
- * new for 5.44/5.45 — starting a session shows a running view with a
- * position ("Item N of TOTAL"), completing items advances it, and the
+ * `SessionPlanScreen`'s own wiring (roadmap 4.7a, 5.44, 5.45, REQ-3.1.4;
+ * redesigned UI-08, 2026-08-12 UI audit): the rendered minutes sum to the
+ * chosen budget, the per-segment split matches `DEFAULT_MIX` (plus warm-up's
+ * flat reservation), clicking an item's card calls `onOpen` with that item's
+ * own `Exercise`, an unfillable plan renders the error text instead of an
+ * empty list, and — 5.44/5.45 — starting a session shows a running view with
+ * a position ("Item N of TOTAL"), completing items advances it, and the
  * warm-up item opens a real checklist rather than a plain "Open" link.
  * `useSessionPlan`, `useSessionRun` and `candidates.ts` have their own
  * suites — every test here exercises them for real (through the real
  * stores and a fake `Store`/`Clock`), so the assertions are about what
  * actually renders, not a mock's say-so.
+ *
+ * UI-08 also proves the "one primary action per screen" rule (screen rule
+ * 1): exactly one `.btn-primary` while planning, and exactly one while a
+ * session is running.
  */
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -63,9 +67,30 @@ afterEach(() => {
   resetStores()
 })
 
+/** Reads one item row's own duration badge — its own dedicated element, not
+ * a regex over the whole row's concatenated text: a title that itself ends
+ * in a digit ("…level 1") sits flush against the badge in the DOM (no
+ * whitespace text node between sibling `<span>`s — the visual gap is
+ * layout-only, from the card's flex `gap`), so "level 1" + "6 min" reads as
+ * the single fused token "16 min" in `textContent`. Reading the badge's own
+ * `.session-plan-item-duration` element sidesteps that entirely. */
+function rowMinutes(row: HTMLElement): number {
+  const badge = row.querySelector('.session-plan-item-duration')
+  const match = /^(\d+) min$/.exec(badge?.textContent ?? '')
+  if (match?.[1] === undefined) throw new Error(`no duration badge found in row: ${row.textContent}`)
+  return Number(match[1])
+}
+
+/** Sums the duration badge across every item card belonging to one segment
+ * (UI-08: replaces the old dedicated `session-plan-segment-*` breakdown
+ * testids — each item card now carries its own `data-segment`, which is
+ * what actually renders on screen). */
 function segmentMinutes(name: string): number {
-  const text = screen.getByTestId(`session-plan-segment-${name}`).textContent ?? ''
-  return Number(text.replace(/[^\d.-]/g, ''))
+  const items = screen.getByRole('list', { name: 'Session items' })
+  const rows = within(items).getAllByRole('listitem')
+  return rows
+    .filter((row) => row.getAttribute('data-segment') === name)
+    .reduce((sum, row) => sum + rowMinutes(row), 0)
 }
 
 function totalMinutes(): number {
@@ -97,7 +122,7 @@ describe('SessionPlanScreen — planning', () => {
     await waitHydrated()
 
     for (const minutes of [15, 30, 60]) {
-      await user.click(screen.getByRole('button', { name: `${minutes} min` }))
+      await user.click(screen.getByRole('radio', { name: `${minutes} min` }))
       expect(totalMinutes()).toBe(minutes)
       const segmentSum =
         segmentMinutes('warmup') +
@@ -109,11 +134,7 @@ describe('SessionPlanScreen — planning', () => {
 
       const items = screen.getByRole('list', { name: 'Session items' })
       const rows = within(items).getAllByRole('listitem')
-      const itemMinutesSum = rows.reduce((sum, row) => {
-        const match = /(\d+) min/.exec(row.textContent ?? '')
-        if (match?.[1] === undefined) throw new Error(`no "N min" found in row: ${row.textContent}`)
-        return sum + Number(match[1])
-      }, 0)
+      const itemMinutesSum = rows.reduce((sum, row) => sum + rowMinutes(row), 0)
       expect(itemMinutesSum).toBe(minutes)
       expect(itemMinutesSum).toBe(segmentSum)
     }
@@ -125,7 +146,7 @@ describe('SessionPlanScreen — planning', () => {
     render(<SessionPlanScreen onOpen={() => {}} {...freshStoreProps()} />)
     await waitHydrated()
 
-    await user.click(screen.getByRole('button', { name: '30 min' }))
+    await user.click(screen.getByRole('radio', { name: '30 min' }))
 
     // technique's own 20% share of the FULL 30 minutes is a 6-minute bucket
     // shared with warm-up (roadmap 4.10 — see session.ts's module doc):
@@ -139,7 +160,7 @@ describe('SessionPlanScreen — planning', () => {
     expect(segmentMinutes('theory-ear')).toBe(6)
   })
 
-  it('the first item is always warm-up and opens as a checklist, not a plain "Open" link', async () => {
+  it('the first item is always warm-up and renders as a static card (opens as a checklist), not a clickable "Open" card', async () => {
     loadAScore()
     render(<SessionPlanScreen onOpen={() => {}} {...freshStoreProps()} />)
     await waitHydrated()
@@ -153,7 +174,7 @@ describe('SessionPlanScreen — planning', () => {
     expect(firstRow.textContent).toMatch(/opens as a checklist/i)
   })
 
-  it('calls onOpen with the clicked item\'s own exercise, identified exactly, not just the first row', async () => {
+  it('every other item renders as a card whose whole surface is the "Open" click target, identified exactly by its own exercise', async () => {
     const user = userEvent.setup()
     loadAScore()
     const onOpen = vi.fn<(exercise: Exercise) => void>()
@@ -164,18 +185,33 @@ describe('SessionPlanScreen — planning', () => {
     const rows = within(items).getAllByRole('listitem')
     const lastRow = rows[rows.length - 1]
     if (lastRow === undefined) throw new Error('expected at least one session item')
-    const openButton = within(lastRow).getByRole('button', { name: /^Open / })
+    const openCard = within(lastRow).getByRole('button', { name: /^Open / })
+    // The whole card is the click target — a real <button>, keyboard
+    // reachable and focusable by default, not a link buried inside a row.
+    expect(openCard.tagName).toBe('BUTTON')
 
-    await user.click(openButton)
+    await user.click(openCard)
 
     expect(onOpen).toHaveBeenCalledTimes(1)
     const openedExercise = onOpen.mock.calls[0]?.[0]
     if (openedExercise === undefined) throw new Error('onOpen was not called with an exercise')
-    // The last row is always a 'theory-ear' item (SEGMENT_ORDER puts it
-    // last) and the only reachable theory-ear candidate today is the
+    // The last row is always a 'theory-ear' item (items arrive pre-ordered
+    // by segment) and the only reachable theory-ear candidate today is the
     // staff-to-key flashcard deck — assert its exact id, not a substring
     // match that any exercise sharing a word in its title would satisfy.
     expect(openedExercise.id).toBe('flashcards-staff-to-key')
+  })
+
+  it('no item card renders the old em-dash-joined row text', async () => {
+    loadAScore()
+    render(<SessionPlanScreen onOpen={() => {}} {...freshStoreProps()} />)
+    await waitHydrated()
+
+    const items = screen.getByRole('list', { name: 'Session items' })
+    const rows = within(items).getAllByRole('listitem')
+    for (const row of rows) {
+      expect(row.textContent ?? '').not.toMatch(/—/)
+    }
   })
 
   it('with no score loaded and no repertoire yet, the lesson segment falls back to the curriculum and shows a note (roadmap 4.10)', async () => {
@@ -242,6 +278,14 @@ describe('SessionPlanScreen — planning', () => {
     expect(document.querySelectorAll('.btn-primary')).toHaveLength(1)
     expect(screen.getByRole('button', { name: 'Start session' })).toHaveClass('btn-primary')
   })
+
+  it('the session-length row is a labelled segmented control, not a bare button group', async () => {
+    render(<SessionPlanScreen onOpen={() => {}} {...freshStoreProps()} />)
+    await waitHydrated()
+
+    const group = screen.getByRole('radiogroup', { name: 'Session length' })
+    expect(within(group).getAllByRole('radio')).toHaveLength(3)
+  })
 })
 
 describe('SessionPlanScreen — running (roadmap 5.44)', () => {
@@ -249,7 +293,7 @@ describe('SessionPlanScreen — running (roadmap 5.44)', () => {
     const user = userEvent.setup()
     render(<SessionPlanScreen onOpen={() => {}} {...freshStoreProps()} />)
     await waitHydrated()
-    await user.click(screen.getByRole('button', { name: '15 min' }))
+    await user.click(screen.getByRole('radio', { name: '15 min' }))
 
     const itemRows = within(screen.getByRole('list', { name: 'Session items' })).getAllByRole(
       'listitem',
@@ -261,6 +305,9 @@ describe('SessionPlanScreen — running (roadmap 5.44)', () => {
     expect(screen.getByTestId('session-run-position')).toHaveTextContent(
       `Item 1 of ${totalItems}`,
     )
+    // Exactly one primary action while running — the current step's own
+    // advance action, never two competing primaries (screen rule 1).
+    expect(document.querySelectorAll('.btn-primary')).toHaveLength(1)
     // Warm-up is first, and its "Complete" is gated until every checklist
     // step is checked — not completable immediately.
     expect(screen.getByRole('button', { name: 'Complete warm-up' })).toBeDisabled()
@@ -279,8 +326,11 @@ describe('SessionPlanScreen — running (roadmap 5.44)', () => {
     )
     // Per-item completion state (roadmap 5.44): item 0 (warm-up) reads
     // "done", item 1 reads "current", everything after is "upcoming" — not
-    // just the position counter.
+    // just the position counter. UI-08: each status also carries its own
+    // icon rather than `--text-3` text alone (rule 8 — color/text is never
+    // the only signal).
     expect(screen.getByTestId('session-run-item-0')).toHaveAttribute('data-status', 'done')
+    expect(screen.getByTestId('session-run-item-0').querySelector('svg')).not.toBeNull()
     expect(screen.getByTestId('session-run-item-1')).toHaveAttribute('data-status', 'current')
     if (totalItems > 2) {
       expect(screen.getByTestId('session-run-item-2')).toHaveAttribute('data-status', 'upcoming')
@@ -322,6 +372,7 @@ describe('SessionPlanScreen — running (roadmap 5.44)', () => {
       `${totalItems} of ${totalItems} items done`,
     )
     expect(screen.getByRole('button', { name: 'Plan a new session' })).toHaveClass('btn-primary')
+    expect(document.querySelectorAll('.btn-primary')).toHaveLength(1)
 
     // Only warm-up and one other real activity kind can be asserted
     // generically here (candidates vary by segment) — the practice log now
@@ -334,7 +385,7 @@ describe('SessionPlanScreen — running (roadmap 5.44)', () => {
     const user = userEvent.setup()
     render(<SessionPlanScreen onOpen={() => {}} {...freshStoreProps()} />)
     await waitHydrated()
-    await user.click(screen.getByRole('button', { name: '15 min' }))
+    await user.click(screen.getByRole('radio', { name: '15 min' }))
     await user.click(screen.getByRole('button', { name: 'Start session' }))
 
     await user.click(screen.getByRole('button', { name: 'Stop session' }))

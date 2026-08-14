@@ -3,12 +3,20 @@
  * engine (`usePracticeEngine`) with the transport, tempo, loop, hand-mute,
  * metronome, wait-mode and MIDI-status controls below it.
  *
- * Roadmap 1.21 (REQ-4.6): the MIDI status, transport, tempo and live-accuracy
- * controls are lifted into `.practice-controls`, a sticky strip rendered
- * ABOVE `ScoreViewer` (see `styles.css`) — a real score is several screens
+ * Roadmap 1.21 (REQ-4.6): the transport and tempo controls are lifted into
+ * `.practice-toolbar` (`.toolbar` + feature-practice.css, roadmap UI-09), a
+ * sticky strip rendered ABOVE `ScoreViewer` — a real score is several screens
  * tall, and those controls must stay reachable while the learner scrolls
  * through it. Setup controls (assessment, review, loop/hand/metronome/wait,
  * record/replay) stay below the score, unchanged.
+ *
+ * UI-09 (2026-08-12 UI audit): screen order top to bottom is now title (in
+ * `ScoreScreen`'s `.page-header`) -> transport toolbar -> score -> the honest
+ * feedback strip. The strip is a NEW element, not a move of the old one — it
+ * renders under the score (status sits with what it describes) and only once
+ * a run has started (`hasStartedRun`), never showing a fake 100% accuracy
+ * before a single note is judged. "What this screen doesn't check" moved from
+ * a permanent disclosure into a popover beside the strip's Accuracy stat.
  *
  * Roadmap 2.14 (REQ-3.9.2): `useRecorder` sits between the raw MIDI input and
  * every consumer on this screen (`useNoteFeedback`, `usePracticeEngine`,
@@ -205,6 +213,15 @@ export function PracticeScreen(props: PracticeScreenProps) {
   // no visible highlight showing which note was being edited.
   useEffect(() => {
     setSelectedNoteId(undefined)
+  }, [loaded?.score.id])
+  // UI-09 (2026-08-12 UI audit): the honest feedback strip is absent entirely
+  // until a run has started — never a fake 100% accuracy before a single note
+  // is played. Flips true on the SAME phase edge that already clears the
+  // feedback counters below (`justStarted`), and resets on a new score the
+  // same way `selectedNoteId` does just above.
+  const [hasStartedRun, setHasStartedRun] = useState(false)
+  useEffect(() => {
+    setHasStartedRun(false)
   }, [loaded?.score.id])
   const [clock] = useState<Clock>(() => props.clock ?? createBrowserClock())
   const [date] = useState<DateSource>(() => props.date ?? { epochMillis: () => Date.now() })
@@ -438,6 +455,9 @@ export function PracticeScreen(props: PracticeScreenProps) {
     const justStopped = previousPhase !== 'stopped' && engine.phase === 'stopped'
     if (justStarted) {
       clearFeedback()
+      // UI-09: this is the moment the honest feedback strip should become
+      // visible — the same edge that already resets the counters it shows.
+      setHasStartedRun(true)
       // `clearFeedback` -> `clearNoteColors()` shares the engraver's single
       // colour channel with the selection highlight (see `handleSelectNote`
       // below) — it just wiped the selected note back to default along with
@@ -605,8 +625,13 @@ export function PracticeScreen(props: PracticeScreenProps) {
             : ''}
         </p>
       )}
-      <div className="practice-controls">
-        <div className="transport-group">
+      {/* UI-09 (2026-08-12 UI audit): title -> transport toolbar -> score.
+          Sticky below the topbar while the score scrolls (feature-practice.css).
+          Two groups so the toolbar wraps as designed units, not one control at
+          a time, at 768px (acceptance criterion 4) — transport stays together
+          on its own line before tempo/mic wrap to a second. */}
+      <div className="toolbar practice-toolbar">
+        <div className="practice-toolbar-transport">
           <TransportControls
             phase={engine.phase}
             position={engine.position}
@@ -620,7 +645,7 @@ export function PracticeScreen(props: PracticeScreenProps) {
             disabled={assessmentRunning}
           />
         </div>
-        <div className="tempo-group">
+        <div className="practice-toolbar-tempo">
           <TempoControl
             tempoScale={settings.tempoScale}
             onChange={setTempoScale}
@@ -628,55 +653,14 @@ export function PracticeScreen(props: PracticeScreenProps) {
             effectiveBpm={engine.effectiveBpm}
             disabled={assessmentRunning}
           />
-        </div>
-        <div className="status-group">
           <MicInputControl
             enabled={mic.enabled}
             connected={mic.input !== undefined}
             error={mic.error}
             onToggle={(next) => (next ? mic.enable() : mic.disable())}
           />
-          <dl className="note-feedback" role="status" aria-live="polite" aria-label="Note feedback">
-            <dt>Accuracy</dt>
-            <dd className="accuracy-value" data-testid="feedback-accuracy">
-              {Math.round(feedback.summary.accuracy * 100)}%
-            </dd>
-            <dt>Correct</dt>
-            <dd data-testid="feedback-correct">{feedback.summary.correct}</dd>
-            <dt>Wrong pitch</dt>
-            <dd data-testid="feedback-wrong-pitch">{feedback.summary.wrongPitch}</dd>
-            <dt>Missed</dt>
-            <dd data-testid="feedback-missed">{feedback.summary.missed}</dd>
-            <dt>Extra</dt>
-            <dd data-testid="feedback-extra">{feedback.summary.extra}</dd>
-          </dl>
-          {/* REQ-3.3.2's other half: the matcher has always computed early/late
-              and a signed deviation for every attributed press, and until now
-              nothing displayed either (roadmap 2.23). */}
-          <TimingFeedback
-            lastJudgement={feedback.lastJudgement}
-            meanAbsDeviationMs={feedback.summary.meanAbsDeviationMs}
-          />
         </div>
       </div>
-      {/* Roadmap 5.48 (REQ-3.3.2's own new clause): `matcher.ts`'s own module
-          comment says it plainly — "Only onsets are judged. `durationTicks`
-          is never read" — so a note released the instant it is struck scores
-          the same as one held for its full written value, and this screen's
-          bare accuracy percentage implies otherwise unless something says so.
-          One click, not a permanent block of prose fighting 5.18's own
-          decluttering above: closed by default, placed directly under the
-          sticky strip rather than three disclosures deep inside "Practice
-          setup" or "More tools" — the first thing below Play, reachable
-          without opening anything else first. */}
-      <details className="practice-accuracy-caveat">
-        <summary>What this screen doesn&apos;t check</summary>
-        <p>
-          Accuracy here checks which notes you played and when — not how long you held
-          them, and not your hand position, wrist, or posture. Treat it as a supplement
-          to practicing with a teacher, not a replacement.
-        </p>
-      </details>
       {/* Roadmap B.3 (REQ-3.2.4's optional half): ABOVE the engraving, not
           instead of it — both stay visible together, which is the whole
           pedagogical point (a bridge from roll to notation, not a
@@ -717,6 +701,16 @@ export function PracticeScreen(props: PracticeScreenProps) {
           // label effect entirely for every caller that passes nothing.
           {...(props.measureLabels === undefined ? {} : { measureLabels: props.measureLabels })}
         />
+      )}
+      {/* UI-09 (2026-08-12 UI audit): the honest feedback strip. Under the
+          score, not above it — status sits with the thing it describes
+          (DESIGN.md rule 4) — and absent entirely until a run has started,
+          rather than a permanent row that opens on a fake 100%. Accuracy,
+          the correct/wrong/missed/extra counts, the timing readout and the
+          "What this screen doesn't check" info popover all live inside
+          `TimingFeedback` now — see its own module comment. */}
+      {hasStartedRun && (
+        <TimingFeedback summary={feedback.summary} lastJudgement={feedback.lastJudgement} />
       )}
       {/* Directly under the engraving — where the hands go — rather than as a
           fourteenth entry in the control column below (roadmap 5.4; 5.17/5.18

@@ -8,13 +8,19 @@
  * about playing it belongs to `PracticeScreen`, which also owns the single
  * `ScoreViewer` instance — two viewers would mean two OSMD engravings of the
  * same piece and two cursors disagreeing about the position.
+ *
+ * UI-09 (2026-08-12 UI audit): the raw file-import row used to be the FIRST
+ * thing on screen — chrome before content. The title (and composer, when the
+ * loaded score has one) now live in `.page-header`; `ImportPanel` moved into
+ * a popover `<dialog>` opened from a secondary "Change piece…" action in the
+ * header's action slot, and never renders unprompted at the top again.
  */
 import { parseMusicXml } from '@core/notation/musicxml.ts'
 import { useScoreStore } from '@app/state/scoreStore.ts'
 import { useLevelStore } from '@app/state/levelStore.ts'
 import { PracticeScreen } from '@app/practice/PracticeScreen.tsx'
 import sampleMusicXml from '@content/scores/twinkle-twinkle-little-star.musicxml?raw'
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AnalysisPanel, useMeasureLabels } from './AnalysisPanel.tsx'
 import { ImportPanel } from './ImportPanel.tsx'
 
@@ -54,15 +60,66 @@ export function ScoreScreen() {
     }
   }, [loaded, loadScore])
 
+  // UI-09: the import panel lives in a popover `<dialog>`, opened explicitly
+  // from "Change piece…" — never rendered unprompted. `showModal`/`close`
+  // driven from state (not the `open` attribute directly) so both the click
+  // path and a future programmatic close agree on one source of truth;
+  // `dialog.focus()` right after `showModal()` moves focus INTO the dialog
+  // (real browsers do this themselves, but consistently enough to depend on
+  // only once `tabIndex={-1}` + an explicit focus call make it deterministic)
+  // so Escape — handled below for environments that don't wire the native
+  // light-dismiss to a bare `keydown`, real browsers do this natively too —
+  // and Tab both stay scoped to the dialog's own content.
+  const [changePieceOpen, setChangePieceOpen] = useState(false)
+  const changePieceButtonRef = useRef<HTMLButtonElement>(null)
+  const changePieceDialogRef = useRef<HTMLDialogElement>(null)
+  useEffect(() => {
+    const dialog = changePieceDialogRef.current
+    if (dialog === null) return
+    if (changePieceOpen && !dialog.open) {
+      dialog.showModal()
+      dialog.focus()
+    } else if (!changePieceOpen && dialog.open) {
+      dialog.close()
+    }
+  }, [changePieceOpen])
+
+  const title =
+    loaded === undefined
+      ? 'Practice'
+      : loaded.score.meta.title.length > 0
+        ? loaded.score.meta.title
+        : loaded.sourceName
+  const composer =
+    loaded !== undefined && loaded.score.meta.composer.length > 0
+      ? loaded.score.meta.composer
+      : undefined
+
   return (
-    <div className="score-screen">
-      <ImportPanel />
+    <div className="page page--wide score-screen">
+      {/* UI-09: title (and composer, when known) in the page header — the
+          screen names itself exactly once, per DESIGN.md's screen scaffold. */}
+      <div className="page-header">
+        <div>
+          <h1>{title}</h1>
+          {composer !== undefined && <p className="page-header-subtitle">{composer}</p>}
+        </div>
+        <div className="page-header-actions">
+          <button
+            type="button"
+            className="btn-ghost"
+            aria-haspopup="dialog"
+            ref={changePieceButtonRef}
+            onClick={() => setChangePieceOpen(true)}
+          >
+            Change piece…
+          </button>
+        </div>
+      </div>
+
       {loaded === undefined && <p>Loading the bundled sample score…</p>}
       {loaded !== undefined && (
         <section aria-label="Score">
-          <h2>
-            {loaded.score.meta.title.length > 0 ? loaded.score.meta.title : loaded.sourceName}
-          </h2>
           <PracticeScreen
             {...(showAnalysis && measureLabels !== undefined ? { measureLabels } : {})}
           />
@@ -91,6 +148,33 @@ export function ScoreScreen() {
           {showAnalysis && <AnalysisPanel score={loaded.score} />}
         </section>
       )}
+
+      <dialog
+        ref={changePieceDialogRef}
+        className="score-change-piece-dialog"
+        aria-label="Change piece"
+        tabIndex={-1}
+        onClose={() => {
+          setChangePieceOpen(false)
+          changePieceButtonRef.current?.focus()
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault()
+            changePieceDialogRef.current?.close()
+          }
+        }}
+      >
+        <h2>Change piece</h2>
+        <ImportPanel />
+        <button
+          type="button"
+          className="btn-ghost score-change-piece-close"
+          onClick={() => changePieceDialogRef.current?.close()}
+        >
+          Close
+        </button>
+      </dialog>
     </div>
   )
 }

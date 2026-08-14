@@ -77,6 +77,22 @@ describe('EarTrainingScreen — vocal-limitation disclosure (roadmap 5.32)', () 
 
     expect(screen.getByText(/can't hear you sing/i)).toBeInTheDocument()
   })
+
+  // roadmap UI-13 (2026-08-12 UI audit): the six-line wall of this prose used
+  // to open the screen before any control — it now collapses to one sentence,
+  // with the full text above still reachable, VERBATIM, behind "Why?".
+  it('collapses to a one-line callout with the full text behind a "Why?" disclosure (roadmap UI-13)', () => {
+    setup()
+
+    expect(
+      screen.getByText('Sing what you hear back before answering — it trains twice as much.'),
+    ).toBeInTheDocument()
+    const disclosure = screen.getByText('Why?').closest('details')
+    expect(disclosure).not.toBeNull()
+    // The full pedagogy text lives inside that same disclosure, not loose on
+    // the page — same wording this describe block already proves is present.
+    expect(disclosure).toHaveTextContent(/can't hear you sing/i)
+  })
 })
 
 describe('EarTrainingScreen — drill selector', () => {
@@ -89,13 +105,16 @@ describe('EarTrainingScreen — drill selector', () => {
     expect(screen.getByRole('option', { name: 'Chord quality' })).toBeEnabled()
   })
 
-  it('before any Play press, shows a prompt instead of an answer pad', () => {
+  // roadmap UI-13: the old conditional "Press Play to hear the first item."
+  // status line is gone — the stage caption is now PERSISTENT (rule 6, empty
+  // states teach: it already says what the exercise is before any control is
+  // pressed), so what actually distinguishes "no item yet" is the absence of
+  // an answer pad, not a special standalone message.
+  it('before any Play press, shows the persistent stage caption but no answer pad yet', () => {
     setup()
 
-    // Not `getByRole('status')`: several other `role="status"` elements can
-    // render on this screen (e.g. dictation reveals), so this needs the
-    // exact prompt text rather than the role alone.
-    expect(screen.getByText('Press Play to hear the first item.')).toBeInTheDocument()
+    expect(screen.getByText(/This is a melodic interval/)).toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'Interval answer' })).toBeNull()
   })
 })
 
@@ -105,7 +124,7 @@ describe('EarTrainingScreen — melodic dictation', () => {
     const { audioOutput } = setup()
 
     await user.selectOptions(screen.getByLabelText('Drill'), 'Melodic dictation')
-    await user.click(screen.getByRole('button', { name: 'Play' }))
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
 
     expect(audioOutput.playedNotes.length).toBeGreaterThan(0)
     expect(screen.getByRole('group', { name: 'Dictation controls' })).toBeInTheDocument()
@@ -119,7 +138,7 @@ describe('EarTrainingScreen — melodic dictation', () => {
     setup()
 
     await user.selectOptions(screen.getByLabelText('Drill'), 'Melodic dictation')
-    await user.click(screen.getByRole('button', { name: 'Play' }))
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
 
     expect(screen.getByTestId('dictation-tempo')).toHaveTextContent('120 bpm')
   })
@@ -133,7 +152,7 @@ describe('EarTrainingScreen — melodic dictation', () => {
     const baseMs = clock.now()
 
     await user.selectOptions(screen.getByLabelText('Drill'), 'Melodic dictation')
-    await user.click(screen.getByRole('button', { name: 'Play' }))
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
 
     const clicks = audioOutput.calls.filter((c) => c.kind === 'click')
     expect(clicks).toEqual([
@@ -151,7 +170,7 @@ describe('EarTrainingScreen — melodic dictation', () => {
     const { audioOutput, clock } = setup()
 
     await user.selectOptions(screen.getByLabelText('Drill'), 'Melodic dictation')
-    await user.click(screen.getByRole('button', { name: 'Play' }))
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
 
     // Replay each note's own onset time (recorded by RecordingAudioOutput as
     // `at`) before pressing it back, so the answer lands on the same ticks
@@ -181,7 +200,7 @@ describe('EarTrainingScreen — melodic dictation', () => {
     const user = userEvent.setup()
     setup()
     await user.selectOptions(screen.getByLabelText('Drill'), 'Melodic dictation')
-    await user.click(screen.getByRole('button', { name: 'Play' }))
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
     const [firstKey] = screen.getAllByRole('button', { name: /^[A-G](#+|b+)?-?\d+$/ })
     if (firstKey === undefined) throw new Error('expected at least one keyboard key')
     await user.click(firstKey)
@@ -199,7 +218,7 @@ describe('EarTrainingScreen — rhythmic dictation', () => {
     setup()
 
     await user.selectOptions(screen.getByLabelText('Drill'), 'Rhythmic dictation')
-    await user.click(screen.getByRole('button', { name: 'Play' }))
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
 
     expect(screen.getByText(/any key counts/i)).toBeInTheDocument()
   })
@@ -215,7 +234,7 @@ describe('EarTrainingScreen — rhythmic dictation', () => {
     const { audioOutput, clock } = setup()
 
     await user.selectOptions(screen.getByLabelText('Drill'), 'Rhythmic dictation')
-    await user.click(screen.getByRole('button', { name: 'Play' }))
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
 
     const noteOns = audioOutput.calls.filter((c) => c.kind === 'noteOn')
     for (const call of noteOns) {
@@ -256,7 +275,7 @@ describe('EarTrainingScreen — rhythmic dictation', () => {
     )
 
     await user.selectOptions(screen.getByLabelText('Drill'), 'Rhythmic dictation')
-    await user.click(screen.getByRole('button', { name: 'Play' }))
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
 
     const noteOns = audioOutput.calls.filter((c) => c.kind === 'noteOn')
     expect(noteOns[0]?.at).not.toBe(0) // confirms this seed still exercises the bug
@@ -275,7 +294,7 @@ describe('EarTrainingScreen — interval-melodic (the default drill)', () => {
     const user = userEvent.setup()
     const { audioOutput } = setup()
 
-    await user.click(screen.getByRole('button', { name: 'Play' }))
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
 
     expect(audioOutput.playedNotes.length).toBeGreaterThan(0)
     expect(screen.getByRole('group', { name: 'Interval answer' })).toBeInTheDocument()
@@ -287,7 +306,7 @@ describe('EarTrainingScreen — interval-melodic (the default drill)', () => {
     const user = userEvent.setup()
     const { audioOutput } = setup()
 
-    await user.click(screen.getByRole('button', { name: 'Play' }))
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
 
     expect(audioOutput.calls.some((c) => c.kind === 'click')).toBe(false)
     expect(screen.queryByTestId('dictation-tempo')).toBeNull()
@@ -296,7 +315,7 @@ describe('EarTrainingScreen — interval-melodic (the default drill)', () => {
   it('answering changes the graded result region', async () => {
     const user = userEvent.setup()
     setup()
-    await user.click(screen.getByRole('button', { name: 'Play' }))
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
 
     expect(screen.queryByTestId('eartraining-feedback')).toBeNull()
 
@@ -308,7 +327,7 @@ describe('EarTrainingScreen — interval-melodic (the default drill)', () => {
   it('a wrong answer shows what the answer actually was, in the pad\'s own vocabulary, with an article', async () => {
     const user = userEvent.setup()
     setup()
-    await user.click(screen.getByRole('button', { name: 'Play' }))
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
 
     // Level 1, rng script all-zero: pool[0] = M3 (roadmap 5.30's RCM staging —
     // see useEarTraining.test.ts) — 'minor third' is a different level-1
@@ -336,7 +355,7 @@ describe('EarTrainingScreen — interval-melodic (the default drill)', () => {
   it('a wrong answer reveals the two actual pitches, a staff, a keyboard, and replays on request', async () => {
     const user = userEvent.setup()
     const { audioOutput } = setup()
-    await user.click(screen.getByRole('button', { name: 'Play' }))
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
     const afterPlay = audioOutput.playedNotes.length
 
     // Level 1, rng script all-zero: pool[0] = M3, low = range.low (48 = C3),
@@ -368,7 +387,7 @@ describe('EarTrainingScreen — interval-melodic (the default drill)', () => {
   it('a correct answer reveals the same pitches, staff and keyboard too', async () => {
     const user = userEvent.setup()
     setup()
-    await user.click(screen.getByRole('button', { name: 'Play' }))
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
 
     await user.click(screen.getByRole('button', { name: 'major third' }))
 
@@ -380,7 +399,7 @@ describe('EarTrainingScreen — interval-melodic (the default drill)', () => {
   it('offers a reference-interval control that reaches the AudioOutput at a fixed register', async () => {
     const user = userEvent.setup()
     const { audioOutput } = setup()
-    await user.click(screen.getByRole('button', { name: 'Play' }))
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
     await user.click(screen.getByRole('button', { name: 'minor third' }))
     audioOutput.reset()
 
@@ -395,7 +414,7 @@ describe('EarTrainingScreen — interval-melodic (the default drill)', () => {
   it('Replay re-sends the same prompt, doubling what the audio output received', async () => {
     const user = userEvent.setup()
     const { audioOutput } = setup()
-    await user.click(screen.getByRole('button', { name: 'Play' }))
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
     const afterPlay = audioOutput.playedNotes.length
     expect(afterPlay).toBeGreaterThan(0)
 
@@ -414,7 +433,7 @@ describe('EarTrainingScreen — chord quality', () => {
     setup()
 
     await user.selectOptions(screen.getByLabelText('Drill'), 'Chord quality')
-    await user.click(screen.getByRole('button', { name: 'Play' }))
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
 
     expect(screen.getByRole('group', { name: 'Chord quality answer' })).toBeInTheDocument()
 
@@ -430,7 +449,7 @@ describe('EarTrainingScreen — scale/mode', () => {
     setup()
 
     await user.selectOptions(screen.getByLabelText('Drill'), 'Scale / mode')
-    await user.click(screen.getByRole('button', { name: 'Play' }))
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
 
     expect(screen.getByRole('group', { name: 'Scale/mode answer' })).toBeInTheDocument()
 
@@ -446,7 +465,7 @@ describe('EarTrainingScreen — retention stats', () => {
     setup()
     expect(screen.getByTestId('eartraining-stats-total')).toHaveTextContent('0')
 
-    await user.click(screen.getByRole('button', { name: 'Play' }))
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
     await user.click(screen.getByRole('button', { name: 'major third' }))
 
     expect(screen.getByTestId('eartraining-stats-total')).toHaveTextContent('1')
@@ -531,7 +550,7 @@ describe('EarTrainingScreen — tonal context toggle (roadmap 5.28)', () => {
     const toggle = screen.getByRole('checkbox', { name: 'Play tonal context before each item' })
     expect(toggle).toBeChecked()
 
-    await user.click(screen.getByRole('button', { name: 'Play' }))
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
     // Level 1 melodic interval prompt is 2 notes; the default-on drone adds
     // 2 more (tonic + fifth) ahead of them.
     expect(audioOutput.calls.filter((c) => c.kind === 'noteOn')).toHaveLength(4)
@@ -543,5 +562,132 @@ describe('EarTrainingScreen — tonal context toggle (roadmap 5.28)', () => {
 
     // Only the 2 prompt notes this time — no drone.
     expect(audioOutput.calls.filter((c) => c.kind === 'noteOn')).toHaveLength(afterFirstPlay + 2)
+  })
+})
+
+// roadmap UI-13 (2026-08-12 UI audit): the header now names the selected
+// drill and its level in the subtitle, e.g. "Intervals, played melodically —
+// level 1" — the drill select and the level readout both live in
+// `.page-header-actions`.
+describe('EarTrainingScreen — header subtitle names the drill and level (roadmap UI-13)', () => {
+  it('shows "Intervals, played melodically — level 1" for the default drill', () => {
+    setup()
+
+    expect(screen.getByText('Intervals, played melodically — level 1')).toBeInTheDocument()
+    expect(screen.getByTestId('eartraining-level')).toHaveTextContent('1')
+  })
+
+  it('updates the subtitle to name the newly selected drill', async () => {
+    const user = userEvent.setup()
+    setup()
+
+    await user.selectOptions(screen.getByLabelText('Drill'), 'Chord quality')
+
+    expect(screen.getByText('Chord quality — level 1')).toBeInTheDocument()
+  })
+})
+
+// roadmap UI-13: the core proof for "answers as the interface" — the option
+// the learner picked resolves with the feedback tokens PLUS a glyph, right on
+// the card itself, driven end-to-end through the real screen (not just the
+// answer-pad component's own unit tests).
+describe('EarTrainingScreen — answer cards resolve with color and a glyph (roadmap UI-13)', () => {
+  it('a correct pick renders that card with a correct data-state and a check glyph', async () => {
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
+
+    const picked = screen.getByRole('button', { name: /major third/ })
+    await user.click(picked)
+
+    expect(picked).toHaveAttribute('data-state', 'correct')
+    expect(picked.querySelector('svg')).not.toBeNull()
+    expect(picked).toBeDisabled()
+  })
+
+  it('a wrong pick renders that card with a wrong data-state and an x glyph, and every other card stays unmarked', async () => {
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
+
+    const picked = screen.getByRole('button', { name: /minor third/ })
+    await user.click(picked)
+
+    expect(picked).toHaveAttribute('data-state', 'wrong')
+    expect(picked.querySelector('svg')).not.toBeNull()
+    const other = screen.getByRole('button', { name: /major third/ })
+    expect(other).not.toHaveAttribute('data-state')
+  })
+
+  it('a chord-quality pick resolves the same way — color plus glyph on the picked card', async () => {
+    const user = userEvent.setup()
+    setup()
+    await user.selectOptions(screen.getByLabelText('Drill'), 'Chord quality')
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
+
+    const picked = screen.getByRole('button', { name: /Major/ })
+    await user.click(picked)
+
+    expect(picked).toHaveAttribute('data-state', 'correct')
+    expect(picked.querySelector('svg')).not.toBeNull()
+  })
+})
+
+// roadmap UI-13 acceptance criterion 3: the reveal must appear UNDER the
+// answered card without the answer grid itself jumping — proven structurally
+// (same children, reveal strictly after the grid in document order) since
+// jsdom performs no real layout to measure a pixel-level "jump" against.
+describe('EarTrainingScreen — the reveal never reshapes the answer grid (roadmap UI-13)', () => {
+  it('the grid keeps exactly the same card elements after grading, and the reveal renders strictly after it', async () => {
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
+
+    const grid = screen.getByRole('group', { name: 'Interval answer' })
+    const cardsBefore = Array.from(grid.children)
+
+    await user.click(screen.getByRole('button', { name: 'major third' }))
+
+    const cardsAfter = Array.from(grid.children)
+    // Same number of cards, in the same order, and each one the exact same
+    // DOM node reference as before (`toBe` is `Object.is` — proving React
+    // updated each card's own attributes in place rather than unmounting and
+    // remounting a differently-shaped grid).
+    expect(cardsAfter).toHaveLength(cardsBefore.length)
+    cardsBefore.forEach((el, i) => {
+      expect(cardsAfter[i]).toBe(el)
+    })
+
+    // Not `getByRole`/`getByLabelText`: whether `<section aria-label>` maps to
+    // an implicit "region" role is a spec nuance this test should not depend
+    // on — a plain attribute selector is the unambiguous way to find it.
+    const reveal = document.querySelector('[aria-label="Answer reveal"]')
+    expect(reveal).not.toBeNull()
+    if (reveal === null) throw new Error('expected the reveal panel to be in the document')
+    // The reveal sits strictly AFTER the grid in the DOM — appended below,
+    // never inserted inside or before it. `compareDocumentPosition` is a
+    // bitmask API (Node.DOCUMENT_POSITION_FOLLOWING is one bit of it).
+    expect(grid.compareDocumentPosition(reveal) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+})
+
+// roadmap UI-13 acceptance criterion 4: switching drills only ever swaps
+// which answer surface renders at the bottom of the SAME stage container —
+// proven by checking both the multiple-choice grid and the dictation pad
+// share the one `.eartraining-stage` ancestor.
+describe('EarTrainingScreen — every answer surface renders inside the same stage (roadmap UI-13)', () => {
+  it('the interval answer grid and the dictation pad both nest under .eartraining-stage', async () => {
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
+
+    const intervalGroup = screen.getByRole('group', { name: 'Interval answer' })
+    expect(intervalGroup.closest('.eartraining-stage')).not.toBeNull()
+
+    await user.selectOptions(screen.getByLabelText('Drill'), 'Melodic dictation')
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
+
+    const dictationControls = screen.getByRole('group', { name: 'Dictation controls' })
+    expect(dictationControls.closest('.eartraining-stage')).not.toBeNull()
   })
 })

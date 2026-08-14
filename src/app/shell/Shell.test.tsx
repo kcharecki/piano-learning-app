@@ -118,7 +118,9 @@ describe('Shell', () => {
   it.each([
     ['Theory', 'Theory'],
     ['Progress', 'Progress'],
-    ['Ear training', 'Ear Training'],
+    // Sentence case since roadmap UI-13 — DESIGN.md rule 7 ("Copy is sentence
+    // case"), so the heading now matches the nav label exactly.
+    ['Ear training', 'Ear training'],
     ['Metronome', 'Metronome'],
     ['Today', "Today's session"],
   ])('reaches the real %s screen through its nav item', async (label, heading) => {
@@ -153,7 +155,11 @@ describe('Shell', () => {
     expect(screen.getByLabelText('Drill')).toHaveValue('key-signature')
     // Level 1 holds only fifths -1..+1, so a circle-of-fifths quiz that opened
     // at the default level would drill three signatures out of fifteen.
-    expect(screen.getByTestId('flashcard-level')).toHaveTextContent('Level 7')
+    // The value node holds ONLY the number since roadmap UI-12 moved the
+    // "Level" label out of the stepper group and into its own `.field` label —
+    // the whole point of the `.stepper` primitive. Anchored so this cannot
+    // pass on "17".
+    expect(screen.getByTestId('flashcard-level')).toHaveTextContent(/^7$/)
   })
 
   it('switches back to Practice', async () => {

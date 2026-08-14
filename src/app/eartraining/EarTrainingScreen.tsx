@@ -1,9 +1,24 @@
 /**
- * The ear-training screen (roadmap 3.10/3.11, REQ-3.6.1/3.6.2) — the only
- * consumer `core/eartraining`'s drills will ever have. A thin view over
- * `useEarTraining`: the hook generates, plays, grades and schedules every
- * item; this file only renders the current one and forwards an answer from
- * whichever pad matches the selected drill.
+ * The ear-training screen (roadmap 3.10/3.11, REQ-3.6.1/3.6.2 — redesigned
+ * roadmap UI-13, 2026-08-12 UI audit) — the only consumer `core/eartraining`'s
+ * drills will ever have. A thin view over `useEarTraining`: the hook
+ * generates, plays, grades and schedules every item; this file only renders
+ * the current one and forwards an answer from whichever pad matches the
+ * selected drill.
+ *
+ * UI-13's brief: "answers as the interface" — the six-line singing-pedagogy
+ * wall that used to open this screen before any control collapses to one
+ * `.card--sunken` callout (the original text survives verbatim behind a
+ * "Why?" disclosure, never paraphrased away); Play becomes the screen's one
+ * `.btn-primary`; and each interval/chord/scale option renders as a large
+ * `.card` answer button — the actual point of an ear-training screen — instead
+ * of a small gray chip. `IntervalAnswerButtons`/`QualityAnswerButtons` take an
+ * optional `answered` prop (the picked option's key/value plus whether it
+ * graded correct) so the picked card alone gets the feedback tokens plus a
+ * glyph once `useEarTraining`'s own `grade` lands — color is never the only
+ * signal (DESIGN.md rule 8). No ear-training logic changed: every generate/
+ * grade/schedule call below is exactly what it was before this task, this
+ * file only reshapes how the result is presented.
  *
  * Melodic and rhythmic dictation answer through `DictationAnswerPad`: the
  * learner plays the phrase back (on the pad's on-screen keyboard, or a real
@@ -11,8 +26,8 @@
  * `pressDictationNote`), and `submitDictation` grades it with `gradeDictation`
  * and records the attempt exactly like every other kind. Rhythmic dictation
  * grades rhythm only — `gradeDictation` ignores pitch whenever
- * `item.kind === 'rhythmic-dictation'` — so its instructions say "any key"
- * rather than naming particular notes.
+ * `item.kind === 'rhythmic-dictation'` — so its own stage caption says "any
+ * key counts" rather than naming particular notes.
  */
 import { useState } from 'react'
 import { defaultParamsForLevel } from '@core/generator/melody.ts'
@@ -21,9 +36,12 @@ import type { DictationGrade } from '@core/eartraining/dictation.ts'
 import type { EarGrade, EarItemKind } from '@core/eartraining/item.ts'
 import type { AudioOutput, DateSource, MidiInput, Rng } from '@core/ports/index.ts'
 import { assertNever } from '@core/shared/invariant.ts'
+import type { ChordQuality } from '@core/theory/chords.ts'
 import { intervalLongName, parseInterval } from '@core/theory/intervals.ts'
+import type { ScaleType } from '@core/theory/scales.ts'
 import type { ConnectMidi } from '@app/practice/useMidiConnection.ts'
 import { SrsSummary } from '@app/srs/SrsSummary.tsx'
+import { Icon } from '@app/ui/Icon.tsx'
 import { DictationAnswerPad } from './DictationAnswerPad.tsx'
 import { IntervalAnswerButtons } from './IntervalAnswerButtons.tsx'
 import { QualityAnswerButtons, humanize } from './QualityAnswerButtons.tsx'
@@ -39,14 +57,61 @@ export type EarTrainingScreenProps = {
   readonly connectMidi?: ConnectMidi
 }
 
-const DRILL_OPTIONS: readonly { readonly kind: EarItemKind; readonly label: string }[] = [
-  { kind: 'interval-melodic', label: 'Interval (melodic)' },
-  { kind: 'interval-harmonic', label: 'Interval (harmonic)' },
-  { kind: 'chord-quality', label: 'Chord quality' },
-  { kind: 'scale-mode', label: 'Scale / mode' },
-  { kind: 'melodic-dictation', label: 'Melodic dictation' },
-  { kind: 'rhythmic-dictation', label: 'Rhythmic dictation' },
+type DrillMeta = {
+  /** The `<option>` label in the drill `<select>`. */
+  readonly label: string
+  /** The `.page-header-subtitle` clause, before " — level N" is appended. */
+  readonly subtitle: string
+  /** The persistent stage caption naming what is about to sound — shown
+   *  whether or not an item has been played yet (rule 6: empty states teach). */
+  readonly caption: string
+}
+
+const DRILL_KINDS: readonly EarItemKind[] = [
+  'interval-melodic',
+  'interval-harmonic',
+  'chord-quality',
+  'scale-mode',
+  'melodic-dictation',
+  'rhythmic-dictation',
 ]
+
+const DRILL_META: Readonly<Record<EarItemKind, DrillMeta>> = {
+  'interval-melodic': {
+    label: 'Interval (melodic)',
+    subtitle: 'Intervals, played melodically',
+    caption: 'This is a melodic interval — two notes, one after another.',
+  },
+  'interval-harmonic': {
+    label: 'Interval (harmonic)',
+    subtitle: 'Intervals, played together',
+    caption: 'This is a harmonic interval — two notes at once.',
+  },
+  'chord-quality': {
+    label: 'Chord quality',
+    subtitle: 'Chord quality',
+    caption: 'This is a chord — listen for its quality.',
+  },
+  'scale-mode': {
+    label: 'Scale / mode',
+    subtitle: 'Scale or mode',
+    caption: 'This is a scale or mode.',
+  },
+  'melodic-dictation': {
+    label: 'Melodic dictation',
+    subtitle: 'Melodic dictation',
+    caption:
+      'This is a short melodic phrase — play it back on the keyboard below, in order. ' +
+      'A one-bar count-in plays first, so you can hear the pulse.',
+  },
+  'rhythmic-dictation': {
+    label: 'Rhythmic dictation',
+    subtitle: 'Rhythmic dictation',
+    caption:
+      'This is a rhythmic phrase — tap back the rhythm; any key counts, only the timing is graded. ' +
+      'A one-bar count-in plays first, so you can hear the pulse.',
+  },
+}
 
 /**
  * `useEarTraining`'s `grade` is typed `EarGrade | undefined` because every
@@ -139,6 +204,7 @@ export function EarTrainingScreen(props: EarTrainingScreenProps) {
   const drill = useEarTraining({ ...props, tonalContext })
   const kind = drill.kind
   const level = drill.levels[kind]
+  const meta = DRILL_META[kind]
   // The pad must offer the vocabulary of the item actually on screen, not the
   // (possibly higher, after a promotion, or lower, after a demotion) current
   // session level — otherwise a due item generated at a different level can
@@ -153,55 +219,79 @@ export function EarTrainingScreen(props: EarTrainingScreenProps) {
   const dictationGrade =
     isDictation && drill.grade !== undefined && isDictationGrade(drill.grade) ? drill.grade : undefined
 
+  const playLabel = drill.phase === 'graded' ? 'Next' : 'Play item'
+  const playDisabled = drill.phase === 'playing' || drill.phase === 'answering'
+
   return (
-    <div className="eartraining-screen">
-      <h2>Ear Training</h2>
-
-      {/* roadmap 5.32: every answer pad here is multiple-choice or MIDI
-          playback — recognition, not the vocal reproduction ABRSM Grade 1
-          aural, Kodály, Dalcroze and Berklee all actually test, and this
-          drill has no microphone to grade singing even if it wanted to. RCM
-          is the partial exception (it accepts keyboard playback as an
-          equivalent response), so this both names the gap and says which
-          part of it this screen already covers. */}
-      <p className="eartraining-vocal-note">
-        This screen has no microphone — it can't hear you sing, only what you
-        click or play on a keyboard. RCM accepts keyboard playback like the
-        answers here as an equivalent response, but ABRSM, Kodály, Dalcroze
-        and Berklee all grade aural skills by having you sing back what you
-        heard. Get the fuller benefit by singing the interval, chord or
-        phrase back out loud — away from this screen — before you check the
-        answer below.
-      </p>
-
-      <div className="eartraining-drill" role="group" aria-label="Drill selector">
-        <label htmlFor="eartraining-drill-select">Drill</label>
-        <select
-          id="eartraining-drill-select"
-          value={kind}
-          onChange={(e) => drill.setKind(e.target.value as EarItemKind)}
-        >
-          {DRILL_OPTIONS.map((opt) => (
-            <option key={opt.kind} value={opt.kind}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-        <span data-testid="eartraining-level">Level {level}</span>
+    <div className="page page--focus eartraining-screen">
+      <div className="page-header">
+        <div>
+          <h1>Ear training</h1>
+          <p className="page-header-subtitle">{`${meta.subtitle} — level ${level}`}</p>
+        </div>
+        <div className="page-header-actions">
+          <div className="field">
+            <label htmlFor="eartraining-drill-select">Drill</label>
+            <select
+              id="eartraining-drill-select"
+              value={kind}
+              onChange={(e) => drill.setKind(e.target.value as EarItemKind)}
+            >
+              {DRILL_KINDS.map((k) => (
+                <option key={k} value={k}>
+                  {DRILL_META[k].label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <span className="eartraining-level-label">Level</span>
+            <span data-testid="eartraining-level">{level}</span>
+          </div>
+        </div>
       </div>
 
-      <div className="eartraining-controls" role="group" aria-label="Playback">
-        <button
-          type="button"
-          onClick={drill.start}
-          disabled={drill.phase === 'playing' || drill.phase === 'answering'}
-        >
-          {drill.phase === 'graded' ? 'Next' : 'Play'}
-        </button>
-        <button type="button" onClick={drill.replay} disabled={drill.item === undefined}>
-          Replay
-        </button>
-        <label>
+      {/* roadmap UI-13: the singing-pedagogy prose (roadmap 5.32) collapses
+          to one line; the original wording survives VERBATIM behind "Why?"
+          instead of being paraphrased away. */}
+      <div className="card--sunken eartraining-sing-callout">
+        <p className="eartraining-sing-callout-lead">
+          Sing what you hear back before answering — it trains twice as much.
+        </p>
+        <details>
+          <summary>Why?</summary>
+          <p className="eartraining-vocal-note">
+            This screen has no microphone — it can&apos;t hear you sing, only what you
+            click or play on a keyboard. RCM accepts keyboard playback like the
+            answers here as an equivalent response, but ABRSM, Kodály, Dalcroze
+            and Berklee all grade aural skills by having you sing back what you
+            heard. Get the fuller benefit by singing the interval, chord or
+            phrase back out loud — away from this screen — before you check the
+            answer below.
+          </p>
+        </details>
+      </div>
+
+      <div className="card eartraining-stage">
+        <p className="eartraining-stage-caption">{meta.caption}</p>
+
+        <div className="eartraining-stage-transport">
+          <button
+            type="button"
+            className="btn-primary eartraining-play-btn"
+            onClick={drill.start}
+            disabled={playDisabled}
+          >
+            <Icon name={drill.phase === 'graded' ? 'chevron-right' : 'play'} />
+            {playLabel}
+          </button>
+          <button type="button" onClick={drill.replay} disabled={drill.item === undefined}>
+            <Icon name="play" />
+            Replay
+          </button>
+        </div>
+
+        <label className="eartraining-context-toggle">
           <input
             type="checkbox"
             checked={tonalContext}
@@ -209,64 +299,77 @@ export function EarTrainingScreen(props: EarTrainingScreenProps) {
           />
           Play tonal context before each item
         </label>
+
+        {isDictation && drill.promptTempoBpm !== undefined && (
+          <p data-testid="dictation-tempo" className="eartraining-stage-meta">
+            Tempo: {Math.round(drill.promptTempoBpm)} bpm
+          </p>
+        )}
+
+        {drill.item !== undefined &&
+          (kind === 'interval-melodic' || kind === 'interval-harmonic' ? (
+            <IntervalAnswerButtons
+              key={drill.item.id}
+              level={padLevel}
+              showDirection={kind === 'interval-melodic' && padLevel > 1}
+              onAnswer={(interval, direction) => drill.answer({ kind, interval, direction })}
+              {...(drill.grade === undefined
+                ? {}
+                : { answered: { pickedKey: drill.grade.given, correct: drill.grade.correct } })}
+            />
+          ) : kind === 'chord-quality' ? (
+            <QualityAnswerButtons
+              key={drill.item.id}
+              groupLabel="Chord quality answer"
+              options={chordQualitiesForLevel(padLevel)}
+              onAnswer={(quality) => drill.answer({ kind, quality })}
+              {...(drill.grade === undefined
+                ? {}
+                : {
+                    // `given` is exactly the `ChordQuality` the learner picked —
+                    // `gradeChordQualityAnswer` returns `given: answer` untouched
+                    // (core/eartraining/chords.ts), never a re-encoded string, so
+                    // this narrows a value already known to be one, not a cast
+                    // across an actual type boundary.
+                    answered: { picked: drill.grade.given as ChordQuality, correct: drill.grade.correct },
+                  })}
+            />
+          ) : kind === 'scale-mode' ? (
+            <QualityAnswerButtons
+              key={drill.item.id}
+              groupLabel="Scale/mode answer"
+              options={scaleTypesForLevel(padLevel)}
+              onAnswer={(type) => drill.answer({ kind, type })}
+              {...(drill.grade === undefined
+                ? {}
+                : {
+                    // Same reasoning as chord-quality above: `gradeScaleModeAnswer`
+                    // also returns `given: answer` untouched.
+                    answered: { picked: drill.grade.given as ScaleType, correct: drill.grade.correct },
+                  })}
+            />
+          ) : kind === 'melodic-dictation' || kind === 'rhythmic-dictation' ? (
+            <DictationAnswerPad
+              key={drill.item.id}
+              notes={drill.dictationNotes}
+              onPress={drill.pressDictationNote}
+              onClear={drill.clearDictation}
+              onSubmit={drill.submitDictation}
+              low={dictationRange.low}
+              high={dictationRange.high}
+            />
+          ) : (
+            assertNever(kind)
+          ))}
       </div>
 
-      {drill.item === undefined ? (
-        <p role="status">Press Play to hear the first item.</p>
-      ) : kind === 'interval-melodic' || kind === 'interval-harmonic' ? (
-        <section aria-label="Answer">
-          <IntervalAnswerButtons
-            key={drill.item.id}
-            level={padLevel}
-            showDirection={kind === 'interval-melodic' && padLevel > 1}
-            onAnswer={(interval, direction) => drill.answer({ kind, interval, direction })}
-          />
-        </section>
-      ) : kind === 'chord-quality' ? (
-        <section aria-label="Answer">
-          <QualityAnswerButtons
-            key={drill.item.id}
-            groupLabel="Chord quality answer"
-            options={chordQualitiesForLevel(padLevel)}
-            onAnswer={(quality) => drill.answer({ kind, quality })}
-          />
-        </section>
-      ) : kind === 'scale-mode' ? (
-        <section aria-label="Answer">
-          <QualityAnswerButtons
-            key={drill.item.id}
-            groupLabel="Scale/mode answer"
-            options={scaleTypesForLevel(padLevel)}
-            onAnswer={(type) => drill.answer({ kind, type })}
-          />
-        </section>
-      ) : kind === 'melodic-dictation' || kind === 'rhythmic-dictation' ? (
-        <section aria-label="Answer">
-          <p>
-            {kind === 'rhythmic-dictation'
-              ? 'Tap back the rhythm — any key counts, only the timing is graded.'
-              : 'Play back the phrase on the keyboard below, in order.'}
-            {' A one-bar count-in plays first, so you can hear the pulse.'}
-          </p>
-          {drill.promptTempoBpm !== undefined && (
-            <p data-testid="dictation-tempo">Tempo: {Math.round(drill.promptTempoBpm)} bpm</p>
-          )}
-          <DictationAnswerPad
-            key={drill.item.id}
-            notes={drill.dictationNotes}
-            onPress={drill.pressDictationNote}
-            onClear={drill.clearDictation}
-            onSubmit={drill.submitDictation}
-            low={dictationRange.low}
-            high={dictationRange.high}
-          />
-        </section>
-      ) : (
-        assertNever(kind)
-      )}
-
       {drill.grade !== undefined && (
-        <p role="status" data-testid="eartraining-feedback">
+        <p
+          role="status"
+          data-testid="eartraining-feedback"
+          className="eartraining-feedback"
+          data-state={drill.grade.correct ? 'correct' : 'wrong'}
+        >
           {drill.grade.correct
             ? 'Correct'
             : isDictation
@@ -311,7 +414,9 @@ export function EarTrainingScreen(props: EarTrainingScreenProps) {
           the existing "Replay" control above (already wired, already
           tested) for "replay with the answer named": once this is on
           screen, Replay plays the same item again while the naming/staff/
-          keyboard stay visible. */}
+          keyboard stay visible. Renders below the (unchanged) answer grid —
+          never inside it — so answering never resizes or reflows the grid
+          itself (DESIGN.md rule 5/no-jump — see EarTrainingScreen.test.tsx). */}
       {drill.item !== undefined && drill.grade !== undefined && (
         <RevealPanel
           key={drill.item.id}

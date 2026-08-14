@@ -91,3 +91,90 @@ describe('IntervalAnswerButtons — melodic (direction toggle)', () => {
     expect(onAnswer).toHaveBeenCalledWith(m3, 1)
   })
 })
+
+// roadmap UI-13 (2026-08-12 UI audit): "answers as the interface" — every
+// option is now a large `.card` button, and the one the learner picked
+// resolves with the feedback tokens PLUS a glyph, never color alone
+// (DESIGN.md rule 8). `answered` is what `EarTrainingScreen` passes back
+// once `useEarTraining`'s own grade lands.
+describe('IntervalAnswerButtons — answered feedback (roadmap UI-13)', () => {
+  it('marks the picked card correct, with a check glyph, when the answer was right', () => {
+    render(
+      <IntervalAnswerButtons
+        level={1}
+        showDirection={false}
+        onAnswer={vi.fn()}
+        answered={{ pickedKey: 'M3', correct: true }}
+      />,
+    )
+
+    const picked = screen.getByRole('button', { name: /major third/ })
+    expect(picked).toHaveAttribute('data-state', 'correct')
+    // The glyph is a real, separate cue — not merely a color the button
+    // happens to carry (DESIGN.md rule 8: color is never the only signal).
+    expect(picked.querySelector('svg')).not.toBeNull()
+    // The unpicked option gets no state at all.
+    expect(screen.getByRole('button', { name: 'minor third' })).not.toHaveAttribute('data-state')
+  })
+
+  it('marks the picked card wrong, with an x glyph, when the answer was incorrect', () => {
+    render(
+      <IntervalAnswerButtons
+        level={1}
+        showDirection={false}
+        onAnswer={vi.fn()}
+        answered={{ pickedKey: 'm3', correct: false }}
+      />,
+    )
+
+    const picked = screen.getByRole('button', { name: /minor third/ })
+    expect(picked).toHaveAttribute('data-state', 'wrong')
+    expect(picked.querySelector('svg')).not.toBeNull()
+    expect(screen.getByRole('button', { name: 'major third' })).not.toHaveAttribute('data-state')
+  })
+
+  it('locks every card — including the direction toggle — once answered, so a second pick is impossible', async () => {
+    const user = userEvent.setup()
+    const onAnswer = vi.fn()
+    render(
+      <IntervalAnswerButtons
+        level={1}
+        showDirection
+        onAnswer={onAnswer}
+        answered={{ pickedKey: 'M3', correct: true }}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: /major third/ })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /minor third/ })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Ascending' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Descending' })).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: /minor third/ }))
+    expect(onAnswer).not.toHaveBeenCalled()
+  })
+
+  it('a melodic pick is matched by its signed key, so a descending answer only marks the descending pick', () => {
+    render(
+      <IntervalAnswerButtons
+        level={1}
+        showDirection
+        onAnswer={vi.fn()}
+        answered={{ pickedKey: '-M3', correct: true }}
+      />,
+    )
+
+    // The default toggle state is ascending, so the rendered "major third"
+    // card's own computed key is 'M3', not '-M3' — it must NOT be marked,
+    // proving the match is on the signed key, not just the interval name.
+    expect(screen.getByRole('button', { name: /major third/ })).not.toHaveAttribute('data-state')
+  })
+
+  it('with no answer yet, no card carries a data-state and every card stays enabled', () => {
+    render(<IntervalAnswerButtons level={1} showDirection={false} onAnswer={vi.fn()} />)
+
+    expect(screen.getByRole('button', { name: 'major third' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'major third' })).not.toHaveAttribute('data-state')
+    expect(screen.getByRole('button', { name: 'minor third' })).not.toHaveAttribute('data-state')
+  })
+})

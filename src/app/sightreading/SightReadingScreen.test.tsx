@@ -21,8 +21,14 @@ import { SightReadingScreen } from './SightReadingScreen.tsx'
 // that the screen HANDS a score to the viewer, which the `data-score-id`
 // attribute below asserts; that OSMD then draws it is `e2e`'s job.
 vi.mock('@app/score/ScoreViewer.tsx', () => ({
-  ScoreViewer: ({ score }: { readonly score: { readonly id: string } }) => (
-    <div data-testid="mock-score-viewer" data-score-id={score.id} />
+  ScoreViewer: ({
+    score,
+    chrome,
+  }: {
+    readonly score: { readonly id: string }
+    readonly chrome?: { readonly title?: boolean }
+  }) => (
+    <div data-testid="mock-score-viewer" data-score-id={score.id} data-chrome-title={String(chrome?.title)} />
   ),
 }))
 
@@ -65,7 +71,7 @@ describe('SightReadingScreen', () => {
     const midiInput = new FakeMidiInput()
     const manual = manualDriver()
 
-    render(
+    const { container } = render(
       <SightReadingScreen
         clock={clock}
         date={clock}
@@ -85,6 +91,8 @@ describe('SightReadingScreen', () => {
     expect(screen.getByTestId('sight-reading-level-note')).toHaveTextContent(
       /separate from the curriculum track level on Progress/i,
     )
+    // Rule 1 of the nine screen rules: exactly one `.btn-primary` while idle.
+    expect(container.querySelectorAll('.btn-primary')).toHaveLength(1)
 
     await user.click(screen.getByRole('button', { name: 'Start exercise' }))
     expect(screen.getByTestId('preview-countdown')).toHaveTextContent('30s')
@@ -94,9 +102,18 @@ describe('SightReadingScreen', () => {
     // whether OSMD draws noteheads is asserted in e2e/smoke.spec.ts.
     expect(screen.getByTestId('mock-score-viewer')).toHaveAttribute('data-score-id')
     expect(screen.queryByRole('heading', { name: 'Right hand' })).toBeNull()
+    // roadmap UI-11: the engraved paper no longer prints its own redundant
+    // title — the screen's own `.page-header` already names it, for the
+    // whole session, not just this phase.
+    expect(screen.getByTestId('mock-score-viewer')).toHaveAttribute('data-chrome-title', 'false')
+    // "Begin now" is the one primary during the countdown; "Start exercise"
+    // is gone in this phase, so there is still exactly one.
+    expect(container.querySelectorAll('.btn-primary')).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Begin now' })).toHaveClass('btn-primary')
 
     await user.click(screen.getByRole('button', { name: 'Begin now' }))
     expect(screen.getByTestId('playing-status')).toBeInTheDocument()
+    expect(screen.getByTestId('mock-score-viewer')).toHaveAttribute('data-chrome-title', 'false')
 
     act(() => {
       clock.advance(8_500)

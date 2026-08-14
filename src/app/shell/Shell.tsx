@@ -21,7 +21,6 @@ import { NavGroups, type NavGroup, type NavItem } from '@app/shell/NavGroups.tsx
 import type { Route, ScreenId } from '@app/shell/route.ts'
 import { useRoute } from '@app/shell/routing.ts'
 import { ReferencePanel } from '@app/reference/ReferencePanel.tsx'
-import { OnboardingGateway } from '@app/onboarding/OnboardingGateway.tsx'
 import { SettingsScreen } from '@app/onboarding/SettingsScreen.tsx'
 import { ScoreScreen } from '@app/score/ScoreScreen.tsx'
 import { DashboardScreen } from '@app/dashboard/DashboardScreen.tsx'
@@ -509,10 +508,12 @@ export function Shell() {
         />
       </nav>
       <main className="app-main">
-        {/* Roadmap 5.40: purely additive, only ever on Today, only until
-            completed/skipped — see OnboardingGateway.tsx's module doc for why
-            this is a callout rather than a hard gate. */}
-        <OnboardingGateway show={screen === 'today'} />
+        {/* Roadmap 5.40's OnboardingGateway used to render here, gated on
+            `screen === 'today'`. UI-08 moved it into SessionPlanScreen: the
+            callout must hide while a session is running, and only that screen
+            knows whether one is — finding out here would mean calling
+            useSessionRun a second time against the same persisted run. See
+            that file for the full argument. */}
         {renderScreen(
           screen,
           open,

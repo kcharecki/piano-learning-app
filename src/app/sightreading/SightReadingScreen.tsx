@@ -8,6 +8,8 @@
 import type { Clock, DateSource, AudioOutput, MidiInput, Rng } from '@core/ports/index.ts'
 import type { ConnectMidi } from '@app/practice/useMidiConnection.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
+import type { ScoreChrome } from '@app/score/engraver.ts'
+import { Icon } from '@app/ui/Icon.tsx'
 import { useState } from 'react'
 import { ExerciseScore } from './ExerciseScore.tsx'
 import { SightReadingCustomizer } from './SightReadingCustomizer.tsx'
@@ -29,6 +31,15 @@ function percent(fraction: number): string {
   return `${Math.round(fraction * 100)}%`
 }
 
+/** Suppresses the engraved title/composer block on every piece of paper this
+ *  screen shows (roadmap UI-11, 2026-08-12 UI audit finding: the exercise
+ *  paper printed its own redundant "Sight Reading — C major" heading while
+ *  the `.page-header` below already names the screen for the whole session).
+ *  A stable object identity, not a literal at each call site, so it never
+ *  forces `ScoreViewer`'s load effect to re-run — see that effect's own
+ *  comment on why it depends on the primitive `chrome?.title`, not `chrome`. */
+const PAPER_CHROME: ScoreChrome = { title: false }
+
 export function SightReadingScreen(props: SightReadingScreenProps) {
   const [metronomeEnabled, setMetronomeEnabled] = useState(true)
   const [customization, setCustomization] = useState<SightReadingCustomization>({})
@@ -42,32 +53,35 @@ export function SightReadingScreen(props: SightReadingScreenProps) {
         </div>
       </header>
 
-      {/* roadmap 5.57: named distinctly from the Progress screen's "sight-reading
-          (curriculum track)" row — same word "level", two different numbers.
-          This one is the trainer's own adaptive difficulty; the track number
-          lives only on Progress and moves via advancement/manual override. Kept
-          as one wrapper so the two closely-related lines stay next to each
-          other rather than getting the .page's own --space-5 section gap
-          between them. */}
-      <div>
-        <p data-testid="sight-reading-level">
-          Sight-reading trainer level: <b>{trainer.level}</b>
-        </p>
-        <small data-testid="sight-reading-level-note">
-          Adapts automatically from your recent run accuracy &mdash; separate from the curriculum
-          track level on Progress, which only moves when you advance a level or set it by hand.
-        </small>
-      </div>
-
       <div className="card card--sunken">
-        <label>
-          <input
-            type="checkbox"
-            checked={metronomeEnabled}
-            onChange={(event) => setMetronomeEnabled(event.target.checked)}
-          />
-          Metronome click
-        </label>
+        <div className="field-row sight-reading-status-row">
+          <label>
+            <input
+              type="checkbox"
+              checked={metronomeEnabled}
+              onChange={(event) => setMetronomeEnabled(event.target.checked)}
+            />
+            Metronome click
+          </label>
+
+          {/* roadmap 5.57: named distinctly from the Progress screen's
+              "sight-reading (curriculum track)" row — same word "level", two
+              different numbers. This one is the trainer's own adaptive
+              difficulty; the track number lives only on Progress and moves
+              via advancement/manual override. Kept as one wrapper so the two
+              closely-related lines stay together as a single flex item in
+              the row above, rather than wrapping independently of each
+              other. */}
+          <div className="sight-reading-level-display">
+            <p data-testid="sight-reading-level">
+              Sight-reading trainer level: <b>{trainer.level}</b>
+            </p>
+            <small data-testid="sight-reading-level-note">
+              Adapts automatically from your recent run accuracy &mdash; separate from the curriculum
+              track level on Progress, which only moves when you advance a level or set it by hand.
+            </small>
+          </div>
+        </div>
 
         <SightReadingCustomizer
           customization={customization}
@@ -84,19 +98,26 @@ export function SightReadingScreen(props: SightReadingScreenProps) {
 
       {trainer.phase === 'idle' && (
         <button type="button" className="btn-primary" onClick={trainer.start}>
+          <Icon name="play" />
           Start exercise
         </button>
       )}
 
       {trainer.phase === 'preview' && trainer.score !== undefined && (
         <section aria-label="Preview">
-          <p role="status" data-testid="preview-countdown">
-            Scan the piece — playing in {Math.ceil(trainer.previewRemainingMs / 1000)}s
-          </p>
-          <button type="button" onClick={trainer.skipPreview}>
+          <div className="sight-reading-paper">
+            <ExerciseScore score={trainer.score} chrome={PAPER_CHROME} />
+            <div className="sight-reading-countdown" role="status" data-testid="preview-countdown">
+              <span className="sight-reading-countdown-number">
+                {Math.ceil(trainer.previewRemainingMs / 1000)}s
+              </span>
+              <span className="sight-reading-countdown-caption">Scan the piece first</span>
+            </div>
+          </div>
+          <button type="button" className="btn-primary" onClick={trainer.skipPreview}>
+            <Icon name="play" />
             Begin now
           </button>
-          <ExerciseScore score={trainer.score} />
         </section>
       )}
 
@@ -110,25 +131,34 @@ export function SightReadingScreen(props: SightReadingScreenProps) {
               Measure {trainer.position.measureNumber}, beat {trainer.position.beat}
             </p>
           )}
-          <ExerciseScore score={trainer.score} />
+          <ExerciseScore score={trainer.score} chrome={PAPER_CHROME} />
         </section>
       )}
 
       {trainer.phase === 'finished' && trainer.result !== undefined && (
         <section aria-label="Result">
-          <dl>
-            <dt>Accuracy</dt>
-            <dd data-testid="sight-reading-accuracy">{percent(trainer.result.accuracy)}</dd>
-            <dt>Timing consistency</dt>
-            <dd data-testid="sight-reading-timing">{percent(trainer.result.timingConsistency)}</dd>
-          </dl>
+          <div className="stat-group">
+            <div className="stat">
+              <span className="stat-value" data-testid="sight-reading-accuracy">
+                {percent(trainer.result.accuracy)}
+              </span>
+              <span className="stat-label">Accuracy</span>
+            </div>
+            <div className="stat">
+              <span className="stat-value" data-testid="sight-reading-timing">
+                {percent(trainer.result.timingConsistency)}
+              </span>
+              <span className="stat-label">Timing consistency</span>
+            </div>
+          </div>
           {trainer.previousLevel !== undefined && trainer.previousLevel !== trainer.level && (
             <p data-testid="sight-reading-level-change">
               Sight-reading trainer level{' '}
               {trainer.previousLevel > trainer.level ? 'decreased' : 'increased'} to {trainer.level}
             </p>
           )}
-          <button type="button" onClick={trainer.start}>
+          <button type="button" className="btn-primary" onClick={trainer.start}>
+            <Icon name="play" />
             Next exercise
           </button>
         </section>

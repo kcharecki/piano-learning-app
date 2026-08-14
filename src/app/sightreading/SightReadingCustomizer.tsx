@@ -45,46 +45,48 @@ export function SightReadingCustomizer({
     <details className="sight-reading-customizer">
       <summary>Customize exercise</summary>
 
-      <div className="sight-reading-customizer-controls">
-        <span className="sight-reading-customizer-field">
+      <div className="field-row sight-reading-customizer-controls">
+        <div className="field">
           <label htmlFor="sr-key-mode-select">Key</label>
-          <select
-            id="sr-key-mode-select"
-            disabled={disabled}
-            value={keyMode}
-            onChange={(e) => {
-              const mode = e.target.value as 'major' | 'minor'
-              const fifths = customization.key?.signature.fifths ?? 0
-              onChange({ ...customization, key: keyFromFifths(fifths, mode) })
-            }}
-          >
-            <option value="major">Major</option>
-            <option value="minor">Minor</option>
-          </select>
-          <select
-            id="sr-key-tonic-select"
-            aria-label="Key tonic"
-            disabled={disabled}
-            value={selectedFifthsIndex ?? NO_KEY_SELECTED}
-            onChange={(e) => {
-              if (e.target.value === NO_KEY_SELECTED) {
-                const { key: _key, ...rest } = customization
-                onChange(rest)
-                return
-              }
-              onChange({ ...customization, key: at(keyList, Number(e.target.value)) })
-            }}
-          >
-            <option value={NO_KEY_SELECTED}>Level's default</option>
-            {keyList.map((key, i) => (
-              <option key={i} value={i}>
-                {keyLabel(key)}
-              </option>
-            ))}
-          </select>
-        </span>
+          <div className="sight-reading-customizer-key-selects">
+            <select
+              id="sr-key-mode-select"
+              disabled={disabled}
+              value={keyMode}
+              onChange={(e) => {
+                const mode = e.target.value as 'major' | 'minor'
+                const fifths = customization.key?.signature.fifths ?? 0
+                onChange({ ...customization, key: keyFromFifths(fifths, mode) })
+              }}
+            >
+              <option value="major">Major</option>
+              <option value="minor">Minor</option>
+            </select>
+            <select
+              id="sr-key-tonic-select"
+              aria-label="Key tonic"
+              disabled={disabled}
+              value={selectedFifthsIndex ?? NO_KEY_SELECTED}
+              onChange={(e) => {
+                if (e.target.value === NO_KEY_SELECTED) {
+                  const { key: _key, ...rest } = customization
+                  onChange(rest)
+                  return
+                }
+                onChange({ ...customization, key: at(keyList, Number(e.target.value)) })
+              }}
+            >
+              <option value={NO_KEY_SELECTED}>Level's default</option>
+              {keyList.map((key, i) => (
+                <option key={i} value={i}>
+                  {keyLabel(key)}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
 
-        <span className="sight-reading-customizer-field">
+        <div className="field">
           <label htmlFor="sr-hands-select">Hands</label>
           <select
             id="sr-hands-select"
@@ -106,9 +108,9 @@ export function SightReadingCustomizer({
               </option>
             ))}
           </select>
-        </span>
+        </div>
 
-        <span className="sight-reading-customizer-field">
+        <div className="field">
           <label htmlFor="sr-rhythm-select">Rhythm</label>
           <select
             id="sr-rhythm-select"
@@ -130,10 +132,10 @@ export function SightReadingCustomizer({
               </option>
             ))}
           </select>
-        </span>
+        </div>
 
         {customization.hands === 'both' && (
-          <span className="sight-reading-customizer-field">
+          <div className="field">
             <label htmlFor="sr-independence-select">Hand independence</label>
             <select
               id="sr-independence-select"
@@ -158,10 +160,10 @@ export function SightReadingCustomizer({
                 </option>
               ))}
             </select>
-          </span>
+          </div>
         )}
 
-        <span className="sight-reading-customizer-field">
+        <div className="field">
           <label htmlFor="sr-register-select">Range</label>
           <select
             id="sr-register-select"
@@ -175,25 +177,32 @@ export function SightReadingCustomizer({
               </option>
             ))}
           </select>
-        </span>
+        </div>
 
-        <span className="sight-reading-customizer-field">
-          <label htmlFor="sr-no-accidentals-checkbox">
-            <input
-              id="sr-no-accidentals-checkbox"
-              type="checkbox"
-              disabled={disabled}
-              checked={customization.noAccidentals === true}
-              onChange={(e) => onChange({ ...customization, noAccidentals: e.target.checked })}
-            />
-            {' '}No accidentals
-          </label>
-        </span>
-
-        <button type="button" disabled={disabled} onClick={() => onChange({})}>
-          Reset to level's default
-        </button>
+        {/* Not a `.field`: rule 9 requires this exact
+            `<label><input type="checkbox" />text</label>` shape, and
+            `.field-inline`/`.field` both explicitly say not to double-wrap
+            a checkbox/radio label in them (primitives.css). */}
+        <label htmlFor="sr-no-accidentals-checkbox">
+          <input
+            id="sr-no-accidentals-checkbox"
+            type="checkbox"
+            disabled={disabled}
+            checked={customization.noAccidentals === true}
+            onChange={(e) => onChange({ ...customization, noAccidentals: e.target.checked })}
+          />
+          No accidentals
+        </label>
       </div>
+
+      <button
+        type="button"
+        className="sight-reading-customizer-reset"
+        disabled={disabled}
+        onClick={() => onChange({})}
+      >
+        Reset to level's default
+      </button>
     </details>
   )
 }

@@ -46,7 +46,22 @@ export function NoteNameAnswerPad({ onAnswer }: NoteNameAnswerPadProps) {
   return (
     <div className="note-name-answer-pad answer-pad" role="group" aria-label="Note name answer">
       {NOTE_NAME_BUTTONS.map((answer) => (
-        <button key={label(answer)} type="button" onClick={() => onAnswer(answer)}>
+        // `.music-glyph` (roadmap 5.26, `feature-music-font.css`) puts the
+        // accidental in the bundled Bravura font instead of plain body text —
+        // the same fix `StaffNote.tsx` already has. Applied to the WHOLE
+        // label, not just the accidental substring: CSS font-family fallback
+        // resolves per-glyph, so the plain letter still renders in the UI
+        // font (Bravura's cmap has no Latin letters) while the accidental
+        // renders in Bravura, and the label stays ONE text node — splitting
+        // it into a letter node plus a wrapped accidental node was tried
+        // first and broken the accessible name, because the accessible-name
+        // algorithm joins sibling child nodes with a space ("F ♯", not "F♯").
+        <button
+          key={label(answer)}
+          type="button"
+          className="music-glyph"
+          onClick={() => onAnswer(answer)}
+        >
           {label(answer)}
         </button>
       ))}

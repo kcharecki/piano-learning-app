@@ -247,12 +247,15 @@ async function runDictationCase(
 
   await page.getByLabel('Drill', { exact: true }).selectOption(kind)
 
-  const playback = page.getByRole('group', { name: 'Playback' })
-  const playButton = playback.getByRole('button', { name: 'Play', exact: true })
+  // Roadmap UI-13 rebuilt this screen around its answers: the "Playback"
+  // role="group" wrapper is gone (the stage is the grouping now), and the
+  // button reads "Play item" — one .btn-primary, per DESIGN.md rule 1, where
+  // there used to be a Play/Next pair plus Replay at equal weight.
+  const playButton = page.getByRole('button', { name: 'Play item', exact: true })
 
-  // Armed on the same synchronous click turn as "Play" (see
+  // Armed on the same synchronous click turn as the play button (see
   // e2e/technique-drill.spec.ts's identical pattern for its own transport).
-  await armFakeMidiOnClick(page, 'Play', plan.events)
+  await armFakeMidiOnClick(page, 'Play item', plan.events)
   await playButton.click()
   await waitForArmedFakeMidiSchedule(page)
 

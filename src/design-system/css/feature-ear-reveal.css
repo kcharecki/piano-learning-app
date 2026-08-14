@@ -18,12 +18,18 @@
    intervals) a fixed-register reference. `.notation-frame` (ScoreViewer's own
    class, domain.css) already gives the staff its "paper" surface; this file
    only spaces the reveal's own pieces out from each other and from the
-   dictation per-note breakdown above it. */
+   dictation per-note breakdown above it.
+
+   roadmap UI-13: now rendered onto `.card` (primitives.css supplies the
+   background/radius/elevation/padding — see RevealPanel.tsx's own comment on
+   why the class list carries both) — no `margin-top` here any more: the
+   reveal is a direct child of `.page` (base.css), whose own flex `gap`
+   already spaces every top-level section, and doubling that here measured as
+   extra dead space between the feedback line and this panel. */
 .eartraining-reveal {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  margin-top: var(--space-4);
 }
 
 .eartraining-reveal-staff {

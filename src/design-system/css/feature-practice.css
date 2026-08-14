@@ -1,3 +1,116 @@
-/* Feature stub for the Practice screen — empty on purpose, filled by that screen's
-   own later UI-overhaul task. Registered in styles.css now (roadmap UI-02) so
-   no parallel screen task has to touch the aggregator. */
+/* Feature stylesheet — Practice / Score screens (roadmap UI-09,
+   2026-08-12 UI audit). Replaces domain.css's `.practice-controls` /
+   `.transport-group` / `.tempo-group` / `.status-group` / `.note-feedback` /
+   `.accuracy-value` — none of those class names are written by
+   `PracticeScreen.tsx` any more (the integrator can prune the now-dead rules
+   from domain.css; flagged, not touched here — single-writer boundary). */
+
+/* ---------- Practice toolbar ----------
+   `.toolbar` (primitives.css) already gives the full-bleed band, background
+   and wrapping; this only adds the sticky behaviour "below the topbar while
+   the score scrolls" asks for, plus a shadow so the seam against the score
+   reads as a real edge, not a colour coincidence. Two child groups —
+   transport, and tempo+mic — so the band wraps as designed UNITS at narrow
+   widths (acceptance criterion 4) instead of one control at a time. */
+.practice-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  box-shadow: var(--elev-1);
+}
+@media (max-width: 1024px) {
+  /* Below the topbar, which is sticky above it at this width (base.css). */
+  .practice-toolbar { top: var(--topbar-h, 56px); }
+}
+.practice-toolbar-transport {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.practice-toolbar-tempo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-left: auto;
+}
+@media (max-width: 768px) {
+  /* The designed two-row layout acceptance criterion 4 asks for: transport
+     keeps its own row, tempo+mic wrap to a second — never one control
+     stranded alone (the old "avg 0 ms" orphan this replaces). */
+  .practice-toolbar-tempo {
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+}
+
+.transport-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.transport-position {
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.tempo-control {
+  min-width: 12rem;
+}
+.tempo-control input[type="range"] {
+  width: 160px;
+}
+@media (max-width: 1024px) {
+  .tempo-control input[type="range"] { width: 180px; }
+}
+
+/* ---------- Honest feedback strip ----------
+   Under the score, not above it — status sits with the thing it describes
+   (DESIGN.md rule 4). `PracticeScreen` only renders this once a run has
+   started; accuracy itself reads an em dash until at least one note has been
+   judged — never a fake 100% (`.stat` from primitives.css supplies the
+   value/label sizing and colour; nothing here recolours it, which is what
+   stops the old "always green" defect from coming back). */
+.practice-feedback-strip {
+  margin-top: var(--space-2);
+}
+.stat-label-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+/* The info trigger sits inline with its stat's label, not the label's own
+   uppercase/xs treatment — it is a real 44px-at-tablet touch target (rule 9),
+   so it is sized by `.btn-icon` like every other icon button, not shrunk to
+   match the text beside it. */
+.practice-accuracy-info-trigger {
+  font-size: var(--text-md);
+}
+.timing-feedback-last {
+  font-size: var(--text-xs);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+/* ---------- Popovers (Change piece / accuracy info) ----------
+   The box itself (background, border, radius, shadow, backdrop, max-width,
+   z-index) is the `dialog` primitive (primitives.css); this only lays out
+   what each one puts inside it. */
+.score-change-piece-dialog,
+.practice-accuracy-info-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.score-change-piece-dialog h2 {
+  margin: 0;
+}
+.import-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.import-panel label {
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}

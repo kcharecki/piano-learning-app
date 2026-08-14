@@ -39,6 +39,27 @@ describe('OnboardingGateway', () => {
     })
   })
 
+  it('renders nothing while a session is running, even against a genuinely fresh store (UI-08)', async () => {
+    render(
+      <OnboardingGateway
+        show={true}
+        sessionRunning={true}
+        openStore={async () => new MemoryStore()}
+      />,
+    )
+    // Give the (never-consulted, since sessionRunning=true short-circuits
+    // first) restore a turn.
+    await new Promise((r) => setTimeout(r, 0))
+    expect(screen.queryByRole('note', { name: /first-run setup/i })).toBeNull()
+  })
+
+  it('the callout is never a competing primary (UI-08): "Set up my practice" is a plain secondary button', async () => {
+    render(<OnboardingGateway show={true} openStore={async () => new MemoryStore()} />)
+    const setup = await screen.findByRole('button', { name: 'Set up my practice' })
+    expect(setup).not.toHaveClass('btn-primary')
+    expect(document.querySelectorAll('.btn-primary')).toHaveLength(0)
+  })
+
   it('"Set up my practice" expands into the full flow', async () => {
     const user = userEvent.setup()
     render(<OnboardingGateway show={true} openStore={async () => new MemoryStore()} />)

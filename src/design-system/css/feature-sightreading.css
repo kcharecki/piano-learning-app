@@ -1,5 +1,73 @@
-/* Feature stub for the Sight reading screen, beyond the UI-02 smoke
-   conversion (SightReadingScreen.tsx's page/page-header/card--sunken
-   wrapping) — empty on purpose, filled by that screen's own later
-   UI-overhaul redesign task. Registered in styles.css now (roadmap UI-02)
-   so no parallel screen task has to touch the aggregator. */
+/* Sight reading screen (roadmap UI-11, 2026-08-12 UI audit). Layout
+   scaffolding (`.page`, `.page-header`, `.card`, `.field-row`) comes from
+   base.css/primitives.css; this file only holds what those primitives don't:
+   the customizer's own two-select "Key" control, and the on-paper countdown
+   overlay that replaces the old full-width gray status box. */
+
+/* The level readout ("Sight-reading trainer level: N" + its explainer note)
+   sits inside `.sight-reading-status-row`'s `.field-row` as a single flex
+   item next to the metronome checkbox — the default `<p>` bottom margin from
+   base.css would otherwise open a gap under it that the checkbox beside it
+   doesn't have, misaligning the two items' visual bottoms. */
+.sight-reading-level-display p {
+  margin-bottom: 0;
+}
+
+/* "Key" is the one customize field with two controls (mode + tonic) under
+   one label — every other field (`primitives.css`'s `.field`) holds exactly
+   one. This is the plain flex row that keeps them side by side without
+   inventing a new label-plus-control primitive for a single caller. */
+.sight-reading-customizer-key-selects {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.sight-reading-customizer summary {
+  cursor: pointer;
+  font-weight: var(--weight-medium);
+  color: var(--text-2);
+  padding: var(--space-2) 0;
+}
+.sight-reading-customizer[open] summary {
+  color: var(--text-1);
+}
+.sight-reading-customizer-controls {
+  margin-top: var(--space-3);
+}
+.sight-reading-customizer-reset {
+  margin-top: var(--space-3);
+}
+
+/* The engraved exercise, with the countdown overlaid on it during the
+   preview phase (roadmap UI-11: replaces the old separate full-width gray
+   status box + secondary "Begin now" button). `position: relative` gives
+   `.sight-reading-countdown` a positioning root scoped to the paper itself,
+   not the whole page. */
+.sight-reading-paper {
+  position: relative;
+}
+.sight-reading-countdown {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-1);
+  text-align: right;
+  /* On paper, not on a UI surface — --text-1/2/3 are not guaranteed AA
+     against --paper, so both lines use --paper-fg (the one paper foreground
+     token the design system guarantees AA), differentiated by size/weight
+     only, never by a dimmer color. */
+  color: var(--paper-fg);
+}
+.sight-reading-countdown-number {
+  font-size: var(--text-glance);
+  font-weight: var(--weight-bold);
+  line-height: var(--leading-tight);
+  font-variant-numeric: tabular-nums;
+}
+.sight-reading-countdown-caption {
+  font-size: var(--text-sm);
+}

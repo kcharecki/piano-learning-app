@@ -135,7 +135,8 @@ test('all seven non-repertoire screens log real practice time into six ActivityK
   // Ear training — start() fires on "Play"; grading one real answer stops
   // the log inline (no navigation-away abandonment needed for this one).
   await nav(page, 'Ear training').click()
-  await page.getByRole('button', { name: 'Play', exact: true }).click()
+  // "Play item" since roadmap UI-13 — see that screen's single-primary rework.
+  await page.getByRole('button', { name: 'Play item', exact: true }).click()
   const answerGroup = page.getByRole('group', { name: 'Interval answer' })
   await answerGroup.getByRole('button').first().click()
   await page.waitForTimeout(500)

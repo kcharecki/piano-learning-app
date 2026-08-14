@@ -13,7 +13,7 @@
  * whenever `musicXml` changes, and a fresh string every render would re-engrave
  * every frame of the preview countdown.
  */
-import type { EngraverFactory } from '@app/score/engraver.ts'
+import type { EngraverFactory, ScoreChrome } from '@app/score/engraver.ts'
 import { ScoreViewer } from '@app/score/ScoreViewer.tsx'
 import { writeMusicXml } from '@core/notation/musicxmlwriter.ts'
 import type { Score } from '@core/notation/score.ts'
@@ -25,13 +25,28 @@ export type ExerciseScoreProps = {
    *  3.14 — means the default OSMD engraver, i.e. today's behaviour exactly.
    *  `ScaleStaff` passes a reference-presentation engraver through here. */
   readonly createEngraver?: EngraverFactory
+  /** Forwarded verbatim to `ScoreViewer` (roadmap UI-11). Absent — every
+   *  caller before the Sight reading redesign, including Rhythm and
+   *  Technique, which also render through this component — means
+   *  `ScoreViewer`'s own default chrome (title/composer block drawn, default
+   *  paper padding), i.e. today's behaviour exactly. Sight reading is the
+   *  first caller to pass `{ title: false }`, so its own screen header (which
+   *  already names the piece) is not duplicated by the engraving itself. */
+  readonly chrome?: ScoreChrome
 }
 
-export function ExerciseScore({ score, createEngraver }: ExerciseScoreProps) {
+export function ExerciseScore({ score, createEngraver, chrome }: ExerciseScoreProps) {
   const musicXml = useMemo(() => writeMusicXml(score), [score])
-  // Spread rather than `createEngraver={createEngraver}`: under
-  // `exactOptionalPropertyTypes` an explicit `undefined` is not the same as an
-  // absent prop, and absent is what has to reach `ScoreViewer` so its own
-  // default engraver applies for every caller that passes nothing.
-  return <ScoreViewer musicXml={musicXml} score={score} {...(createEngraver && { createEngraver })} />
+  // Spread rather than `createEngraver={createEngraver}`/`chrome={chrome}`:
+  // under `exactOptionalPropertyTypes` an explicit `undefined` is not the
+  // same as an absent prop, and absent is what has to reach `ScoreViewer` so
+  // its own defaults apply for every caller that passes nothing.
+  return (
+    <ScoreViewer
+      musicXml={musicXml}
+      score={score}
+      {...(createEngraver && { createEngraver })}
+      {...(chrome && { chrome })}
+    />
+  )
 }

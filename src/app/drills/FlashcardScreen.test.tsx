@@ -15,22 +15,10 @@ import {
 import { seededRng } from '@core/ports/rng.ts'
 import { act, render, screen, cleanup, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { FakeClock, FakeMidiInput, RecordingAudioOutput, scriptedRng } from '@test/fakes.ts'
+import { FakeClock, FakeMidiInput, scriptedRng } from '@test/fakes.ts'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { FlashcardScreen } from './FlashcardScreen.tsx'
 import { staffStep } from './staffPosition.ts'
-
-function manualDriver(): { driver: FrameDriver; pump: () => void } {
-  let callback: (() => void) | undefined
-  const driver: FrameDriver = (cb) => {
-    callback = cb
-    return () => {
-      callback = undefined
-    }
-  }
-  return { driver, pump: () => callback?.() }
-}
 
 function resetStore(): void {
   useFlashcardStore.setState({ cardsById: {} })
@@ -100,14 +88,14 @@ describe('FlashcardScreen', () => {
     const user = userEvent.setup()
     render(<FlashcardScreen rng={seededRng(1)} midiInput={new FakeMidiInput()} />)
 
-    expect(screen.getByTestId('flashcard-level')).toHaveTextContent('Level 1')
+    expect(screen.getByTestId('flashcard-level')).toHaveTextContent('1')
     const keysAtLevel1 = within(
       screen.getByRole('group', { name: 'On-screen keyboard' }),
     ).getAllByRole('button').length
 
     await user.click(screen.getByRole('button', { name: 'Increase level' }))
 
-    expect(screen.getByTestId('flashcard-level')).toHaveTextContent('Level 2')
+    expect(screen.getByTestId('flashcard-level')).toHaveTextContent('2')
     const keysAtLevel2 = within(
       screen.getByRole('group', { name: 'On-screen keyboard' }),
     ).getAllByRole('button').length
@@ -290,7 +278,7 @@ describe('FlashcardScreen — initialLevel prop (finding 1, roadmap 3.11/4.9c, R
   it('opens at the given initialLevel', () => {
     render(<FlashcardScreen rng={seededRng(1)} midiInput={new FakeMidiInput()} initialLevel={3} />)
 
-    expect(screen.getByTestId('flashcard-level')).toHaveTextContent('Level 3')
+    expect(screen.getByTestId('flashcard-level')).toHaveTextContent('3')
   })
 
   it('clamps an initialLevel above the max down to MAX_DRILL_LEVEL', () => {
@@ -298,111 +286,143 @@ describe('FlashcardScreen — initialLevel prop (finding 1, roadmap 3.11/4.9c, R
       <FlashcardScreen rng={seededRng(1)} midiInput={new FakeMidiInput()} initialLevel={99} />,
     )
 
-    expect(screen.getByTestId('flashcard-level')).toHaveTextContent('Level 7')
+    expect(screen.getByTestId('flashcard-level')).toHaveTextContent('7')
   })
 
   it('clamps an initialLevel below the min up to MIN_DRILL_LEVEL', () => {
     render(<FlashcardScreen rng={seededRng(1)} midiInput={new FakeMidiInput()} initialLevel={0} />)
 
-    expect(screen.getByTestId('flashcard-level')).toHaveTextContent('Level 1')
+    expect(screen.getByTestId('flashcard-level')).toHaveTextContent('1')
   })
 
   it('still defaults to Level 1 when initialLevel is omitted', () => {
     render(<FlashcardScreen rng={seededRng(1)} midiInput={new FakeMidiInput()} />)
 
-    expect(screen.getByTestId('flashcard-level')).toHaveTextContent('Level 1')
+    expect(screen.getByTestId('flashcard-level')).toHaveTextContent('1')
   })
 
   it('the learner can still change level after initialLevel seeds it', async () => {
     const user = userEvent.setup()
     render(<FlashcardScreen rng={seededRng(1)} midiInput={new FakeMidiInput()} initialLevel={3} />)
 
-    expect(screen.getByTestId('flashcard-level')).toHaveTextContent('Level 3')
+    expect(screen.getByTestId('flashcard-level')).toHaveTextContent('3')
 
     await user.click(screen.getByRole('button', { name: 'Increase level' }))
 
-    expect(screen.getByTestId('flashcard-level')).toHaveTextContent('Level 4')
+    expect(screen.getByTestId('flashcard-level')).toHaveTextContent('4')
   })
 })
 
-describe('FlashcardScreen — standalone metronome (roadmap 2.28a, REQ-3.9.1)', () => {
-  it('renders a Metronome group whose Start button schedules clicks and advances the beat readout, and Stop stops it', async () => {
-    const user = userEvent.setup()
-    const clock = new FakeClock()
-    const audioOutput = new RecordingAudioOutput(clock)
-    const manual = manualDriver()
+// roadmap UI-12 (2026-08-12 UI audit): the standalone metronome fieldset is
+// deleted outright — a metronome has its own screen
+// (`@app/metronome/MetronomeScreen.tsx`), and this drill grades single
+// answers with no tempo involved.
+describe('FlashcardScreen — no metronome (roadmap UI-12)', () => {
+  it('never renders a Metronome group, Start/Stop button, or Tempo field', () => {
+    render(<FlashcardScreen rng={seededRng(1)} midiInput={new FakeMidiInput()} />)
 
-    render(
-      <FlashcardScreen
-        clock={clock}
-        midiInput={new FakeMidiInput()}
-        rng={seededRng(1)}
-        audioOutput={audioOutput}
-        frameDriver={manual.driver}
-      />,
-    )
+    expect(screen.queryByRole('group', { name: 'Metronome' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Start' })).toBeNull()
+    expect(screen.queryByLabelText('Tempo (BPM)')).toBeNull()
+    expect(screen.queryByTestId('flashcard-metronome-beat')).toBeNull()
+    expect(screen.queryByText(/metronome/i)).toBeNull()
+  })
+})
 
-    const group = screen.getByRole('group', { name: 'Metronome' })
-    expect(within(group).getByTestId('flashcard-metronome-beat')).toHaveTextContent('—')
-    expect(within(group).getByLabelText('Tempo (BPM)')).toBeInTheDocument()
+describe('FlashcardScreen — header holds the drill config (roadmap UI-12)', () => {
+  it('renders the Drill select and the Level stepper inside the page header actions, with the level label outside the stepper group', () => {
+    render(<FlashcardScreen rng={seededRng(1)} midiInput={new FakeMidiInput()} />)
 
-    await user.click(within(group).getByRole('button', { name: 'Start' }))
-    // Default 100 BPM = 600ms/beat: at 700ms, exactly one beat has elapsed —
-    // `beat` is 0-based in core, so the readout's 1-based beat 2 pins both the
-    // scheduling and the +1 display conversion (a dropped `+ 1` would read
-    // "beat 1" here).
-    act(() => {
-      clock.advance(700)
-      manual.pump()
-    })
+    const select = screen.getByLabelText('Drill')
+    expect(select.closest('.page-header')).not.toBeNull()
 
-    expect(audioOutput.clicks.length).toBeGreaterThan(0)
-    expect(within(group).getByTestId('flashcard-metronome-beat')).not.toHaveTextContent('—')
-    expect(within(group).getByTestId('flashcard-metronome-beat')).toHaveTextContent('beat 2')
-
-    const clicksBeforeStop = audioOutput.clicks.length
-    await user.click(within(group).getByRole('button', { name: 'Stop' }))
-    expect(within(group).getByRole('button', { name: 'Start' })).toBeInTheDocument()
-    act(() => {
-      clock.advance(700)
-      manual.pump()
-    })
-
-    expect(audioOutput.clicks.length).toBe(clicksBeforeStop)
+    const stepper = screen.getByRole('group', { name: 'Level' })
+    expect(stepper.closest('.page-header')).not.toBeNull()
+    expect(stepper).toHaveClass('stepper')
+    // The label is a SIBLING of `.stepper`, not a child between its buttons —
+    // the exact defect `.stepper` exists to fix (primitives.css's file header).
+    expect(stepper.querySelector('label')).toBeNull()
+    expect(within(stepper).getByTestId('flashcard-level')).toHaveTextContent('1')
   })
 
-  it('the Tempo field is wired to the metronome — changing it changes click spacing (roadmap 2.28a)', async () => {
+  it('names the open deck in the subtitle, in learner language', async () => {
     const user = userEvent.setup()
-    const clock = new FakeClock()
-    const audioOutput = new RecordingAudioOutput(clock)
-    const manual = manualDriver()
+    render(<FlashcardScreen rng={seededRng(1)} midiInput={new FakeMidiInput()} />)
 
-    render(
-      <FlashcardScreen
-        clock={clock}
-        midiInput={new FakeMidiInput()}
-        rng={seededRng(1)}
-        audioOutput={audioOutput}
-        frameDriver={manual.driver}
-      />,
-    )
+    expect(screen.getByText('Find the note on your keyboard')).toBeInTheDocument()
 
-    const group = screen.getByRole('group', { name: 'Metronome' })
-    const tempoInput = within(group).getByLabelText('Tempo (BPM)')
-    await user.clear(tempoInput)
-    await user.type(tempoInput, '240')
-    await user.tab()
-    expect(tempoInput).toHaveValue(240)
+    await user.selectOptions(screen.getByLabelText('Drill'), 'interval-on-staff')
 
-    await user.click(within(group).getByRole('button', { name: 'Start' }))
-    // 240 BPM = 250ms/beat: over 1000ms that is 4 clicks, versus 1-2 at the
-    // 100 BPM default — a no-op onChange (clicks.length stays at whatever the
-    // default tempo would produce) fails this.
-    act(() => {
-      clock.advance(1000)
-      manual.pump()
-    })
+    expect(screen.getByText('Name the interval on the staff')).toBeInTheDocument()
+  })
+})
 
-    expect(audioOutput.clicks.length).toBeGreaterThanOrEqual(4)
+describe('FlashcardScreen — graded-answer pill reserves its own height (roadmap UI-12)', () => {
+  it('mounts the feedback status node before any card is answered, so its space is reserved from the first paint', () => {
+    render(<FlashcardScreen rng={seededRng(1)} midiInput={new FakeMidiInput()} />)
+
+    // Present immediately — not conditionally mounted only once a grade
+    // exists — which is what makes the stage's layout stable when the first
+    // answer lands; a `null`-until-graded element (the old behaviour) would
+    // insert a brand-new box into the flow at that moment instead.
+    const feedback = screen.getByTestId('flashcard-feedback')
+    expect(feedback).toBeInTheDocument()
+    expect(feedback).toHaveAttribute('data-visible', 'false')
+    expect(feedback).toHaveTextContent('')
+  })
+
+  it('answering flips data-visible without unmounting the same node, and shows a glyph + color cue', async () => {
+    const user = userEvent.setup()
+    const rng = scriptedRng([0])
+    render(<FlashcardScreen rng={rng} midiInput={new FakeMidiInput()} />)
+
+    await user.selectOptions(screen.getByLabelText('Drill'), 'interval-on-staff')
+    const feedbackBefore = screen.getByTestId('flashcard-feedback')
+    expect(feedbackBefore).toHaveAttribute('data-visible', 'false')
+
+    await user.click(screen.getByRole('button', { name: 'Minor 2nd' }))
+
+    const feedbackAfter = screen.getByTestId('flashcard-feedback')
+    // Same DOM node, not a re-mount — the reserved-height box just gained content.
+    expect(feedbackAfter).toBe(feedbackBefore)
+    expect(feedbackAfter).toHaveAttribute('data-visible', 'true')
+    expect(feedbackAfter).toHaveClass('is-ok')
+    expect(feedbackAfter).toHaveTextContent(/correct/i)
+    expect(feedbackAfter.querySelector('svg')).not.toBeNull()
+  })
+
+  it('a wrong answer shows the error class and a "comes back for review" message, not just red text', async () => {
+    const user = userEvent.setup()
+    const rng = scriptedRng([0])
+    render(<FlashcardScreen rng={rng} midiInput={new FakeMidiInput()} />)
+
+    await user.selectOptions(screen.getByLabelText('Drill'), 'interval-on-staff')
+    // level 1's first interval-on-staff card is a minor 2nd (see the
+    // "answering the interval drill correctly" test above) — anything else
+    // is wrong.
+    await user.click(screen.getByRole('button', { name: 'Major 3rd' }))
+
+    const feedback = screen.getByTestId('flashcard-feedback')
+    expect(feedback).toHaveClass('is-error')
+    expect(feedback).toHaveTextContent(/not quite.*review/i)
+  })
+})
+
+describe('FlashcardScreen — QWERTY hint collapses behind a disclosure (roadmap UI-12)', () => {
+  it('shows a one-line "Show keys" trigger, and opening it reveals the full key map', async () => {
+    const user = userEvent.setup()
+    render(<FlashcardScreen rng={seededRng(1)} midiInput={new FakeMidiInput()} />)
+
+    const trigger = screen.getByText('Show keys')
+    const disclosure = trigger.closest('details')
+    expect(disclosure).not.toBeNull()
+    expect(disclosure).not.toHaveAttribute('open')
+    // The full mapping text is still in the document (native <details> hides
+    // it visually, not structurally) — proves QwertyHint itself is untouched.
+    expect(screen.getByText(/or type it/i)).toBeInTheDocument()
+
+    await user.click(trigger)
+
+    expect(disclosure).toHaveAttribute('open')
   })
 })

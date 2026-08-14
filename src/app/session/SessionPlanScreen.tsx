@@ -1,10 +1,14 @@
 /**
- * Today's practice session (roadmap 4.7a, 5.44, 5.45, REQ-3.1.4).
+ * Today's practice session (roadmap 4.7a, 5.44, 5.45, REQ-3.1.4; redesigned
+ * UI-08, 2026-08-12 UI audit — see `docs/ui-audit/today--desktop--dark.png`
+ * and `state--session-run-1.png`).
  *
  * Two modes, one component:
  *  - PLANNING: pick a budget and (optionally) adjust the mix; `useSessionPlan`
- *    recomputes `plan` on every change and this renders a preview — same as
- *    before roadmap 5.44, minus the per-item "Open" being the only action.
+ *    recomputes `plan` on every change and this renders a preview — one
+ *    `.card` per planned item (icon, title, duration badge), the WHOLE card
+ *    the click target for every segment except warm-up (UI-08: the old
+ *    lowercase "Open" link at an inconsistent x-position is gone).
  *  - RUNNING: once "Start session" is clicked, `useSessionRun` freezes that
  *    `plan` into a persisted run and this renders ONE item at a time — a
  *    live timer (driven by the injected `Clock`/`DateSource` via
@@ -17,12 +21,11 @@
  * The warm-up item (roadmap 5.45) is the one item that does not merely link
  * elsewhere: while it is current, this renders `WarmupChecklist` — a real
  * away-from-the-keys routine — inline, and "Complete" is gated on every step
- * being checked. Every other item keeps the pre-5.44 "Open" affordance
- * (`onOpen`, still the shell's job to route — this screen still never
- * imports `Shell.tsx` and never decides where an exercise's params take the
- * learner) alongside the new timer/complete controls, so a learner can still
- * jump straight to the real screen for that item while the session clock
- * keeps their overall position.
+ * being checked. During PLANNING the warm-up card is not a click target at
+ * all (it has nowhere to "open" to yet — see the note rendered on it); every
+ * other item's card opens the real destination (`onOpen`, still the shell's
+ * job to route — this screen still never imports `Shell.tsx` and never
+ * decides where an exercise's params take the learner).
  *
  * Persistence for "which item is current, which are done" lives in
  * `useSessionRun`, independent of `useSessionPlan` (which stays exactly the
@@ -35,11 +38,15 @@ import type { Clock, DateSource, Store } from '@core/ports/index.ts'
 import {
   SESSION_LENGTHS,
   type MixableSegmentKind,
+  type PlannedSession,
   type SessionSegmentKind,
 } from '@core/curriculum/session.ts'
 import type { Exercise } from '@core/curriculum/types.ts'
+import type { IconName } from '../../design-system/icons/icons.ts'
+import { Icon } from '@app/ui/Icon.tsx'
+import { OnboardingGateway } from '@app/onboarding/OnboardingGateway.tsx'
 import { useSessionPlan, MAX_BUDGET_MINUTES } from './useSessionPlan.ts'
-import { useSessionRun } from './useSessionRun.ts'
+import { useSessionRun, type SessionRunSnapshot } from './useSessionRun.ts'
 import { WarmupChecklist } from './WarmupChecklist.tsx'
 
 export type SessionPlanScreenProps = {
@@ -50,14 +57,6 @@ export type SessionPlanScreenProps = {
   readonly date?: DateSource
   readonly openStore?: () => Promise<Store>
 }
-
-const SEGMENT_ORDER: readonly SessionSegmentKind[] = [
-  'warmup',
-  'technique',
-  'sight-reading',
-  'lesson',
-  'theory-ear',
-]
 
 const MIXABLE_SEGMENT_ORDER: readonly MixableSegmentKind[] = [
   'technique',
@@ -72,6 +71,31 @@ const SEGMENT_LABELS: Readonly<Record<SessionSegmentKind, string>> = {
   'sight-reading': 'Sight-reading',
   lesson: 'Lesson / repertoire',
   'theory-ear': 'Theory / ear training',
+}
+
+/** One glance should say what kind of segment a card is, even before reading
+ * its title (rule 4 of the nine screen rules — status sits WITH the thing it
+ * describes). */
+const SEGMENT_ICONS: Readonly<Record<SessionSegmentKind, IconName>> = {
+  warmup: 'flame',
+  technique: 'hand',
+  'sight-reading': 'book',
+  lesson: 'keyboard',
+  'theory-ear': 'ear',
+}
+
+type QueueStatus = 'done' | 'current' | 'upcoming'
+
+const QUEUE_STATUS_ICON: Readonly<Record<QueueStatus, IconName>> = {
+  done: 'check',
+  current: 'play',
+  upcoming: 'clock',
+}
+
+const QUEUE_STATUS_LABEL: Readonly<Record<QueueStatus, string>> = {
+  done: 'Done',
+  current: 'Current',
+  upcoming: 'Upcoming',
 }
 
 /** Turns `planSession`'s own error message into a sentence a learner can act
@@ -94,6 +118,11 @@ function formatElapsed(ms: number): string {
   const minutes = Math.floor(totalSeconds / 60)
   const seconds = totalSeconds % 60
   return `${minutes}:${String(seconds).padStart(2, '0')}`
+}
+
+/** Sentence-case, grammatically correct plural — rule 7 forbids "0 day(s)"-style shortcuts. */
+function pluralize(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`
 }
 
 export function SessionPlanScreen({ onOpen, clock, date, openStore }: SessionPlanScreenProps) {
@@ -143,92 +172,39 @@ export function SessionPlanScreen({ onOpen, clock, date, openStore }: SessionPla
 
   if (!run.hydrated) {
     return (
-      <div className="session-plan-screen">
-        <h2>Today&apos;s session</h2>
+      <div className="page page--focus session-plan-screen">
+        <h1>Today&apos;s session</h1>
         <p role="status">Loading today&apos;s session…</p>
       </div>
     )
   }
 
-  if (run.run !== undefined && currentItem !== undefined) {
-    const isWarmup = currentItem.segment === 'warmup'
-    const canComplete = !isWarmup || warmupAllChecked
-    const position = currentIndex !== undefined ? currentIndex + 1 : 0
+  if (run.run !== undefined && currentIndex !== undefined && currentItem !== undefined) {
     return (
-      <div className="session-plan-screen session-run-active">
-        <h2>Today&apos;s session</h2>
-        <p className="session-run-position" data-testid="session-run-position">
-          Item {position} of {run.run.plan.items.length}
-        </p>
-        <div className="progress-bar" role="progressbar" aria-valuenow={position - 1} aria-valuemin={0} aria-valuemax={run.run.plan.items.length}>
-          <span style={{ width: `${((position - 1) / run.run.plan.items.length) * 100}%` }} />
-        </div>
-
-        <section className="card session-run-current" aria-label="Current item">
-          <p className="session-run-segment">{SEGMENT_LABELS[currentItem.segment]}</p>
-          <h3>{currentItem.exercise.title}</h3>
-          <p data-testid="session-run-elapsed">
-            {formatElapsed(run.elapsedMs())} elapsed — {currentItem.minutes} min planned
-          </p>
-
-          {isWarmup ? (
-            <>
-              <p className="session-run-warmup-hint">
-                Away from the keyboard — no notes yet. Check off every step to continue.
-              </p>
-              <WarmupChecklist onAllCheckedChange={setWarmupAllChecked} />
-            </>
-          ) : (
-            <button type="button" className="btn-ghost" onClick={() => onOpen(currentItem.exercise)}>
-              Open {currentItem.exercise.title}
-            </button>
-          )}
-
-          <button
-            type="button"
-            className="btn-primary"
-            disabled={!canComplete}
-            onClick={() => run.completeCurrentItem()}
-          >
-            {isWarmup ? 'Complete warm-up' : 'Complete item'}
-          </button>
-        </section>
-
-        <ol className="session-run-item-list" aria-label="Session items">
-          {run.run.plan.items.map((item, index) => {
-            const isDone = run.run?.doneFlags[index] === true
-            const isCurrent = index === currentIndex
-            const status = isDone ? 'Done' : isCurrent ? 'Current' : 'Upcoming'
-            return (
-              <li
-                key={`${item.segment}-${item.exercise.id}-${index}`}
-                data-testid={`session-run-item-${index}`}
-                data-status={status.toLowerCase()}
-                aria-current={isCurrent ? 'step' : undefined}
-              >
-                <span className="session-run-item-status">{isDone ? '✓' : index + 1}</span>
-                <span>{SEGMENT_LABELS[item.segment]}</span>
-                <span>{item.exercise.title}</span>
-                <span className="session-run-item-badge">{status}</span>
-              </li>
-            )
-          })}
-        </ol>
-
-        <button type="button" className="btn-ghost" onClick={() => run.planNewSession()}>
-          Stop session
-        </button>
-      </div>
+      <SessionRunView
+        run={run.run}
+        currentIndex={currentIndex}
+        currentItem={currentItem}
+        elapsedMs={run.elapsedMs()}
+        warmupAllChecked={warmupAllChecked}
+        onWarmupAllCheckedChange={setWarmupAllChecked}
+        onOpen={onOpen}
+        onCompleteCurrentItem={() => run.completeCurrentItem()}
+        onStopSession={() => run.planNewSession()}
+      />
     )
   }
 
   if (isRunComplete && run.run !== undefined) {
+    const totalItems = run.run.plan.items.length
     return (
-      <div className="session-plan-screen">
-        <h2>Today&apos;s session</h2>
+      <div className="page page--focus session-plan-screen">
+        <header className="page-header">
+          <h1>Today&apos;s session</h1>
+        </header>
         <p role="status" className="is-ok" data-testid="session-run-complete">
-          Session complete — {run.run.plan.items.length} of {run.run.plan.items.length} items done,{' '}
-          {run.run.plan.totalMinutes} minutes planned.
+          Session complete — {totalItems} of {pluralize(totalItems, 'item')} done,{' '}
+          {pluralize(run.run.plan.totalMinutes, 'minute')} planned.
         </p>
         <button type="button" className="btn-primary" onClick={() => run.planNewSession()}>
           Plan a new session
@@ -238,36 +214,70 @@ export function SessionPlanScreen({ onOpen, clock, date, openStore }: SessionPla
   }
 
   return (
-    <div className="session-plan-screen">
-      <h2>Today&apos;s session</h2>
+    <div className="page page--focus session-plan-screen">
+      {/* Roadmap UI-08: the onboarding callout renders HERE rather than in
+          Shell, which is where it used to live. It has to disappear while a
+          session is running (it competed with the run's own single primary
+          action), and only this screen knows that — Shell would have had to
+          call `useSessionRun` a second time to find out, starting a second
+          timer against the same persisted run. Reaching this return already
+          means "not running and not just-completed", so the condition is the
+          position, with `sessionRunning` kept as an explicit belt-and-braces
+          signal for anyone who moves this call. */}
+      <OnboardingGateway show sessionRunning={false} />
+      <header className="page-header">
+        <div>
+          <h1>Today&apos;s session</h1>
+          <p className="page-header-subtitle">
+            <TodayLabel date={date} />
+            {plan !== undefined && (
+              <>
+                {' · '}
+                <span data-testid="session-plan-total">
+                  {pluralize(plan.totalMinutes, 'minute')} planned
+                </span>
+              </>
+            )}
+          </p>
+        </div>
+      </header>
 
-      <div role="group" aria-label="Session length">
-        {SESSION_LENGTHS.map((minutes) => (
-          <button
-            key={minutes}
-            type="button"
-            aria-pressed={budgetMinutes === minutes}
-            onClick={() => setBudgetMinutes(minutes)}
-          >
-            {minutes} min
-          </button>
-        ))}
-        <label htmlFor="session-plan-custom-minutes">Custom minutes</label>
-        <input
-          id="session-plan-custom-minutes"
-          type="number"
-          min={1}
-          max={MAX_BUDGET_MINUTES}
-          value={budgetText}
-          onChange={(e) => handleBudgetTextChange(e.target.value)}
-        />
+      <div className="field-row session-plan-length">
+        <div className="field">
+          <label id="session-length-label">Session length</label>
+          <div className="seg-control" role="radiogroup" aria-labelledby="session-length-label">
+            {SESSION_LENGTHS.map((minutes) => (
+              <button
+                key={minutes}
+                type="button"
+                role="radio"
+                aria-checked={budgetMinutes === minutes}
+                onClick={() => setBudgetMinutes(minutes)}
+              >
+                {minutes} min
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="field">
+          <label htmlFor="session-plan-custom-minutes">Custom minutes</label>
+          <input
+            id="session-plan-custom-minutes"
+            className="session-plan-custom-input"
+            type="number"
+            min={1}
+            max={MAX_BUDGET_MINUTES}
+            value={budgetText}
+            onChange={(e) => handleBudgetTextChange(e.target.value)}
+          />
+        </div>
       </div>
 
-      <details className="session-plan-mix-disclosure">
+      <details className="card--sunken session-plan-mix-disclosure">
         <summary>Adjust mix</summary>
-        <div role="group" aria-label="Session mix">
+        <div className="field-row" role="group" aria-label="Session mix">
           {MIXABLE_SEGMENT_ORDER.map((segment) => (
-            <div key={segment}>
+            <div className="field" key={segment}>
               <label htmlFor={`session-plan-mix-${segment}`}>
                 {SEGMENT_LABELS[segment]} share
               </label>
@@ -282,10 +292,10 @@ export function SessionPlanScreen({ onOpen, clock, date, openStore }: SessionPla
               />
             </div>
           ))}
-          <button type="button" onClick={resetMix}>
-            Reset mix
-          </button>
         </div>
+        <button type="button" onClick={resetMix}>
+          Reset mix
+        </button>
       </details>
 
       {error !== undefined && (
@@ -295,21 +305,39 @@ export function SessionPlanScreen({ onOpen, clock, date, openStore }: SessionPla
       )}
 
       {plan !== undefined && (
-        <section aria-label="Session plan">
-          <p data-testid="session-plan-total">Total: {plan.totalMinutes} minutes</p>
-
-          <section aria-label="Minutes by segment">
-            <dl>
-              {SEGMENT_ORDER.map((segment) => (
-                <div key={segment}>
-                  <dt>{SEGMENT_LABELS[segment]}</dt>
-                  <dd data-testid={`session-plan-segment-${segment}`}>
-                    {plan.bySegment[segment]} min
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          </section>
+        <>
+          <ul className="session-plan-items" aria-label="Session items">
+            {plan.items.map((item, index) => (
+              <li key={`${item.segment}-${item.exercise.id}-${index}`} data-segment={item.segment}>
+                {item.segment === 'warmup' ? (
+                  <div className="card session-plan-item" data-testid={`session-plan-item-${index}`}>
+                    <Icon name={SEGMENT_ICONS[item.segment]} />
+                    <span className="session-plan-item-body">
+                      <span className="session-plan-item-kicker">{SEGMENT_LABELS[item.segment]}</span>
+                      <span className="session-plan-item-title">{item.exercise.title}</span>
+                      <span className="session-plan-item-note">Opens as a checklist</span>
+                    </span>
+                    <span className="badge session-plan-item-duration">{item.minutes} min</span>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="card session-plan-item"
+                    data-testid={`session-plan-item-${index}`}
+                    aria-label={`Open ${item.exercise.title}`}
+                    onClick={() => onOpen(item.exercise)}
+                  >
+                    <Icon name={SEGMENT_ICONS[item.segment]} />
+                    <span className="session-plan-item-body">
+                      <span className="session-plan-item-kicker">{SEGMENT_LABELS[item.segment]}</span>
+                      <span className="session-plan-item-title">{item.exercise.title}</span>
+                    </span>
+                    <span className="badge session-plan-item-duration">{item.minutes} min</span>
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
 
           {/* roadmap 4.10: the lesson segment now always has a candidate
               (loaded score > first repertoire piece > curriculum's first
@@ -321,40 +349,154 @@ export function SessionPlanScreen({ onOpen, clock, date, openStore }: SessionPla
               state this note now targets, instead of a segment that could
               actually read 0 min. */}
           {plan.items.some((item) => item.segment === 'lesson' && item.exercise.kind === 'play') && (
-            <p role="status">
-              No score loaded and no repertoire saved yet — today&apos;s lesson segment opens the
-              curriculum&apos;s first lesson. Load a score or add a piece to your repertoire to
-              personalize it.
-            </p>
+            <div className="card--sunken session-plan-note" role="status">
+              <Icon name="book" />
+              <p>
+                No score loaded and no repertoire saved yet — today&apos;s lesson segment opens the
+                curriculum&apos;s first lesson. Load a score or add a piece to your repertoire to
+                personalize it.
+              </p>
+            </div>
           )}
-
-          <ul aria-label="Session items">
-            {plan.items.map((item, index) => (
-              <li key={`${item.segment}-${item.exercise.id}-${index}`}>
-                <span>{SEGMENT_LABELS[item.segment]}</span>{' — '}
-                <span>{item.exercise.title}</span>{' — '}
-                <span>{item.minutes} min</span>{' '}
-                {item.segment === 'warmup' ? (
-                  <span className="session-plan-warmup-note">opens as a checklist</span>
-                ) : (
-                  <button
-                    type="button"
-                    className="btn-ghost"
-                    aria-label={`Open ${item.exercise.title}`}
-                    onClick={() => onOpen(item.exercise)}
-                  >
-                    Open
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
 
           <button type="button" className="btn-primary" onClick={() => run.startSession(plan)}>
             Start session
           </button>
-        </section>
+        </>
       )}
+    </div>
+  )
+}
+
+/** `date` defaults exactly like `useSessionRun`'s own internal fallback — a
+ * plain `DateSource` reading the real clock — so a caller that already
+ * injects a fake `date` for determinism (every test in this suite) gets a
+ * stable label too. */
+function TodayLabel({ date }: { readonly date: DateSource | undefined }) {
+  const source = date ?? { epochMillis: () => Date.now() }
+  const label = new Date(source.epochMillis()).toLocaleDateString(undefined, {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  })
+  return <>{label}</>
+}
+
+// ------------------------------------------------------------- running view
+
+type SessionRunViewProps = {
+  readonly run: SessionRunSnapshot
+  readonly currentIndex: number
+  readonly currentItem: PlannedSession['items'][number]
+  readonly elapsedMs: number
+  readonly warmupAllChecked: boolean
+  readonly onWarmupAllCheckedChange: (allChecked: boolean) => void
+  readonly onOpen: (exercise: Exercise) => void
+  readonly onCompleteCurrentItem: () => void
+  readonly onStopSession: () => void
+}
+
+function queueStatus(run: SessionRunSnapshot, index: number, currentIndex: number): QueueStatus {
+  if (run.doneFlags[index] === true) return 'done'
+  if (index === currentIndex) return 'current'
+  return 'upcoming'
+}
+
+function SessionRunView({
+  run,
+  currentIndex,
+  currentItem,
+  elapsedMs,
+  warmupAllChecked,
+  onWarmupAllCheckedChange,
+  onOpen,
+  onCompleteCurrentItem,
+  onStopSession,
+}: SessionRunViewProps) {
+  const isWarmup = currentItem.segment === 'warmup'
+  const canComplete = !isWarmup || warmupAllChecked
+  const position = currentIndex + 1
+  const totalItems = run.plan.items.length
+
+  return (
+    <div className="page page--focus session-plan-screen session-run-active">
+      <header className="page-header">
+        <div>
+          <h1>Today&apos;s session</h1>
+          <p className="page-header-subtitle" data-testid="session-run-position">
+            Item {position} of {totalItems}
+          </p>
+        </div>
+      </header>
+
+      <div
+        className="progress-bar"
+        role="progressbar"
+        aria-valuenow={position - 1}
+        aria-valuemin={0}
+        aria-valuemax={totalItems}
+      >
+        <span style={{ width: `${((position - 1) / totalItems) * 100}%` }} />
+      </div>
+
+      <section className="card session-run-current" aria-label="Current item">
+        <p className="session-run-segment">
+          <Icon name={SEGMENT_ICONS[currentItem.segment]} />
+          {SEGMENT_LABELS[currentItem.segment]}
+        </p>
+        <h2>{currentItem.exercise.title}</h2>
+        <p data-testid="session-run-elapsed">
+          {formatElapsed(elapsedMs)} elapsed — {currentItem.minutes} min planned
+        </p>
+
+        {isWarmup ? (
+          <>
+            <p className="session-run-warmup-hint">
+              Away from the keyboard — no notes yet. Check off every step to continue.
+            </p>
+            <WarmupChecklist onAllCheckedChange={onWarmupAllCheckedChange} />
+          </>
+        ) : (
+          <button type="button" className="btn-ghost" onClick={() => onOpen(currentItem.exercise)}>
+            Open {currentItem.exercise.title}
+          </button>
+        )}
+
+        <button
+          type="button"
+          className="btn-primary"
+          disabled={!canComplete}
+          onClick={onCompleteCurrentItem}
+        >
+          {isWarmup ? 'Complete warm-up' : 'Complete item'}
+        </button>
+      </section>
+
+      <div className="card--sunken session-run-queue">
+        <ol className="session-run-item-list" aria-label="Session items">
+          {run.plan.items.map((item, index) => {
+            const status = queueStatus(run, index, currentIndex)
+            return (
+              <li
+                key={`${item.segment}-${item.exercise.id}-${index}`}
+                data-testid={`session-run-item-${index}`}
+                data-status={status}
+                aria-current={status === 'current' ? 'step' : undefined}
+              >
+                <span className="session-run-item-status">
+                  <Icon name={QUEUE_STATUS_ICON[status]} />
+                </span>
+                <span>{item.exercise.title}</span>
+                <span className="session-run-item-badge">{QUEUE_STATUS_LABEL[status]}</span>
+              </li>
+            )
+          })}
+        </ol>
+      </div>
+
+      <button type="button" className="btn-ghost" onClick={onStopSession}>
+        Stop session
+      </button>
     </div>
   )
 }

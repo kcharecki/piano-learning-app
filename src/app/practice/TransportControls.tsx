@@ -2,7 +2,15 @@
  * Play / pause / stop, plus the position readout in bars and beats
  * (roadmap 1.18). A thin, controlled component: all state lives in
  * `usePracticeEngine` and this only renders it.
+ *
+ * UI-09 (2026-08-12 UI audit): Play is icon+label and the screen's one
+ * `.btn-primary` — the eye lands there first. Pause/Stop are icon-only
+ * `.btn-icon`s, each carrying the `aria-label` that primitive requires
+ * since neither has visible text. All three buttons always mount (only
+ * their `disabled` state changes with `phase`), so toggling between
+ * Play/Pause/Stop never changes this group's width — no layout shift.
  */
+import { Icon } from '@app/ui/Icon.tsx'
 import type { TransportState } from '@core/timing/transport.ts'
 import type { PositionDisplay } from './usePracticeEngine.ts'
 
@@ -32,19 +40,30 @@ export function TransportControls({
   const running = phase === 'playing' || phase === 'waiting'
   return (
     <div className="transport-controls" role="group" aria-label="Transport">
-      <button type="button" onClick={onPlay} disabled={running}>
+      <button type="button" className="btn-primary" onClick={onPlay} disabled={running}>
+        <Icon name="play" />
         Play
       </button>
-      <button type="button" onClick={onPause} disabled={!running || disabled}>
-        Pause
+      <button
+        type="button"
+        className="btn-icon"
+        aria-label="Pause"
+        onClick={onPause}
+        disabled={!running || disabled}
+      >
+        <Icon name="pause" />
       </button>
-      <button type="button" onClick={onStop} disabled={phase === 'stopped' || disabled}>
-        Stop
+      <button
+        type="button"
+        className="btn-icon"
+        aria-label="Stop"
+        onClick={onStop}
+        disabled={phase === 'stopped' || disabled}
+      >
+        <Icon name="stop" />
       </button>
-      <output aria-label="Position">
-        {position === undefined
-          ? '—'
-          : `Measure ${position.measureNumber}, beat ${position.beat} of ${position.beatsPerMeasure}`}
+      <output aria-label="Position" className="transport-position">
+        {position === undefined ? '—' : `Measure ${position.measureNumber} · beat ${position.beat}`}
       </output>
       {phase === 'waiting' && <span role="status">Waiting for you…</span>}
     </div>
