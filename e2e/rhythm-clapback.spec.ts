@@ -40,11 +40,22 @@ function collectErrors(page: Page): string[] {
  *  those and fail this assertion on every screen, defeating its own purpose;
  *  `<main>` is exactly the region `Shell.tsx` renders the active screen into,
  *  so this still proves the same thing the un-scoped check proved before
- *  icons existed — the RHYTHM SCREEN ITSELF never engraves anything. */
+ *  icons existed — the RHYTHM SCREEN ITSELF never engraves anything.
+ *
+ *  Roadmap UI-14: the redesigned Rhythm/clap-back stage itself now uses the
+ *  shared `Icon` component too (the stepper's +/− glyphs, Start/Again's play
+ *  glyph) — plain decorative svgs living INSIDE `<main>`, not just in chrome
+ *  outside it. `Icon.tsx`'s own accessibility contract is what tells the two
+ *  kinds of svg apart: every decorative icon it renders is `aria-hidden`
+ *  ("Icons are ALWAYS decorative here" — see that file's module doc), while a
+ *  real OSMD engraving is perceivable content and is never `aria-hidden`. So
+ *  excluding `[aria-hidden="true"]` still proves the same thing this
+ *  assertion always proved — no notation SVG anywhere in the screen's own
+ *  content — without failing on the redesign's own decorative chrome. */
 async function expectNoNotationAnywhere(page: Page): Promise<void> {
   const main = page.locator('main')
   await expect(main.getByTestId('score-container')).toHaveCount(0)
-  await expect(main.locator('svg')).toHaveCount(0)
+  await expect(main.locator('svg:not([aria-hidden="true"])')).toHaveCount(0)
   await expect(main.locator('[data-note-id]')).toHaveCount(0)
 }
 
@@ -64,7 +75,10 @@ test('the clap-back mode plays the phrase audibly, never engraves it, and grades
   await expectNoNotationAnywhere(page)
 
   await page.getByRole('button', { name: 'Clap-back mode' }).click()
-  await expect(page.getByTestId('clapback-level')).toHaveText('Level 1')
+  // Roadmap UI-14: the stepper's testid holds only the bare numeral now — the
+  // "Level" label moved out into its own `.field` label. Assert both halves.
+  await expect(page.getByText('Level', { exact: true })).toBeVisible()
+  await expect(page.getByTestId('clapback-level')).toHaveText('1')
   await expectNoNotationAnywhere(page)
 
   await page.getByRole('button', { name: 'Start' }).click()
@@ -77,9 +91,14 @@ test('the clap-back mode plays the phrase audibly, never engraves it, and grades
   await expect(page.getByTestId('clapback-tapping-status')).toBeVisible({ timeout: 15_000 })
   await expectNoNotationAnywhere(page)
 
-  // `exact: true`: the mode toggle's own "Sight-read & tap" button contains
-  // "Tap" as a substring, and Playwright's default name match is substring.
-  const tapButton = page.getByRole('button', { name: 'Tap', exact: true })
+  // Roadmap UI-14: the pad's accessible name while tapping is "Now clap it
+  // back — or press Space" — it no longer contains the word "Tap" at all (the
+  // shared tap-pad visual language `RhythmScreen.tsx`'s sight-tap mode also
+  // uses), so a name-based lookup can no longer find it. `.rhythm-tap-pad` is
+  // the one pad on screen in this mode (RhythmClapback.tsx never renders
+  // notation, see the module doc above) — a stable, deliberate structural hook
+  // the redesign itself names, not a CSS incidental.
+  const tapButton = page.locator('.rhythm-tap-pad')
   await expect(tapButton).toBeEnabled()
 
   const TAP_COUNT = 5
@@ -87,7 +106,9 @@ test('the clap-back mode plays the phrase audibly, never engraves it, and grades
     await tapButton.click()
     await page.waitForTimeout(150)
   }
-  await expect(page.getByTestId('clapback-tap-count')).toHaveText(`Taps: ${TAP_COUNT}`)
+  // Roadmap UI-14: the count span holds a bare numeral now (see `rhythm.spec.ts`'s
+  // matching fix for the sight-tap pad).
+  await expect(page.getByTestId('clapback-tap-count')).toHaveText(`${TAP_COUNT}`)
   await expectNoNotationAnywhere(page)
 
   await expect(page.getByTestId('clapback-accuracy')).toBeVisible({ timeout: 15_000 })

@@ -42,7 +42,13 @@ describe('TheoryDrillPanel', () => {
 
     const expected = buildTheoryQuiz('build-scale', 1, scriptedRng([0]))
     expect(screen.getByLabelText('Topic')).toHaveValue('build-scale')
-    expect(screen.getByTestId('theory-level')).toHaveTextContent('Level 1')
+    // The bare word "Level" lives outside the stepper group as the group's
+    // accessible name; the bare numeral lives in the value cell inside it —
+    // asserting both together via one query is how the canonical shape
+    // (docs/ui-overhaul-brief.md) is proven, not just the number alone.
+    expect(within(screen.getByRole('group', { name: 'Level' })).getByTestId('theory-level')).toHaveTextContent(
+      '1',
+    )
     expect(screen.getByTestId('theory-prompt')).toHaveTextContent(expected.prompt)
     expect(screen.getByTestId('theory-progress')).toHaveTextContent(`0 / ${expected.answer.length}`)
   })
@@ -219,7 +225,9 @@ describe('TheoryDrillPanel', () => {
 
     await user.click(screen.getByRole('button', { name: 'Increase level' }))
 
-    expect(screen.getByTestId('theory-level')).toHaveTextContent('Level 2')
+    expect(within(screen.getByRole('group', { name: 'Level' })).getByTestId('theory-level')).toHaveTextContent(
+      '2',
+    )
     const level2 = buildTheoryQuiz('build-scale', 2, scriptedRng([0]))
     expect(screen.getByTestId('theory-prompt')).toHaveTextContent(level2.prompt)
   })
@@ -403,7 +411,9 @@ describe('TheoryDrillPanel', () => {
 
     const expected = buildTheoryQuiz('build-cadence', 3, scriptedRng([0]))
     expect(screen.getByLabelText('Topic')).toHaveValue('build-cadence')
-    expect(screen.getByTestId('theory-level')).toHaveTextContent('Level 3')
+    expect(within(screen.getByRole('group', { name: 'Level' })).getByTestId('theory-level')).toHaveTextContent(
+      '3',
+    )
     expect(screen.getByTestId('theory-prompt')).toHaveTextContent(expected.prompt)
   })
 
@@ -416,13 +426,17 @@ describe('TheoryDrillPanel', () => {
       />,
     )
 
-    expect(screen.getByTestId('theory-level')).toHaveTextContent(`Level ${MAX_THEORY_LEVEL}`)
+    expect(
+      within(screen.getByRole('group', { name: 'Level' })).getByTestId('theory-level'),
+    ).toHaveTextContent(String(MAX_THEORY_LEVEL))
   })
 
   it('initialLevel below 1 is clamped up to 1', () => {
     render(<TheoryDrillPanel rng={scriptedRng([0])} midiInput={new FakeMidiInput()} initialLevel={-3} />)
 
-    expect(screen.getByTestId('theory-level')).toHaveTextContent('Level 1')
+    expect(within(screen.getByRole('group', { name: 'Level' })).getByTestId('theory-level')).toHaveTextContent(
+      '1',
+    )
   })
 
   it('absent initialKind/initialLevel behaves exactly like today: build-scale at level 1', () => {
@@ -430,7 +444,9 @@ describe('TheoryDrillPanel', () => {
 
     const expected = buildTheoryQuiz('build-scale', 1, scriptedRng([0]))
     expect(screen.getByLabelText('Topic')).toHaveValue('build-scale')
-    expect(screen.getByTestId('theory-level')).toHaveTextContent('Level 1')
+    expect(within(screen.getByRole('group', { name: 'Level' })).getByTestId('theory-level')).toHaveTextContent(
+      '1',
+    )
     expect(screen.getByTestId('theory-prompt')).toHaveTextContent(expected.prompt)
   })
 
@@ -498,7 +514,9 @@ describe('TheoryDrillPanel', () => {
     for (let level = 1; level < MAX_THEORY_LEVEL; level++) {
       await user.click(increase)
     }
-    expect(screen.getByTestId('theory-level')).toHaveTextContent(`Level ${MAX_THEORY_LEVEL}`)
+    expect(
+      within(screen.getByRole('group', { name: 'Level' })).getByTestId('theory-level'),
+    ).toHaveTextContent(String(MAX_THEORY_LEVEL))
     expect(increase).toBeDisabled()
   })
 
@@ -510,11 +528,15 @@ describe('TheoryDrillPanel', () => {
     for (let level = 1; level < MAX_THEORY_LEVEL - 1; level++) {
       await user.click(increase)
     }
-    expect(screen.getByTestId('theory-level')).toHaveTextContent(`Level ${MAX_THEORY_LEVEL - 1}`)
+    expect(
+      within(screen.getByRole('group', { name: 'Level' })).getByTestId('theory-level'),
+    ).toHaveTextContent(String(MAX_THEORY_LEVEL - 1))
     const belowMaxPrompt = screen.getByTestId('theory-prompt').textContent
 
     await user.click(increase)
-    expect(screen.getByTestId('theory-level')).toHaveTextContent(`Level ${MAX_THEORY_LEVEL}`)
+    expect(
+      within(screen.getByRole('group', { name: 'Level' })).getByTestId('theory-level'),
+    ).toHaveTextContent(String(MAX_THEORY_LEVEL))
     const atMaxPrompt = screen.getByTestId('theory-prompt').textContent
 
     // With a constant rng, `buildTheoryQuiz` always picks each pool's first

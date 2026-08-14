@@ -752,14 +752,29 @@ export function PracticeScreen(props: PracticeScreenProps) {
           initial state; the learner can close it, and closing it is exactly
           what the 5.18 proof's "under 2000px with all sections closed"
           measures. */}
-      <details className="practice-setup" open>
+      {/* Roadmap UI-10 (2026-08-12 UI audit): `.card--sunken` (primitives.css)
+          replaces the section's own hand-rolled border/background — the
+          disclosure chrome (summary marker, body spacing) stays in
+          feature-practice-sections.css. */}
+      <details className="practice-setup card--sunken" open>
         <summary>Practice setup</summary>
         <div className="practice-setup-body">
-          {/* `LoopRangeControl` has no `disabled` prop of its own (owned by
-              another agent) — a native `<fieldset disabled>` disables every
-              form control inside it, which is the only lever available
-              without touching that file. */}
-          <fieldset disabled={assessmentRunning}>
+          {/* Roadmap UI-10: Range/Hands/Sound as three titled groups
+              (`<fieldset><legend>`) rather than three flat top-level
+              controls — `<legend>` gives each one the same visible label
+              treatment `.field > label` uses elsewhere, and `<fieldset>` is
+              the correct native primitive for "a titled group of controls"
+              (each control inside already carries its own `role="group"`/
+              `radiogroup` for its OWN name — "Loop range", "Hands" — this
+              adds the outer section title the audit asked for without
+              fighting either). `LoopRangeControl` has no `disabled` prop of
+              its own (owned by another agent) — the fieldset's native
+              `disabled` is the only lever available without touching that
+              file; Hands/Sound already take their own `disabled` prop, so
+              the fieldset's `disabled` here is redundant-but-harmless
+              belt-and-suspenders, not the only mechanism. */}
+          <fieldset className="practice-setup-group" disabled={assessmentRunning}>
+            <legend>Range</legend>
             <LoopRangeControl
               score={loaded.score}
               loop={settings.loop}
@@ -767,18 +782,24 @@ export function PracticeScreen(props: PracticeScreenProps) {
               tempoScale={settings.tempoScale}
             />
           </fieldset>
-          <HandMuteControl
-            activeHands={settings.activeHands}
-            onChange={setActiveHands}
-            disabled={assessmentRunning}
-          />
-          <MetronomeControl
-            enabled={settings.metronomeEnabled}
-            onToggle={setMetronomeEnabled}
-            subdivision={subdivision}
-            onSubdivisionChange={setSubdivision}
-            disabled={assessmentRunning}
-          />
+          <fieldset className="practice-setup-group" disabled={assessmentRunning}>
+            <legend>Hands</legend>
+            <HandMuteControl
+              activeHands={settings.activeHands}
+              onChange={setActiveHands}
+              disabled={assessmentRunning}
+            />
+          </fieldset>
+          <fieldset className="practice-setup-group" disabled={assessmentRunning}>
+            <legend>Sound</legend>
+            <MetronomeControl
+              enabled={settings.metronomeEnabled}
+              onToggle={setMetronomeEnabled}
+              subdivision={subdivision}
+              onSubdivisionChange={setSubdivision}
+              disabled={assessmentRunning}
+            />
+          </fieldset>
           {/* Roadmap B.3 (REQ-3.2.4's optional half) — the falling-note view,
               synchronized with the score below rather than a second clock
               (see `engineCursorRef` above). Off by default: sight reading is

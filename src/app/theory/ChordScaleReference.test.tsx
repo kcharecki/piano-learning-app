@@ -764,64 +764,11 @@ describe('ChordScaleReference', () => {
     })
   })
 
-  describe('ChordLookup wiring (roadmap 3.15, REQ-3.5.4 "look up ANY chord")', () => {
-    // A component nobody renders is the defect class this task exists to
-    // fix — this proves `ChordLookup` is actually mounted, not merely
-    // written, by driving its own pickers to a chord the diatonic-chords
-    // section of a major-key reference could never reach.
-    it('renders a chord lookup that can look up a chord no diatonic-chords section could show, e.g. Db diminished 7th', async () => {
-      const user = userEvent.setup()
-      render(<Controlled />)
-
-      const lookup = screen.getByRole('region', { name: 'Chord lookup' })
-      await user.selectOptions(within(lookup).getByLabelText('Chord root'), 'Db')
-      await user.selectOptions(within(lookup).getByLabelText('Chord quality'), 'Diminished 7th')
-
-      expect(within(lookup).getByTestId('chord-lookup-symbol')).toHaveTextContent('Dbdim7')
-      expect(
-        screen.queryByRole('list', { name: 'Diatonic chords' }),
-      ).not.toHaveTextContent('Dbdim7')
-    })
-
-    it('seeds the lookup\'s root from the reference\'s current root, and re-seeds it when the reference\'s root changes', async () => {
-      // Finding 1: `initialRoot` used to be read only at mount, and
-      // ChordScaleReference never remounted ChordLookup while its own root
-      // changed (same element position, no `key`) — so a learner who
-      // selected e.g. A on the circle of fifths still saw the lookup seeded
-      // on whatever root the screen first mounted with, making the "seeds
-      // from the reference's current root" contract unobservable outside
-      // tests. Keying ChordLookup on the reference's root makes it re-seed
-      // (and reset quality/inversion — a new reference root is a fresh
-      // lookup session, not a mid-edit of the old one).
-      const user = userEvent.setup()
-      render(<Controlled initialRoot={spell('G', 0, 4)} />)
-
-      const lookupRootLabel = () =>
-        (
-          within(screen.getByRole('region', { name: 'Chord lookup' })).getByLabelText(
-            'Chord root',
-          ) as HTMLSelectElement
-        ).selectedOptions[0]
-
-      expect(lookupRootLabel()).toHaveTextContent('G')
-
-      await user.selectOptions(screen.getByLabelText('Root'), 'A')
-      expect(lookupRootLabel()).toHaveTextContent('A')
-    })
-
-    it('shares the injected audioOutput with the reference, rather than building its own second audio path', async () => {
-      const user = userEvent.setup()
-      const clock = new FakeClock(0)
-      const audioOutput = new RecordingAudioOutput(clock)
-      render(<Controlled audioOutput={audioOutput} />)
-
-      const lookup = screen.getByRole('region', { name: 'Chord lookup' })
-      await user.click(within(lookup).getByRole('button', { name: /^Play the .* chord$/ }))
-
-      // The chord lookup's own Play button reached the very same injected
-      // RecordingAudioOutput the rest of the screen uses, not a second,
-      // unobserved one.
-      expect(audioOutput.calls.some((c) => c.kind === 'noteOn')).toBe(true)
-    })
-  })
+  // `ChordLookup` wiring (seeding from the reference's current root,
+  // re-seeding when it changes, sharing the audio output) moved to
+  // `TheoryScreen.test.tsx` (roadmap UI-17): `ChordLookup` is no longer
+  // composed inside this component — it is `TheoryScreen`'s own fourth tab —
+  // so this file can no longer observe it at all. `ChordLookup.tsx`'s own
+  // functional behaviour (root/quality/inversion, playback, engraving) stays
+  // covered by `ChordLookup.test.tsx`, unaffected by where it is mounted.
 })

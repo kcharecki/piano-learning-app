@@ -11,10 +11,20 @@
  * so a beat count change is never displayed with a stale-length pattern for
  * even one frame: indices that still exist keep their value, new ones default
  * from `defaultAccents(timeSignature)`, removed ones are dropped.
+ *
+ * Redesigned (roadmap UI-16, 2026-08-14 UI audit) as a `.seg-control`-style
+ * row of per-beat toggles instead of a column of "Beat N (accent)" buttons:
+ * each chip shows only its beat number so a 7- or 8-beat metre still reads as
+ * one compact row inside the Meter card. `aria-pressed` is the state hook —
+ * `primitives.css`'s generic `button[aria-pressed="true"]` rule already
+ * outranks `.seg-control > *`'s plain background reset on specificity, so the
+ * accented chips light up correctly with zero CSS of this component's own.
+ * The full "Beat N" wording moves to `aria-label` so the accessible name
+ * stays descriptive even though the visible glyph is now just the number.
  */
 import { defaultAccents, type AccentPattern } from '@core/timing/metronome.ts'
 import type { TimeSignature } from '@core/notation/score.ts'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useId, useMemo } from 'react'
 
 export type AccentEditorProps = {
   readonly timeSignature: TimeSignature
@@ -41,6 +51,7 @@ function sameAccents(a: AccentPattern, b: AccentPattern): boolean {
 
 export function AccentEditor({ timeSignature, accents, onChange, disabled = false }: AccentEditorProps) {
   const display = useMemo(() => resizeAccents(accents, timeSignature), [accents, timeSignature])
+  const labelId = useId()
 
   // The metre changed (or `accents` arrived the wrong length): push the
   // resized pattern back up so the caller's own state — which is what
@@ -58,19 +69,22 @@ export function AccentEditor({ timeSignature, accents, onChange, disabled = fals
   }
 
   return (
-    <div role="group" aria-label="Accent pattern">
-      {display.map((accented, i) => (
-        <button
-          key={i}
-          type="button"
-          aria-pressed={accented}
-          disabled={disabled}
-          onClick={() => toggle(i)}
-        >
-          {`Beat ${i + 1}`}
-          {accented ? ' (accent)' : ''}
-        </button>
-      ))}
+    <div className="field metronome-accent-field">
+      <label id={labelId}>Accents</label>
+      <div className="seg-control metronome-accent-seg" role="group" aria-labelledby={labelId}>
+        {display.map((accented, i) => (
+          <button
+            key={i}
+            type="button"
+            aria-pressed={accented}
+            aria-label={`Beat ${i + 1}${accented ? ', accented' : ''}`}
+            disabled={disabled}
+            onClick={() => toggle(i)}
+          >
+            {i + 1}
+          </button>
+        ))}
+      </div>
     </div>
   )
 }

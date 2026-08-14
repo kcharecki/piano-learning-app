@@ -8,6 +8,12 @@
  * `selectedNoteId` and `measureIndex` are controlled by the caller (the score
  * viewer owns "which note/measure is in view"); this panel never guesses one
  * on its own.
+ *
+ * Roadmap UI-10 (2026-08-12 UI audit): restyled onto `.card` (primitives.css)
+ * — it already rendered inside "More tools"'s bordered box, so this gives it
+ * its own lifted surface for the three sub-groups (fingering, highlight,
+ * measure note) instead of unstyled default block spacing. No structural
+ * change: same three `role="group"` sections, same fields, same test ids.
  */
 import { MAX_FINGER, MIN_FINGER } from '@core/notation/annotations.ts'
 import { useState } from 'react'
@@ -70,7 +76,7 @@ export function AnnotationPanel({ selectedNoteId, measureIndex }: AnnotationPane
   }
 
   return (
-    <div className="annotation-panel">
+    <div className="card annotation-panel">
       <section role="group" aria-label="Fingering">
         <label htmlFor="annotation-finger-input">Finger (1–5)</label>
         <input

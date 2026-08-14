@@ -3,6 +3,14 @@
  * pattern itself is not user-editable here — `usePracticeEngine` lets
  * `@core/timing/metronome.ts` supply `defaultAccents` for the score's time
  * signature, which is what gives the downbeat its click.
+ *
+ * Roadmap UI-10 (2026-08-12 UI audit): the subdivision select used to render
+ * always, permanently `disabled` while the metronome was off — a control the
+ * current state could never enable, sitting there greyed out. It now mounts
+ * only while `enabled` is true, matching DESIGN.md's "a disabled control that
+ * can never be enabled is hidden, not greyed" rule; the `disabled` PROP (the
+ * separate "assessment running" freeze) still disables it in place once it is
+ * showing, exactly as before.
  */
 import { SUBDIVISIONS, type Subdivision } from '@core/timing/metronome.ts'
 import { useId } from 'react'
@@ -35,19 +43,23 @@ export function MetronomeControl({
         />
         Metronome
       </label>
-      <label htmlFor={id}>Subdivision</label>
-      <select
-        id={id}
-        value={subdivision}
-        disabled={disabled || !enabled}
-        onChange={(event) => onSubdivisionChange(Number(event.target.value) as Subdivision)}
-      >
-        {SUBDIVISIONS.map((value) => (
-          <option key={value} value={value}>
-            {value === 1 ? 'Beat' : `${value} clicks / beat`}
-          </option>
-        ))}
-      </select>
+      {enabled && (
+        <div className="field-inline">
+          <label htmlFor={id}>Subdivision</label>
+          <select
+            id={id}
+            value={subdivision}
+            disabled={disabled}
+            onChange={(event) => onSubdivisionChange(Number(event.target.value) as Subdivision)}
+          >
+            {SUBDIVISIONS.map((value) => (
+              <option key={value} value={value}>
+                {value === 1 ? 'Beat' : `${value} clicks / beat`}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
     </div>
   )
 }

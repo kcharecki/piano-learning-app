@@ -22,7 +22,10 @@ describe('MetronomeControl', () => {
     expect(onToggle).toHaveBeenCalledWith(true)
   })
 
-  it('disables the subdivision select while off', () => {
+  // Roadmap UI-10: a disabled control the current state can never enable is
+  // hidden, not greyed — the select does not render at all while off, rather
+  // than rendering permanently disabled.
+  it('hides the subdivision select while off', () => {
     render(
       <MetronomeControl
         enabled={false}
@@ -31,7 +34,19 @@ describe('MetronomeControl', () => {
         onSubdivisionChange={() => {}}
       />,
     )
-    expect(screen.getByLabelText('Subdivision')).toBeDisabled()
+    expect(screen.queryByLabelText('Subdivision')).not.toBeInTheDocument()
+  })
+
+  it('shows an enabled subdivision select once the metronome is on', () => {
+    render(
+      <MetronomeControl
+        enabled
+        onToggle={() => {}}
+        subdivision={1}
+        onSubdivisionChange={() => {}}
+      />,
+    )
+    expect(screen.getByLabelText('Subdivision')).toBeEnabled()
   })
 
   it('changing the subdivision reports the chosen value', async () => {

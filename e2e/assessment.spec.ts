@@ -156,10 +156,27 @@ test('assessment run driven end to end: play it, review lists problem measures, 
   expect(accuracyValue).toBeLessThan(100)
 
   // Per-measure breakdown really rendered: one row per one of the fixture's
-  // six measures, not a placeholder.
+  // six measures, not a placeholder. UI-10 moved the table behind a "View
+  // measure breakdown" trigger into a <dialog> — its rows still exist in the
+  // DOM (a closed <dialog> is merely `display: none`, not unmounted), so the
+  // count holds without opening it; the visibility of the actual breakdown
+  // is proven separately below.
   await expect(page.locator('.assessment-result tbody tr')).toHaveCount(6)
+  const breakdownTrigger = page.getByRole('button', { name: 'View measure breakdown' })
+  await expect(breakdownTrigger).toBeVisible()
+  await breakdownTrigger.click()
+  const breakdownDialog = page.getByRole('dialog', { name: 'Measure breakdown' })
+  await expect(breakdownDialog).toBeVisible()
+  await expect(breakdownDialog.locator('tbody tr')).toHaveCount(6)
+  await breakdownDialog.getByRole('button', { name: 'Close' }).click()
+  await expect(breakdownDialog).toBeHidden()
 
-  const review = page.getByRole('group', { name: 'Review' })
+  // UI-10: the problem list and loop suggestions moved behind a "Review N
+  // problem measures" trigger into their own <dialog aria-label="Review">
+  // (ReviewOverlay.tsx) — open it before reading its contents.
+  await page.getByRole('button', { name: /^Review \d+ problem measures?$/ }).click()
+  const review = page.getByRole('dialog', { name: 'Review' })
+  await expect(review).toBeVisible()
   const problems = review.getByRole('list', { name: 'Problem measures' })
   // `measureIndex` is 0-based (`core/notation/score.ts`), but `ReviewOverlay`
   // prints `measureIndex + 1` (see that component's own module comment) —

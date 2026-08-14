@@ -71,13 +71,16 @@ function makeProps(overrides: Partial<RecordPanelProps> = {}): RecordPanelProps 
 }
 
 describe('RecordPanel', () => {
-  it('is a landmark exposing Record and Stop recording, Record enabled while idle and connected', () => {
+  // Roadmap UI-10 (2026-08-12 UI audit): the four-button row (Record, Stop
+  // recording, Replay, Stop replay) collapsed to two toggles — Record/Stop
+  // share one button, Replay/Stop replay share another, which is absent
+  // entirely (not disabled) with no take to replay yet.
+  it('is a landmark exposing a Record toggle, enabled while idle and connected, with no Replay toggle yet', () => {
     render(<RecordPanel {...makeProps()} />)
 
     const group = screen.getByRole('group', { name: 'Record and replay' })
     expect(within(group).getByRole('button', { name: 'Record' })).toBeEnabled()
-    expect(within(group).getByRole('button', { name: 'Stop recording' })).toBeDisabled()
-    expect(within(group).getByRole('button', { name: 'Stop replay' })).toBeDisabled()
+    expect(within(group).queryByRole('button', { name: /replay/i })).not.toBeInTheDocument()
   })
 
   it('disables Record when no MIDI keyboard is connected', () => {
@@ -96,13 +99,14 @@ describe('RecordPanel', () => {
     expect(onStartRecording).toHaveBeenCalledTimes(1)
   })
 
-  it('while recording: Stop recording is enabled, Record and Replay are not, and a status announces it', async () => {
+  it('while recording: the toggle reads Stop recording and is enabled, no Replay toggle is offered, and a status announces it', async () => {
     const user = userEvent.setup()
     const onStopRecording = vi.fn()
-    render(<RecordPanel {...makeProps({ phase: 'recording', onStopRecording })} />)
+    render(<RecordPanel {...makeProps({ phase: 'recording', recording: RECORDING, onStopRecording })} />)
 
-    expect(screen.getByRole('button', { name: 'Record' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Replay' })).toBeDisabled()
+    // Even with a prior take on hand, replaying while a NEW one is being
+    // captured is impossible — the toggle is absent, not disabled.
+    expect(screen.queryByRole('button', { name: /replay/i })).not.toBeInTheDocument()
     const stopButton = screen.getByRole('button', { name: 'Stop recording' })
     expect(stopButton).toBeEnabled()
     expect(screen.getByRole('status')).toHaveTextContent(/recording/i)
@@ -111,9 +115,9 @@ describe('RecordPanel', () => {
     expect(onStopRecording).toHaveBeenCalledTimes(1)
   })
 
-  it('Replay is enabled only once a recording exists and nothing else is running', () => {
+  it('the Replay toggle is absent with no take yet, and appears once one exists', () => {
     const { rerender } = render(<RecordPanel {...makeProps({ recording: undefined })} />)
-    expect(screen.getByRole('button', { name: 'Replay' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Replay' })).not.toBeInTheDocument()
 
     rerender(<RecordPanel {...makeProps({ recording: RECORDING })} />)
     expect(screen.getByRole('button', { name: 'Replay' })).toBeEnabled()
@@ -129,18 +133,83 @@ describe('RecordPanel', () => {
     expect(onStartReplay).toHaveBeenCalledTimes(1)
   })
 
-  it('while replaying: Stop replay is enabled, Record and Replay are not, and a status announces it', async () => {
+  it('while replaying: the toggle reads Stop replay and is enabled, Record is disabled, and a status announces it', async () => {
     const user = userEvent.setup()
     const onStopReplay = vi.fn()
     render(<RecordPanel {...makeProps({ phase: 'replaying', recording: RECORDING, onStopReplay })} />)
 
     expect(screen.getByRole('button', { name: 'Record' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Replay' })).toBeDisabled()
     const stopButton = screen.getByRole('button', { name: 'Stop replay' })
     expect(stopButton).toBeEnabled()
     expect(screen.getByRole('status')).toHaveTextContent(/replaying/i)
 
     await user.click(stopButton)
+    expect(onStopReplay).toHaveBeenCalledTimes(1)
+  })
+
+  // Acceptance criterion 4 (roadmap UI-10): the Record toggle drives the
+  // whole record -> stop -> replay -> stop replay cycle end to end. This is a
+  // presentational component driven entirely by `phase`/`recording` props, so
+  // the test re-renders with the next real-world state after each click —
+  // exactly what `useRecorder` would hand it in the running app.
+  it('drives record -> stop -> replay -> stop replay end to end through the same two toggles', async () => {
+    const user = userEvent.setup()
+    const onStartRecording = vi.fn()
+    const onStopRecording = vi.fn()
+    const onStartReplay = vi.fn()
+    const onStopReplay = vi.fn()
+    const { rerender } = render(
+      <RecordPanel
+        {...makeProps({ onStartRecording, onStopRecording, onStartReplay, onStopReplay })}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Record' }))
+    expect(onStartRecording).toHaveBeenCalledTimes(1)
+    rerender(
+      <RecordPanel
+        {...makeProps({
+          phase: 'recording',
+          onStartRecording,
+          onStopRecording,
+          onStartReplay,
+          onStopReplay,
+        })}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Stop recording' }))
+    expect(onStopRecording).toHaveBeenCalledTimes(1)
+    rerender(
+      <RecordPanel
+        {...makeProps({
+          phase: 'idle',
+          recording: RECORDING,
+          onStartRecording,
+          onStopRecording,
+          onStartReplay,
+          onStopReplay,
+        })}
+      />,
+    )
+
+    const replayButton = screen.getByRole('button', { name: 'Replay' })
+    await user.click(replayButton)
+    expect(onStartReplay).toHaveBeenCalledTimes(1)
+    rerender(
+      <RecordPanel
+        {...makeProps({
+          phase: 'replaying',
+          recording: RECORDING,
+          onStartRecording,
+          onStopRecording,
+          onStartReplay,
+          onStopReplay,
+        })}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Stop replay' }))
     expect(onStopReplay).toHaveBeenCalledTimes(1)
   })
 

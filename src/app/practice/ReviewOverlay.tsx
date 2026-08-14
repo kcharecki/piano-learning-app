@@ -18,8 +18,19 @@
  * string is already 1-based prose (core converts at that boundary), so it
  * needs no reformatting here — the problem list and the loop suggestion for
  * the same measure agree on the same number.
+ *
+ * Roadmap UI-10 (2026-08-12 UI audit): the problem list and loop suggestions
+ * used to print inline, unconditionally, as soon as an assessment completed —
+ * more always-visible content stacked under "More tools". They now sit behind
+ * one explicit trigger button and a real `<dialog>` (the same
+ * `showModal`/`close` + manual-focus-restore pattern `TimingFeedback`'s
+ * accuracy-info popover already uses), styled `--elev-3` + a fade/rise-in
+ * (feature-practice-sections.css) — DESIGN.md's overlay treatment. A clean
+ * run has nothing to review, so it keeps printing its "nothing to review"
+ * line directly, with no button and no dialog to open.
  */
 import type { ProblemMeasure, ProblemReason, SuggestedLoop } from '@core/practice/review.ts'
+import { useEffect, useRef, useState } from 'react'
 
 export type ReviewOverlayProps = {
   readonly problems: readonly ProblemMeasure[]
@@ -39,34 +50,78 @@ function loopKey(loop: SuggestedLoop): string {
 }
 
 export function ReviewOverlay({ problems, loops, onPracticeLoop }: ReviewOverlayProps) {
+  const [open, setOpen] = useState(false)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const dialogRef = useRef<HTMLDialogElement>(null)
+
+  useEffect(() => {
+    const dialog = dialogRef.current
+    if (dialog === null) return
+    if (open && !dialog.open) {
+      dialog.showModal()
+      dialog.focus()
+    } else if (!open && dialog.open) {
+      dialog.close()
+    }
+  }, [open])
+
   if (problems.length === 0) {
     return (
-      <div className="review-overlay" role="group" aria-label="Review">
+      <div className="review-overlay-summary">
         <p role="status">Clean run — no problem measures to review.</p>
       </div>
     )
   }
 
   return (
-    <div className="review-overlay" role="group" aria-label="Review">
-      <ul aria-label="Problem measures">
-        {problems.map((problem) => (
-          <li key={problem.measureIndex}>
-            Measure {problem.measureIndex + 1}:{' '}
-            {problem.reasons.map((reason) => REASON_LABEL[reason]).join(', ')}
-          </li>
-        ))}
-      </ul>
-      <ul aria-label="Suggested loops">
-        {loops.map((loop) => (
-          <li key={loopKey(loop)}>
-            <span>{loop.reason}</span>
-            <button type="button" onClick={() => onPracticeLoop(loop)}>
-              Practice measures {loop.startMeasure + 1}–{loop.endMeasure + 1}
-            </button>
-          </li>
-        ))}
-      </ul>
+    <div className="review-overlay-summary">
+      <button
+        type="button"
+        ref={triggerRef}
+        aria-haspopup="dialog"
+        onClick={() => setOpen(true)}
+      >
+        Review {problems.length} problem measure{problems.length === 1 ? '' : 's'}
+      </button>
+      <dialog
+        ref={dialogRef}
+        className="review-overlay-dialog"
+        aria-label="Review"
+        tabIndex={-1}
+        onClose={() => {
+          setOpen(false)
+          triggerRef.current?.focus()
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault()
+            dialogRef.current?.close()
+          }
+        }}
+      >
+        <h2>Problem measures</h2>
+        <ul aria-label="Problem measures">
+          {problems.map((problem) => (
+            <li key={problem.measureIndex}>
+              Measure {problem.measureIndex + 1}:{' '}
+              {problem.reasons.map((reason) => REASON_LABEL[reason]).join(', ')}
+            </li>
+          ))}
+        </ul>
+        <ul aria-label="Suggested loops">
+          {loops.map((loop) => (
+            <li key={loopKey(loop)}>
+              <span>{loop.reason}</span>
+              <button type="button" onClick={() => onPracticeLoop(loop)}>
+                Practice measures {loop.startMeasure + 1}–{loop.endMeasure + 1}
+              </button>
+            </li>
+          ))}
+        </ul>
+        <button type="button" className="btn-ghost" onClick={() => dialogRef.current?.close()}>
+          Close
+        </button>
+      </dialog>
     </div>
   )
 }

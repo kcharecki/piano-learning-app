@@ -90,6 +90,10 @@ test('with no Web MIDI and no mouse, typing on the QWERTY row plays and grades n
 
   const keyboard = page.getByRole('group', { name: 'Play the score' })
   await expect(keyboard).toBeVisible()
+  // Roadmap UI-10: the QWERTY hint is now inside a closed-by-default
+  // `<details>` labelled "Show keys" — open it before asserting its content,
+  // the same pattern `docs`/the digest calls out for Flashcards.
+  await page.getByText('Show keys').click()
   // The mapping is on screen, not just in a doc a developer reads.
   await expect(page.getByText(/or type it/i)).toBeVisible()
 

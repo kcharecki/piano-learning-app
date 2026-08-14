@@ -143,13 +143,15 @@ test('every one of the 12 destinations, visited on an empty profile, has a real 
   await expect(page.getByTestId('rhythm-tapping-status')).toBeVisible()
 
   // ---- Technique ----
+  // UI-15: Start/Stop is ONE button node that swaps in place
+  // (`data-testid="technique-transport-btn"`), not two separate buttons with
+  // a disabled Stop before the first run.
   await nav(page, 'Technique').click()
-  const techniqueStart = page.getByRole('button', { name: 'Start', exact: true })
-  const techniqueStop = page.getByRole('button', { name: 'Stop', exact: true })
-  await expect(techniqueStart).toBeEnabled()
-  await expect(techniqueStop).toBeDisabled()
-  await techniqueStart.click()
-  await expect(techniqueStop).toBeEnabled()
+  const techniqueTransport = page.getByTestId('technique-transport-btn')
+  await expect(techniqueTransport).toHaveText('Start')
+  await expect(techniqueTransport).toBeEnabled()
+  await techniqueTransport.click()
+  await expect(techniqueTransport).toHaveText('Stop')
 
   // ---- Metronome ----
   await nav(page, 'Metronome').click()

@@ -162,13 +162,24 @@ test('running a technique drill through a real MIDI keyboard scores evenness and
   await expect(
     page.getByText(new RegExp(`MIDI keyboard connected: ${FAKE_MIDI_DEVICE_NAME}`)),
   ).toBeVisible()
+  // Close the popover before driving the rest of the page — left open, it
+  // sits in the topbar above the page content and intercepts clicks on the
+  // level stepper below (see e2e/input-capability-banner.spec.ts for the
+  // same Escape-closes-and-restores-focus overlay contract, DESIGN.md's
+  // accessibility rule).
+  await page.keyboard.press('Escape')
 
   // Level 3 is the first level with a two-octave scale, hands together
   // (levels 1/2 are five-finger patterns and one-octave single-hand scales) —
   // step the level up with the level stepper.
   await page.getByRole('button', { name: 'Increase level' }).click()
   await page.getByRole('button', { name: 'Increase level' }).click()
-  await expect(page.getByTestId('technique-level')).toHaveText('Level 3')
+  // Canonical stepper shape (docs/ui-overhaul-brief.md): the word "Level"
+  // lives outside the group as its accessible name, the bare numeral lives
+  // in the value cell inside it — proving both, not just the number.
+  const levelStepper = page.getByRole('group', { name: 'Level' })
+  await expect(levelStepper).toBeVisible()
+  await expect(levelStepper.getByTestId('technique-level')).toHaveText('3')
 
   const DRILL_ID = 'scale-c-major-2oct-hands-together'
   const drill = techniqueLibrary(3).find((d) => d.id === DRILL_ID)

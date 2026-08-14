@@ -1,7 +1,8 @@
 /**
- * `AccentEditor` (roadmap 2.28, REQ-3.9.1): one toggle per beat, "accents on
- * 1 and 4 of 7/8" expressible by clicking, and the metre-change resize rule
- * — preserve what overlaps by index, default the rest from `defaultAccents`.
+ * `AccentEditor` (roadmap 2.28, REQ-3.9.1; seg-control redesign roadmap
+ * UI-16, 2026-08-14 UI audit): one toggle per beat, "accents on 1 and 4 of
+ * 7/8" expressible by clicking, and the metre-change resize rule — preserve
+ * what overlaps by index, default the rest from `defaultAccents`.
  */
 import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -18,7 +19,7 @@ describe('AccentEditor', () => {
       <AccentEditor timeSignature={{ beats: 7, beatType: 8 }} accents={accents} onChange={vi.fn()} />,
     )
 
-    const group = screen.getByRole('group', { name: 'Accent pattern' })
+    const group = screen.getByRole('group', { name: 'Accents' })
     const buttons = within(group).getAllByRole('button')
     expect(buttons).toHaveLength(7)
     expect(buttons.map((b) => b.getAttribute('aria-pressed'))).toEqual([
@@ -30,6 +31,10 @@ describe('AccentEditor', () => {
       'true',
       'false',
     ])
+    // Visible glyph is just the beat number — the "Beat N" wording moves to
+    // the accessible name so a 7-beat row still reads as one compact chip
+    // strip (roadmap UI-16's `.seg-control` rework).
+    expect(buttons.map((b) => b.textContent)).toEqual(['1', '2', '3', '4', '5', '6', '7'])
   })
 
   it('clicking a beat toggles only that beat and reports the changed pattern', async () => {
@@ -61,6 +66,19 @@ describe('AccentEditor', () => {
     await user.click(screen.getByRole('button', { name: /^Beat 1/ }))
 
     expect(onChange).toHaveBeenCalledWith([false, false, false, false])
+  })
+
+  it('the accessible name says whether a beat is accented, even though the visible glyph is just the number', () => {
+    render(
+      <AccentEditor
+        timeSignature={{ beats: 4, beatType: 4 }}
+        accents={[true, false, false, false]}
+        onChange={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Beat 1, accented' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Beat 2' })).toBeInTheDocument()
   })
 
   it('a metre change reports the resized pattern: overlap kept, new beats defaulted', () => {

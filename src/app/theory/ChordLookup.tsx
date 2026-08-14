@@ -172,49 +172,58 @@ export function ChordLookup({ initialRoot, audioOutput }: ChordLookupProps): JSX
   return (
     <section aria-label="Chord lookup" className="chord-lookup">
       <h2>Look up any chord</h2>
-      <div className="chord-lookup-pickers">
-        {/* "Chord root", not "Root" — ChordScaleReference already owns the
-            label "Root" for its own scale-root picker, and this component is
-            rendered inside that same screen, so reusing "Root" here would
-            make every `getByLabelText('Root')` query in the app ambiguous. */}
-        <label htmlFor="chord-lookup-root-select">Chord root</label>
-        <select
-          id="chord-lookup-root-select"
-          value={indexForRoot(root)}
-          onChange={(e) => setRoot(at(ROOT_OPTIONS, Number(e.target.value)))}
-        >
-          {ROOT_OPTIONS.map((option, i) => (
-            <option key={i} value={i}>
-              {noteLabel(option)}
-            </option>
-          ))}
-        </select>
+      <div className="field-row chord-lookup-pickers">
+        {/* "Chord root", not "Root" — the Scales & chords tab's own reference
+            already owns the label "Root" for its scale-root picker, and a
+            learner can have both tabs' state in mind at once, so reusing
+            "Root" here would make `getByLabelText('Root')` ambiguous the
+            moment both are on screen together (e.g. in a future combined
+            view). Each picker below is a `.field` (roadmap UI-17): label
+            above control, the primitives.css default shape. */}
+        <div className="field">
+          <label htmlFor="chord-lookup-root-select">Chord root</label>
+          <select
+            id="chord-lookup-root-select"
+            value={indexForRoot(root)}
+            onChange={(e) => setRoot(at(ROOT_OPTIONS, Number(e.target.value)))}
+          >
+            {ROOT_OPTIONS.map((option, i) => (
+              <option key={i} value={i}>
+                {noteLabel(option)}
+              </option>
+            ))}
+          </select>
+        </div>
 
-        <label htmlFor="chord-lookup-quality-select">Chord quality</label>
-        <select
-          id="chord-lookup-quality-select"
-          value={quality}
-          onChange={(e) => handleQualityChange(e.target.value as ChordQuality)}
-        >
-          {CHORD_QUALITIES.map((q) => (
-            <option key={q} value={q}>
-              {QUALITY_LABEL[q]}
-            </option>
-          ))}
-        </select>
+        <div className="field">
+          <label htmlFor="chord-lookup-quality-select">Chord quality</label>
+          <select
+            id="chord-lookup-quality-select"
+            value={quality}
+            onChange={(e) => handleQualityChange(e.target.value as ChordQuality)}
+          >
+            {CHORD_QUALITIES.map((q) => (
+              <option key={q} value={q}>
+                {QUALITY_LABEL[q]}
+              </option>
+            ))}
+          </select>
+        </div>
 
-        <label htmlFor="chord-lookup-inversion-select">Inversion</label>
-        <select
-          id="chord-lookup-inversion-select"
-          value={inversion}
-          onChange={(e) => setInversion(Number(e.target.value) as Inversion)}
-        >
-          {availableInversions.map((inv) => (
-            <option key={inv} value={inv}>
-              {INVERSION_LABEL[inv]}
-            </option>
-          ))}
-        </select>
+        <div className="field">
+          <label htmlFor="chord-lookup-inversion-select">Inversion</label>
+          <select
+            id="chord-lookup-inversion-select"
+            value={inversion}
+            onChange={(e) => setInversion(Number(e.target.value) as Inversion)}
+          >
+            {availableInversions.map((inv) => (
+              <option key={inv} value={inv}>
+                {INVERSION_LABEL[inv]}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       <h3 data-testid="chord-lookup-symbol">{symbol}</h3>

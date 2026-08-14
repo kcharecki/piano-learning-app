@@ -5,12 +5,13 @@
  * point to the drill's tempo history (REQ-3.7.3) — the proof that this
  * screen is not just rendering and doing nothing.
  */
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FakeClock, FakeMidiInput, RecordingAudioOutput } from '@test/fakes.ts'
 import { millis } from '@core/shared/units.ts'
 import { midiToName } from '@core/theory/pitch.ts'
 import { techniqueLibrary, techniqueScore } from '@core/technique/library.ts'
+import type { TechniqueAttempt } from '@core/technique/evenness.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useTechniqueStore } from '@app/state/techniqueStore.ts'
@@ -207,5 +208,84 @@ describe('TechniqueScreen', () => {
 
     await user.click(screen.getByRole('button', { name: 'I checked' }))
     expect(screen.queryByTestId('technique-posture-prompt')).not.toBeInTheDocument()
+  })
+
+  it('renders the level stepper label OUTSIDE the button group, holding the bare word, with the bare numeral in the value cell (roadmap UI-15 acceptance criterion 1 — the old markup put "Level 1" BETWEEN the − and + buttons, measured in the 2026-08-12 UI audit; canonicalised to the bare-word/bare-numeral shape in the 2026-08 stepper sweep)', () => {
+    const neverResolves = (): Promise<never> => new Promise(() => {})
+    render(<TechniqueScreen connectMidi={neverResolves} />)
+
+    const label = screen.getByText('Level', { selector: 'label' })
+    expect(label.tagName).toBe('LABEL')
+    expect(label).toHaveTextContent('Level')
+
+    const group = screen.getByRole('group', { name: 'Level' })
+    // Not a descendant of the group, and it precedes the group in DOM order.
+    expect(group.contains(label)).toBe(false)
+    expect(label.compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // No "Level" text survives inside the group itself — only the two buttons
+    // and the bare numeral value cell.
+    expect(within(group).queryByText(/Level/i)).not.toBeInTheDocument()
+    expect(within(group).getByTestId('technique-level')).toHaveTextContent('1')
+    expect(within(group).getByRole('button', { name: 'Decrease level' })).toBeInTheDocument()
+    expect(within(group).getByRole('button', { name: 'Increase level' })).toBeInTheDocument()
+  })
+
+  it('swaps Start for Stop on the SAME button element, in place (roadmap UI-15 acceptance criterion 2 — no second control mounts, so the swap cannot shift the footer layout)', async () => {
+    const user = userEvent.setup()
+    const clock = new FakeClock()
+    const audioOutput = new RecordingAudioOutput(clock)
+    const neverResolves = (): Promise<never> => new Promise(() => {})
+
+    render(
+      <TechniqueScreen
+        clock={clock}
+        date={clock}
+        connectMidi={neverResolves}
+        audioOutput={audioOutput}
+        frameDriver={manualDriver()}
+      />,
+    )
+
+    const before = screen.getByTestId('technique-transport-btn')
+    expect(before).toHaveTextContent('Start')
+    expect(screen.getAllByTestId('technique-transport-btn')).toHaveLength(1)
+
+    await user.click(before)
+
+    const after = screen.getByTestId('technique-transport-btn')
+    expect(after).toBe(before) // identical DOM node — content changed in place
+    expect(after).toHaveTextContent('Stop')
+    expect(screen.getAllByTestId('technique-transport-btn')).toHaveLength(1)
+
+    await user.click(after)
+    expect(screen.getByTestId('technique-transport-btn')).toHaveTextContent('Start')
+    expect(screen.getByTestId('technique-transport-btn')).toBe(before)
+  })
+
+  it('shows the teaching empty state with no history, and one dot per seeded clean run once history exists (roadmap UI-15 acceptance criterion 3 — seeded directly into the store, not driven by hand)', () => {
+    const neverResolves = (): Promise<never> => new Promise(() => {})
+    const { rerender } = render(<TechniqueScreen connectMidi={neverResolves} />)
+
+    expect(
+      screen.getByText('A clean run at target tempo advances you — your first is one Start away.'),
+    ).toBeInTheDocument()
+    expect(screen.queryByTestId('technique-history')).not.toBeInTheDocument()
+
+    const drill = techniqueLibrary(1)[0]
+    if (drill === undefined) throw new Error('expected at least one level-1 drill')
+
+    const seeded: TechniqueAttempt[] = [
+      { drillId: drill.id, at: 1_000, bpm: 60, evenness: 0.9, accuracy: 1, clean: true },
+      { drillId: drill.id, at: 2_000, bpm: 72, evenness: 0.85, accuracy: 0.98, clean: true },
+    ]
+    act(() => {
+      useTechniqueStore.setState({ attempts: seeded })
+    })
+    rerender(<TechniqueScreen connectMidi={neverResolves} />)
+
+    expect(screen.queryByText(/one Start away/)).not.toBeInTheDocument()
+    expect(screen.getByTestId('technique-best-bpm')).toHaveTextContent('Best clean tempo: 72bpm')
+    expect(screen.getAllByTestId('technique-history-point')).toHaveLength(2)
+    expect(screen.getByRole('img', { name: 'Clean tempo history' })).toBeInTheDocument()
   })
 })

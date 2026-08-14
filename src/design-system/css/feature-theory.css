@@ -1,3 +1,166 @@
-/* Feature stub for the Theory screen — empty on purpose, filled by that screen's
-   own later UI-overhaul task. Registered in styles.css now (roadmap UI-02) so
-   no parallel screen task has to touch the aggregator. */
+/* Feature stylesheet — the Theory screen (roadmap UI-17, 2026-08-12 UI audit).
+   Registered in styles.css (roadmap UI-02) so no parallel screen task had to
+   touch the aggregator.
+
+   The screen used to stack four unrelated tools (drills, circle of fifths,
+   chord & scale reference, chord lookup) on one ~5,400px page. It is now
+   `.page--wide` with a `.seg-control` tab bar and only the active tab's
+   content mounted (`TheoryScreen.tsx`'s own doc explains why: unmounting, not
+   `hidden`, keeps an inactive Drills tab's computer-keyboard/MIDI listeners
+   from firing). Everything below styles the tab bar itself and the two tabs
+   whose reference markup does not already carry its own look from
+   primitives.css / domain.css: the compact diatonic-chord grid (replacing
+   domain.css's `.chord-list` full-width-row layout, which this task's file
+   list may not edit) and the degree table (escaping domain.css's
+   `.degree-table td:first-child` mono/muted rule the same way). */
+
+/* ---------- Tab panel rhythm ---------- */
+/* `[role="tabpanel"] { padding: var(--space-4) 0; }` already comes free from
+   primitives.css's tabs block (its selector matches ANY `role="tabpanel"`
+   regardless of which visual tab style drives it — the brief asks for
+   `.seg-control` here, not that block's own underlined `[role="tab"]` look,
+   but the padding rule underneath is still exactly what's wanted). This adds
+   only the vertical rhythm between a tab's own top-level sections, mirroring
+   `.page`'s own `gap: var(--space-5)` between ITS direct children. */
+.theory-tabpanel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+/* ---------- Drills tab ---------- */
+.theory-drill-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.theory-drill-panel .theory-quiz {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* ---------- Circle of fifths tab ---------- */
+/* domain.css's `.circle-of-fifths` already centers and caps the SVG's own
+   width; wrapping it in `.card` (this task's own JSX change) adds the
+   background/elevation/padding a lone SVG on a tab needs to not read as
+   floating in void. */
+.theory-circle-card {
+  display: grid;
+  place-items: center;
+}
+
+/* ---------- Scales & chords tab: header pickers, scale card ---------- */
+.chord-scale-reference .reference-pickers {
+  align-items: flex-start;
+}
+.theory-scale-card,
+.theory-degree-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.theory-scale-card h3 {
+  margin: 0;
+}
+
+/* ---------- Degree table (roadmap UI-17) ----------
+   Renamed from `degree-table` in ChordScaleReference.tsx specifically to
+   escape domain.css's `.chord-scale-reference .degree-table td:first-child`
+   rule, which mono-faced and muted the degree-name column — the "mono
+   uppercase internal vocabulary styling" the 2026-08-12 UI audit flagged.
+   This table now inherits primitives.css's plain table rules untouched
+   (`--text-md` body copy, sentence case from the component's own
+   `capitalize()`) plus only a light weight bump on the degree-name column
+   for scannability — never mono, never muted, never uppercase. */
+.scale-degree-table {
+  margin: 0;
+}
+.scale-degree-table td:first-child {
+  font-weight: var(--weight-medium);
+}
+
+/* ---------- Diatonic-chord / scale-degree-chord grid (roadmap UI-17) ----------
+   Renamed off `diatonic-chords chord-list` specifically to escape domain.css's
+   `.chord-scale-reference .chord-list > li` rule, which laid each chord out
+   as a single 4-column ROW — seven of those, each also stacking a full-size
+   keyboard diagram and a staff engraving beneath it, is exactly the 5,400px
+   page the audit flagged. This is a compact-card GRID instead: keyboard,
+   Play button, and the staff moved behind a closed-by-default "Show
+   notation" disclosure (same pattern `SrsSummary` already uses for its own
+   breakdown) — seven stacked keyboard+staff pairs collapse to about one
+   screenful. */
+.theory-chord-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: var(--space-3);
+}
+.theory-chord-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+.theory-chord-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+/* A smaller keyboard than the scale card's own (--key-h: 96px, set by
+   domain.css on every `.chord-scale-reference .keyboard-diagram`) — seven of
+   these side by side in a grid cell need to read as a compact glance, not a
+   scaled-down full keyboard. */
+.theory-chord-card .keyboard-diagram {
+  --key-h: 60px;
+  --white-key-w: 22px;
+}
+.theory-chords-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.theory-chords-header h3 {
+  margin: 0;
+}
+
+/* ---------- Per-card "Show notation" disclosure ----------
+   Native `<details>`/`<summary>`, same primitive `SrsSummary` already uses
+   for its own closed-by-default breakdown — free keyboard operability
+   (Enter/Space toggles a focused `<summary>`) and no extra state to wire up.
+   The default marker triangle is replaced by the `chevron-down` `<Icon>`
+   already rendered inside `<summary>`, rotated open via the `[open]`
+   attribute selector — no JS needed for that either. */
+.theory-chord-notation {
+  width: 100%;
+}
+.theory-chord-notation summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  cursor: pointer;
+  color: var(--accent);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  list-style: none;
+}
+.theory-chord-notation summary::-webkit-details-marker {
+  display: none;
+}
+.theory-chord-notation summary svg {
+  transition: transform var(--dur-1) var(--ease-out);
+}
+.theory-chord-notation[open] summary svg {
+  transform: rotate(180deg);
+}
+.theory-chord-notation[open] summary {
+  margin-bottom: var(--space-2);
+}
+.theory-chord-notation .chord-staff .notation-frame {
+  max-width: 100%;
+}

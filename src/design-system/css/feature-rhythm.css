@@ -1,3 +1,100 @@
-/* Feature stub for the Rhythm screen — empty on purpose, filled by that screen's
-   own later UI-overhaul task. Registered in styles.css now (roadmap UI-02) so
-   no parallel screen task has to touch the aggregator. */
+/* Rhythm screen (roadmap UI-14, 2026-08-12 UI audit): "redesign Rhythm as a
+   tap instrument, not a form". Layout scaffolding (`.page`, `.page-header`,
+   `.card`, `.field-row`, `.stepper`, `.seg-control`, `.stat-group`) comes from
+   base.css/primitives.css; this file holds only what those primitives don't —
+   the tap pad itself, and the running-state stage spacing around it.
+
+   The audit's finding: idle rendered five controls in a void, and running
+   buried the ONE control the learner hits repeatedly — Tap — as a
+   minimum-size button in a corner, under a wall of plain-text status. The pad
+   below is the fix: full-width, a real touch surface, glance-sized count,
+   flash feedback on every hit. */
+
+/* ---------- Stage: paper/stat/pad column while a run is live ---------- */
+.rhythm-stage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* ---------- Tap pad ----------
+   A plain `<button>`, not a click-handled `<div>`, so it keeps a real
+   accessible name and native keyboard activation for free; the accessible
+   name deliberately starts with "Tap" ("Tap here — or press Space") so
+   `e2e/metronome-drills.spec.ts`'s existing `getByRole('button', { name: 'Tap'
+   })` substring lookup — a file this task may not edit — keeps finding it
+   unchanged (see `RhythmScreen.tsx`'s own module doc).
+
+   `160px` is a literal instruction from this task's own brief ("at least
+   160px tall"), not a design token substitution — no space token lands there
+   (`--space-8` is 64px) and the floor is a functional touch-surface
+   requirement, not a spacing rhythm value, so it is written directly rather
+   than invented as a new token (screen tasks do not add tokens — see the
+   standing brief). */
+.rhythm-tap-pad {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 160px;
+  background: var(--bg-2);
+  border: var(--border-w) solid var(--border-2);
+  border-radius: var(--radius-2);
+  color: var(--text-1);
+  text-align: center;
+  cursor: pointer;
+}
+.rhythm-tap-pad:hover { background: var(--bg-3); }
+.rhythm-tap-pad:active { background: var(--bg-1); }
+.rhythm-tap-pad:disabled { cursor: not-allowed; opacity: .6; }
+
+.rhythm-tap-pad-label {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+  color: var(--text-1);
+  max-width: 32ch;
+}
+
+/* Glance-sized count, pinned to the pad's own corner rather than centered —
+   the label is the instruction the eye reads first; the count is a running
+   tally read on demand, not the primary message. */
+.rhythm-tap-pad-count {
+  position: absolute;
+  right: var(--space-3);
+  bottom: var(--space-2);
+  font-size: var(--text-glance);
+  font-weight: var(--weight-bold);
+  line-height: 1;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Per-hit flash (roadmap UI-14 acceptance criterion 2/8): a fresh element
+   keyed on the tap count so the browser always restarts the animation, even
+   for taps that land faster than one animation duration apart. Fill +
+   edge-glyph together, never color alone (rule 8) — the checkmark is the
+   glyph cue, `--accent-dim`/`--fb-correct` the color cue. `prefers-reduced-
+   motion` is handled globally by `tokens/motion.css`; nothing here fights it. */
+.rhythm-tap-pad-flash {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--accent-dim);
+  color: var(--fb-correct);
+  animation: rhythm-tap-flash var(--dur-1) var(--ease-out);
+  pointer-events: none;
+}
+.rhythm-tap-pad-flash svg {
+  width: 2em;
+  height: 2em;
+}
+@keyframes rhythm-tap-flash {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}

@@ -7,16 +7,28 @@
  * stylesheet, so it ships its own file built only from design tokens
  * (`src/design-system/tokens/*`), the same custom properties every other
  * screen's styling reads from.
+ *
+ * Redesigned roadmap UI-15: the statement now renders on `.card--sunken`
+ * (primitives.css supplies the background/padding/radius), with the `hand`
+ * icon beside it — this file only adds the icon+text row layout on top.
  */
 
 .technique-safety-note {
-  margin: 0 0 var(--space-3) 0;
-  padding: var(--space-2) var(--space-3);
-  border-left: 3px solid var(--border-2);
-  background: var(--bg-1);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.technique-safety-note-icon {
+  flex: none;
+  color: var(--text-2);
+}
+
+.technique-safety-note p {
+  margin: 0;
   color: var(--text-2);
   font-size: var(--text-sm);
-  line-height: 1.5;
+  line-height: var(--leading-normal);
 }
 
 .technique-posture-prompt {

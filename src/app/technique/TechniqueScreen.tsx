@@ -15,12 +15,20 @@
  * real time. Both are styled from
  * `design-system/css/feature-technique-safety.css`, reached through the
  * shared stylesheet index like every other screen's styling.
+ *
+ * Redesigned roadmap UI-15 (2026-08-12 UI audit): `.page`/`.page-header`
+ * scaffold, the drill picker and level stepper move into the header's
+ * `.page-header-actions`, the safety callout restyles onto `.card--sunken`
+ * (still first, still unconditional — REQ-5.23), the engraving/keyboard/
+ * transport collapse into one compact `.card`, and the clean-tempo history
+ * becomes a flex row of dot tokens instead of `TrendChart` (no chart
+ * library needed for a handful of points).
  */
 import { PracticeKeyboard } from '@app/practice/PracticeKeyboard.tsx'
 import type { ConnectMidi } from '@app/practice/useMidiConnection.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { ExerciseScore } from '@app/sightreading/ExerciseScore.tsx'
-import { TrendChart } from '@app/dashboard/TrendChart.tsx'
+import { Icon } from '@app/ui/Icon.tsx'
 import { MAX_LEVEL, MIN_LEVEL } from '@core/curriculum/types.ts'
 import type { AudioOutput, Clock, DateSource, MidiInput } from '@core/ports/index.ts'
 import { MAX_BPM, MIN_BPM } from '@core/timing/metronome.ts'
@@ -79,19 +87,81 @@ export function TechniqueScreen(props: TechniqueScreenProps) {
   const [latchKeys, setLatchKeys] = useState(false)
 
   return (
-    <div className="technique-screen">
-      <h2>Technique</h2>
+    <div className="page page--focus technique-screen">
+      <div className="page-header">
+        <div>
+          <h1>Technique</h1>
+        </div>
+        <div className="page-header-actions">
+          <div className="field">
+            <label htmlFor="technique-drill-select">Drill</label>
+            <select
+              id="technique-drill-select"
+              value={drill.drill?.id ?? ''}
+              disabled={drill.running}
+              onChange={(e) => drill.setDrillId(e.target.value)}
+            >
+              {drill.drills.length === 0 && <option value="">No drills at this level</option>}
+              {drill.drills.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.title}
+                </option>
+              ))}
+            </select>
+          </div>
+          {/* roadmap UI-15 (canonicalised in the 2026-08 stepper sweep):
+              migrated off the hand-rolled `role="group"` div that rendered
+              its label BETWEEN the − and + buttons (the exact defect
+              `.stepper` exists to fix — see primitives.css's own "HONEST
+              STATUS" note naming this screen). The label sits OUTSIDE
+              `.stepper` entirely, in a `.field`, and carries only the bare
+              word "Level" — the canonical shape shared with Flashcards,
+              Rhythm and Metronome. The bare numeral lives in the
+              `.stepper-value` cell, under `data-testid="technique-level"`. */}
+          <div className="field">
+            <label id="technique-level-label">Level</label>
+            <div className="stepper" role="group" aria-labelledby="technique-level-label">
+              <button
+                type="button"
+                aria-label="Decrease level"
+                disabled={level <= MIN_LEVEL || drill.running}
+                onClick={() => setLevel((l) => Math.max(MIN_LEVEL, l - 1))}
+              >
+                −
+              </button>
+              <span className="stepper-value" data-testid="technique-level">
+                {level}
+              </span>
+              <button
+                type="button"
+                aria-label="Increase level"
+                disabled={level >= MAX_LEVEL || drill.running}
+                onClick={() => setLevel((l) => Math.min(MAX_LEVEL, l + 1))}
+              >
+                +
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* REQ-5.23: always visible, not behind a disclosure — this is a
           safety statement about what the scoring below cannot see, not a
           dismissible tip. Names the specific blind spots the Taubman/
           Golandsky literature calls out as tendonitis mechanisms, rather
-          than a vague "consult a teacher" disclaimer nobody reads twice. */}
-      <p className="technique-safety-note" data-testid="technique-safety-statement">
-        MIDI hears pitch and timing only. It cannot see wrist height or collapse, forearm
-        alignment, finger curl, which finger you actually used, shoulder tension, or bench
-        height — a clean, rising tempo history is not a technique check.
-      </p>
+          than a vague "consult a teacher" disclaimer nobody reads twice.
+          Stays FIRST in the page, ahead of the drill card — never demoted
+          behind a toggle, `<details>`, or moved lower on the page. */}
+      <div className="card--sunken technique-safety-note" data-testid="technique-safety-statement">
+        <span className="technique-safety-note-icon">
+          <Icon name="hand" />
+        </span>
+        <p>
+          MIDI hears pitch and timing only. It cannot see wrist height or collapse, forearm
+          alignment, finger curl, which finger you actually used, shoulder tension, or bench
+          height — a clean, rising tempo history is not a technique check.
+        </p>
+      </div>
 
       {drill.posturePromptDue && (
         <div className="technique-posture-prompt" role="status" data-testid="technique-posture-prompt">
@@ -105,95 +175,69 @@ export function TechniqueScreen(props: TechniqueScreenProps) {
         </div>
       )}
 
-      <div className="technique-level" role="group" aria-label="Level">
-        <button
-          type="button"
-          aria-label="Decrease level"
-          disabled={level <= MIN_LEVEL || drill.running}
-          onClick={() => setLevel((l) => Math.max(MIN_LEVEL, l - 1))}
-        >
-          −
-        </button>
-        <span data-testid="technique-level">Level {level}</span>
-        <button
-          type="button"
-          aria-label="Increase level"
-          disabled={level >= MAX_LEVEL || drill.running}
-          onClick={() => setLevel((l) => Math.min(MAX_LEVEL, l + 1))}
-        >
-          +
-        </button>
-      </div>
-
-      <div className="technique-drill-picker">
-        <label htmlFor="technique-drill-select">Drill</label>
-        <select
-          id="technique-drill-select"
-          value={drill.drill?.id ?? ''}
-          disabled={drill.running}
-          onChange={(e) => drill.setDrillId(e.target.value)}
-        >
-          {drill.drills.length === 0 && <option value="">No drills at this level</option>}
-          {drill.drills.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.title}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="technique-tempo">
-        <label htmlFor="technique-bpm-input">Target tempo (bpm)</label>
-        <input
-          id="technique-bpm-input"
-          type="number"
-          min={MIN_BPM}
-          max={MAX_BPM}
-          value={displayedBpm}
-          disabled={drill.running}
-          onChange={(e) => {
-            setBpmEditing(true)
-            setBpmText(e.target.value)
-          }}
-          onBlur={commitBpm}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') commitBpm()
-          }}
+      <div className="card technique-drill-card">
+        {drill.score !== undefined && (
+          <section aria-label="Drill score">
+            {/* REQ-3.7.1 (roadmap 5.22): `writeMusicXml` now emits each note's
+                `fingering` as a `<technical><fingering>` notation, and OSMD
+                renders it natively above/below its own notehead, per hand —
+                no separate text readout needed. */}
+            <ExerciseScore score={drill.score} chrome={{ compact: true }} />
+          </section>
+        )}
+        {/* Directly under the engraving, same placement and reasoning as
+            Practice (roadmap 5.4) — notes pressed here enter the drill's own
+            `PlayableMidiInput` (roadmap 5.5a), the same seam a MIDI keyboard
+            feeds, so they are scored by the real matcher a run is using. */}
+        <PracticeKeyboard
+          score={drill.score}
+          onPress={drill.press}
+          onRelease={drill.release}
+          deviceConnected={deviceAttached}
+          visible={showKeyboard}
+          onVisibleChange={setShowKeyboardChoice}
+          latch={latchKeys}
+          onLatchChange={setLatchKeys}
         />
-      </div>
 
-      <div className="technique-transport">
-        <button type="button" disabled={drill.drill === undefined || drill.running} onClick={drill.start}>
-          Start
-        </button>
-        <button type="button" disabled={!drill.running} onClick={drill.stop}>
-          Stop
-        </button>
+        {/* roadmap UI-15: target tempo and the transport share one footer
+            row. Start and Stop are the SAME button element, swapped in
+            place (icon + label change, nothing mounts/unmounts) so the one
+            primary action on this screen never causes a layout shift —
+            `.technique-transport-btn`'s reserved `min-width` (feature-
+            technique.css) absorbs the "Start"/"Stop" width difference. */}
+        <div className="technique-drill-footer">
+          <div className="field">
+            <label htmlFor="technique-bpm-input">Target tempo (bpm)</label>
+            <input
+              id="technique-bpm-input"
+              type="number"
+              min={MIN_BPM}
+              max={MAX_BPM}
+              value={displayedBpm}
+              disabled={drill.running}
+              onChange={(e) => {
+                setBpmEditing(true)
+                setBpmText(e.target.value)
+              }}
+              onBlur={commitBpm}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commitBpm()
+              }}
+            />
+          </div>
+          <button
+            type="button"
+            className="btn-primary technique-transport-btn"
+            data-testid="technique-transport-btn"
+            disabled={!drill.running && drill.drill === undefined}
+            onClick={drill.running ? drill.stop : drill.start}
+          >
+            <Icon name={drill.running ? 'stop' : 'play'} />
+            {drill.running ? 'Stop' : 'Start'}
+          </button>
+        </div>
       </div>
-
-      {drill.score !== undefined && (
-        <section aria-label="Drill score">
-          {/* REQ-3.7.1 (roadmap 5.22): `writeMusicXml` now emits each note's
-              `fingering` as a `<technical><fingering>` notation, and OSMD
-              renders it natively above/below its own notehead, per hand —
-              no separate text readout needed. */}
-          <ExerciseScore score={drill.score} />
-        </section>
-      )}
-      {/* Directly under the engraving, same placement and reasoning as
-          Practice (roadmap 5.4) — notes pressed here enter the drill's own
-          `PlayableMidiInput` (roadmap 5.5a), the same seam a MIDI keyboard
-          feeds, so they are scored by the real matcher a run is using. */}
-      <PracticeKeyboard
-        score={drill.score}
-        onPress={drill.press}
-        onRelease={drill.release}
-        deviceConnected={deviceAttached}
-        visible={showKeyboard}
-        onVisibleChange={setShowKeyboardChoice}
-        latch={latchKeys}
-        onLatchChange={setLatchKeys}
-      />
 
       {drill.lastAttempt !== undefined && (
         <p role="status" data-testid="technique-result">
@@ -202,26 +246,42 @@ export function TechniqueScreen(props: TechniqueScreenProps) {
         </p>
       )}
 
-      <section aria-label="Tempo history">
-        <h3>Clean tempo history</h3>
+      {/* roadmap UI-15: "Clean runs" replaces the old "Clean tempo history —
+          No clean run yet at this drill" two-bare-lines footer. Empty state
+          teaches (DESIGN.md rule 6); a real history renders as a flex row of
+          dot tokens — `role="img"`/`aria-label` exposes it as one summary to
+          assistive tech (the same accessible-name contract the old
+          `TrendChart` gave e2e, kept without pulling in a chart library for
+          a handful of points). */}
+      <div className="card technique-history-card">
+        <h3>Clean runs</h3>
         {drill.history.length === 0 ? (
-          <p>No clean run yet at this drill.</p>
+          <p className="technique-history-empty">
+            A clean run at target tempo advances you — your first is one Start away.
+          </p>
         ) : (
           <>
             <p data-testid="technique-best-bpm">Best clean tempo: {drill.bestBpm}bpm</p>
-            <div data-testid="technique-history">
-              <TrendChart
-                points={drill.history.map((point, i) => ({
-                  label: `${new Date(point.at).toLocaleDateString()}-${i}`,
-                  value: point.bpm,
-                }))}
-                ariaLabel="Clean tempo history"
-                valueSuffix="bpm"
-              />
+            <div
+              className="technique-history-runs"
+              role="img"
+              aria-label="Clean tempo history"
+              data-testid="technique-history"
+            >
+              {drill.history.map((point, i) => (
+                <span
+                  key={`${point.at}-${i}`}
+                  className="technique-history-run"
+                  data-testid="technique-history-point"
+                >
+                  <span className="technique-history-run-dot" aria-hidden="true" />
+                  <span className="technique-history-run-value">{point.bpm}</span>
+                </span>
+              ))}
             </div>
           </>
         )}
-      </section>
+      </div>
     </div>
   )
 }

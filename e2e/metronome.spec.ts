@@ -45,13 +45,30 @@ test('the standalone metronome runs with no score and advances in real time (roa
   // 7/8 at 100bpm with an accent on beat 4 as well as beat 1 — the metre and
   // the accent pattern the requirement's own example asks for, neither of
   // which was expressible anywhere in this app before.
-  const tempoAndMetre = page.getByRole('group', { name: 'Tempo and metre' })
-  await tempoAndMetre.getByLabel('BPM').fill('100')
-  await tempoAndMetre.getByLabel('BPM').blur()
-  await tempoAndMetre.getByLabel('Beats').fill('7')
-  await tempoAndMetre.getByLabel('Beat unit').selectOption('8')
+  //
+  // Roadmap UI-16: free-text BPM entry is gone — BPM is a stepper (±1) plus a
+  // slider now, and there is no longer a single "Tempo and metre" group; BPM
+  // lives in its own stage card while Beats/Beat unit moved into the "Meter"
+  // region alongside Subdivision/Accents. `useMetronome.ts`'s own DEFAULT_BPM
+  // is already 100 — exactly this worked example's tempo — but the control
+  // must still be proven live, not just defaulted right, so this nudges it up
+  // and back down with the stepper and reads the displayed number back each
+  // time, landing back on 100 for the rest of the run.
+  const bpmValue = page.locator('.metronome-bpm-stepper .stepper-value')
+  await expect(bpmValue).toHaveText('100')
+  await page.getByRole('button', { name: 'Increase BPM' }).click()
+  await expect(bpmValue).toHaveText('101')
+  await page.getByRole('button', { name: 'Decrease BPM' }).click()
+  await expect(bpmValue).toHaveText('100')
 
-  const accents = page.getByRole('group', { name: 'Accent pattern' })
+  const meter = page.getByRole('region', { name: 'Meter' })
+  await meter.getByLabel('Beats').fill('7')
+  await meter.getByLabel('Beat unit').selectOption('8')
+
+  // Roadmap UI-16: the accent group's accessible name shortened from "Accent
+  // pattern" to "Accents" (AccentEditor.tsx's redesign into a `.seg-control`
+  // row of per-beat chips) — the per-beat `aria-label` still starts "Beat N".
+  const accents = page.getByRole('group', { name: 'Accents' })
   const beatFour = accents.getByRole('button', { name: /^Beat 4/ })
   await expect(beatFour).toHaveAttribute('aria-pressed', 'false')
   await beatFour.click()

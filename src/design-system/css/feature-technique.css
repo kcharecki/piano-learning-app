@@ -1,3 +1,78 @@
-/* Feature stub for the Technique screen — empty on purpose, filled by that screen's
-   own later UI-overhaul task. Registered in styles.css now (roadmap UI-02) so
-   no parallel screen task has to touch the aggregator. */
+/**
+ * Technique screen (roadmap UI-15, 2026-08-12 UI audit). The drill/level
+ * pickers move into `.page-header-actions` (base.css) and the safety
+ * callout onto `.card--sunken` (feature-technique-safety.css) — nothing
+ * screen-specific needed there. What lives here: the drill card's footer
+ * (target tempo beside the Start/Stop transport) and the clean-tempo
+ * history's flex row of dot tokens, which replaces `TrendChart` (no chart
+ * library needed for a handful of points — see TechniqueScreen.tsx).
+ */
+
+/* ---------- Drill card footer: tempo field + transport ---------- */
+.technique-drill-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.technique-drill-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: var(--border-w) solid var(--border-1);
+}
+
+/* Reserved footprint (roadmap UI-15 acceptance criterion 2): Start and Stop
+   are the SAME button element, swapped in place — icon and label text
+   change, nothing mounts or unmounts. "Start" (5 chars) and "Stop" (4
+   chars) are close enough in natural width already; this `min-width` is
+   the structural guarantee that the swap never shifts the footer's layout,
+   rather than relying on the two labels happening to render the same
+   width. */
+.technique-transport-btn {
+  min-width: 8ch;
+}
+
+/* ---------- Clean-tempo history: dot tokens, not a chart ---------- */
+.technique-history-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.technique-history-empty {
+  margin: 0;
+  color: var(--text-2);
+}
+
+.technique-history-runs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
+.technique-history-run {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.technique-history-run-dot {
+  width: var(--space-3);
+  height: var(--space-3);
+  border-radius: var(--radius-round);
+  background: var(--fb-correct);
+  box-shadow: inset 0 0 0 var(--border-w) var(--accent);
+}
+
+.technique-history-run-value {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}

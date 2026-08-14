@@ -1,9 +1,12 @@
 /**
- * `MetronomeScreen` (roadmap 2.28, REQ-3.9.1): the standalone metronome is
- * wired end to end and usable with no score loaded at all — starting it
- * actually produces clicks, and stopping actually silences them. Per-hook
- * scheduling detail (gaps, accents, bpm changes) is `useMetronome.test.ts`'s
- * job; this only proves the screen's wiring drives real output.
+ * `MetronomeScreen` (roadmap 2.28, REQ-3.9.1; instrument-panel redesign
+ * roadmap UI-16, 2026-08-14 UI audit): the standalone metronome is wired end
+ * to end and usable with no score loaded at all — starting it actually
+ * produces clicks, and stopping actually silences them. Per-hook scheduling
+ * detail (gaps, accents, bpm changes) is `useMetronome.test.ts`'s job; this
+ * only proves the screen's wiring drives real output, plus the panel's own
+ * structure (glance BPM stage, dots readable without the old status box,
+ * the Meter card's field widths).
  */
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { FakeClock, RecordingAudioOutput } from '@test/fakes.ts'
@@ -72,16 +75,36 @@ describe('MetronomeScreen', () => {
     expect(screen.getByTestId('metronome-beat-readout')).toHaveTextContent('Stopped')
   })
 
-  it('changing the BPM field actually changes the tempo the metronome runs at', () => {
+  it('the Start/Stop control toggles in place — one button, its name and aria-pressed flip, nothing is swapped', () => {
     const clock = new FakeClock()
     const audio = new RecordingAudioOutput(clock)
     const manual = manualDriver()
     render(<MetronomeScreen clock={clock} audioOutput={audio} frameDriver={manual.driver} />)
 
-    const bpmInput = screen.getByLabelText('BPM')
-    fireEvent.change(bpmInput, { target: { value: '240' } })
-    expect(bpmInput).toHaveValue(240)
-    fireEvent.blur(bpmInput)
+    const button = screen.getByRole('button', { name: 'Start' })
+    expect(button).toHaveClass('metronome-start-stop')
+    expect(button).toHaveAttribute('aria-pressed', 'false')
+
+    fireEvent.click(button)
+
+    // Same DOM node (not a second button mounted alongside the first) —
+    // `getByRole` with no name filter would throw on more than one match.
+    const sameButton = screen.getByRole('button', { name: 'Stop' })
+    expect(sameButton).toBe(button)
+    expect(sameButton).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.queryAllByRole('button', { name: /^(Start|Stop)$/ })).toHaveLength(1)
+  })
+
+  it('the BPM slider and its +/- steppers actually change the tempo the metronome runs at', () => {
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const manual = manualDriver()
+    render(<MetronomeScreen clock={clock} audioOutput={audio} frameDriver={manual.driver} />)
+
+    const bpmSlider = screen.getByLabelText('BPM')
+    fireEvent.change(bpmSlider, { target: { value: '240' } })
+    // `type="range"` reports its value as a string, unlike `type="number"`.
+    expect(bpmSlider).toHaveValue('240')
 
     fireEvent.click(screen.getByRole('button', { name: 'Start' }))
     act(() => {
@@ -92,6 +115,20 @@ describe('MetronomeScreen', () => {
     })
 
     expect(audio.clicks.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('the +/- BPM steppers nudge the tempo by exactly 1 and clamp at the range ends', () => {
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const manual = manualDriver()
+    render(<MetronomeScreen clock={clock} audioOutput={audio} frameDriver={manual.driver} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Increase BPM' }))
+    expect(screen.getByLabelText('BPM')).toHaveValue('101')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Decrease BPM' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Decrease BPM' }))
+    expect(screen.getByLabelText('BPM')).toHaveValue('99')
   })
 
   it('toggling a beat in the accent editor changes what the metronome actually accents', () => {
@@ -155,7 +192,7 @@ describe('MetronomeScreen', () => {
     ])
   })
 
-  it('wraps each tempo/metre label and control in a .field, inside a .field-row (roadmap UI-01)', () => {
+  it('the accented beat carries a structural cue beyond colour: a ring element the other dots do not have', () => {
     const clock = new FakeClock()
     const audio = new RecordingAudioOutput(clock)
     const manual = manualDriver()
@@ -163,19 +200,68 @@ describe('MetronomeScreen', () => {
       <MetronomeScreen clock={clock} audioOutput={audio} frameDriver={manual.driver} />,
     )
 
-    const row = container.querySelector('.field-row')
+    const dots = Array.from(container.querySelectorAll('.metronome-beats .beat'))
+    expect(dots).toHaveLength(4)
+    // Beat 1 (index 0) is the accented one by default (4/4's [T,F,F,F]).
+    expect(dots[0]?.querySelector('.beat-ring')).not.toBeNull()
+    for (const dot of dots.slice(1)) {
+      expect(dot.querySelector('.beat-ring')).toBeNull()
+    }
+  })
+
+  it('wraps Beats, Beat unit and Subdivision in a .field-row of consistently-widthed .field controls, with a max on Beats (roadmap UI-01/UI-16)', () => {
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const manual = manualDriver()
+    const { container } = render(
+      <MetronomeScreen clock={clock} audioOutput={audio} frameDriver={manual.driver} />,
+    )
+
+    const row = container.querySelector('.metronome-meter-row')
     expect(row).not.toBeNull()
+    expect(row).toHaveClass('field-row')
     const fields = Array.from(row?.children ?? []).filter((el) => el.classList.contains('field'))
-    expect(fields).toHaveLength(4)
+    expect(fields).toHaveLength(3)
     for (const field of fields) {
-      // Each label sits directly beside its control inside the field, not as
-      // bare text floating next to it — the gap comes from `.field`'s token
-      // spacing, not manual markup.
       const label = field.querySelector('label')
       const control = field.querySelector('input, select')
       expect(label).not.toBeNull()
       expect(control).not.toBeNull()
     }
+
+    const beatsInput = screen.getByLabelText('Beats')
+    expect(beatsInput).toHaveAttribute('max', '32')
+  })
+
+  it('groups Beats/Beat unit/Subdivision/accents inside a "Meter" card and BPM stays out of it, on a page--focus panel', () => {
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const manual = manualDriver()
+    const { container } = render(
+      <MetronomeScreen clock={clock} audioOutput={audio} frameDriver={manual.driver} />,
+    )
+
+    expect(container.querySelector('.page.page--focus')).not.toBeNull()
+    const meter = container.querySelector('.metronome-meter')
+    expect(meter).not.toBeNull()
+    expect(screen.getByRole('heading', { name: 'Meter' })).toBeInTheDocument()
+    expect(meter?.contains(screen.getByLabelText('Beats'))).toBe(true)
+    expect(meter?.querySelector('[role="group"]')).not.toBeNull()
+    // BPM lives on the stage, not inside the Meter card.
+    expect(meter?.contains(screen.getByLabelText('BPM'))).toBe(false)
+  })
+
+  it('renders the BPM readout at the glance type size', () => {
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const manual = manualDriver()
+    const { container } = render(
+      <MetronomeScreen clock={clock} audioOutput={audio} frameDriver={manual.driver} />,
+    )
+
+    const value = container.querySelector('.metronome-bpm-stepper .stepper-value')
+    expect(value).not.toBeNull()
+    expect(value).toHaveTextContent('100')
   })
 
   it('rejects an invalid subdivision/tempo combination and leaves the schedule unchanged', () => {
@@ -184,9 +270,8 @@ describe('MetronomeScreen', () => {
     const manual = manualDriver()
     render(<MetronomeScreen clock={clock} audioOutput={audio} frameDriver={manual.driver} />)
 
-    const bpmInput = screen.getByLabelText('BPM')
-    fireEvent.change(bpmInput, { target: { value: '300' } })
-    fireEvent.blur(bpmInput)
+    const bpmSlider = screen.getByLabelText('BPM')
+    fireEvent.change(bpmSlider, { target: { value: '300' } })
 
     const subdivisionSelect = screen.getByLabelText('Subdivision')
     fireEvent.change(subdivisionSelect, { target: { value: '8' } })

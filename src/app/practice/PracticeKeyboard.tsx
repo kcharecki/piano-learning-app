@@ -25,8 +25,25 @@
  * It spans the loaded piece's own pitch range rather than all 88 keys (which
  * is unplayable at any width) or a fixed guess (which would leave the piece's
  * own notes off the end of it) — see `keyboardRangeFor`.
+ *
+ * ## Default rendering (roadmap UI-10, 2026-08-12 UI audit)
+ *
+ * This component is ALSO used by the Technique screen (a sibling task), so
+ * this change is additive and default-identical: with the same props as
+ * before, the DOM still has the same two toggle labels, the same conditional
+ * hint paragraph, and the same conditional `<OnScreenKeyboard>` — the only
+ * changes are (1) the toggle row now lays out as one compact flex row instead
+ * of an unstyled stack (feature-practice-sections.css's new
+ * `.practice-keyboard-toggles` rule — additive CSS, no markup change), and
+ * (2) `<QwertyHint>` — previously printed as a full standalone paragraph — is
+ * now wrapped in a closed-by-default `<details>` with a one-line "Show keys"
+ * summary, matching the identical pattern `FlashcardScreen.tsx` already uses
+ * for the same shared component. Every prior query by role/label text still
+ * resolves; `QwertyHint`'s own content (queried by text in this component's
+ * test) is unchanged, just nested one level deeper in the DOM.
  */
 import { OnScreenKeyboard } from '@app/drills/OnScreenKeyboard.tsx'
+import { Icon } from '@app/ui/Icon.tsx'
 import { QwertyHint } from '@app/keyboardInput/QwertyHint.tsx'
 import { defaultBaseNote } from '@app/keyboardInput/qwertyNoteMap.ts'
 import { useQwertyNoteInput } from '@app/keyboardInput/useQwertyNoteInput.ts'
@@ -121,7 +138,15 @@ export function PracticeKeyboard({
           label="Play the score"
         />
       )}
-      {visible && !disabled && <QwertyHint />}
+      {visible && !disabled && (
+        <details className="practice-qwerty-hint">
+          <summary>
+            <Icon name="chevron-down" />
+            Show keys
+          </summary>
+          <QwertyHint />
+        </details>
+      )}
     </section>
   )
 }

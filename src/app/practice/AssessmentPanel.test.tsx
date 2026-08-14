@@ -90,8 +90,17 @@ describe('AssessmentPanel — a completed result', () => {
     expect(screen.getByTestId('assessment-verdict')).toHaveTextContent('Passed')
   })
 
-  it("renders one table row per measure, with that measure's own counts", () => {
+  // Roadmap UI-10 (2026-08-12 UI audit): the per-measure table moved from
+  // always-inline content into a dialog behind a "View measure breakdown"
+  // trigger — the headline stats stay inline (checked above), the table does
+  // not until that trigger is clicked.
+  it("hides the per-measure table until 'View measure breakdown' is opened, then shows one row per measure", async () => {
+    const user = userEvent.setup()
     render(<AssessmentPanel phase="complete" result={RESULT} canStart onStart={() => {}} />)
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'View measure breakdown' }))
+
     const rows = screen.getAllByRole('row')
     // Header row plus one row per measure.
     expect(rows).toHaveLength(1 + RESULT.measures.length)
@@ -102,8 +111,11 @@ describe('AssessmentPanel — a completed result', () => {
     expect(cells).toEqual(['50%', '1', '1', '0', '0'])
   })
 
-  it('numbers the measure column 1-based (measureIndex + 1), matching the printed score', () => {
+  it('numbers the measure column 1-based (measureIndex + 1), matching the printed score', async () => {
+    const user = userEvent.setup()
     render(<AssessmentPanel phase="complete" result={RESULT} canStart onStart={() => {}} />)
+    await user.click(screen.getByRole('button', { name: 'View measure breakdown' }))
+
     const rows = screen.getAllByRole('row')
     // RESULT.measures are measureIndex 0 and 1 (0-based core data); the
     // row header must read the printed 1-based measure number, 1 and 2.
@@ -114,5 +126,23 @@ describe('AssessmentPanel — a completed result', () => {
   it('offers to run the assessment again instead of "Start assessment"', () => {
     render(<AssessmentPanel phase="complete" result={RESULT} canStart onStart={() => {}} />)
     expect(screen.getByRole('button', { name: 'Run assessment again' })).toBeEnabled()
+  })
+
+  // Accessibility acceptance criteria (docs/ui-overhaul-brief.md): overlays
+  // move focus in on open and restore it to the trigger on close.
+  it('moves focus into the breakdown dialog on open, and Escape closes it and restores focus to the trigger', async () => {
+    const user = userEvent.setup()
+    render(<AssessmentPanel phase="complete" result={RESULT} canStart onStart={() => {}} />)
+
+    const trigger = screen.getByRole('button', { name: 'View measure breakdown' })
+    await user.click(trigger)
+
+    const dialog = screen.getByRole('dialog', { name: 'Measure breakdown' })
+    expect(dialog).toHaveFocus()
+
+    await user.keyboard('{Escape}')
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
   })
 })

@@ -362,45 +362,65 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
     <div className="theory-drill-panel">
       <h2>Theory drills</h2>
 
-      <div className="theory-level" role="group" aria-label="Level">
-        <button
-          type="button"
-          aria-label="Decrease level"
-          disabled={level <= MIN_LEVEL}
-          onClick={() => setLevel((l) => Math.max(MIN_LEVEL, l - 1))}
-        >
-          −
-        </button>
-        <span data-testid="theory-level">Level {level}</span>
-        <button
-          type="button"
-          aria-label="Increase level"
-          disabled={level >= MAX_LEVEL}
-          onClick={() => setLevel((l) => Math.min(MAX_LEVEL, l + 1))}
-        >
-          +
-        </button>
-      </div>
+      <div className="field-row theory-drill-controls">
+        {/* `.stepper` (roadmap UI-01/UI-17, canonicalised in the 2026-08
+            stepper sweep): the label lives OUTSIDE the bordered [-]/[+]
+            group, in this `.field` — the group itself carries
+            `aria-labelledby` pointing at it, and each button still carries
+            its own `aria-label` ("Decrease level"/"Increase level") so the
+            control is unambiguous even read out of context. Before this,
+            "Level {level}" was the only label and it sat SANDWICHED between
+            the two buttons, inside the group — the exact defect `.stepper`
+            exists to fix (see primitives.css's file header). The value cell
+            now holds the bare numeral, matching the canonical shape shared
+            with Flashcards, Rhythm and Metronome — it used to repeat the
+            word "Level" a second time inside the group, which this sweep
+            also removes. */}
+        <div className="field">
+          <label id="theory-level-label">Level</label>
+          <div className="stepper" role="group" aria-labelledby="theory-level-label">
+            <button
+              type="button"
+              aria-label="Decrease level"
+              disabled={level <= MIN_LEVEL}
+              onClick={() => setLevel((l) => Math.max(MIN_LEVEL, l - 1))}
+            >
+              −
+            </button>
+            <span className="stepper-value" data-testid="theory-level">
+              {level}
+            </span>
+            <button
+              type="button"
+              aria-label="Increase level"
+              disabled={level >= MAX_LEVEL}
+              onClick={() => setLevel((l) => Math.min(MAX_LEVEL, l + 1))}
+            >
+              +
+            </button>
+          </div>
+        </div>
 
-      <div className="theory-kind">
-        <label htmlFor="theory-kind-select">Topic</label>
-        <select
-          id="theory-kind-select"
-          value={kind}
-          onChange={(e) => setKind(e.target.value as TheoryQuizKind)}
-        >
-          {KINDS.map((k) => (
-            <option key={k} value={k}>
-              {KIND_LABEL[k]}
-            </option>
-          ))}
-        </select>
+        <div className="field">
+          <label htmlFor="theory-kind-select">Topic</label>
+          <select
+            id="theory-kind-select"
+            value={kind}
+            onChange={(e) => setKind(e.target.value as TheoryQuizKind)}
+          >
+            {KINDS.map((k) => (
+              <option key={k} value={k}>
+                {KIND_LABEL[k]}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {item === undefined ? (
         <p role="status">Loading…</p>
       ) : (
-        <section aria-label="Theory quiz">
+        <section aria-label="Theory quiz" className="theory-quiz">
           <p data-testid="theory-prompt">{item.prompt}</p>
           <p data-testid="theory-progress">
             {playedGroups.length} / {item.answer.length} played

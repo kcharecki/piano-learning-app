@@ -81,33 +81,46 @@ export function LoopRangeControl({ score, loop, onChange, tempoScale }: LoopRang
   }
 
   return (
-    <div className="loop-range-control loop-group" role="group" aria-label="Loop range">
-      <label htmlFor={startId}>From measure</label>
-      <input
-        id={startId}
-        type="number"
-        min={1}
-        max={lastMeasure + 1}
-        value={startMeasure + 1}
-        onChange={(event) => apply(Number(event.target.value) - 1, endMeasure, enabled)}
-      />
-      <label htmlFor={endId}>to measure</label>
-      <input
-        id={endId}
-        type="number"
-        min={1}
-        max={lastMeasure + 1}
-        value={endMeasure + 1}
-        onChange={(event) => apply(startMeasure, Number(event.target.value) - 1, enabled)}
-      />
-      <label>
-        <input
-          type="checkbox"
-          checked={enabled}
-          onChange={(event) => apply(startMeasure, endMeasure, event.target.checked)}
-        />
-        Loop
-      </label>
+    // Roadmap UI-10 (2026-08-12 UI audit): From/to measure used to sit as bare
+    // `<label>text<input></label>` pairs crammed against each other with no
+    // primitive backing them — replaced with `.field-row` of two `.field`s
+    // (primitives.css), the documented shape for "a horizontal run of
+    // labelled controls" (e.g. BPM/Beats/Beat unit on Metronome already uses
+    // it). The group's own role/label are unchanged, so every existing query
+    // by role or label text still resolves.
+    <div className="loop-range-control" role="group" aria-label="Loop range">
+      <div className="field-row">
+        <div className="field">
+          <label htmlFor={startId}>From measure</label>
+          <input
+            id={startId}
+            type="number"
+            min={1}
+            max={lastMeasure + 1}
+            value={startMeasure + 1}
+            onChange={(event) => apply(Number(event.target.value) - 1, endMeasure, enabled)}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor={endId}>to measure</label>
+          <input
+            id={endId}
+            type="number"
+            min={1}
+            max={lastMeasure + 1}
+            value={endMeasure + 1}
+            onChange={(event) => apply(startMeasure, Number(event.target.value) - 1, enabled)}
+          />
+        </div>
+        <label>
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(event) => apply(startMeasure, endMeasure, event.target.checked)}
+          />
+          Loop
+        </label>
+      </div>
       <span className="loop-tempo" data-testid="loop-tempo">
         {enabled ? 'Loop tempo' : 'Tempo'}: {Math.round(tempoScale * 100)}%
       </span>

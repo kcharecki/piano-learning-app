@@ -3,21 +3,22 @@
    a round of concurrent worktrees never conflicts inside domain.css. Rules that
    outlive their feature's round get folded back into domain.css by the integrator. */
 
-/* ---------- Practice screen collapsible sections (roadmap 5.18) ----------
-   `.practice-setup` (new) and `.practice-more-tools` (5.17, previously
-   unstyled — rendering as a bare native <details>) share one convention: a
-   bordered, padded box with a styled disclosure triangle on the summary, so
-   both read as sections rather than as one more flat control. Two rule sets,
-   one selector list, because they are the same pattern applied to two
-   `<details>` at two different disclosure levels — 5.18 asks for sections,
-   not a bespoke look per section. */
-.practice-setup,
+/* ---------- Practice screen collapsible sections (roadmap 5.18, UI-10) ----------
+   `.practice-more-tools` (5.17) keeps its own bordered, padded box with a
+   styled disclosure triangle on the summary. `.practice-setup` (5.18) instead
+   composes `.card--sunken` (primitives.css) directly on the `<details>`
+   element (roadmap UI-10, 2026-08-12 UI audit) — background/radius/padding
+   come from that primitive now, so only the disclosure-triangle treatment
+   (shared with "More tools" below) and body spacing are declared here. */
 .practice-more-tools {
   margin: var(--space-4) 0;
   padding: var(--space-3);
   border: var(--border-w) solid var(--border-1);
   border-radius: var(--radius-2);
   background: var(--bg-1);
+}
+.practice-setup {
+  margin: var(--space-4) 0;
 }
 .practice-setup > summary,
 .practice-more-tools > summary {
@@ -52,6 +53,133 @@
   flex-direction: column;
   gap: var(--space-3);
   margin-top: var(--space-3);
+}
+
+/* ---------- Practice setup's three titled groups (roadmap UI-10) ----------
+   Range / Hands / Sound: native `<fieldset>`/`<legend>` rather than a bare
+   div — `<legend>` is what gives each group a REAL visible title without a
+   second, redundant `aria-label` fighting the widget's own ("Loop range",
+   "Hands", "Metronome"). Reset to look like a plain block (browsers draw a
+   fieldset with its own border/padding/min-width by default) and the legend
+   styled like `.field > label` (primitives.css) so it reads as the same kind
+   of label everywhere else in the app, not a bespoke heading. */
+.practice-setup-group {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.practice-setup-group > legend {
+  padding: 0;
+  margin-bottom: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  font-weight: var(--weight-medium);
+}
+
+/* ---------- Record & replay (roadmap UI-10) ----------
+   The Record/Replay toggles, the live status line, the last-take summary and
+   the "Audio recording" disclosure all share this one flex row, wrapping at
+   narrow widths rather than stacking one control per line. */
+.record-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+.record-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+.record-summary dt {
+  font-weight: var(--weight-medium);
+}
+.record-summary dd {
+  margin: 0;
+}
+
+/* ---------- On-screen keyboard region (roadmap UI-10) ----------
+   The "On-screen keyboard" / "Hold for chords" checkboxes used to stack as
+   two unstyled block-level labels — one compact row instead, matching every
+   other toggle pair in the app (e.g. `.field-row`'s own "wraps at narrow
+   widths" convention). Left as plain `<label><input type="checkbox">…
+   </label>` pairs, NOT `.field-inline` — primitives.css documents that class
+   as explicitly not for checkbox/radio labels (they already get their own
+   sizing from the `label:has(> input[type="checkbox"])` rule, and wrapping
+   them in `.field-inline` too would fight it over layout). */
+.practice-keyboard-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+}
+
+/* ---------- QWERTY hint disclosure (roadmap UI-10) ----------
+   Same "collapsed to one line, `Show keys` trigger" convention
+   `.flashcard-qwerty-hint` (feature-flashcards.css) already established for
+   the identical shared `<QwertyHint>` component — repeated here rather than
+   shared because the two owning files are on opposite sides of this round's
+   single-writer boundary. */
+.practice-qwerty-hint {
+  margin: var(--space-2) 0 0;
+}
+.practice-qwerty-hint > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  cursor: pointer;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  list-style: none;
+}
+.practice-qwerty-hint > summary::-webkit-details-marker {
+  display: none;
+}
+.practice-qwerty-hint > summary svg {
+  transition: transform var(--dur-1) var(--ease-out);
+}
+.practice-qwerty-hint[open] > summary svg {
+  transform: rotate(180deg);
+}
+
+/* ---------- Review / assessment overlays (roadmap UI-10) ----------
+   `ReviewOverlay` and `AssessmentPanel`'s per-measure breakdown both move
+   behind an explicit trigger into a real `<dialog>` (the `dialog` primitive
+   already supplies `--bg-3`/border/radius/`--elev-3`/padding — see
+   primitives.css). This only adds the fade+rise entrance motion the audit
+   asks for, scoped to `[open]` per the CSS trap `feature-practice.css`
+   documents (a bare `display: flex` here would beat the UA's
+   `dialog:not([open])` rule and leave it permanently rendered). */
+.review-overlay-summary {
+  display: flex;
+}
+.review-overlay-dialog[open],
+.assessment-breakdown-dialog[open] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  animation: practice-overlay-in var(--dur-2) var(--ease-out);
+}
+.review-overlay-dialog h2 {
+  margin: 0;
+}
+.assessment-breakdown-dialog table {
+  margin: 0;
+}
+@keyframes practice-overlay-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--space-2));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* `.practice-accuracy-caveat` (roadmap 5.48's permanent disclosure) removed

@@ -1,11 +1,12 @@
 /**
- * Screen-level composition (roadmap 2.13): the hook, the complexity stepper,
- * the engraved pattern (roadmap 5.19) and the tap controls are wired together
- * correctly, and starting a run through the UI actually begins tapping.
- * Per-hook behaviour is covered by `useRhythmDrill.test.ts`.
+ * Screen-level composition (roadmap 2.13; redesigned as a tap instrument
+ * roadmap UI-14). The hook, the complexity stepper, the engraved pattern
+ * (roadmap 5.19) and the tap pad are wired together correctly, and starting a
+ * run through the UI actually begins tapping. Per-hook behaviour is covered
+ * by `useRhythmDrill.test.ts`.
  */
 import { seededRng } from '@core/ports/rng.ts'
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FakeClock, FakeMidiInput, RecordingAudioOutput } from '@test/fakes.ts'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -29,6 +30,12 @@ afterEach(cleanup)
 /** Fixed 4 bars, 120bpm default tempo (`RhythmScreen`'s own `BARS` constant). */
 const RUN_LENGTH_MS = 4 * 2000
 
+/** The tap pad's accessible name — deliberately starts with "Tap" so
+ *  `e2e/metronome-drills.spec.ts`'s substring lookup keeps finding it (see
+ *  `RhythmScreen.tsx`'s own module doc). Matched exactly here since it is a
+ *  static `aria-label`, independent of the visible running tap count. */
+const TAP_PAD_NAME = 'Tap here — or press Space'
+
 function manualDriver(): { driver: FrameDriver; pump: () => void } {
   let callback: (() => void) | undefined
   const driver: FrameDriver = (cb) => {
@@ -45,8 +52,8 @@ describe('RhythmScreen', () => {
     // Roadmap UI-04b: the "No MIDI keyboard connected" status moved out of
     // this screen's sight-tap mode entirely, into the shell's topbar
     // input-status chip — proved in `InputCapabilityBanner.test.tsx`, not
-    // here. (Clap-back mode's own `RhythmClapback.tsx` still renders it
-    // in-flow — out of this screen task's file list.)
+    // here. (Clap-back mode's own `RhythmClapback.tsx` no longer renders it
+    // either — see that file's own test for the roadmap UI-14 removal.)
     const neverResolves = (): Promise<never> => new Promise(() => {})
     render(<RhythmScreen connectMidi={neverResolves} rng={seededRng(1)} />)
 
@@ -54,7 +61,13 @@ describe('RhythmScreen', () => {
     expect(screen.getByRole('button', { name: 'Start' })).toBeInTheDocument()
   })
 
-  it('starting the drill shows the pattern and lets the on-screen button tap', async () => {
+  it('the tap pad does not exist before a run starts — it is the running-state surface, not a disabled placeholder', () => {
+    render(<RhythmScreen midiInput={new FakeMidiInput()} rng={seededRng(1)} />)
+
+    expect(screen.queryByRole('button', { name: TAP_PAD_NAME })).not.toBeInTheDocument()
+  })
+
+  it('starting the drill shows the pattern and lets the tap pad register a tap', async () => {
     const user = userEvent.setup()
     const clock = new FakeClock()
     const midiInput = new FakeMidiInput()
@@ -66,8 +79,8 @@ describe('RhythmScreen', () => {
     await user.click(screen.getByRole('button', { name: 'Start' }))
 
     expect(screen.getByTestId('rhythm-tapping-status')).toBeInTheDocument()
-    const tapButton = screen.getByRole('button', { name: 'Tap' })
-    expect(tapButton).toBeEnabled()
+    const tapPad = screen.getByRole('button', { name: TAP_PAD_NAME })
+    expect(tapPad).toBeEnabled()
     expect(screen.getByTestId('mock-score-viewer')).toBeInTheDocument()
     // roadmap 5.56: the engraved pattern must never carry an empty/"Untitled
     // Score" title — 5.13 fixed `generateMelody`/`techniqueScore` but never
@@ -75,10 +88,36 @@ describe('RhythmScreen', () => {
     expect(screen.getByTestId('mock-score-viewer').dataset.scoreTitle).toBe(
       'Rhythm — complexity 1',
     )
+    expect(screen.getByTestId('mock-score-viewer').dataset.scoreTitle).not.toBe('')
+    expect(screen.queryByText('Untitled Score')).not.toBeInTheDocument()
 
-    await user.click(tapButton)
+    await user.click(tapPad)
 
-    expect(screen.getByTestId('rhythm-tap-count')).toHaveTextContent('Taps: 1')
+    expect(screen.getByTestId('rhythm-tap-count')).toHaveTextContent('1')
+  })
+
+  it('the tap pad responds identically to a click and to Space, and the count keeps up with both (roadmap UI-14)', async () => {
+    const user = userEvent.setup()
+    const clock = new FakeClock()
+
+    render(
+      <RhythmScreen
+        clock={clock}
+        midiInput={new FakeMidiInput()}
+        audioOutput={new RecordingAudioOutput(clock)}
+        rng={seededRng(7)}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Start' }))
+    const tapPad = screen.getByRole('button', { name: TAP_PAD_NAME })
+
+    await user.click(tapPad)
+    await user.click(tapPad)
+    fireEvent.keyDown(window, { code: 'Space' })
+    fireEvent.keyDown(window, { code: 'Space' })
+
+    expect(screen.getByTestId('rhythm-tap-count')).toHaveTextContent('4')
   })
 
   it('the engraved title names the complexity the pattern was actually generated at (roadmap 5.56)', async () => {
@@ -96,7 +135,7 @@ describe('RhythmScreen', () => {
 
     await user.click(screen.getByRole('button', { name: 'Increase complexity' }))
     await user.click(screen.getByRole('button', { name: 'Increase complexity' }))
-    expect(screen.getByTestId('rhythm-complexity')).toHaveTextContent('Complexity 3')
+    expect(screen.getByTestId('rhythm-complexity')).toHaveTextContent('3')
 
     await user.click(screen.getByRole('button', { name: 'Start' }))
 
@@ -105,13 +144,7 @@ describe('RhythmScreen', () => {
     )
   })
 
-  it('the Tap button is disabled before a run starts', () => {
-    render(<RhythmScreen midiInput={new FakeMidiInput()} rng={seededRng(1)} />)
-
-    expect(screen.getByRole('button', { name: 'Tap' })).toBeDisabled()
-  })
-
-  it('changing complexity is reflected immediately, and locked while tapping', async () => {
+  it('changing complexity is reflected immediately while idle, and the stepper is gone once tapping starts', async () => {
     const user = userEvent.setup()
     const clock = new FakeClock()
     render(
@@ -123,14 +156,17 @@ describe('RhythmScreen', () => {
       />,
     )
 
-    expect(screen.getByTestId('rhythm-complexity')).toHaveTextContent('Complexity 1')
+    expect(screen.getByTestId('rhythm-complexity')).toHaveTextContent('1')
     await user.click(screen.getByRole('button', { name: 'Increase complexity' }))
-    expect(screen.getByTestId('rhythm-complexity')).toHaveTextContent('Complexity 2')
+    expect(screen.getByTestId('rhythm-complexity')).toHaveTextContent('2')
 
     await user.click(screen.getByRole('button', { name: 'Start' }))
 
-    expect(screen.getByRole('button', { name: 'Increase complexity' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Decrease complexity' })).toBeDisabled()
+    // Progressive disclosure (rule 2): the idle configuration card — the
+    // stepper included — is not rendered at all while a run is live, not
+    // merely disabled in place.
+    expect(screen.queryByTestId('rhythm-complexity')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Increase complexity' })).not.toBeInTheDocument()
   })
 
   it('running a full drill through to the end shows the real grade and an Again button', async () => {
@@ -149,8 +185,8 @@ describe('RhythmScreen', () => {
     )
 
     await user.click(screen.getByRole('button', { name: 'Start' }))
-    const tapButton = screen.getByRole('button', { name: 'Tap' })
-    await user.click(tapButton)
+    const tapPad = screen.getByRole('button', { name: TAP_PAD_NAME })
+    await user.click(tapPad)
 
     act(() => {
       clock.advance(RUN_LENGTH_MS)

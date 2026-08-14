@@ -140,4 +140,24 @@ describe('PracticeKeyboard', () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA', bubbles: true }))
     expect(onPress).not.toHaveBeenCalled()
   })
+
+  // Roadmap UI-10 (2026-08-12 UI audit): the QWERTY hint collapses to a
+  // one-line "Show keys" disclosure — the same pattern FlashcardScreen
+  // already uses for the same shared component.
+  it('collapses the QWERTY hint behind a one-line "Show keys" disclosure, closed by default', async () => {
+    const user = userEvent.setup()
+    render(<PracticeKeyboard {...props} />)
+
+    const trigger = screen.getByText('Show keys')
+    const disclosure = trigger.closest('details')
+    expect(disclosure).not.toBeNull()
+    expect(disclosure).not.toHaveAttribute('open')
+    // The full mapping text is still in the document (native <details> hides
+    // it visually, not structurally) — QwertyHint itself is untouched.
+    expect(screen.getByText(/or type it/i)).toBeInTheDocument()
+
+    await user.click(trigger)
+
+    expect(disclosure).toHaveAttribute('open')
+  })
 })

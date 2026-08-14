@@ -294,6 +294,15 @@ select {
 }
 .seg-control > * {
   min-height: var(--control-h);
+  /* Square minimum, matching `.stepper`'s buttons. Height alone was NOT
+     enough: the Metronome's per-beat accent toggles hold a bare digit, so
+     `--control-pad-x` gave them 38-42px of width against a 44px requirement
+     at tablet widths, while their height passed at exactly 44px. Caught by
+     e2e/tablet-touch-targets.spec.ts (roadmap B.6) walking every destination,
+     not by any screen's own tests. Fixed on the primitive rather than on the
+     Metronome, because any future single-glyph segment has the same problem
+     and would fail the same way. */
+  min-width: var(--control-h);
   padding: 0 var(--control-pad-x);
   border: 0;
   border-radius: 0;

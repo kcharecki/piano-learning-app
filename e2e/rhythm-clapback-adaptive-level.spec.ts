@@ -35,10 +35,13 @@ test('the clap-back level survives a real page reload — it no longer resets to
     .click()
   await page.getByRole('button', { name: 'Clap-back mode' }).click()
 
-  await expect(page.getByTestId('clapback-level')).toHaveText('Level 1')
+  // Roadmap UI-14: the stepper's testid holds only the bare numeral now — the
+  // "Level" label moved out into its own `.field` label. Assert both halves.
+  await expect(page.getByText('Level', { exact: true })).toBeVisible()
+  await expect(page.getByTestId('clapback-level')).toHaveText('1')
   await page.getByRole('button', { name: 'Increase level' }).click()
   await page.getByRole('button', { name: 'Increase level' }).click()
-  await expect(page.getByTestId('clapback-level')).toHaveText('Level 3')
+  await expect(page.getByTestId('clapback-level')).toHaveText('3')
 
   // `persistence.ts`'s write queue (`createWriteQueue`) saves to IndexedDB
   // asynchronously with no synchronous "flush" signal this test can await —
@@ -61,7 +64,7 @@ test('the clap-back level survives a real page reload — it no longer resets to
     .click()
   await page.getByRole('button', { name: 'Clap-back mode' }).click()
 
-  await expect(page.getByTestId('clapback-level')).toHaveText('Level 3')
+  await expect(page.getByTestId('clapback-level')).toHaveText('3')
 
   expect(errors).toEqual([])
 })

@@ -29,7 +29,10 @@ export function HandMuteControl({
   disabled = false,
 }: HandMuteControlProps) {
   return (
-    <div className="hand-mute-control" role="radiogroup" aria-label="Hands">
+    // `.seg-control` (primitives.css): a bordered radiogroup is exactly what
+    // this already was (roadmap UI-10) — the primitive's selection styling
+    // reads off `[aria-checked="true"]`, which every option below already sets.
+    <div className="hand-mute-control seg-control" role="radiogroup" aria-label="Hands">
       {OPTIONS.map((option) => {
         const selected = sameHands(activeHands, option.hands)
         return (

@@ -53,7 +53,12 @@ test('the C major two-octave drill engraves fingering above the right hand and b
   // (levels 1/2 are five-finger patterns and one-octave single-hand scales).
   await page.getByRole('button', { name: 'Increase level' }).click()
   await page.getByRole('button', { name: 'Increase level' }).click()
-  await expect(page.getByTestId('technique-level')).toHaveText('Level 3')
+  // Canonical stepper shape (docs/ui-overhaul-brief.md): the word "Level"
+  // lives outside the group as its accessible name, the bare numeral lives
+  // in the value cell inside it — proving both, not just the number.
+  const levelStepper = page.getByRole('group', { name: 'Level' })
+  await expect(levelStepper).toBeVisible()
+  await expect(levelStepper.getByTestId('technique-level')).toHaveText('3')
 
   const DRILL_ID = 'scale-c-major-2oct-hands-together'
   const drill = techniqueLibrary(3).find((d) => d.id === DRILL_ID)

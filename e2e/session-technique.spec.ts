@@ -105,7 +105,12 @@ test("opening a non-first planned technique item opens THAT drill, not the level
   // does not contain that id, and `useTechniqueDrill`'s own "id absent from
   // this level's list" effect would silently fall back to that OTHER level's
   // first drill instead.
-  await expect(page.getByTestId('technique-level')).toHaveText(`Level ${plannedDrill.level}`)
+  // Canonical stepper shape (docs/ui-overhaul-brief.md): the word "Level"
+  // lives outside the group as its accessible name, the bare numeral lives
+  // in the value cell inside it — proving both, not just the number.
+  const levelStepper = page.getByRole('group', { name: 'Level' })
+  await expect(levelStepper).toBeVisible()
+  await expect(levelStepper.getByTestId('technique-level')).toHaveText(String(plannedDrill.level))
 
   const select = page.locator('#technique-drill-select')
   const optionLocators = select.locator('option')

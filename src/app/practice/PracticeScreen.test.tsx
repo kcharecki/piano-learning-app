@@ -713,6 +713,7 @@ describe('PracticeScreen', () => {
     act(() => midiInput.emit({ type: 'noteOff', note: midi(60), time: millis(clock.now()) }))
     act(() => clock.advance(200))
 
+    // Roadmap UI-10: Record/Stop recording share one toggle button now.
     await user.click(screen.getByRole('button', { name: 'Stop recording' }))
     // Stopping no longer wipes the take's counters (roadmap 2.14) — the
     // learner, and the replay comparison below, need to be able to read what
@@ -883,6 +884,47 @@ describe('PracticeScreen', () => {
     await user.click(screen.getByRole('checkbox', { name: 'Read ahead' }))
 
     expect(setNoteHiddenSpy.mock.calls.some(([, hidden]) => hidden === true)).toBe(true)
+  })
+})
+
+// Roadmap UI-10 (2026-08-12 UI audit), acceptance criterion 1: at most ~6
+// interactive controls visible before disclosure. "Before disclosure" is
+// counted here as every real form control (`button`/`input`/`select` — never
+// a bare `<summary>`, which is the disclosure AFFORDANCE itself, not a
+// configuration control) that sits OUTSIDE `.practice-setup`,
+// `.practice-more-tools`, and any `<dialog>` — the setup drawer and the
+// "More tools" section ARE the disclosure this rule asks for; their own
+// contents (open by default for "Practice setup", per 5.17/5.18, which this
+// task must not break) are accounted for by that grouping, not double-counted
+// against the top-level budget.
+describe('PracticeScreen — control budget (roadmap UI-10, DESIGN.md rule 2)', () => {
+  it('shows at most 6 interactive controls outside any disclosure, on a default level-1 screen', () => {
+    setPlayingLevel(1)
+    loadSampleScore()
+    // A connected device (the default `FakeMidiInput` fixture, same as most
+    // tests above) hides the on-screen keyboard's own keys/hint/QWERTY
+    // disclosure by default — this is the ordinary "I have a MIDI keyboard"
+    // case, not a special-cased minimal render.
+    render(<PracticeScreen midiInput={new FakeMidiInput()} />)
+
+    const topLevelControls = Array.from(
+      document.querySelectorAll('button, input, select'),
+    ).filter(
+      (el) =>
+        el.closest('.practice-setup') === null &&
+        el.closest('.practice-more-tools') === null &&
+        el.closest('dialog') === null,
+    )
+
+    expect(topLevelControls.length).toBeLessThanOrEqual(6)
+    // Named, not just counted: Play/Pause/Stop, the tempo slider, the
+    // microphone toggle, and the on-screen-keyboard toggle — nothing else.
+    expect(screen.getByRole('button', { name: 'Play' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument()
+    expect(screen.getByRole('slider')).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: /use microphone/i })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: /on-screen keyboard/i })).toBeInTheDocument()
   })
 })
 

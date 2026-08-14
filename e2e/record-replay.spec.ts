@@ -115,6 +115,9 @@ test('record a live take, replay it with no further input, and the note feedback
   await expect(loopRangeSettle.getByLabel('to measure')).toHaveValue('6')
   await page.waitForTimeout(300)
 
+  // UI-10: Replay/Stop replay share ONE toggle button whose accessible name
+  // swaps in place (same shape as Record/Stop recording) — it is absent
+  // entirely until a take exists, never merely disabled.
   const recordPanel = page.getByRole('group', { name: 'Record and replay' })
   const recordButton = recordPanel.getByRole('button', { name: 'Record', exact: true })
   const stopRecordingButton = recordPanel.getByRole('button', { name: 'Stop recording' })
@@ -158,8 +161,13 @@ test('record a live take, replay it with no further input, and the note feedback
   // No further fake MIDI input at all from here — every note colour change
   // from here on must come from the recorder replaying its own capture.
   // Replay ends itself once every recorded event has been re-emitted (see
-  // useRecorder.ts); "Stop replay" going back to disabled is that transition.
-  await expect(stopReplayButton).toBeDisabled({ timeout: 15_000 })
+  // useRecorder.ts). UI-10 collapsed the old separate Stop replay button
+  // into the SAME toggle as Replay, whose accessible name swaps back once
+  // the phase leaves 'replaying' — it is never merely disabled, so the
+  // transition to look for is "Stop replay" disappearing and "Replay"
+  // (enabled) taking its place.
+  await expect(stopReplayButton).toBeHidden({ timeout: 15_000 })
+  await expect(replayButton).toBeEnabled()
 
   const replayedCounts = await readFeedback(page)
   expect(replayedCounts).toEqual(liveCounts)

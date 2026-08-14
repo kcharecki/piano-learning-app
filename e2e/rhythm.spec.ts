@@ -52,7 +52,11 @@ test('the Rhythm nav destination renders the real drill, taps a pattern imperfec
     .click()
 
   await expect(page.getByRole('heading', { name: 'Rhythm' })).toBeVisible()
-  await expect(page.getByTestId('rhythm-complexity')).toHaveText('Complexity 1')
+  // Roadmap UI-14: this testid holds only the numeral now — the "Complexity"
+  // label moved out of the stepper group into its own `.field` label. Both
+  // halves are asserted so the check is not weakened by the split.
+  await expect(page.getByText('Complexity', { exact: true })).toBeVisible()
+  await expect(page.getByTestId('rhythm-complexity')).toHaveText('1')
 
   await page.getByRole('button', { name: 'Start' }).click()
   await expect(page.getByTestId('rhythm-tapping-status')).toBeVisible()
@@ -65,6 +69,25 @@ test('the Rhythm nav destination renders the real drill, taps a pattern imperfec
   const patternRegionText = (await scoreContainer.innerText()).toLowerCase()
   expect(patternRegionText).not.toContain('half')
   expect(patternRegionText).not.toContain('whole')
+  // Roadmap 5.56's on-screen half, kept alive here after UI-14 made
+  // e2e/rhythm-title.spec.ts unassertable. That spec read the engraved title
+  // off this screen; UI-14 suppresses the title block entirely
+  // (chrome={{ title: false }}) because the .page-header already names the
+  // drill, so there is no longer a title to read. The MODEL-level guarantee —
+  // rhythmToScore can never produce an empty title — is property-tested in
+  // src/core/generator/rhythm.test.ts. What that leaves unguarded is the
+  // original user-visible symptom, so assert it directly: whatever this screen
+  // engraves, the words "Untitled Score" are never among them.
+  expect(patternRegionText).not.toContain('untitled score')
+
+  // Roadmap UI-14: once a run is graded the stage swaps to the Result stats
+  // and the engraving is gone from the DOM entirely (score-container does not
+  // render in the 'graded' phase) — so the real-onset count has to be read
+  // off the engraving NOW, while it is still on screen, not after grading.
+  // The pattern itself does not change between now and grading (same `Score`
+  // instance for the whole run), so this is still "read off the engraving,
+  // not the model", just captured at the point the engraving is visible.
+  const realOnsetCount = await scoreContainer.locator('[data-note-id]').count()
 
   const tapButton = page.getByRole('button', { name: 'Tap' })
   await expect(tapButton).toBeEnabled()
@@ -92,7 +115,9 @@ test('the Rhythm nav destination renders the real drill, taps a pattern imperfec
     if (remaining > 0) await page.waitForTimeout(remaining)
     await tapButton.click()
   }
-  await expect(page.getByTestId('rhythm-tap-count')).toHaveText(`Taps: ${scheduleMs.length}`)
+  // Roadmap UI-14: the count span holds a bare numeral now (the tap pad's own
+  // status text carries the "Tap" word; see the pad's `aria-label`/status span).
+  await expect(page.getByTestId('rhythm-tap-count')).toHaveText(`${scheduleMs.length}`)
 
   await expect(page.getByTestId('rhythm-accuracy')).toBeVisible({ timeout: 15_000 })
   await expect(page.getByRole('button', { name: 'Again' })).toBeVisible()
@@ -116,7 +141,6 @@ test('the Rhythm nav destination renders the real drill, taps a pattern imperfec
   // non-rest onset and none for a rest, and the engraver stamps `data-note-id`
   // only on real, mapped notes (roadmap 4.8a) — so this count is exactly the
   // real-onset count `gradeTapping` graded against.
-  const realOnsetCount = await scoreContainer.locator('[data-note-id]').count()
   expect(matched + missed).toBe(realOnsetCount)
 
   expect(errors).toEqual([])

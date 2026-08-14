@@ -38,6 +38,7 @@
  * neither carries its own copy any more.
  */
 import { useEffect, useState } from 'react'
+import { Icon } from '@app/ui/Icon.tsx'
 import type { AudioOutput } from '@core/ports/audio.ts'
 import { at } from '@core/shared/invariant.ts'
 import { midi } from '@core/shared/units.ts'
@@ -57,7 +58,6 @@ import {
   type Scale,
   type ScaleType,
 } from '@core/theory/scales.ts'
-import { ChordLookup } from './ChordLookup.tsx'
 import {
   noteLabel,
   playChordTones,
@@ -219,13 +219,29 @@ function scaleDegreeStacks(scale: Scale, seventh: boolean): readonly (readonly S
   )
 }
 
+/** Sentence case for the degree-name column (roadmap UI-17): `degreeName`
+ *  returns internal-vocabulary-free but lowercase learner language ("tonic",
+ *  "leading tone", "degree 4") — this is purely a display transform, not a
+ *  music-theory computation, so it belongs at this presentation layer, not
+ *  in `@core/theory/scales.ts`. */
+function capitalize(s: string): string {
+  return s.length === 0 ? s : s[0]?.toUpperCase() + s.slice(1)
+}
+
 function ScaleTable({ root, type }: { readonly root: SpelledPitch; readonly type: ScaleType }) {
   const scale = buildScale(root, type)
   const fingering = scaleFingering(root, type)
   const played = scaleNotes(root, type, 1)
 
   return (
-    <table aria-label="Scale degrees" className="degree-table">
+    // Renamed from `degree-table` (roadmap UI-17): domain.css's
+    // `.chord-scale-reference .degree-table td:first-child` rule (out of this
+    // task's file list — screen tasks may not edit domain.css) mono-facelfaces
+    // and mutes the degree-name column, the exact "mono uppercase internal
+    // vocabulary" defect the 2026-08-12 UI audit flagged. A fresh class name
+    // sidesteps that selector instead of fighting it on specificity; this
+    // table now inherits only the plain `.card`/table primitives.
+    <table aria-label="Scale degrees" className="scale-degree-table">
       <thead>
         <tr>
           <th>Degree</th>
@@ -237,7 +253,7 @@ function ScaleTable({ root, type }: { readonly root: SpelledPitch; readonly type
       <tbody>
         {played.map((note, i) => {
           const isTonicRepeat = i === scale.notes.length
-          const label = isTonicRepeat ? 'octave' : degreeName(type, i + 1)
+          const label = isTonicRepeat ? 'Octave' : capitalize(degreeName(type, i + 1))
           const rightFinger = fingering?.rightHand[i]
           const leftFinger = fingering?.leftHand[i]
           if (fingering === null && NO_STANDARD_FINGERING_TYPES.has(type)) {
@@ -287,11 +303,19 @@ function ChordRow({
   readonly onPlay: () => void
 }) {
   return (
-    <li data-testid={`diatonic-chord-${numeralText}`}>
-      <span className="chord-roman roman">{numeralText}</span>{' '}
-      <span className="chord-symbol">{symbol}</span>{' '}
-      <span className="chord-figure figured-bass">{figures || 'root position'}</span>{' '}
-      <button type="button" onClick={onPlay}>{`Play the ${numeralText} chord`}</button>
+    // A compact card (roadmap UI-17), not a full-width row: seven of these
+    // used to each stack a full keyboard diagram AND a staff engraving,
+    // making the reference a 5,400px page (2026-08-12 UI audit). The
+    // keyboard stays visible (it's the fast "which keys" answer); the staff
+    // moves behind its own closed-by-default disclosure, same pattern
+    // `SrsSummary` already uses for its breakdown — collapsing seven
+    // stacked keyboard+staff pairs to about one screenful.
+    <li className="theory-chord-card card--sunken" data-testid={`diatonic-chord-${numeralText}`}>
+      <div className="theory-chord-card-head">
+        <span className="chord-roman roman">{numeralText}</span>
+        <span className="chord-symbol">{symbol}</span>
+        <span className="chord-figure figured-bass">{figures || 'root position'}</span>
+      </div>
       <KeyboardDiagram
         low={midi(60)}
         high={midi(71)}
@@ -299,10 +323,17 @@ function ChordRow({
         rootPitchClass={rootPitchClass}
         ariaLabel={`${symbol} on the keyboard`}
       />
+      <button type="button" onClick={onPlay}>{`Play the ${numeralText} chord`}</button>
       {/* REQ-3.5.3's "see it on staff and keyboard" (roadmap 5.50): the
           gap 5.38's re-verification found — a chord was keyboard + audio
           only, never engraved. Same pipeline `ScaleStaff` already uses. */}
-      <ChordStaff notes={tones} title={symbol} />
+      <details className="theory-chord-notation">
+        <summary>
+          <Icon name="chevron-down" />
+          Show notation
+        </summary>
+        <ChordStaff notes={tones} title={symbol} />
+      </details>
     </li>
   )
 }
@@ -322,7 +353,13 @@ function DiatonicChords({
   const chords = chordsForScale(key, type, seventh)
 
   return (
-    <ul aria-label="Diatonic chords" className="diatonic-chords chord-list">
+    // Renamed off `diatonic-chords chord-list` (roadmap UI-17): domain.css's
+    // `.chord-scale-reference .chord-list > li` rule (out of this task's file
+    // list) lays each `<li>` out as a 4-column single ROW — the opposite of
+    // the compact-card GRID this task asks for. A fresh class name sidesteps
+    // that selector instead of fighting it; `theory-chord-grid`'s own layout
+    // lives in feature-theory.css, which this task owns.
+    <ul aria-label="Diatonic chords" className="theory-chord-grid">
       {chords.map((chord, i) => {
         const numeral = romanNumeralFor(chord, key)
         const numeralText = numeral?.text ?? `${i + 1}`
@@ -356,7 +393,7 @@ function ScaleDegreeChords({
 }) {
   const stacks = scaleDegreeStacks(scale, seventh)
   return (
-    <ul aria-label="Chords from scale degrees" className="diatonic-chords chord-list">
+    <ul aria-label="Chords from scale degrees" className="theory-chord-grid">
       {stacks.map((tones, i) => {
         const root = at(tones, 0)
         return (
@@ -464,61 +501,76 @@ export function ChordScaleReference({
   return (
     <section aria-label="Chord and scale reference" className="chord-scale-reference">
       <h2>Chord &amp; scale reference</h2>
-      <div className="reference-pickers">
-        <label htmlFor="reference-root-select">Root</label>
-        <select
-          id="reference-root-select"
-          value={currentRootIndex}
-          onChange={(e) => onRootChange(at(ROOT_OPTIONS, Number(e.target.value)))}
-        >
-          {ROOT_OPTIONS.map((option, i) => (
-            <option key={i} value={i}>
-              {noteLabel(option)}
-            </option>
-          ))}
-        </select>
+      {/* Header pickers as `.field`s (roadmap UI-17), not a bare label/select
+          run — the reference is one of four tabs now, reached only after the
+          Scales & chords tab is selected, so these pickers are the first
+          thing on that tab. */}
+      <div className="field-row reference-pickers">
+        <div className="field">
+          <label htmlFor="reference-root-select">Root</label>
+          <select
+            id="reference-root-select"
+            value={currentRootIndex}
+            onChange={(e) => onRootChange(at(ROOT_OPTIONS, Number(e.target.value)))}
+          >
+            {ROOT_OPTIONS.map((option, i) => (
+              <option key={i} value={i}>
+                {noteLabel(option)}
+              </option>
+            ))}
+          </select>
+        </div>
 
-        <label htmlFor="reference-scale-select">Scale</label>
-        <select
-          id="reference-scale-select"
-          value={pickerScaleType}
-          onChange={(e) => onScaleTypeChange(e.target.value as ScaleType)}
-        >
-          {SCALE_TYPE_OPTIONS.map((type) => (
-            <option key={type} value={type}>
-              {SCALE_TYPE_LABEL[type]}
-            </option>
-          ))}
-        </select>
-        {/* Roadmap 5.36: "the alternative name shown as a subtitle" — Major
-            and Natural minor are the only two entries with a merged partner
-            (Ionian/Aeolian), so this is the one place that alternate name
-            still surfaces, right under the picker it belongs to. */}
-        {scaleAltName !== undefined && (
-          <p>
+        <div className="field">
+          <label htmlFor="reference-scale-select">Scale</label>
+          <select
+            id="reference-scale-select"
+            value={pickerScaleType}
+            onChange={(e) => onScaleTypeChange(e.target.value as ScaleType)}
+          >
+            {SCALE_TYPE_OPTIONS.map((type) => (
+              <option key={type} value={type}>
+                {SCALE_TYPE_LABEL[type]}
+              </option>
+            ))}
+          </select>
+          {/* Roadmap 5.36: "the alternative name shown as a subtitle" — Major
+              and Natural minor are the only two entries with a merged partner
+              (Ionian/Aeolian), so this is the one place that alternate name
+              still surfaces, right under the picker it belongs to. */}
+          {scaleAltName !== undefined && (
             <small data-testid="reference-scale-alt-name">Also known as {scaleAltName}</small>
-          </p>
-        )}
+          )}
+        </div>
       </div>
 
-      <h3 data-testid="reference-scale-name">{scaleName(scale)}</h3>
-      <button
-        type="button"
-        onClick={() => playScaleAscending(getAudioOutput(), played)}
-      >{`Play ${scaleName(scale)} scale`}</button>
-      <KeyboardDiagram
-        low={midi(60)}
-        high={midi(72)}
-        highlightedPitchClasses={highlighted}
-        rootPitchClass={rootPc}
-        labels={scaleLabels}
-        ariaLabel={`${scaleName(scale)} on the keyboard`}
-      />
-      {/* REQ-3.5.3's "see it on staff and keyboard": the keyboard diagram
-          above shows which keys to press; this shows what a learner actually
-          has to read at the piano — the same scale, engraved. */}
-      <ScaleStaff root={root} scaleType={scaleType} />
-      <ScaleTable root={root} type={scaleType} />
+      {/* The scale card (roadmap UI-17): name, "hear it", keyboard and staff
+          — everything that answers "what is this scale" in one surface. */}
+      <div className="card theory-scale-card">
+        <h3 data-testid="reference-scale-name">{scaleName(scale)}</h3>
+        <button
+          type="button"
+          onClick={() => playScaleAscending(getAudioOutput(), played)}
+        >{`Play ${scaleName(scale)} scale`}</button>
+        <KeyboardDiagram
+          low={midi(60)}
+          high={midi(72)}
+          highlightedPitchClasses={highlighted}
+          rootPitchClass={rootPc}
+          labels={scaleLabels}
+          ariaLabel={`${scaleName(scale)} on the keyboard`}
+        />
+        {/* REQ-3.5.3's "see it on staff and keyboard": the keyboard diagram
+            above shows which keys to press; this shows what a learner actually
+            has to read at the piano — the same scale, engraved. */}
+        <ScaleStaff root={root} scaleType={scaleType} />
+      </div>
+
+      {/* Degree table (roadmap UI-17): a normal `.card` table now — see
+          `ScaleTable`'s own comment for why its class name changed. */}
+      <div className="card theory-degree-card">
+        <ScaleTable root={root} type={scaleType} />
+      </div>
 
       {/* Roadmap 3.15 fix: this section used to vanish outright for the ten
           modal/exotic `SCALE_TYPES` `mode === null` admits (see the removed
@@ -526,16 +578,18 @@ export function ChordScaleReference({
           chords section, reading real diatonic function where a key exists
           and `scaleDegreeStacks`' honest scale-degree stacking where it
           doesn't, so REQ-3.5.4's "hear it" is reachable for all 16. */}
-      <h3>{chordKey !== null ? 'Diatonic chords' : "Chords built on this scale's degrees"}</h3>
-      <label htmlFor="reference-seventh-checkbox">
-        <input
-          id="reference-seventh-checkbox"
-          type="checkbox"
-          checked={seventh}
-          onChange={(e) => setSeventh(e.target.checked)}
-        />
-        {' '}Show seventh chords
-      </label>
+      <div className="theory-chords-header">
+        <h3>{chordKey !== null ? 'Diatonic chords' : "Chords built on this scale's degrees"}</h3>
+        <label htmlFor="reference-seventh-checkbox">
+          <input
+            id="reference-seventh-checkbox"
+            type="checkbox"
+            checked={seventh}
+            onChange={(e) => setSeventh(e.target.checked)}
+          />
+          {' '}Show seventh chords
+        </label>
+      </div>
       {chordKey !== null ? (
         <DiatonicChords
           chordKey={chordKey}
@@ -546,21 +600,6 @@ export function ChordScaleReference({
       ) : (
         <ScaleDegreeChords scale={scale} seventh={seventh} getAudioOutput={getAudioOutput} />
       )}
-
-      {/* `key` re-seeds ChordLookup's root whenever the reference's own root
-          changes (finding 1): `initialRoot` is otherwise read only at mount
-          (ChordLookup is deliberately uncontrolled after that — see its own
-          module comment), and this element's position never changes, so
-          without a key that reads `root`, selecting e.g. Ab on the circle of
-          fifths left the lookup silently seeded on whatever root it first
-          mounted with. Remounting also resets quality/inversion, which is
-          the right behaviour here: a new reference root is a new lookup
-          session, not a mid-edit of the old one. */}
-      <ChordLookup
-        key={`${root.letter}${root.alter}`}
-        initialRoot={root}
-        {...(audioOutput === undefined ? {} : { audioOutput })}
-      />
     </section>
   )
 }

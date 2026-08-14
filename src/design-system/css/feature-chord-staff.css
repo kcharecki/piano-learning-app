@@ -1,39 +1,28 @@
-/* Feature stylesheet — chord-on-staff engraving (roadmap 5.50). Single-writer
-   by construction, like its sibling feature-*.css files: `ChordStaff.tsx` is
-   this session's own new file, so nothing here needed a slot reserved ahead
-   of time on `styles.css`'s barrel — this file's own `@import` is appended
-   there instead, as the contract requires.
+/* Feature stylesheet — chord-on-staff engraving (roadmap 5.50, reworked for
+   the compact grid cards in roadmap UI-17). Single-writer by construction,
+   like its sibling feature-*.css files.
 
    `.chord-staff` renders through the same `.notation-frame`/`.score-viewer`
    markup `ScaleStaff` already uses (`domain.css`'s "Notation frame" block
    owns that shared look — paper background, border, shadow — untouched
    here). This file only positions `.chord-staff` in its two call sites. */
 
-/* ---------- Chord & scale reference: diatonic-chord rows ----------
-   `.chord-scale-reference .chord-list > li` is a 4-column grid (roman,
-   symbol, figured bass, Play button — domain.css) that already lets its
-   `.keyboard-diagram` child overflow onto its own full-width row via CSS
-   Grid's auto-placement (a fifth item wraps to a new row, and its own
-   intrinsic `width: max-content` is not clipped to that row's first
-   column). `.chord-staff` is a sixth child added the same way; explicit
-   `grid-column: 1 / -1` makes both of them span every track instead of
-   relying on that overflow, keeping the row's own two-line "keys, then
-   notation" reading order deliberate rather than incidental. */
-.chord-scale-reference .chord-list > li .keyboard-diagram,
-.chord-scale-reference .chord-list > li .chord-staff {
-  grid-column: 1 / -1;
-}
-.chord-scale-reference .chord-list > li .chord-staff {
-  margin-top: var(--space-1);
-}
-
-/* A "small staff rendering" per chord row (roadmap 5.50's own wording) —
-   fourteen scale-degree rows at `ScaleStaff`'s full reference width would
-   dwarf the roman numeral/symbol/keyboard line above each one. Capped
-   width plus tighter paper padding than the full-size reference use below,
-   still legible at both the 1024px and 1280px review widths. */
-.chord-scale-reference .chord-list .chord-staff .notation-frame {
-  max-width: 16rem;
+/* ---------- Chord & scale reference: diatonic-chord cards ----------
+   `ChordScaleReference.tsx` renamed each chord row's list off `chord-list`
+   to `theory-chord-grid`/`theory-chord-card` (roadmap UI-17) specifically to
+   escape domain.css's `.chord-scale-reference .chord-list > li` 4-column ROW
+   layout — the compact CARD grid `feature-theory.css` now draws instead. The
+   old `grid-column: 1 / -1` rules that used to span `.chord-staff` across
+   that row's tracks no longer apply to a flex-column card, so they are
+   removed rather than kept as dead CSS; `.theory-chord-notation` (this
+   card's "Show notation" disclosure, feature-theory.css) already sizes its
+   own width to the card via `width: 100%`. This file now only caps the
+   engraving's own paper width and tightens its padding relative to
+   `ScaleStaff`'s full-size reference use below — a card is already narrow
+   (`minmax(15rem, 1fr)`), so the staff inside it stays legible without
+   forcing the card wider than its grid track. */
+.theory-chord-notation .chord-staff .notation-frame {
+  max-width: 100%;
   padding: var(--space-3) var(--space-4);
 }
 
@@ -42,10 +31,4 @@
    override), same visual weight as `ScaleStaff` gets above the scale table. */
 .chord-lookup .chord-staff {
   margin-top: var(--space-3);
-}
-
-@media (max-width: 768px) {
-  .chord-scale-reference .chord-list .chord-staff .notation-frame {
-    max-width: 100%;
-  }
 }

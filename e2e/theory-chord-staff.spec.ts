@@ -60,11 +60,15 @@ test('looking up Db diminished 7th in ChordLookup engraves it on a real staff, n
   await nav(page, 'Theory').click()
   await expect(page.getByRole('heading', { name: 'Theory', exact: true })).toBeVisible()
 
-  // `TheoryScreen` embeds `ChordScaleReference` (and, through it, `ChordLookup`)
-  // directly in its own body — scoped to `main` because the persistent
-  // reference-panel toggle (`.reference-toggle`, available on every screen)
-  // can ALSO mount a second copy of the same regions; unscoped queries would
-  // be ambiguous the moment that panel is open.
+  // UI-17: the screen is four tabs and only the active one is in the DOM —
+  // Chord lookup is now its own tab, not embedded inside the reference.
+  await page.getByRole('tab', { name: 'Chord lookup' }).click()
+
+  // `TheoryScreen` embeds `ChordLookup` directly in its own body — scoped to
+  // `main` because the persistent reference-panel toggle (`.reference-toggle`,
+  // available on every screen) can ALSO mount a second copy of the same
+  // regions; unscoped queries would be ambiguous the moment that panel is
+  // open.
   const lookup = page.getByRole('main').getByRole('region', { name: 'Chord lookup' })
   await expect(lookup).toBeVisible()
 
@@ -93,6 +97,9 @@ test('a diatonic chord row in ChordScaleReference is also engraved on a real sta
   await page.goto('/')
 
   await nav(page, 'Theory').click()
+  // UI-17: Scales & chords is now its own tab, and only the active tab is in
+  // the DOM.
+  await page.getByRole('tab', { name: 'Scales & chords' }).click()
   // See the lookup test above for why this is scoped to `main`.
   const reference = page.getByRole('main').getByRole('region', { name: 'Chord and scale reference' })
   await expect(reference).toBeVisible()
@@ -106,6 +113,11 @@ test('a diatonic chord row in ChordScaleReference is also engraved on a real sta
   const row = reference.getByTestId('diatonic-chord-V7')
   await expect(row).toBeVisible()
   await expect(row.locator('.chord-symbol')).toHaveText('G7')
+
+  // UI-17: the staff engraving is behind a per-card "Show notation" <details>
+  // — a real browser genuinely hides its content until opened (unlike
+  // happy-dom, which the unit tests run under).
+  await row.getByText('Show notation').click()
 
   const staff = row.getByRole('img', { name: 'G7 staff notation' })
   await expect(staff).toBeVisible()

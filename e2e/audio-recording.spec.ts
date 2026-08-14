@@ -226,7 +226,12 @@ test('records audio alongside a MIDI take, stores a non-empty blob with a real m
   const currentTime = await audioElement.evaluate((el) => (el as HTMLAudioElement).currentTime)
   expect(currentTime).toBeGreaterThan(0)
 
-  await expect(stopReplayButton).toBeDisabled({ timeout: 15_000 })
+  // UI-10: Replay/Stop replay share ONE toggle whose accessible name swaps
+  // back to "Replay" (enabled) once the phase leaves 'replaying' — it is
+  // never merely disabled, so "Stop replay" disappearing is the transition
+  // to wait for.
+  await expect(stopReplayButton).toBeHidden({ timeout: 15_000 })
+  await expect(replayButton).toBeEnabled()
 
   expect(errors).toEqual([])
 })

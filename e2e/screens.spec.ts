@@ -34,14 +34,25 @@ test('the Theory destination drives the reference from the circle of fifths (roa
   // panel (roadmap 3.3), and a substring match resolves to both headings.
   await expect(page.getByRole('heading', { name: 'Theory', exact: true })).toBeVisible()
 
-  // C major is the default: its scale has no accidentals. Selecting G major on
-  // the circle must change what the reference below shows — asserting the
-  // reference merely exists would pass against a circle wired to nothing.
+  // Roadmap UI-17: the circle and the reference are now on separate tabs
+  // (only the active tab is mounted, per TheoryScreen.tsx's module doc — so
+  // both can never be on screen at once) but still drive the same
+  // root/scaleType state underneath, which is the thing this test actually
+  // proves: switching tabs must not reset what the circle picked.
+  const tabs = page.getByRole('tablist', { name: 'Theory tools' })
   const reference = page.getByRole('region', { name: /chord.*scale reference/i })
+
+  // C major is the default: its scale has no accidentals. Selecting G major on
+  // the circle must change what the reference shows on the OTHER tab —
+  // asserting the reference merely exists would pass against a circle wired
+  // to nothing.
+  await tabs.getByRole('tab', { name: 'Scales & chords' }).click()
   const before = await reference.innerText()
 
+  await tabs.getByRole('tab', { name: 'Circle of fifths' }).click()
   await page.getByRole('button', { name: /^G major/ }).click()
 
+  await tabs.getByRole('tab', { name: 'Scales & chords' }).click()
   await expect(async () => {
     expect(await reference.innerText()).not.toBe(before)
   }).toPass({ timeout: 5_000 })
@@ -60,6 +71,9 @@ test('the looked-up scale is engraved as real staff notation (roadmap 3.14, REQ-
   const errors = collectErrors(page)
   await page.goto('/')
   await nav(page, 'Theory').click()
+  // Roadmap UI-17: the reference (and this scale staff) live behind the
+  // "Scales & chords" tab now — Drills is the default tab, not this.
+  await page.getByRole('tab', { name: 'Scales & chords' }).click()
 
   // A real OSMD render is well past the 50-element discriminator this suite
   // uses (see round6.spec.ts) — a text list of note names, which is what the

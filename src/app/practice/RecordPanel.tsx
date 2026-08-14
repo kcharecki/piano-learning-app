@@ -27,7 +27,30 @@
  * the only thing always visible is one more disclosure line, not four more
  * controls. The existing Record/Stop/Replay/Stop replay buttons and the
  * Duration/Events/Recorded at summary are unchanged.
+ *
+ * ## Roadmap UI-10 (2026-08-12 UI audit): four buttons down to two toggles
+ *
+ * The original four-button row (Record, Stop recording, Replay, Stop replay)
+ * always showed three of the four disabled at rest — the exact "greyed
+ * control the current state can never enable right now" pattern DESIGN.md
+ * rule 2 exists to kill. This collapses each pair into ONE toggle:
+ * - Record/Stop share a button — icon swaps on `phase === 'recording'`, and
+ *   the label reads "Stop recording" rather than a bare "Stop": the sticky
+ *   transport toolbar (roadmap UI-09) already has its OWN always-rendered
+ *   "Stop" icon button (`TransportControls`), so a bare "Stop" here would
+ *   collide with it — two controls sharing one accessible name on the same
+ *   screen, unresolvable by role+name alone. Escalated rather than resolved
+ *   silently: docs/ui-overhaul-brief.md's own wording for this button was a
+ *   bare "Stop".
+ * - Replay/Stop replay share a second button, rendered ONLY once a take
+ *   exists AND nothing is currently recording — before a first take, or
+ *   while one is being made, there is nothing this button could ever do, so
+ *   it is absent rather than disabled (the "hidden, not greyed" rule).
+ * The "Audio recording" disclosure stays a nested `<details>` inside this
+ * same `role="group"`, now styled as a quiet secondary line
+ * (feature-audio-recording.css) rather than a second bordered block.
  */
+import { Icon } from '@app/ui/Icon.tsx'
 import type { Recording } from '@core/practice/recorder.ts'
 import { useAudioRecording, type RecorderUiPhase, type UseAudioRecordingOptions } from './useRecorder.ts'
 
@@ -81,7 +104,15 @@ export function RecordPanel({
 }: RecordPanelProps) {
   const audio = useAudioRecording({ phase, recording, ...audioTestSeams })
 
-  function handleRecord(): void {
+  const isRecording = phase === 'recording'
+  const isReplaying = phase === 'replaying'
+
+  function handleRecordToggle(): void {
+    if (isRecording) {
+      onStopRecording()
+      audio.endCapture()
+      return
+    }
     // Order matters: `beginCapture` starts the mic BEFORE the MIDI side, and
     // `markMidiOrigin` reads the clock right AFTER it — both ends of the
     // bracket `useAudioRecording` uses to measure the real start offset
@@ -91,41 +122,42 @@ export function RecordPanel({
     audio.markMidiOrigin()
   }
 
-  function handleStopRecording(): void {
-    onStopRecording()
-    audio.endCapture()
-  }
-
-  function handleReplay(): void {
+  function handleReplayToggle(): void {
+    if (isReplaying) {
+      onStopReplay()
+      audio.endPlayback()
+      return
+    }
     onStartReplay()
     audio.beginPlayback()
   }
 
-  function handleStopReplay(): void {
-    onStopReplay()
-    audio.endPlayback()
-  }
-
-  const recordingWithAudio = phase === 'recording' && audio.enabled && audio.status === 'recording'
+  const recordingWithAudio = isRecording && audio.enabled && audio.status === 'recording'
+  // Record/Stop is disabled only while the OTHER thing (replay) is running —
+  // while recording itself it stays enabled so the same button can stop it.
+  const recordToggleDisabled = isReplaying || (phase === 'idle' && !canRecord)
+  // Replay/Stop replay: absent with no take yet, or while a new one is being
+  // made — "hidden, not greyed" (DESIGN.md rule 2) for a state this button
+  // can never act on right now.
+  const showReplayToggle = recording !== undefined && !isRecording
 
   return (
     <div className="record-panel" role="group" aria-label="Record and replay">
-      <button type="button" onClick={handleRecord} disabled={phase !== 'idle' || !canRecord}>
-        Record
-      </button>
-      <button type="button" onClick={handleStopRecording} disabled={phase !== 'recording'}>
-        Stop recording
-      </button>
       <button
         type="button"
-        onClick={handleReplay}
-        disabled={phase !== 'idle' || recording === undefined}
+        aria-pressed={isRecording}
+        onClick={handleRecordToggle}
+        disabled={recordToggleDisabled}
       >
-        Replay
+        <Icon name={isRecording ? 'stop' : 'record'} />
+        {isRecording ? 'Stop recording' : 'Record'}
       </button>
-      <button type="button" onClick={handleStopReplay} disabled={phase !== 'replaying'}>
-        Stop replay
-      </button>
+      {showReplayToggle && (
+        <button type="button" aria-pressed={isReplaying} onClick={handleReplayToggle}>
+          <Icon name={isReplaying ? 'stop' : 'play'} />
+          {isReplaying ? 'Stop replay' : 'Replay'}
+        </button>
+      )}
       {phase === 'recording' && (
         <p role="status">Recording{recordingWithAudio ? ' (with audio)' : ''}…</p>
       )}
