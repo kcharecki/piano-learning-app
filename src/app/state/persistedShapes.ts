@@ -29,6 +29,7 @@ import type { EarItem, EarItemKind } from '@core/eartraining/item.ts'
 import { EAR_MAX_LEVEL, EAR_MIN_LEVEL, type EarAttempt, type EarSessionState } from '@core/eartraining/session.ts'
 import type { PracticeSettings } from '@app/state/scoreStore.ts'
 import type { StoredAssessment } from '@app/state/progressStore.ts'
+import type { ThemePreference } from '@app/state/themeStore.ts'
 
 export type PersistedRepertoire = {
   readonly pieces: readonly RepertoirePiece[]
@@ -72,6 +73,11 @@ export type PersistedTechniqueHistory = {
 
 export type PersistedLevelState = {
   readonly levelState: LevelState
+}
+
+/** The learner's theme choice (roadmap UI-05) — see `themeStore.ts`'s module comment. */
+export type PersistedTheme = {
+  readonly theme: ThemePreference
 }
 
 /**
@@ -446,6 +452,13 @@ export function isValidLevelState(value: unknown): value is PersistedLevelState 
   if (typeof v.levelState !== 'object' || v.levelState === null) return false
   const levelState = v.levelState as Record<string, unknown>
   return isValidLevels(levelState.levels) && isValidOverridden(levelState.overridden)
+}
+
+/** `theme` must be exactly one of the three preference values — no other string, no missing field. */
+export function isValidTheme(value: unknown): value is PersistedTheme {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return v.theme === 'system' || v.theme === 'dark' || v.theme === 'light'
 }
 
 /**

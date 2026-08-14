@@ -6,7 +6,7 @@
  * `Store` port, so it is exercised in tests with an in-memory fake and the
  * real zustand stores, never a browser database.
  *
- * Eleven independent slices are persisted, each following the same shape
+ * Twelve independent slices are persisted, each following the same shape
  * (validate → `restoreSlice` on the way in, `createWriteQueue` +  a
  * `subscribe` on the way out):
  *  - the score session (`useScoreStore`) — the original roadmap-1.23 slice.
@@ -43,6 +43,10 @@
  *    intervals but weak on dictation — resets to level 1 on every reload,
  *    exactly like the sight-reading slice above but per drill kind instead of
  *    per track.
+ *  - the theme preference (`useThemeStore`, roadmap UI-05): system/dark/light.
+ *    Reuses `COLLECTIONS.settings` under its own key, same as `levelState`/
+ *    `earTraining` above. Restored FIRST, ahead of every other slice — see
+ *    `restoreSession`'s own comment on why.
  *
  * Each slice's write queue is fully independent — its own (collection, key)
  * pair, its own in-flight `put` — so a slow write to one can never block or
@@ -160,6 +164,7 @@ import { useRepertoireStore, MAX_STORED_REPERTOIRE_PIECES } from '@app/state/rep
 import { useTechniqueStore, MAX_STORED_TECHNIQUE_ATTEMPTS } from '@app/state/techniqueStore.ts'
 import { useLevelStore } from '@app/state/levelStore.ts'
 import { useEarTrainingStore } from '@app/state/earTrainingStore.ts'
+import { useThemeStore } from '@app/state/themeStore.ts'
 import {
   isValidAnnotations,
   isValidAssessments,
@@ -172,6 +177,7 @@ import {
   isValidSession,
   isValidSightReadingHistory,
   isValidTechniqueHistory,
+  isValidTheme,
   type PersistedAnnotations,
   type PersistedAssessments,
   type PersistedEarTraining,
@@ -183,6 +189,7 @@ import {
   type PersistedSession,
   type PersistedSightReadingHistory,
   type PersistedTechniqueHistory,
+  type PersistedTheme,
 } from '@app/state/persistedShapes.ts'
 
 // The persisted shapes moved to `persistedShapes.ts` (this file outgrew the
@@ -200,6 +207,7 @@ export type {
   PersistedSession,
   PersistedSightReadingHistory,
   PersistedTechniqueHistory,
+  PersistedTheme,
 } from '@app/state/persistedShapes.ts'
 
 /** Collection + key the score session lives under. */
@@ -254,6 +262,15 @@ export const LEVELS_KEY = 'levelState'
 export const EAR_TRAINING_COLLECTION = COLLECTIONS.settings
 export const EAR_TRAINING_KEY = 'earTraining'
 
+/**
+ * Collection + key the theme preference lives under (roadmap UI-05). Reuses
+ * `COLLECTIONS.settings` under its own key — same reasoning as
+ * `LEVELS_COLLECTION`/`EAR_TRAINING_COLLECTION` above: a new key in an object
+ * store that already exists, so no IndexedDB migration for this slice.
+ */
+export const THEME_COLLECTION = COLLECTIONS.settings
+export const THEME_KEY = 'theme'
+
 // ----------------------------------------------------------------- restore
 
 /**
@@ -261,7 +278,7 @@ export const EAR_TRAINING_KEY = 'earTraining'
  * ignores store changes: `restoreSlice` applying a restored value would
  * otherwise be seen as a fresh "changed, write it back" event and re-save the
  * exact bytes just read. One flag per slice, not a single shared flag,
- * because the eleven restores are independent of each other. Zustand's `set`
+ * because the twelve restores are independent of each other. Zustand's `set`
  * notifies subscribers synchronously, so toggling a flag around the
  * synchronous `apply()` call below is enough — nothing async ever runs while
  * it is `true`.
@@ -277,6 +294,7 @@ let applyingRestoredTechniqueHistory = false
 let applyingRestoredRepertoire = false
 let applyingRestoredLevels = false
 let applyingRestoredEarTraining = false
+let applyingRestoredTheme = false
 
 /**
  * Reads `key` from `collection`, validates it, and — only if valid — applies
@@ -315,13 +333,35 @@ async function restoreSlice<T>(
 }
 
 /**
- * Restores all eleven persisted slices (see the module comment for the full
+ * Restores all twelve persisted slices (see the module comment for the full
  * list). Each is validated and applied independently, so a corrupt or
  * missing slice never prevents the others from restoring. Returns whether
  * the SCORE session specifically was restored, the original roadmap-1.23
  * contract this app's callers and tests rely on.
+ *
+ * The theme slice restores FIRST, ahead of the score session and everything
+ * else: it is the one restore whose delay reads as a visible "flash" of the
+ * wrong palette rather than a silent, invisible gap (a level or a history
+ * entry restoring a beat later is not something the eye catches the way a
+ * dark-to-light flip is). This function is still awaited from `App.tsx`'s
+ * `useEffect` — which runs after React's first commit — so restoring theme
+ * first narrows that window as much as this async flow allows, but does not
+ * close it; see `themeStore.ts` and this task's own report for the honest
+ * limit of what is achievable without touching `App.tsx` (outside this
+ * task's file boundary).
  */
 export async function restoreSession(store: Store): Promise<boolean> {
+  await restoreSlice(
+    store,
+    THEME_COLLECTION,
+    THEME_KEY,
+    isValidTheme,
+    (guarding) => {
+      applyingRestoredTheme = guarding
+    },
+    (data) => useThemeStore.getState().hydrate(data.theme),
+  )
+
   const scoreRestored = await restoreSlice(
     store,
     SESSION_COLLECTION,
@@ -758,8 +798,19 @@ function persistEarTraining(store: Store): PersistedSlice {
   return { unsubscribe, flush: write.flush }
 }
 
+/** Subscribes to the theme store and writes `theme` on every change (roadmap UI-05). */
+function persistTheme(store: Store): PersistedSlice {
+  const write = createWriteQueue<PersistedTheme>(store, THEME_COLLECTION, THEME_KEY)
+  const unsubscribe = useThemeStore.subscribe((state, prevState) => {
+    if (applyingRestoredTheme) return
+    if (state.theme === prevState.theme) return
+    write({ theme: state.theme })
+  })
+  return { unsubscribe, flush: write.flush }
+}
+
 /**
- * Starts persisting all eleven slices, registers the page-hide flush
+ * Starts persisting all twelve slices, registers the page-hide flush
  * listener pair (roadmap follow-up F.2 — see the module comment), and
  * returns one combined unsubscribe that tears both down. See the module
  * comment for the mandatory `restoreSession` → `startPersisting` call order.
@@ -777,6 +828,7 @@ export function startPersisting(store: Store): () => void {
     persistRepertoire(store),
     persistLevels(store),
     persistEarTraining(store),
+    persistTheme(store),
   ]
 
   // Best-effort drain of every slice's write queue — see the module comment's

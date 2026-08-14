@@ -48,37 +48,20 @@ import {
   SESSION_RUN_KEY,
   type SessionRunSnapshot,
 } from '@app/session/useSessionRun.ts'
-
-export type OnboardingExperience = 'new' | 'some' | 'experienced'
-export type OnboardingGoal = 'sight-reading' | 'repertoire' | 'theory' | 'well-rounded'
+import {
+  EXPERIENCE_LABEL,
+  EXPERIENCE_LEVEL,
+  GOAL_LABEL,
+  type OnboardingAnswers,
+  type OnboardingExperience,
+  type OnboardingGoal,
+} from './onboardingPlan.ts'
 
 /** Upper bound on the typed minutes field — mirrors `useSessionPlan.ts`'s own
  *  `MAX_BUDGET_MINUTES` reasoning (an unbounded budget would build thousands
  *  of session items synchronously) without importing that out-of-boundary
  *  module for a single constant. */
 const MAX_MINUTES = 240
-
-const EXPERIENCE_LABEL: Readonly<Record<OnboardingExperience, string>> = {
-  new: "I'm new to piano",
-  some: "I've played a bit before",
-  experienced: 'I can already read music comfortably',
-}
-
-/** Starting level (of `MIN_LEVEL`..`MAX_LEVEL`) for every track, by answer —
- *  a deliberately simple, uniform-across-tracks mapping; see the task report
- *  for why (goal does not yet bias this — see `GOAL_LABEL`'s own comment). */
-const EXPERIENCE_LEVEL: Readonly<Record<OnboardingExperience, number>> = {
-  new: 1,
-  some: 2,
-  experienced: 3,
-}
-
-const GOAL_LABEL: Readonly<Record<OnboardingGoal, string>> = {
-  'sight-reading': 'Get better at sight-reading',
-  repertoire: 'Learn real pieces',
-  theory: 'Understand the theory behind what I play',
-  'well-rounded': 'A bit of everything',
-}
 
 export type OnboardingFlowProps = {
   /** Called once, after either Finish or Skip — the caller's job is only to
@@ -91,12 +74,36 @@ export type OnboardingFlowProps = {
   readonly midiSupported?: boolean
   /** Injection seam for the session-run write; defaults to the real IndexedDB store. */
   readonly openStore?: () => Promise<Store>
+  /**
+   * Roadmap UI-05: Settings' collapsed "Practice plan" summary needs to know
+   * what was actually just chosen — `onDone` alone (shared with
+   * `OnboardingGateway`'s first-run flow) carries no payload, and its
+   * signature cannot change without breaking that caller. Called once, only
+   * on Finish (never Skip/Cancel — matches "Skip persists nothing" in the
+   * module comment above), immediately before `onDone`.
+   */
+  readonly onFinish?: (answers: OnboardingAnswers) => void
+  /**
+   * Roadmap UI-05: true when this renders inside Settings' "Practice plan"
+   * card, which already supplies its own heading/intro, background+border
+   * chrome, and a full "Input" section covering MIDI status — suppresses
+   * this component's own duplicate title/intro paragraph, its "Input check"
+   * subsection (would otherwise repeat the same MIDI fact Settings' Input
+   * card already states, the exact duplication `MidiDeviceStatus`'s own
+   * `hideUsbStatus` prop avoids elsewhere) and its own decorative box, and
+   * relabels Skip as "Cancel" (editing an existing plan, not a first-run
+   * prompt). Defaults to `false`, so `OnboardingGateway`'s first-run
+   * rendering — and every existing test in this file — is unchanged.
+   */
+  readonly embedded?: boolean
 }
 
 export function OnboardingFlow({
   onDone,
   midiSupported = isWebMidiSupported(),
   openStore = createIdbStore,
+  onFinish,
+  embedded = false,
 }: OnboardingFlowProps) {
   const [experience, setExperience] = useState<OnboardingExperience>('new')
   const [goal, setGoal] = useState<OnboardingGoal>('well-rounded')
@@ -137,6 +144,7 @@ export function OnboardingFlow({
       useLevelStore.getState().setTrackLevel(track, level)
     }
     void persistFirstSession(level).finally(() => {
+      onFinish?.({ experience, goal, minutes })
       onDone()
     })
   }
@@ -146,9 +154,16 @@ export function OnboardingFlow({
   }
 
   return (
-    <section aria-label="Set up your practice" className="onboarding-flow">
-      <h2>Set up your practice</h2>
-      <p>A few quick questions — skip any time, and re-run this from Settings whenever you like.</p>
+    <section
+      aria-label="Set up your practice"
+      className={embedded ? 'onboarding-flow onboarding-flow--embedded' : 'onboarding-flow'}
+    >
+      {!embedded && (
+        <>
+          <h2>Set up your practice</h2>
+          <p>A few quick questions — skip any time, and re-run this from Settings whenever you like.</p>
+        </>
+      )}
 
       <fieldset>
         <legend>Where are you starting from?</legend>
@@ -207,28 +222,30 @@ export function OnboardingFlow({
         </div>
       </fieldset>
 
-      <section aria-label="Input check">
-        <h3>Your MIDI keyboard</h3>
-        {midiSupported ? (
-          <p role="status">
-            This browser supports Web MIDI — plug in a keyboard and it will be picked up
-            automatically once you start practicing.
-          </p>
-        ) : (
-          <p role="status">
-            This browser can&apos;t see a MIDI keyboard (no Web MIDI) — note matching and
-            timing feedback won&apos;t work here, but you can still listen, read and play with
-            the on-screen keyboard.
-          </p>
-        )}
-      </section>
+      {!embedded && (
+        <section aria-label="Input check">
+          <h3>Your MIDI keyboard</h3>
+          {midiSupported ? (
+            <p role="status">
+              This browser supports Web MIDI — plug in a keyboard and it will be picked up
+              automatically once you start practicing.
+            </p>
+          ) : (
+            <p role="status">
+              This browser can&apos;t see a MIDI keyboard (no Web MIDI) — note matching and
+              timing feedback won&apos;t work here, but you can still listen, read and play with
+              the on-screen keyboard.
+            </p>
+          )}
+        </section>
+      )}
 
       <div className="onboarding-actions">
         <button type="button" className="btn-primary" disabled={starting} onClick={handleFinish}>
           {starting ? 'Setting up…' : 'Finish setup'}
         </button>
         <button type="button" className="btn-ghost" disabled={starting} onClick={handleSkip}>
-          Skip for now
+          {embedded ? 'Cancel' : 'Skip for now'}
         </button>
       </div>
     </section>

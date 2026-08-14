@@ -114,4 +114,92 @@ describe('OnboardingFlow', () => {
     const snapshot = await store.get<SessionRunSnapshot>(SESSION_RUN_COLLECTION, SESSION_RUN_KEY)
     expect(snapshot?.plan.totalMinutes).toBe(45)
   })
+
+  describe('onFinish (roadmap UI-05)', () => {
+    it('reports the chosen answers on Finish, before onDone', async () => {
+      const user = userEvent.setup()
+      const store = new MemoryStore()
+      const callOrder: string[] = []
+      const onDone = vi.fn(() => callOrder.push('onDone'))
+      const onFinish = vi.fn(() => callOrder.push('onFinish'))
+      render(
+        <OnboardingFlow
+          onDone={onDone}
+          onFinish={onFinish}
+          openStore={async () => store}
+          midiSupported={false}
+        />,
+      )
+
+      await user.click(screen.getByLabelText("I've played a bit before"))
+      await user.click(screen.getByLabelText('Learn real pieces'))
+      await user.click(screen.getByRole('button', { name: '60 min' }))
+      await user.click(screen.getByRole('button', { name: 'Finish setup' }))
+
+      await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1))
+      expect(onFinish).toHaveBeenCalledTimes(1)
+      expect(onFinish).toHaveBeenCalledWith({ experience: 'some', goal: 'repertoire', minutes: 60 })
+      // onFinish is called strictly before onDone, matching the doc comment.
+      expect(callOrder).toEqual(['onFinish', 'onDone'])
+    })
+
+    it('does not call onFinish on Skip — Skip persists nothing', async () => {
+      const user = userEvent.setup()
+      const store = new MemoryStore()
+      const onDone = vi.fn()
+      const onFinish = vi.fn()
+      render(
+        <OnboardingFlow
+          onDone={onDone}
+          onFinish={onFinish}
+          openStore={async () => store}
+          midiSupported={false}
+        />,
+      )
+
+      await user.click(screen.getByRole('button', { name: 'Skip for now' }))
+
+      expect(onDone).toHaveBeenCalledTimes(1)
+      expect(onFinish).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('embedded mode (roadmap UI-05)', () => {
+    it('suppresses the duplicate title/intro and the MIDI input-check subsection', () => {
+      render(
+        <OnboardingFlow
+          embedded
+          onDone={vi.fn()}
+          openStore={async () => new MemoryStore()}
+          midiSupported={true}
+        />,
+      )
+
+      expect(screen.queryByRole('heading', { name: 'Set up your practice' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('heading', { name: 'Your MIDI keyboard' })).not.toBeInTheDocument()
+      expect(screen.queryByText(/supports web midi/i)).not.toBeInTheDocument()
+      // The questionnaire itself is still fully present.
+      expect(screen.getByRole('button', { name: 'Finish setup' })).toBeInTheDocument()
+    })
+
+    it('relabels Skip as Cancel, with the same no-write behaviour', async () => {
+      const user = userEvent.setup()
+      const onDone = vi.fn()
+      render(<OnboardingFlow embedded onDone={onDone} openStore={async () => new MemoryStore()} />)
+
+      expect(screen.queryByRole('button', { name: 'Skip for now' })).not.toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: 'Cancel' }))
+      expect(onDone).toHaveBeenCalledTimes(1)
+    })
+
+    it('non-embedded rendering (OnboardingGateway/first-run) is unchanged: title, MIDI check and "Skip for now" all present', () => {
+      render(
+        <OnboardingFlow onDone={vi.fn()} openStore={async () => new MemoryStore()} midiSupported={true} />,
+      )
+
+      expect(screen.getByRole('heading', { name: 'Set up your practice' })).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: 'Your MIDI keyboard' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Skip for now' })).toBeInTheDocument()
+    })
+  })
 })

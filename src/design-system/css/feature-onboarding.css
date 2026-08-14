@@ -53,4 +53,37 @@
 }
 .onboarding-actions { display: flex; gap: var(--space-3); }
 
-.settings-screen { max-width: 40rem; }
+/* Embedded inside Settings' "Practice plan" `.card` (roadmap UI-05): the
+   card already supplies background/border/padding — repeating them here
+   would double-box the same content. Fieldsets keep their own chrome; only
+   the outer decoration is stripped. */
+.onboarding-flow.onboarding-flow--embedded {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin-bottom: 0;
+}
+
+/* ============================================================
+   Settings screen (roadmap UI-05): Appearance, Practice plan, Input, Audio —
+   each its own `.card` (primitives.css). Layout-only rules live here; the
+   controls themselves (`.seg-control`, `.field`, `.btn-ghost`, `.card`) are
+   all existing primitives, used as-is.
+   ============================================================ */
+.settings-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.settings-section-header h2 { margin: 0; }
+
+.settings-plan-summary { margin: 0; color: var(--text-2); }
+
+.settings-mic-hint,
+.settings-audio-note {
+  margin: var(--space-2) 0 0;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+}
+.settings-audio-status { margin: 0; }

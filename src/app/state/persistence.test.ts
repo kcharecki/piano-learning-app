@@ -56,6 +56,7 @@ import { useTechniqueStore } from './techniqueStore.ts'
 import { useRepertoireStore, MAX_STORED_REPERTOIRE_PIECES } from './repertoireStore.ts'
 import { useLevelStore } from './levelStore.ts'
 import { useEarTrainingStore } from './earTrainingStore.ts'
+import { useThemeStore } from './themeStore.ts'
 
 const INITIAL_STATE: ScoreStore = useScoreStore.getState()
 
@@ -83,6 +84,8 @@ function resetStore(): void {
   useRepertoireStore.setState({ pieces: [] })
   useLevelStore.setState({ levelState: initialLevelState(), hydrated: false })
   useEarTrainingStore.setState({ session: emptyEarSession(), itemsById: {} })
+  useThemeStore.setState({ theme: 'system' })
+  document.documentElement.removeAttribute('data-theme')
 }
 
 /** Waits for the internal write queue to drain: a handful of microtask turns is always enough. */
@@ -1252,6 +1255,12 @@ describe('persistence', () => {
       expect(useLevelStore.getState().levelState.levels.playing).toBe(3)
     })
   })
+
+  // The theme slice's own restore/persist/corrupt-payload tests live in the
+  // sibling `persistence.theme.test.ts` file, not here — this file was
+  // already close to the 1400-line `max-lines` cap (eslint), so a new slice's
+  // full test suite gets its own co-located file rather than pushing this
+  // one over, mirroring `persistedShapes.test.ts`'s split for `isValidEarTraining`.
 
   describe('ear-training persistence (roadmap 3.11, REQ-3.6.3)', () => {
     const CARD_A: Card = {
