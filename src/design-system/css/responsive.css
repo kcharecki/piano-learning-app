@@ -28,6 +28,12 @@
   }
   input[type="range"]::-webkit-slider-thumb { width: 28px; height: 28px; margin-top: -11px; }
   input[type="range"]::-moz-range-thumb { width: 24px; height: 24px; }
+  /* Roadmap UI-01: .stepper's buttons and .seg-control's segments both size
+     off `var(--control-h)` directly in primitives.css, so they already grow
+     to 44px here — no separate rule needed, this just documents why
+     e2e/tablet-touch-targets.spec.ts (untouched by this task) keeps passing
+     for both primitives without an explicit stepper/seg-control selector
+     appearing in this file. */
   /* No `width: 100%` here: the base rule is `width: max-content; max-width:
      100%; overflow-x: auto`, which already makes a full 37-key keyboard fill
      the width and scroll at 52px per key. Forcing 100% only changed the NARROW
@@ -102,6 +108,13 @@
   .app-main { max-width: none; padding-top: var(--space-4); }
   /* transport sits below the topbar */
   .practice-controls { top: var(--topbar-h); }
+}
+
+@media (max-width: 640px) {
+  /* Roadmap UI-01: a .field-row (e.g. BPM / Beats / Beat unit) stacks to one
+     column at phone-ish widths rather than wrapping fields mid-row, which
+     read as a ragged grid once a row held more than two fields. */
+  .field-row { flex-direction: column; align-items: stretch; }
 }
 
 @media (max-width: 768px) {

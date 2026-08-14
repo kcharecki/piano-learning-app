@@ -51,7 +51,16 @@ export default defineConfig({
           name: 'ui',
           globals: true,
           environment: 'happy-dom',
-          include: ['src/app/**/*.test.tsx', 'src/app/**/*.test.ts', 'src/adapters/**/*.test.ts'],
+          include: [
+            'src/app/**/*.test.tsx',
+            'src/app/**/*.test.ts',
+            'src/adapters/**/*.test.ts',
+            // Design-system primitives are CSS + structure, so their tests are
+            // DOM renders and belong here, not in `core` (roadmap UI-01: the
+            // form primitives shipped with 9 render tests that this project
+            // silently never ran, because the glob stopped at src/app).
+            'src/design-system/**/*.test.tsx',
+          ],
           setupFiles: ['src/test/setup.ui.ts'],
           testTimeout: 10_000,
         },

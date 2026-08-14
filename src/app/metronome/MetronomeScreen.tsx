@@ -58,66 +58,74 @@ export function MetronomeScreen(props: MetronomeScreenProps) {
         </p>
       )}
 
-      <div role="group" aria-label="Tempo and metre">
-        <label htmlFor={bpmId}>BPM</label>
-        <input
-          id={bpmId}
-          type="number"
-          min={MIN_BPM}
-          max={MAX_BPM}
-          value={displayedBpm}
-          onChange={(event) => {
-            setBpmEditing(true)
-            setBpmText(event.target.value)
-          }}
-          onBlur={commitBpm}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') commitBpm()
-          }}
-        />
+      <div className="field-row" role="group" aria-label="Tempo and metre">
+        <div className="field">
+          <label htmlFor={bpmId}>BPM</label>
+          <input
+            id={bpmId}
+            type="number"
+            min={MIN_BPM}
+            max={MAX_BPM}
+            value={displayedBpm}
+            onChange={(event) => {
+              setBpmEditing(true)
+              setBpmText(event.target.value)
+            }}
+            onBlur={commitBpm}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') commitBpm()
+            }}
+          />
+        </div>
 
-        <label htmlFor={beatsId}>Beats</label>
-        <input
-          id={beatsId}
-          type="number"
-          min={1}
-          value={metronome.timeSignature.beats}
-          onChange={(event) =>
-            metronome.setTimeSignature({
-              beats: Number(event.target.value),
-              beatType: metronome.timeSignature.beatType,
-            })
-          }
-        />
+        <div className="field">
+          <label htmlFor={beatsId}>Beats</label>
+          <input
+            id={beatsId}
+            type="number"
+            min={1}
+            value={metronome.timeSignature.beats}
+            onChange={(event) =>
+              metronome.setTimeSignature({
+                beats: Number(event.target.value),
+                beatType: metronome.timeSignature.beatType,
+              })
+            }
+          />
+        </div>
 
-        <label htmlFor={beatTypeId}>Beat unit</label>
-        <select
-          id={beatTypeId}
-          value={metronome.timeSignature.beatType}
-          onChange={(event) =>
-            metronome.setTimeSignature({
-              beats: metronome.timeSignature.beats,
-              beatType: Number(event.target.value),
-            })
-          }
-        >
-          {BEAT_TYPES.map((value) => (
-            <option key={value} value={value}>{`/${value}`}</option>
-          ))}
-        </select>
+        <div className="field">
+          <label htmlFor={beatTypeId}>Beat unit</label>
+          <select
+            id={beatTypeId}
+            value={metronome.timeSignature.beatType}
+            onChange={(event) =>
+              metronome.setTimeSignature({
+                beats: metronome.timeSignature.beats,
+                beatType: Number(event.target.value),
+              })
+            }
+          >
+            {BEAT_TYPES.map((value) => (
+              <option key={value} value={value}>{`/${value}`}</option>
+            ))}
+          </select>
+        </div>
 
-        <label htmlFor={subdivisionId}>Subdivision</label>
-        <select
-          id={subdivisionId}
-          value={metronome.subdivision}
-          onChange={(event) => metronome.setSubdivision(Number(event.target.value) as Subdivision)}
-        >
-          {SUBDIVISIONS.map((value) => (
-            <option key={value} value={value}>
-              {value === 1 ? 'Beat' : `${value} clicks / beat`}
-            </option>
-          ))}
-        </select>
+        <div className="field">
+          <label htmlFor={subdivisionId}>Subdivision</label>
+          <select
+            id={subdivisionId}
+            value={metronome.subdivision}
+            onChange={(event) => metronome.setSubdivision(Number(event.target.value) as Subdivision)}
+          >
+            {SUBDIVISIONS.map((value) => (
+              <option key={value} value={value}>
+                {value === 1 ? 'Beat' : `${value} clicks / beat`}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       <AccentEditor

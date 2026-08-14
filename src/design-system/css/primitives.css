@@ -140,20 +140,145 @@ select {
   background-position: right var(--space-3) center;
 }
 
-/* Numeric stepper: <div class="stepper"><button>−</button><input type="number"><button>+</button></div> */
-.stepper { display: inline-flex; }
+/* ============================================================
+   Form primitives (roadmap UI-01, 2026-08-12 UI audit): the missing
+   "label + control" unit. Every screen was improvising label placement —
+   labels crushed against controls with zero gap, or (worse) rendered
+   *inside* a stepper's bordered group, between its − and + buttons and
+   overlapping them ("Level 1" on Technique, "Complexity 1" on Rhythm).
+   Rule of thumb: if you typed a label as bare text next to a control, you
+   skipped one of these. See docs/DESIGN.md's "Form primitives" section for
+   the when-to-use-each guide.
+   ============================================================ */
+
+/* ---------- Field: vertical label-above-control unit ----------
+   `<div class="field"><label htmlFor="x">Label</label><input id="x" /></div>`
+   The default shape for a single labelled control. */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.field > label {
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+
+/* ---------- Field row: a horizontal run of .field ----------
+   `<div class="field-row">{field}{field}{field}</div>` — e.g. BPM / Beats /
+   Beat unit on Metronome. `align-items: flex-end` lines controls up on a
+   shared baseline regardless of whether a label wraps to two lines; wraps
+   to a single column at ≤640px (responsive.css). */
+.field-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  column-gap: var(--space-4);
+  row-gap: var(--space-3);
+}
+
+/* ---------- Field inline: label and control on one line ----------
+   `<div class="field-inline"><label>Label</label><input /></div>` — short
+   inline cases (a toggle with a trailing label, a compact numeric field
+   next to its unit). NOT for checkbox/radio: those already get their own
+   `<label><input type="checkbox" />text</label>` sizing below — do not
+   additionally wrap that shape in `.field-inline`, the two rules would
+   fight over the label's layout. */
+.field-inline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* ---------- Stepper: bordered [−] value [+] group ----------
+   `<div class="stepper"><button type="button" aria-label="Decrease X">−
+   </button><span class="stepper-value">4</span><button type="button"
+   aria-label="Increase X">+</button></div>`. The GROUP carries the one
+   border/radius (via `overflow: hidden` clipping its square buttons); the
+   value cell is centered text, `min-width: 3ch` so it doesn't reflow the
+   buttons as digits change. The label is NEVER inside this group — that
+   was the bug (see file header) — wrap the whole `.stepper` in a `.field`
+   or `.field-inline` and put the label there instead. Buttons track
+   `--control-h` like every other primitive, so the group clears the touch
+   minimum at tablet widths for free. */
+.stepper {
+  display: inline-flex;
+  align-items: stretch;
+  border: var(--border-w) solid var(--border-2);
+  border-radius: var(--radius-1);
+  overflow: hidden;
+}
+.stepper button {
+  min-width: var(--control-h);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  font-size: var(--text-lg);
+}
+.stepper button:not(:first-child) { border-left: var(--border-w) solid var(--border-2); }
+.stepper-value {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 3ch;
+  padding: 0 var(--space-2);
+  font-size: var(--text-md);
+  font-variant-numeric: tabular-nums;
+}
+/* Legacy stepper shape — a bare <input type="number"> between the buttons
+   instead of a .stepper-value span. No current caller uses this (grepped
+   every `class="stepper"`/`className="stepper"` site before this rework:
+   zero), kept only so the compiled CSS doesn't silently orphan the old
+   documented markup if something reintroduces it. */
 .stepper input[type="number"] {
   width: 4.5em;
+  min-width: 3ch;
   text-align: center;
+  border: 0;
   border-radius: 0;
-  border-left: 0; border-right: 0;
+  border-left: var(--border-w) solid var(--border-2);
+  border-right: var(--border-w) solid var(--border-2);
   appearance: textfield;
   -moz-appearance: textfield;
+  font-size: var(--text-md);
 }
 .stepper input::-webkit-outer-spin-button,
 .stepper input::-webkit-inner-spin-button { appearance: none; margin: 0; }
-.stepper button { border-radius: var(--radius-1) 0 0 var(--radius-1); font-size: var(--text-lg); }
-.stepper button:last-child { border-radius: 0 var(--radius-1) var(--radius-1) 0; }
+
+/* ---------- Segmented control: single-select group ----------
+   `<div class="seg-control" role="radiogroup" aria-label="…"><button
+   role="radio" aria-checked="true">15 min</button>…</div>` — replaces
+   ad-hoc button rows (15/30/60 min, beat accents, mode tabs). Callers own
+   the roles for their own semantics (radiogroup/radio, tablist/tab, or a
+   plain button group), so selection is read off whichever hook the caller
+   actually sets: `[aria-checked="true"]`, `[aria-current]` (any truthy
+   value), or a plain `.selected` class for a caller with no natural aria
+   state. One bordered container; segments share its `--radius-1` corners
+   via clipping, no per-segment outer border. */
+.seg-control {
+  display: inline-flex;
+  border: var(--border-w) solid var(--border-2);
+  border-radius: var(--radius-1);
+  overflow: hidden;
+  background: var(--bg-1);
+}
+.seg-control > * {
+  min-height: var(--control-h);
+  padding: 0 var(--control-pad-x);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-weight: var(--weight-medium);
+}
+.seg-control > *:not(:first-child) { border-left: var(--border-w) solid var(--border-2); }
+.seg-control > [aria-checked="true"],
+.seg-control > [aria-current]:not([aria-current="false"]),
+.seg-control > .selected {
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-weight: var(--weight-semibold);
+}
 
 /* ---------- Range slider (tempo) ---------- */
 input[type="range"] {

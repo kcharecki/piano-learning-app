@@ -20,6 +20,24 @@ hierarchy (the Practice screen reached 30 controls in 13 groups over ~5100px of 
 These rules govern composition, and the checklist below is the experience gate's visual pass
 (`docs/PROCESS.md` step 3).
 
+## Form primitives
+
+The "label + control" unit (roadmap UI-01): a label never touches its control — if you typed a
+label as bare text next to an input, you skipped a primitive.
+
+- **`.field`** — the default: label above control, `--space-1` gap. One labelled input, select,
+  or textarea.
+- **`.field-row`** — a horizontal run of `.field`s (BPM / Beats / Beat unit); wraps to one column
+  at ≤640px.
+- **`.field-inline`** — label and control on one line, `--space-2` gap; short inline cases only.
+  Checkbox/radio still use their own `<label><input type="checkbox" />text</label>` shape (rule 9
+  below), never `.field-inline`.
+- **`.stepper`** — bordered `[−] value [+]` group. The label is never inside it — wrap the group
+  in a `.field`/`.field-inline` instead.
+- **`.seg-control`** — single-select segmented group (replaces ad-hoc button rows: 15/30/60 min,
+  mode tabs). Selection reads `[aria-checked="true"]`, `[aria-current]`, or `.selected` —
+  callers own the role (`radiogroup`/`radio`, `tablist`/`tab`, …).
+
 ## Screen rules
 
 1. **One primary action per screen.** Exactly one `.btn-primary`, positioned where the eye

@@ -155,6 +155,29 @@ describe('MetronomeScreen', () => {
     ])
   })
 
+  it('wraps each tempo/metre label and control in a .field, inside a .field-row (roadmap UI-01)', () => {
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const manual = manualDriver()
+    const { container } = render(
+      <MetronomeScreen clock={clock} audioOutput={audio} frameDriver={manual.driver} />,
+    )
+
+    const row = container.querySelector('.field-row')
+    expect(row).not.toBeNull()
+    const fields = Array.from(row?.children ?? []).filter((el) => el.classList.contains('field'))
+    expect(fields).toHaveLength(4)
+    for (const field of fields) {
+      // Each label sits directly beside its control inside the field, not as
+      // bare text floating next to it — the gap comes from `.field`'s token
+      // spacing, not manual markup.
+      const label = field.querySelector('label')
+      const control = field.querySelector('input, select')
+      expect(label).not.toBeNull()
+      expect(control).not.toBeNull()
+    }
+  })
+
   it('rejects an invalid subdivision/tempo combination and leaves the schedule unchanged', () => {
     const clock = new FakeClock()
     const audio = new RecordingAudioOutput(clock)
