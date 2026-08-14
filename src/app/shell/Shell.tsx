@@ -36,29 +36,39 @@ import { SessionPlanScreen } from '@app/session/SessionPlanScreen.tsx'
 import { SightReadingScreen } from '@app/sightreading/SightReadingScreen.tsx'
 import { TechniqueScreen } from '@app/technique/TechniqueScreen.tsx'
 import { TheoryScreen } from '@app/theory/TheoryScreen.tsx'
+import { useLevelStore } from '@app/state/levelStore.ts'
+import { useProgressStore } from '@app/state/progressStore.ts'
+import { currentStreakDays } from '@core/progress/log.ts'
 import type { Exercise } from '@core/curriculum/types.ts'
 import { ALL_THEORY_KINDS, type TheoryQuizKind } from '@core/drills/theory.ts'
 import { techniqueDrillById } from '@core/technique/library.ts'
-import { useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 // Typed against `ScreenId` (imported from `route.ts`, the router's single
 // source of truth for what a "screen" is) rather than deriving it from this
 // array, as it used to — a typo'd id here is now a compile error instead of
-// silently widening the union.
+// silently widening the union. `icon` (roadmap UI-04a, 2026-08-12 UI audit)
+// is the nav rail's 16px glyph per item — chosen for what the destination
+// IS, not decoratively: sight-reading/theory/lessons all read music/learn
+// from a page, so all three share `book`; flashcards and repertoire both
+// share `cards` (repertoire's own choice per the task brief; flashcards is
+// this session's judgement call — `SrsSummary.tsx` already uses `cards` for
+// the same spaced-repetition/flip-card concept, so it is the closest
+// existing match in the 24-name set, not a fresh invention).
 const NAV_ITEMS: readonly NavItem[] = [
-  { id: 'today', label: 'Today' },
-  { id: 'lessons', label: 'Lessons' },
-  { id: 'practice', label: 'Practice' },
-  { id: 'sight-reading', label: 'Sight reading' },
-  { id: 'flashcards', label: 'Flashcards' },
-  { id: 'ear-training', label: 'Ear training' },
-  { id: 'rhythm', label: 'Rhythm' },
-  { id: 'technique', label: 'Technique' },
-  { id: 'metronome', label: 'Metronome' },
-  { id: 'theory', label: 'Theory' },
-  { id: 'repertoire', label: 'Repertoire' },
-  { id: 'progress', label: 'Progress' },
-  { id: 'settings', label: 'Settings' },
+  { id: 'today', label: 'Today', icon: 'target' },
+  { id: 'lessons', label: 'Lessons', icon: 'book' },
+  { id: 'practice', label: 'Practice', icon: 'keyboard' },
+  { id: 'sight-reading', label: 'Sight reading', icon: 'book' },
+  { id: 'flashcards', label: 'Flashcards', icon: 'cards' },
+  { id: 'ear-training', label: 'Ear training', icon: 'ear' },
+  { id: 'rhythm', label: 'Rhythm', icon: 'rhythm' },
+  { id: 'technique', label: 'Technique', icon: 'hand' },
+  { id: 'metronome', label: 'Metronome', icon: 'metronome' },
+  { id: 'theory', label: 'Theory', icon: 'book' },
+  { id: 'repertoire', label: 'Repertoire', icon: 'cards' },
+  { id: 'progress', label: 'Progress', icon: 'chart' },
+  { id: 'settings', label: 'Settings', icon: 'settings' },
 ]
 
 export type { ScreenId }
@@ -355,11 +365,26 @@ export function Shell() {
   // module doc on why this must never enter history).
   const [referenceOpen, setReferenceOpen] = useState(false)
   const referenceToggleRef = useRef<HTMLButtonElement>(null)
+  const navToggleRef = useRef<HTMLButtonElement>(null)
 
   const screen = route.screen
   const technique = techniqueFromRoute(route)
   const deck = deckFromRoute(route)
   const theoryDrill = theoryDrillFromRoute(route)
+
+  // Roadmap UI-04a: the rail footer's "current level · streak" line —
+  // display only. `playingLevel` is `useLevelStore`'s `playing` track read
+  // directly; `streakDays` reuses `@core/progress/log.ts`'s
+  // `currentStreakDays` over `useProgressStore`'s practice log, the exact
+  // function `useDashboard.ts` already calls for the dashboard's own streak
+  // line — not the whole (much heavier) dashboard hook, which also computes
+  // technique/assessment/milestone trends this footer never shows.
+  const playingLevel = useLevelStore((s) => s.levelState.levels.playing)
+  const practiceEntries = useProgressStore((s) => s.practiceEntries)
+  const streakDays = useMemo(
+    () => currentStreakDays(practiceEntries, Date.now(), -new Date().getTimezoneOffset()),
+    [practiceEntries],
+  )
 
   function open(exercise: Exercise): void {
     const nextScreen = destinationFor(exercise)
@@ -403,13 +428,48 @@ export function Shell() {
     referenceToggleRef.current?.focus()
   }
 
+  // Roadmap UI-04a: the same contract as `closeReference` above, for the nav
+  // drawer's own scrim/Escape close.
+  function closeNav(): void {
+    setNavOpen(false)
+    navToggleRef.current?.focus()
+  }
+
+  // Roadmap UI-04a: Escape closes the narrow-width nav drawer and returns
+  // focus to the hamburger — only wired while the drawer is actually open,
+  // so this never fires at >1024px (where `.nav-toggle` itself is hidden —
+  // see base.css — and `.app-nav` is a static sidebar, not a drawer).
+  useEffect(() => {
+    if (!navOpen) return
+    // Inlined rather than calling `closeNav` (a new function identity every
+    // render): `setNavOpen`/`navToggleRef` are both stable across renders,
+    // so this effect's only real dependency is `navOpen` itself.
+    function onKeyDown(e: KeyboardEvent): void {
+      if (e.key === 'Escape') {
+        setNavOpen(false)
+        navToggleRef.current?.focus()
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [navOpen])
+
   const activeLabel = NAV_ITEMS.find((item) => item.id === screen)?.label ?? ''
 
   return (
     <div className="app-layout">
+      {/* Roadmap UI-04a: still `.app-layout`'s first child (unchanged DOM
+          position), but no longer `display: none` above 1024px — base.css
+          gives `.app-layout` `flex-wrap: wrap` and this element `flex-basis:
+          100%`, so it now always occupies a full-width row of its own above
+          nav+main (which still fit together on the row below, exactly as
+          before) instead of either being hidden or squeezed in sideways next
+          to the nav column. See base.css's own comment for the full "why"
+          and for the `.app-nav` top/height compensation this displaces. */}
       <div className="app-topbar">
         <button
           type="button"
+          ref={navToggleRef}
           className="nav-toggle btn-icon"
           aria-label="Open navigation"
           aria-expanded={navOpen}
@@ -418,23 +478,32 @@ export function Shell() {
           ☰
         </button>
         <p className="screen-title">{activeLabel}</p>
+        {/* Roadmap UI-04a: the right-aligned action cluster — a normal
+            topbar citizen now, never `position: fixed`. UI-04b mounts the
+            input-status chip here too, before the Reference button. */}
+        <div className="topbar-actions">
+          <button
+            type="button"
+            ref={referenceToggleRef}
+            className="btn-ghost"
+            aria-expanded={referenceOpen}
+            aria-controls="reference-panel"
+            onClick={toggleReference}
+          >
+            Reference
+          </button>
+        </div>
       </div>
-      {navOpen && <div className="nav-scrim" onClick={() => setNavOpen(false)} />}
+      {navOpen && <div className="nav-scrim" aria-hidden="true" onClick={closeNav} />}
       <nav className="app-nav" aria-label="Main" data-open={navOpen}>
-        <NavGroups primary={NAV_PRIMARY} groups={NAV_GROUPS} activeScreen={screen} onNavigate={goTo} />
+        <NavGroups
+          primary={NAV_PRIMARY}
+          groups={NAV_GROUPS}
+          activeScreen={screen}
+          onNavigate={goTo}
+          footer={{ level: playingLevel, streakDays }}
+        />
       </nav>
-      {/* Roadmap 3.17: persistent at every width — see feature-reference-panel.css
-          for why this cannot live inside .app-topbar (hidden above 1024px). */}
-      <button
-        type="button"
-        ref={referenceToggleRef}
-        className="reference-toggle"
-        aria-expanded={referenceOpen}
-        aria-controls="reference-panel"
-        onClick={toggleReference}
-      >
-        Reference
-      </button>
       <main className="app-main">
         <InputCapabilityBanner />
         {/* Roadmap 5.40: purely additive, only ever on Today, only until

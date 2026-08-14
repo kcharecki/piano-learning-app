@@ -16,7 +16,10 @@
  */
 import { useSightReadingStore } from '@app/state/sightReadingStore.ts'
 import { useFlashcardStore } from '@app/state/flashcardStore.ts'
+import { useLevelStore } from '@app/state/levelStore.ts'
+import { useProgressStore } from '@app/state/progressStore.ts'
 import { MIN_LEVEL } from '@core/sightreading/adaptive.ts'
+import { initialLevelState } from '@core/progress/levels.ts'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -45,6 +48,12 @@ const { Shell } = await import('./Shell.tsx')
 function resetStores(): void {
   useSightReadingStore.setState({ level: MIN_LEVEL, history: [] })
   useFlashcardStore.setState({ cardsById: {} })
+  // Roadmap UI-04a: the rail footer now reads these two directly — neither
+  // is mutated by anything this file drives, but reset for the same reason
+  // the stores above are: a stray write from an earlier test must never
+  // leak into a later one's render.
+  useLevelStore.setState({ levelState: initialLevelState(), hydrated: false })
+  useProgressStore.setState({ practiceEntries: [], assessments: [] })
 }
 
 afterEach(() => {
@@ -218,5 +227,55 @@ describe('Shell', () => {
       expect(navToggle).toHaveAttribute('aria-expanded', 'true')
       expect(referenceToggle).toHaveAttribute('aria-expanded', 'false')
     })
+  })
+
+  // Roadmap UI-04a.
+  describe('nav drawer', () => {
+    it('closes on Escape and returns focus to the hamburger', async () => {
+      const user = userEvent.setup()
+      render(<Shell />)
+
+      const toggle = screen.getByRole('button', { name: 'Open navigation' })
+      await user.click(toggle)
+      expect(toggle).toHaveAttribute('aria-expanded', 'true')
+
+      await user.keyboard('{Escape}')
+
+      expect(toggle).toHaveAttribute('aria-expanded', 'false')
+      expect(toggle).toHaveFocus()
+    })
+
+    it('does not respond to Escape while closed', async () => {
+      const user = userEvent.setup()
+      render(<Shell />)
+
+      const toggle = screen.getByRole('button', { name: 'Open navigation' })
+      expect(toggle).toHaveAttribute('aria-expanded', 'false')
+
+      await user.keyboard('{Escape}')
+
+      expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    })
+  })
+
+  // Roadmap UI-04a: the rail footer — current playing level + streak,
+  // display only. A fresh app has no practice history and every track at
+  // level 1 (`initialLevelState`), so this also proves the "N-day streak"
+  // copy never falls back to a "0 day(s)" plural.
+  it('shows the rail footer with the playing level and current streak', () => {
+    render(<Shell />)
+    expect(screen.getByText('Level 1 · 0-day streak')).toBeInTheDocument()
+  })
+
+  // Roadmap UI-04a: the topbar's right-aligned action cluster is the slot
+  // UI-04b mounts the input-status chip and the Reference button into — this
+  // proves the Reference button already lives there instead of floating
+  // detached over content.
+  it('mounts the Reference button inside the topbar action cluster', () => {
+    render(<Shell />)
+    const toggle = screen.getByRole('button', { name: 'Reference' })
+    expect(toggle.closest('.topbar-actions')).not.toBeNull()
+    expect(toggle.closest('.app-topbar')).not.toBeNull()
+    expect(toggle).not.toHaveClass('reference-toggle')
   })
 })

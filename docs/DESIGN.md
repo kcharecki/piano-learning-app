@@ -53,6 +53,29 @@ small clump of controls in ~80% void at 1280px).
 - **`.page-header`** — the title row: `h1`, optional subtitle, optional right-aligned action
   slot. A screen title appears exactly once, here.
 
+## Shell composition
+
+The shell (`Shell.tsx`) is chrome, built like a screen: rail, topbar, main — never ad hoc.
+
+- **Nav rail (`.app-nav`, `NavGroups.tsx`)** — Today stands alone at the top, visually
+  primary; everything else groups into Practice / Learn / Drills / Progress. Every item is a
+  16px `<Icon>` + left-aligned label. The active item gets a 2px `--accent` rail on its left
+  edge plus `--accent-dim` fill — never accent-colored TEXT, which reads as "needs attention"
+  on an item already selected; the rail is the non-color cue rule 8 requires. A footer pins to
+  the bottom of the rail via its own flex column: current playing level and streak, display
+  only, copy in the adjectival "N-day streak" form so it never needs a plural branch.
+- **Topbar (`.app-topbar`)** — a normal, non-floating, non-sticky-at-desktop bar: a hamburger
+  + screen title at ≤1024px only (the rail is a drawer there; a screen's own `.page-header`
+  already carries the title everywhere else, so it is never duplicated), and a right-aligned
+  `.topbar-actions` cluster at every width — the slot the Reference button now mounts into,
+  with the input-status chip to follow. Nothing in this cluster ever uses `position: fixed`.
+- **Drawer (≤1024px only)** — `.app-nav` becomes an off-canvas panel; `.nav-scrim` dims the
+  page behind it with the `--scrim` token, fading in over `--dur-2` on open (it unmounts
+  instantly on close — no fade out — because the drawer's own e2e proof asserts the scrim is
+  removed from the DOM, not merely hidden, once dismissed). Escape closes the drawer and
+  returns focus to the hamburger, the same contract the Reference panel already proves for its
+  own drawer.
+
 ## Icons
 
 `src/design-system/icons/icons.ts` holds one consistent glyph family (roadmap UI-03,

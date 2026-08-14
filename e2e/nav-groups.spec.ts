@@ -101,12 +101,29 @@ test('Tab order through the nav follows the visual order: Today, then each group
 }) => {
   await page.goto('/')
 
-  // Start from a known point: focus the nav-open toggle is hidden at desktop
-  // width, so focus the document body then Tab in — the first focusable
-  // element on the page IS the nav (the "Import a score" file input on
-  // Practice sits inside <main>, after the nav in DOM order, per
-  // `Shell.tsx`'s markup: topbar, nav, main).
+  // Start from a known point: the nav-open toggle is hidden at desktop width,
+  // so focus the document body and Tab in.
+  //
+  // The nav is no longer the FIRST focusable thing on the page. Roadmap UI-04a
+  // made the topbar a real citizen at every width (it used to render nothing
+  // above 1024px and float the Reference toggle over the content as a
+  // `position: fixed` chip), and the topbar precedes the nav in DOM order —
+  // which is also its visual order, so tab order still follows visual order,
+  // which is what this test is actually about. UI-04b adds a second topbar
+  // control, so rather than hardcode how many stops precede the nav, tab
+  // forward until focus lands inside `.app-nav` and assert the order from
+  // there. The bound stops a regression that never reaches the nav from
+  // hanging the run.
   await page.locator('body').click({ position: { x: 1, y: 1 } })
+
+  const MAX_STOPS_BEFORE_NAV = 8
+  let enteredNav = false
+  for (let i = 0; i < MAX_STOPS_BEFORE_NAV; i++) {
+    await page.keyboard.press('Tab')
+    enteredNav = await page.evaluate(() => document.activeElement?.closest('.app-nav') !== null)
+    if (enteredNav) break
+  }
+  expect(enteredNav, 'tabbing from the top of the page reaches the nav').toBe(true)
 
   const expectedOrder = [
     'Today',
@@ -123,10 +140,11 @@ test('Tab order through the nav follows the visual order: Today, then each group
     'Progress',
   ]
 
+  // Focus is already ON the first nav item, so record it before tabbing again.
   const seen: string[] = []
   for (let i = 0; i < expectedOrder.length; i++) {
-    await page.keyboard.press('Tab')
-    const label = await page.evaluate(() => document.activeElement?.textContent ?? '')
+    if (i > 0) await page.keyboard.press('Tab')
+    const label = await page.evaluate(() => document.activeElement?.textContent?.trim() ?? '')
     seen.push(label)
   }
 

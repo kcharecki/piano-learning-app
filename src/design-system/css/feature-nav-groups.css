@@ -10,7 +10,24 @@
    still inside `domain.css`'s `.app-nav`, so its base button styling
    (`.app-nav button`), the list-style reset (`.app-nav ul`), and the mobile
    drawer transform in `responsive.css` (keyed off `.app-nav` itself, never
-   touched here) keep working unchanged. */
+   touched here) keep working unchanged.
+
+   Roadmap UI-04a (2026-08-12 UI audit) added: a 16px `<Icon>` per item (the
+   rail carried plain text only, no glyph to scan by), a calmer active state
+   (accent RAIL + dim fill, not accent TEXT), and a footer pinned to the
+   bottom of the rail (current playing level + streak). This file is NOT
+   allowed to edit domain.css/responsive.css (out of this task's file list),
+   so every override below beats them on SPECIFICITY, not just import
+   order — see each rule's own comment for the exact reasoning, since
+   getting this wrong silently loses to whichever file happens to load
+   later. */
+
+/* `.app-nav` never declared its own `display` before this (domain.css) —
+   block-flow was fine for a flat stack of buttons. The footer below needs
+   `margin-top: auto` to pin to the bottom, which only works inside a flex
+   column; nothing else sets `display` on this selector, so this is purely
+   additive, not a fight over the property. */
+.app-nav { display: flex; flex-direction: column; }
 
 /* Today: bigger, accent-washed, and set apart from the groups below it with
    its own bottom border — the one destination that isn't inside a group. */
@@ -37,4 +54,89 @@
   color: var(--text-3);
   text-transform: uppercase;
   letter-spacing: var(--tracking-caps);
+}
+
+/* Active state (roadmap UI-04a): a 2px `--accent` rail on the left edge plus
+   `--accent-dim` fill — `color: var(--text-1)`, deliberately NOT `--accent`,
+   is the one change from domain.css's original rule: an item that is
+   already selected doesn't need its TEXT to shout for attention, only its
+   position, which the rail + fill already carry (rule 8: color is never the
+   only signal — the rail is the non-color cue here). `.app-nav
+   button[aria-current="page"]` (one class + one type + one attribute) is
+   the exact same specificity as domain.css's own rule for this selector;
+   this file importing AFTER domain.css (styles.css's barrel order) is what
+   makes this win, the same mechanism the rest of this stylesheet already
+   relies on for `.nav-primary`/`.nav-group-title` above.
+
+   `.nav-primary` (Today) keeps `--accent` TEXT at rest from its own
+   unconditional rule further up (`.app-nav .nav-primary`, two classes) and
+   only drops to this calmer active treatment once Today is ALSO the
+   selected screen — `.app-nav button[aria-current="page"]` (0,2,1)
+   outranks `.app-nav .nav-primary` (0,2,0) on specificity regardless of
+   source order, so that fold-in is automatic, not a separate rule. */
+.app-nav button[aria-current="page"] {
+  position: relative;
+  color: var(--text-1);
+  background: var(--accent-dim);
+}
+.app-nav button[aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  background: var(--accent);
+  border-radius: var(--radius-1) 0 0 var(--radius-1);
+}
+
+/* Rail footer (roadmap UI-04a): current playing level + streak, pinned to
+   the bottom of the rail by `margin-top: auto` inside `.app-nav`'s flex
+   column above. Display only — `NavGroups.tsx` renders whatever numbers
+   `Shell.tsx` passes it (from `useLevelStore`/`useProgressStore`); this file
+   only lays them out. Copy is the adjectival "N-day streak" (never "N
+   day(s)"), so it never needs a plural branch — rule 7 (learner language)
+   forbids "0 day(s)". */
+.nav-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: auto;
+  padding: var(--space-3);
+  border-top: var(--border-w) solid var(--border-1);
+  color: var(--text-2);
+  font-size: var(--text-sm);
+}
+
+/* Narrow-width nav drawer scrim (roadmap UI-04a): `--scrim`
+   (tokens/colors.css) replaces the hardcoded `rgba(0, 0, 0, .5)`
+   responsive.css still paints, and fades in over `--dur-2`. `responsive.css`
+   loads AFTER this file (styles.css's barrel order), so a bare `.nav-scrim`
+   rule here would lose the background override to source order alone; the
+   compound `.app-layout .nav-scrim` (two classes) outranks responsive.css's
+   single-class `.nav-scrim` on SPECIFICITY instead, so this holds regardless
+   of load order. Deliberately does not touch `display`/`position`/`z-index`
+   here — those stay exactly as domain.css (`display: none` by default) and
+   responsive.css (`display: block` + fixed positioning at this width)
+   already define them; only the paint color and the entrance animation are
+   this file's concern.
+
+   The scrim itself stays conditionally MOUNTED (`Shell.tsx`: `{navOpen &&
+   <div className="nav-scrim" />}`), not toggled via a persistent element —
+   `e2e/responsive-drawers.spec.ts` asserts `.nav-scrim` has ZERO count once
+   closed, so an always-mounted element with `opacity`-driven visibility
+   would fail that proof. A CSS `transition` cannot fade a freshly-inserted
+   element in from nothing (no prior style to interpolate from), but a
+   `@keyframes` animation runs automatically on mount regardless — the only
+   way to get a real fade-IN under that mount/unmount constraint. There is
+   therefore no fade on CLOSE (the element is simply removed), which this
+   file accepts as the honest boundary of "fading over --dur-2" given the
+   existing, out-of-scope test contract. */
+@media (max-width: 1024px) {
+  .app-layout .nav-scrim {
+    background: var(--scrim);
+    animation: nav-scrim-fade-in var(--dur-2) var(--ease-out);
+  }
+}
+@keyframes nav-scrim-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }

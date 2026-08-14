@@ -101,6 +101,13 @@
   /* Focus */
   --focus-ring: #8cbaff;
   --focus-ring-paper: #2155c8;  /* focus for controls sitting on paper */
+
+  /* Overlay dim (roadmap UI-04a): the narrow-width nav drawer's scrim. A flat
+     translucent black reads correctly in both themes for THIS purpose (dimming
+     page content behind a drawer) — unlike text/border tokens it does not need
+     to invert, only to get lighter/less saturated on the paler light-theme
+     canvas so it still reads as "dimmed", not "blackened out". */
+  --scrim: rgba(0, 0, 0, .5);
 }
 
 /* ---------------- Light theme ---------------- */
@@ -138,6 +145,7 @@
   --fb-early-dim:   rgba(0, 101, 119, .12);
   --fb-extra-dim:   rgba(161, 38, 142, .12);
   --focus-ring: #2155c8;
+  --scrim: rgba(29, 33, 38, .35);
 }
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
@@ -172,5 +180,6 @@
     --fb-early-dim:   rgba(0, 101, 119, .12);
     --fb-extra-dim:   rgba(161, 38, 142, .12);
     --focus-ring: #2155c8;
+    --scrim: rgba(29, 33, 38, .35);
   }
 }

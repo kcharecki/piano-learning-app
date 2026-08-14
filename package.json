@@ -27,9 +27,10 @@
     "mutate": "stryker run",
     "docs:budget": "node scripts/check-docs-budget.mjs",
     "check:conflicts": "node scripts/check-conflict-markers.mjs",
-    "verify": "npm run check:conflicts && npm run docs:budget && npm run typecheck && npm run lint && npm run test:all",
+    "verify": "npm run check:conflicts && npm run check:css && npm run docs:budget && npm run typecheck && npm run lint && npm run test:all",
     "verify:full": "npm run verify && npm run knip && npm run knip:prod:all && npm run test:e2e",
-    "checkpoint": "node scripts/checkpoint.mjs"
+    "checkpoint": "node scripts/checkpoint.mjs",
+    "check:css": "node scripts/check-css.mjs"
   },
   "dependencies": {
     "fflate": "^0.8.3",
