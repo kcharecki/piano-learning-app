@@ -9,7 +9,10 @@
 /* ---------- Buttons ----------
    Bare <button> = secondary (the safe default everywhere).
    Variants are additive classes. All sizes track --control-h,
-   which grows to 44px at tablet widths automatically. */
+   which grows to 44px at tablet widths automatically. `gap: --space-2`
+   here (roadmap UI-03) is what lets a caller drop an `<Icon>` next to its
+   label with zero per-call CSS — `<button><Icon name="play" /> Start</button>`
+   already gets the right spacing from this rule alone. */
 button, .btn {
   display: inline-flex;
   align-items: center;
@@ -31,13 +34,26 @@ button:hover, .btn:hover { background: var(--bg-3); border-color: var(--border-2
 button:active, .btn:active { background: var(--bg-1); }
 button:disabled, .btn:disabled { opacity: .45; cursor: not-allowed; }
 
+/* Sharpened (roadmap UI-03, 2026-08-12 UI audit): the true primary action
+   ("Start exercise" on Sight reading, "Start" on Metronome) was rendering
+   gray because nothing on screen ever reached for this class. --elev-1 lifts
+   it off the surface at rest; the active press sinks it back down a literal
+   pixel so the "one glance finds it" rule has a tactile answer, not just a
+   color difference. */
 .btn-primary {
   background: var(--accent);
   border-color: transparent;
   color: var(--on-accent);
+  box-shadow: var(--elev-1);
+  transition: background var(--dur-1) var(--ease-out),
+              border-color var(--dur-1) var(--ease-out),
+              transform var(--dur-1) var(--ease-out);
 }
 .btn-primary:hover { background: var(--accent-hover); }
-.btn-primary:active { background: var(--accent-down); }
+.btn-primary:active {
+  background: var(--accent-down);
+  transform: translateY(1px);
+}
 
 .btn-ghost { background: transparent; border-color: transparent; color: var(--text-2); }
 .btn-ghost:hover { background: var(--bg-2); color: var(--text-1); }
@@ -46,6 +62,12 @@ button:disabled, .btn:disabled { opacity: .45; cursor: not-allowed; }
 .btn-danger { background: transparent; border-color: var(--fb-wrong); color: var(--fb-wrong); }
 .btn-danger:hover { background: var(--fb-wrong-dim); }
 
+/* Icon-only button (roadmap UI-03, 2026-08-12 UI audit): square, via
+   width/min-width tied to --control-h (height already comes from the
+   button base rule above). It has no visible text, so it REQUIRES an
+   explicit `aria-label` — the icon inside is always `aria-hidden`
+   (`src/app/ui/Icon.tsx`), so the label is the only accessible name a
+   screen reader gets. See the `.btn-icon` case in primitives.test.tsx. */
 .btn-icon {
   width: var(--control-h);
   min-width: var(--control-h);
@@ -332,12 +354,83 @@ input[type="file"]::file-selector-button {
 }
 input[type="file"]::file-selector-button:hover { background: var(--bg-3); }
 
-/* ---------- Card / panel ---------- */
+/* ---------- Card / panel ----------
+   REWORKED (roadmap UI-02, 2026-08-12 UI audit): was bordered with
+   `--space-4` padding; now elevation-based — `--bg-2` + `--elev-1` (a soft
+   shadow, no border) with `--space-5` padding, consistent with elevation.css's
+   "shadows are soft reinforcement only" role. Grepped every `className="card
+   …"`/`className="panel …"` before this rework: exactly one live caller,
+   `.card.session-run-current` (`src/app/session/SessionPlanScreen.tsx`,
+   outside this task's file list) — it is a plain background+radius+padding
+   surface with nothing that depends on the old border, so it inherits the new
+   look automatically. Flag for the orchestrator's visual pass rather than
+   assumed fine, since that screen was not driven as part of this task. */
 .card, .panel {
   background: var(--bg-2);
-  border: var(--border-w) solid var(--border-1);
   border-radius: var(--radius-2);
-  padding: var(--space-4);
+  box-shadow: var(--elev-1);
+  padding: var(--space-5);
+}
+/* De-emphasized region inside a screen (collapsed config, secondary
+   context) — sinks into the surrounding background instead of lifting off
+   it, e.g. a `.page-header` action slot or the sight-reading trainer's
+   metronome/customizer block. */
+.card--sunken {
+  background: var(--bg-1);
+  box-shadow: none;
+}
+
+/* ---------- Toolbar: horizontal control band ----------
+   `<div class="toolbar">…controls…</div>` sitting above a screen's main
+   content (roadmap UI-02: Practice's transport and Metronome's controls
+   adopt this in their own screen tasks — see feature-practice.css /
+   feature-metronome.css stubs). Full-bleed within its `.page` column via a
+   negative margin equal to the page's own `--content-pad` — the same trick
+   `.practice-controls` (domain.css) already uses, promoted to a reusable
+   primitive instead of redefined per screen. */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+  margin-inline: calc(-1 * var(--content-pad));
+  padding: var(--space-3) var(--content-pad);
+  background: var(--bg-1);
+}
+
+/* ---------- Stat: labeled-number primitive ----------
+   `<div class="stat"><span class="stat-value">72%</span><span
+   class="stat-label">Accuracy</span></div>` (or group several in a
+   `.stat-group`) — kills every "label 0 label 0" strip in the app (roadmap
+   UI-02, 2026-08-12 UI audit). Value color-coding (e.g. a percentage in a
+   feedback color) is the caller's job — this only sets size/weight/case,
+   never a semantic color. `b`/`small` children are matched directly too, so
+   the pre-existing `.srs-summary-counts .stat` shape (`<b>`+`<small>`,
+   `SrsSummary.tsx`, feature-srs-summary.css) keeps working unrenamed — this
+   primitive generalizes what that file already discovered on its own. */
+.stat-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-6);
+}
+.stat {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+}
+.stat > .stat-value,
+.stat > b {
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+}
+.stat > .stat-label,
+.stat > small {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  color: var(--text-2);
 }
 
 /* ---------- Section header ---------- */

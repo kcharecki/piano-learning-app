@@ -38,10 +38,44 @@ label as bare text next to an input, you skipped a primitive.
   mode tabs). Selection reads `[aria-checked="true"]`, `[aria-current]`, or `.selected` —
   callers own the role (`radiogroup`/`radio`, `tablist`/`tab`, …).
 
+## Page scaffold
+
+A screen is `.page > .page-header + sections` — never a bare stack of controls (roadmap
+UI-02, 2026-08-12 UI audit: no screen shared a layout skeleton before this — Flashcards
+centered its column while every other screen left-aligned, and several screens rendered a
+small clump of controls in ~80% void at 1280px).
+
+- **`.page`** — the content column: centered, `--content-pad` padding, direct children
+  separated by `--space-5` (the vertical rhythm — a screen never hand-rolls its own margin
+  between sections). Two archetypes: **`.page--focus`** (48rem — single-task screens: drills,
+  metronome, sight reading) and **`.page--wide`** (`--content-max`, 72rem — dashboards:
+  progress, theory, repertoire, lessons).
+- **`.page-header`** — the title row: `h1`, optional subtitle, optional right-aligned action
+  slot. A screen title appears exactly once, here.
+
+## Icons
+
+`src/design-system/icons/icons.ts` holds one consistent glyph family (roadmap UI-03,
+2026-08-12 UI audit: the app had no icons beyond the ☰ hamburger and Unicode clef glyphs —
+nav was 13 text labels, Play/Pause/Stop/Record/Tap/Add were text-only, and MIDI connected/not
+had no glyph at all, a color-only signal that breaks rule 8 below). 24x24 viewBox,
+`stroke="currentColor"`, 1.75px stroke, round caps/joins, no fills — drawn by hand, not pulled
+from a library. Render with `<Icon name="..." />` (`src/app/ui/Icon.tsx`); size defaults to
+`1em` so it scales with the surrounding font size. The 24 names: `play, pause, stop, record,
+metronome, keyboard, ear, rhythm, hand, book, cards, target, chart, settings, midi-plug,
+bluetooth, check, x, chevron-down, chevron-right, plus, minus, clock, flame`.
+
+**Icons are always `aria-hidden` and unfocusable.** An icon never carries its own accessible
+name — the adjacent text does, or, for an icon-only `.btn-icon`, an explicit `aria-label` on
+the button does. `button`/`.btn` already lay out `gap: --space-2` between children, so
+`<button><Icon name="play" /> Start</button>` composes with no per-call CSS.
+
 ## Screen rules
 
 1. **One primary action per screen.** Exactly one `.btn-primary`, positioned where the eye
-   lands first. Everything else is secondary, ghost, or hidden.
+   lands first. Everything else is secondary, ghost, or hidden. **Start / Play / Begin count
+   as primaries** — a screen whose true entry point renders as a default-styled gray button
+   has not satisfied this rule, even if some other control happens to carry `.btn-primary`.
 2. **Progressive disclosure.** Defaults visible; configuration collapsed. A learner-facing
    screen shows at most ~6 interactive controls before disclosure (`<details>`, tabs, or a
    settings drawer). Advanced/diagnostic controls (tempo ramp numbers, fingering entry,

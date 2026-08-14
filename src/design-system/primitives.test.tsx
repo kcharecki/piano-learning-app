@@ -1,7 +1,10 @@
 /**
  * Render tests for the form primitives added in `css/primitives.css`
  * (roadmap UI-01, 2026-08-12 UI audit): `.field`, `.field-row`,
- * `.field-inline`, the reworked `.stepper`, and `.seg-control`.
+ * `.field-inline`, the reworked `.stepper`, and `.seg-control`. Extended
+ * (roadmap UI-02) with the page scaffold (`.page`, `.page-header`) and its
+ * reusable components (`.card`/`.card--sunken`, `.toolbar`, `.stat-group`/
+ * `.stat`).
  *
  * happy-dom does not load external stylesheets, so these assert class
  * application and DOM structure — the contract each selector in
@@ -160,5 +163,173 @@ describe('.seg-control', () => {
       </div>,
     )
     expect(container2.querySelector('.selected')).not.toBeNull()
+  })
+})
+
+describe('.page', () => {
+  it('composes as .page > .page-header + sections, never a bare stack', () => {
+    const { container } = render(
+      <div className="page page--focus">
+        <header className="page-header">
+          <div>
+            <h1>Sight reading</h1>
+          </div>
+        </header>
+        <section aria-label="Controls">Controls</section>
+      </div>,
+    )
+    const page = container.querySelector('.page')
+    expect(page).not.toBeNull()
+    expect(page).toHaveClass('page--focus')
+    // .page-header is the first direct child; every screen's title lives
+    // there exactly once, never scattered across later sections.
+    expect(page?.children[0]).toHaveClass('page-header')
+    expect(page?.querySelectorAll('h1')).toHaveLength(1)
+  })
+
+  it('supports the .page--wide archetype for dashboards', () => {
+    const { container } = render(<div className="page page--wide" />)
+    expect(container.querySelector('.page')).toHaveClass('page--wide')
+  })
+})
+
+describe('.page-header', () => {
+  it('renders an h1 title, an optional subtitle, and an optional right-aligned action slot', () => {
+    const { container } = render(
+      <header className="page-header">
+        <div>
+          <h1>Metronome</h1>
+          <p className="page-header-subtitle">Keep a steady beat</p>
+        </div>
+        <div className="page-header-actions">
+          <button type="button">Reset</button>
+        </div>
+      </header>,
+    )
+    const header = container.querySelector('.page-header')
+    expect(header?.querySelector('h1')).toHaveTextContent('Metronome')
+    expect(header?.querySelector('.page-header-subtitle')).toHaveTextContent('Keep a steady beat')
+    expect(header?.querySelector('.page-header-actions')).not.toBeNull()
+  })
+
+  it('renders with only a title — subtitle and action slot are both optional', () => {
+    const { container } = render(
+      <header className="page-header">
+        <h1>Progress</h1>
+      </header>,
+    )
+    const header = container.querySelector('.page-header')
+    expect(header?.children).toHaveLength(1)
+    expect(header?.querySelector('.page-header-subtitle')).toBeNull()
+    expect(header?.querySelector('.page-header-actions')).toBeNull()
+  })
+})
+
+describe('.card', () => {
+  it('renders a plain surface, and .card--sunken is an additive variant', () => {
+    const { container } = render(
+      <>
+        <section className="card" aria-label="Raised">
+          Raised content
+        </section>
+        <section className="card card--sunken" aria-label="Sunken">
+          Sunken content
+        </section>
+      </>,
+    )
+    expect(container.querySelector('.card:not(.card--sunken)')).not.toBeNull()
+    const sunken = container.querySelector('.card--sunken')
+    expect(sunken).not.toBeNull()
+    expect(sunken).toHaveClass('card')
+  })
+})
+
+describe('button icon+label composition', () => {
+  it('composes an icon and a label with no per-call CSS — button already gap: --space-2', () => {
+    render(
+      <button type="button">
+        <svg aria-hidden="true" focusable="false" data-testid="icon" />
+        Start
+      </button>,
+    )
+    const button = screen.getByRole('button', { name: 'Start' })
+    expect(button.querySelector('[data-testid="icon"]')).not.toBeNull()
+    // The icon carries no accessible name of its own (aria-hidden) — "Start"
+    // is the whole accessible name, proving the label (not the icon) is what
+    // a screen reader announces.
+    expect(button).toHaveAccessibleName('Start')
+  })
+})
+
+describe('.btn-icon', () => {
+  it('requires an explicit aria-label — its icon is always aria-hidden, so the label is the only accessible name', () => {
+    render(
+      <button type="button" className="btn-icon" aria-label="Play">
+        <svg aria-hidden="true" focusable="false" />
+      </button>,
+    )
+    const button = screen.getByRole('button', { name: 'Play' })
+    expect(button).toHaveClass('btn-icon')
+    expect(button).toHaveAccessibleName('Play')
+  })
+})
+
+describe('.toolbar', () => {
+  it('holds a horizontal run of controls above a screen’s content', () => {
+    const { container } = render(
+      <div className="toolbar" role="group" aria-label="Transport">
+        <button type="button">Play</button>
+        <button type="button">Stop</button>
+      </div>,
+    )
+    const toolbar = container.querySelector('.toolbar')
+    expect(toolbar).not.toBeNull()
+    expect(toolbar?.querySelectorAll('button')).toHaveLength(2)
+  })
+})
+
+describe('.stat / .stat-group', () => {
+  it('renders a value/label pair with the label under the value in the DOM', () => {
+    const { container } = render(
+      <div className="stat">
+        <span className="stat-value">72%</span>
+        <span className="stat-label">Accuracy</span>
+      </div>,
+    )
+    const stat = container.querySelector('.stat')
+    expect(stat?.children).toHaveLength(2)
+    expect(stat?.children[0]).toHaveClass('stat-value')
+    expect(stat?.children[0]).toHaveTextContent('72%')
+    expect(stat?.children[1]).toHaveClass('stat-label')
+    expect(stat?.children[1]).toHaveTextContent('Accuracy')
+  })
+
+  it('also matches the pre-existing <b>+<small> shape (SrsSummary.tsx) unrenamed', () => {
+    const { container } = render(
+      <div className="stat">
+        <b>12</b>
+        <small>Due now</small>
+      </div>,
+    )
+    const stat = container.querySelector('.stat')
+    expect(stat?.querySelector('b')).toHaveTextContent('12')
+    expect(stat?.querySelector('small')).toHaveTextContent('Due now')
+  })
+
+  it('groups several .stat into one .stat-group row', () => {
+    const { container } = render(
+      <div className="stat-group" aria-label="Session stats">
+        <div className="stat">
+          <span className="stat-value">1</span>
+          <span className="stat-label">Due now</span>
+        </div>
+        <div className="stat">
+          <span className="stat-value">2</span>
+          <span className="stat-label">New</span>
+        </div>
+      </div>,
+    )
+    const group = container.querySelector('.stat-group')
+    expect(group?.querySelectorAll('.stat')).toHaveLength(2)
   })
 })

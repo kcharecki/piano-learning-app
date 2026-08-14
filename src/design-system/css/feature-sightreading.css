@@ -1,0 +1,5 @@
+/* Feature stub for the Sight reading screen, beyond the UI-02 smoke
+   conversion (SightReadingScreen.tsx's page/page-header/card--sunken
+   wrapping) — empty on purpose, filled by that screen's own later
+   UI-overhaul redesign task. Registered in styles.css now (roadmap UI-02)
+   so no parallel screen task has to touch the aggregator. */

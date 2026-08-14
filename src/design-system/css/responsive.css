@@ -119,6 +119,15 @@
 
 @media (max-width: 768px) {
   :root { --content-pad: var(--space-3); }
+  /* roadmap UI-02: `.page`'s horizontal padding is `padding-inline:
+     var(--content-pad)` (base.css) — it already shrinks here and at 1280px
+     above for free, no `.page`-specific rule needed. `.page`/`.page--focus`/
+     `.page--wide` all size off `max-width` with a default `width: auto`, so
+     none of them can push wider than their container and force horizontal
+     scroll; `.toolbar` and `.page-header` both carry their own `flex-wrap`
+     (primitives.css / base.css) for the same reason — a control band or a
+     title-plus-actions row that doesn't fit is the one way this scaffold
+     could have introduced overflow, so both wrap instead of forcing width. */
   /* On-screen keyboard is the PRIMARY input on iPad (no Web MIDI):
      full-bleed, finger-sized keys, horizontal scroll with
      momentum; octave-shift buttons recommended in markup. */

@@ -36,40 +36,53 @@ export function SightReadingScreen(props: SightReadingScreenProps) {
   const trainer = useSightReadingTrainer({ ...props, metronomeEnabled, customization })
 
   return (
-    <div className="sight-reading-screen">
-      <h2>Sight reading</h2>
+    <div className="page page--focus sight-reading-screen">
+      <header className="page-header">
+        <div>
+          <h1>Sight reading</h1>
+        </div>
+      </header>
+
       <MidiDeviceStatus
         connected={trainer.midi.input !== undefined}
         devices={trainer.midi.devices}
         selectedDeviceId={trainer.midi.selectedDeviceId}
         connectionError={trainer.midi.connectionError}
       />
+
       {/* roadmap 5.57: named distinctly from the Progress screen's "sight-reading
           (curriculum track)" row — same word "level", two different numbers.
           This one is the trainer's own adaptive difficulty; the track number
-          lives only on Progress and moves via advancement/manual override. */}
-      <p data-testid="sight-reading-level">
-        Sight-reading trainer level: <b>{trainer.level}</b>
-      </p>
-      <small data-testid="sight-reading-level-note">
-        Adapts automatically from your recent run accuracy &mdash; separate from the curriculum
-        track level on Progress, which only moves when you advance a level or set it by hand.
-      </small>
+          lives only on Progress and moves via advancement/manual override. Kept
+          as one wrapper so the two closely-related lines stay next to each
+          other rather than getting the .page's own --space-5 section gap
+          between them. */}
+      <div>
+        <p data-testid="sight-reading-level">
+          Sight-reading trainer level: <b>{trainer.level}</b>
+        </p>
+        <small data-testid="sight-reading-level-note">
+          Adapts automatically from your recent run accuracy &mdash; separate from the curriculum
+          track level on Progress, which only moves when you advance a level or set it by hand.
+        </small>
+      </div>
 
-      <label>
-        <input
-          type="checkbox"
-          checked={metronomeEnabled}
-          onChange={(event) => setMetronomeEnabled(event.target.checked)}
+      <div className="card card--sunken">
+        <label>
+          <input
+            type="checkbox"
+            checked={metronomeEnabled}
+            onChange={(event) => setMetronomeEnabled(event.target.checked)}
+          />
+          Metronome click
+        </label>
+
+        <SightReadingCustomizer
+          customization={customization}
+          onChange={setCustomization}
+          disabled={trainer.phase !== 'idle'}
         />
-        Metronome click
-      </label>
-
-      <SightReadingCustomizer
-        customization={customization}
-        onChange={setCustomization}
-        disabled={trainer.phase !== 'idle'}
-      />
+      </div>
 
       {trainer.error !== undefined && (
         <p role="alert" data-testid="sight-reading-error">

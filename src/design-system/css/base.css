@@ -78,3 +78,64 @@ svg.icon, .icon > svg {
   body { background: #fff; color: #111; }
   nav, .practice-controls, .export-panel { display: none !important; }
 }
+
+/* ============================================================
+   Page scaffold (roadmap UI-02, 2026-08-12 UI audit): no screen shared a
+   layout skeleton before this — Flashcards centered its column while every
+   other screen left-aligned, and Sight reading/Rhythm/Ear training/Metronome
+   rendered a small clump of controls in ~80% void at 1280px. The rule going
+   forward: a screen is `.page > .page-header + sections`, never a bare
+   stack. Layout scaffolding lives here (base.css); reusable components used
+   *inside* a page (`.card`, `.toolbar`, `.stat`) live in primitives.css.
+   ============================================================ */
+
+/* `.page` is the content column: centered, `--content-pad` padding (already
+   adapted per breakpoint by responsive.css, so this needs no media query of
+   its own), and `--space-5` vertical rhythm between direct children — the
+   flex `gap` IS the rhythm, so a screen never hand-rolls margins between its
+   own sections. Pick an archetype for width; unmodified `.page` falls back
+   to the wide default rather than an unbounded 100%. */
+.page {
+  width: 100%;
+  max-width: var(--content-max);
+  margin-inline: auto;
+  padding-inline: var(--content-pad);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+/* Single-task screens: drills, metronome, sight reading — one thing at a
+   time, narrow enough that the eye doesn't have to travel far. */
+.page--focus { max-width: 48rem; }
+/* Dashboards: progress, theory, repertoire, lessons — wide enough for a
+   grid or a wide table. Same value as the unmodified default; named
+   explicitly so a screen states its own intent instead of relying on it. */
+.page--wide { max-width: var(--content-max); }
+
+/* `.page-header` is the title row: an `<h1>` (already `--text-2xl` via the
+   element rule above), an optional subtitle, an optional right-aligned
+   action slot — `justify-content: space-between` puts the action slot on
+   the right when both are present, and does nothing visible with a single
+   child. `min-width: 0` on every direct child stops a long unbroken title
+   from forcing the row wider than `.page` (a real horizontal-scroll risk
+   otherwise, not just cosmetic). Establishes that a screen title appears
+   exactly once. */
+.page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+.page-header > * { min-width: 0; }
+.page-header h1 { margin: 0; }
+.page-header-subtitle {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+.page-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
