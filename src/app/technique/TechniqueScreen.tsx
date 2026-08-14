@@ -16,7 +16,6 @@
  * `design-system/css/feature-technique-safety.css`, reached through the
  * shared stylesheet index like every other screen's styling.
  */
-import { MidiDeviceStatus } from '@app/practice/MidiDeviceStatus.tsx'
 import { PracticeKeyboard } from '@app/practice/PracticeKeyboard.tsx'
 import type { ConnectMidi } from '@app/practice/useMidiConnection.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
@@ -105,13 +104,6 @@ export function TechniqueScreen(props: TechniqueScreenProps) {
           </button>
         </div>
       )}
-
-      <MidiDeviceStatus
-        connected={drill.midi.input !== undefined}
-        devices={drill.midi.devices}
-        selectedDeviceId={drill.midi.selectedDeviceId}
-        connectionError={drill.midi.connectionError}
-      />
 
       <div className="technique-level" role="group" aria-label="Level">
         <button

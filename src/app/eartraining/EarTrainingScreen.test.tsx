@@ -92,9 +92,9 @@ describe('EarTrainingScreen — drill selector', () => {
   it('before any Play press, shows a prompt instead of an answer pad', () => {
     setup()
 
-    // Not `getByRole('status')`: `MidiDeviceStatus` (review finding — the
-    // MIDI connection is now surfaced on this screen) renders its own
-    // `role="status"` element too, so this needs the exact prompt text.
+    // Not `getByRole('status')`: several other `role="status"` elements can
+    // render on this screen (e.g. dictation reveals), so this needs the
+    // exact prompt text rather than the role alone.
     expect(screen.getByText('Press Play to hear the first item.')).toBeInTheDocument()
   })
 })

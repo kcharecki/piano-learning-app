@@ -24,7 +24,6 @@
  * This file only renders the chosen mode; pattern generation, playback and
  * grading all live in the two drills' own hooks behind it.
  */
-import { MidiDeviceStatus } from '@app/practice/MidiDeviceStatus.tsx'
 import type { ConnectMidi } from '@app/practice/useMidiConnection.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { ExerciseScore } from '@app/sightreading/ExerciseScore.tsx'
@@ -93,12 +92,6 @@ export function RhythmScreen(props: RhythmScreenProps) {
 
       {mode === 'sight-tap' && (
         <>
-          <MidiDeviceStatus
-            connected={drill.midi.input !== undefined}
-            devices={drill.midi.devices}
-            selectedDeviceId={drill.midi.selectedDeviceId}
-            connectionError={drill.midi.connectionError}
-          />
           <div className="rhythm-complexity" role="group" aria-label="Complexity">
             <button
               type="button"

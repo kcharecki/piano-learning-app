@@ -195,11 +195,14 @@ describe('PracticeScreen', () => {
   })
 
   it('is fully usable with no MIDI keyboard connected — REQ-4.1', async () => {
+    // Roadmap UI-04b: the "No MIDI keyboard connected" status moved out of
+    // this screen entirely, into the shell's topbar input-status chip —
+    // proved in `InputCapabilityBanner.test.tsx`, not here. What belongs to
+    // THIS file is that the screen stays fully playable with no MIDI at all.
     loadSampleScore()
     const neverResolves = (): Promise<never> => new Promise(() => {})
     render(<PracticeScreen connectMidi={neverResolves} />)
 
-    expect(screen.getByText(/^No MIDI keyboard connected/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Play' })).toBeEnabled()
     // Roadmap 5.4: "usable" has to mean PLAYABLE, not just readable — without
     // a keyboard on screen there is no way to enter a note on this browser.
@@ -215,7 +218,6 @@ describe('PracticeScreen', () => {
     loadSampleScore()
     render(<PracticeScreen midiInput={new FakeMidiInput([])} />)
 
-    expect(screen.getByText(/^No MIDI keyboard connected/)).toBeInTheDocument()
     expect(screen.getByRole('group', { name: 'Play the score' })).toBeInTheDocument()
   })
 
@@ -235,8 +237,6 @@ describe('PracticeScreen', () => {
         frameDriver={manual.driver}
       />,
     )
-
-    expect(screen.getByText(/^MIDI keyboard connected: Fake Digital Piano/)).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Play' }))
     act(() => manual.pump())
@@ -555,9 +555,11 @@ describe('PracticeScreen', () => {
     const controls = document.querySelector('.practice-controls')
     invariant(controls instanceof HTMLElement, '.practice-controls missing')
 
-    // The MIDI status, transport, tempo and live accuracy readout all live
-    // inside the sticky strip — not scattered across the screen.
-    expect(controls).toContainElement(screen.getByText(/^MIDI keyboard connected:/))
+    // The transport, tempo and live accuracy readout all live inside the
+    // sticky strip — not scattered across the screen. (The MIDI status used
+    // to live here too; roadmap UI-04b moved it to the shell's topbar chip,
+    // present on every screen instead of just this one — see
+    // InputCapabilityBanner.test.tsx.)
     expect(controls).toContainElement(screen.getByRole('group', { name: 'Transport' }))
     expect(controls).toContainElement(screen.getByLabelText('Tempo'))
     expect(controls).toContainElement(screen.getByTestId('feedback-accuracy'))

@@ -73,6 +73,31 @@ describe('MidiDeviceStatus', () => {
       'Web MIDI API is not available in this browser.',
     )
   })
+
+  // Roadmap UI-04b: the shell's input-status popover already says "this
+  // browser can't connect a MIDI keyboard" once, in its own words, before
+  // rendering this component for the Bluetooth control underneath — this
+  // proves the USB line can be suppressed instead of repeating that fact.
+  it('omits the USB status line when hideUsbStatus is set, but keeps Bluetooth pairing', () => {
+    const { container } = render(
+      <MidiDeviceStatus
+        connected={false}
+        devices={[]}
+        selectedDeviceId={null}
+        connectionError={undefined}
+        hideUsbStatus
+      />,
+    )
+    expect(container.querySelector('.midi-status')).toBeNull()
+    expect(screen.getByText(/bluetooth midi is not available in this browser/i)).toBeInTheDocument()
+  })
+
+  it('defaults to showing the USB status line (hideUsbStatus off)', () => {
+    const { container } = render(
+      <MidiDeviceStatus connected={false} devices={[]} selectedDeviceId={null} connectionError={undefined} />,
+    )
+    expect(usbStatus(container)).toHaveTextContent(/no MIDI keyboard connected/i)
+  })
 })
 
 /** A minimal fake `navigator.bluetooth` sufficient for the real `connectBluetoothMidi` adapter. */

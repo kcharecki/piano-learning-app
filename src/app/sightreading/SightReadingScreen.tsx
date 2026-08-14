@@ -5,7 +5,6 @@
  * core modules behind it; this file only renders the current phase and
  * forwards the two user actions (`start`, `skipPreview`).
  */
-import { MidiDeviceStatus } from '@app/practice/MidiDeviceStatus.tsx'
 import type { Clock, DateSource, AudioOutput, MidiInput, Rng } from '@core/ports/index.ts'
 import type { ConnectMidi } from '@app/practice/useMidiConnection.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
@@ -42,13 +41,6 @@ export function SightReadingScreen(props: SightReadingScreenProps) {
           <h1>Sight reading</h1>
         </div>
       </header>
-
-      <MidiDeviceStatus
-        connected={trainer.midi.input !== undefined}
-        devices={trainer.midi.devices}
-        selectedDeviceId={trainer.midi.selectedDeviceId}
-        connectionError={trainer.midi.connectionError}
-      />
 
       {/* roadmap 5.57: named distinctly from the Progress screen's "sight-reading
           (curriculum track)" row — same word "level", two different numbers.

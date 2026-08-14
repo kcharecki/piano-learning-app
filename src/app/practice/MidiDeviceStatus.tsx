@@ -21,6 +21,22 @@ export type MidiDeviceStatusProps = {
   readonly devices: readonly MidiDevice[]
   readonly selectedDeviceId: string | null
   readonly connectionError: string | undefined
+  /**
+   * Roadmap UI-04b: the shell's input-status popover (`InputCapabilityBanner`)
+   * already says "this browser can't connect a MIDI keyboard" once, using its
+   * own synchronous feature-detected message, before it renders this
+   * component for the Bluetooth pairing control underneath — showing THIS
+   * component's own "no MIDI keyboard connected" line too would repeat the
+   * same fact in different words in the same popover, the exact duplication
+   * `PracticeKeyboard.tsx`'s hint comment (and docs/DESIGN.md rule 3) already
+   * calls out and avoids. Only ever suppresses the NO-DEVICE line — a real
+   * connected device is always worth naming regardless of this flag, so it
+   * has no effect once `connected && selected` is true. Defaults to `false`
+   * so every pre-existing caller — `RhythmClapback.tsx`, and this
+   * component's own test suite — keeps rendering the USB status line exactly
+   * as before; only the new popover opts out of it.
+   */
+  readonly hideUsbStatus?: boolean
 }
 
 export function MidiDeviceStatus({
@@ -28,6 +44,7 @@ export function MidiDeviceStatus({
   devices,
   selectedDeviceId,
   connectionError,
+  hideUsbStatus = false,
 }: MidiDeviceStatusProps) {
   const selected = devices.find((device) => device.id === selectedDeviceId)
   const bluetooth = useBluetoothMidi()
@@ -35,10 +52,12 @@ export function MidiDeviceStatus({
   return (
     <div className="midi-device-status">
       {!connected || selected === undefined ? (
-        <p className="midi-status midi-status-none" role="status">
-          No MIDI keyboard connected — you can still listen and read along.
-          {connectionError !== undefined && <span> ({connectionError})</span>}
-        </p>
+        !hideUsbStatus && (
+          <p className="midi-status midi-status-none" role="status">
+            No MIDI keyboard connected — you can still listen and read along.
+            {connectionError !== undefined && <span> ({connectionError})</span>}
+          </p>
+        )
       ) : (
         <p className="midi-status midi-status-connected" role="status" data-state="connected">
           MIDI keyboard connected: {selected.name}

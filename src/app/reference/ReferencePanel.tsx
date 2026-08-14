@@ -39,6 +39,7 @@ import { keyFromFifths } from '@core/theory/keys.ts'
 import type { SpelledPitch } from '@core/theory/pitch.ts'
 import type { ScaleType } from '@core/theory/scales.ts'
 import { ChordScaleReference } from '@app/theory/ChordScaleReference.tsx'
+import { Icon } from '@app/ui/Icon.tsx'
 
 const DEFAULT_KEY = keyFromFifths(0, 'major')
 const DEFAULT_ROOT: SpelledPitch = DEFAULT_KEY.tonic
@@ -112,10 +113,16 @@ export function ReferencePanel({ open, onClose, audioOutput }: ReferencePanelPro
         aria-label="Chord and scale reference"
         hidden={!open}
       >
-        <div className="reference-panel-header">
+        <div className="reference-panel-header page-header">
           <h2>Reference</h2>
-          <button type="button" ref={closeButtonRef} onClick={onClose} aria-label="Close reference">
-            ×
+          <button
+            type="button"
+            ref={closeButtonRef}
+            className="btn-icon"
+            onClick={onClose}
+            aria-label="Close reference"
+          >
+            <Icon name="x" />
           </button>
         </div>
         <ChordScaleReference

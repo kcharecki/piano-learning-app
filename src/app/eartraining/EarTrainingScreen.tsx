@@ -22,7 +22,6 @@ import type { EarGrade, EarItemKind } from '@core/eartraining/item.ts'
 import type { AudioOutput, DateSource, MidiInput, Rng } from '@core/ports/index.ts'
 import { assertNever } from '@core/shared/invariant.ts'
 import { intervalLongName, parseInterval } from '@core/theory/intervals.ts'
-import { MidiDeviceStatus } from '@app/practice/MidiDeviceStatus.tsx'
 import type { ConnectMidi } from '@app/practice/useMidiConnection.ts'
 import { SrsSummary } from '@app/srs/SrsSummary.tsx'
 import { DictationAnswerPad } from './DictationAnswerPad.tsx'
@@ -174,13 +173,6 @@ export function EarTrainingScreen(props: EarTrainingScreenProps) {
         phrase back out loud — away from this screen — before you check the
         answer below.
       </p>
-
-      <MidiDeviceStatus
-        connected={drill.midi.input !== undefined}
-        devices={drill.midi.devices}
-        selectedDeviceId={drill.midi.selectedDeviceId}
-        connectionError={drill.midi.connectionError}
-      />
 
       <div className="eartraining-drill" role="group" aria-label="Drill selector">
         <label htmlFor="eartraining-drill-select">Drill</label>

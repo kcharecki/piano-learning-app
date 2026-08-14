@@ -3,27 +3,20 @@
    imported on master ahead of the implementing session so that session never has to
    touch the barrel, which every parallel session is forbidden to edit. */
 
-/* Persistent toggle (Shell.tsx): fixed at every viewport width, deliberately
-   NOT nested inside .app-topbar — that element is `display:none` above
-   1024px (see domain.css/responsive.css), and a persistent control cannot
-   live inside chrome that itself disappears.
-   z-index matches the panel's own tier (--z-dialog), one above .app-topbar
-   at <=1024px (roadmap 5.27's fix, responsive.css): the toggle sits inside
-   the topbar's own vertical band at that width, and it must "always be
-   available" — never covered by the topbar, the nav drawer, or either
-   scrim, all of which sit at or below --z-nav. */
-.reference-toggle {
-  position: fixed;
-  top: var(--space-3);
-  right: var(--space-3);
-  z-index: var(--z-dialog);
-}
+/* The persistent `position: fixed` toggle chip this file used to style
+   (`.reference-toggle`) is gone — roadmap UI-04a moved the Reference button
+   into `Shell.tsx`'s `.topbar-actions` cluster, a normal topbar citizen
+   styled entirely by base.css/primitives.css, and UI-04a stopped applying
+   this class. Kept nothing here on purpose: a dead rule for a class no
+   component emits any more is worse than no rule at all. */
 
 /* The panel itself: position:fixed so app-main's box never changes size on
    open/close (the whole point of the resolved mechanism — a layout column
    would resize app-main and re-engrave any OSMD score inside it). Sits above
    the nav (z-nav) and its own scrim, below nothing — it is the topmost
-   piece of chrome the learner can summon. */
+   piece of chrome the learner can summon. `--bg-1`/`--elev-3` (roadmap
+   UI-04b) give it real surface + shadow instead of blending into whatever
+   sits behind it. */
 #reference-panel {
   position: fixed;
   inset: 0 0 0 auto;
@@ -36,8 +29,35 @@
   padding: var(--space-4);
 }
 #reference-panel[hidden] { display: none; }
+/* Slide-in over --dur-2 (roadmap UI-04b), the same technique
+   `feature-nav-groups.css`'s `.nav-scrim` fade-in already relies on: a CSS
+   `transition` cannot animate FROM `display:none` (there is no prior value
+   to interpolate), but a `@keyframes` animation plays from its own 0%
+   keyframe regardless of what came before, so it runs every time `hidden` is
+   removed. There is deliberately no exit animation on close (`hidden` re-added
+   snaps straight to `display:none`) — the same accepted boundary
+   `nav-scrim-fade-in`'s own comment names, and `tokens/motion.css`'s global
+   `prefers-reduced-motion: reduce` rule already disables this without needing
+   an `!important` fight here. */
+#reference-panel:not([hidden]) {
+  animation: reference-panel-slide-in var(--dur-2) var(--ease-out);
+}
+@keyframes reference-panel-slide-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
 
-.reference-panel-header {
+/* Compound selector (ID + class) so this always wins over the bare
+   `.page-header` rule (base.css) regardless of stylesheet load order —
+   `base.css`'s own comment on `.app-layout > .app-topbar` documents the
+   identical trick for the identical reason. The header is deliberately
+   BOTH `.reference-panel-header` (this file's own sticky/background
+   treatment, needed because the panel scrolls and the header must not
+   scroll away with it) AND `.page-header` (ReferencePanel.tsx, roadmap
+   UI-04b — the same title-row treatment every screen's own `<h1>` gets),
+   so a learner opening this panel sees a heading row that reads as "a page
+   header", not a bespoke one-off. */
+#reference-panel .reference-panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -55,8 +75,13 @@
    other" half; this only ever paints the pixels. z-index matches
    .nav-scrim's own tier exactly (calc(--z-nav - 1), domain.css/
    responsive.css): BELOW the persistent toggle buttons (--z-nav), so both
-   .nav-toggle and .reference-toggle stay clickable through it, same as the
-   nav drawer's own scrim already lets its toggle stay clickable through it. */
+   .nav-toggle and the topbar's own Reference button (`.topbar-actions`,
+   base.css — no longer a fixed-position element itself, roadmap UI-04a)
+   stay clickable through it, same as the nav drawer's own scrim already
+   lets its toggle stay clickable through it. `--scrim` (roadmap UI-04b,
+   tokens/colors.css) replaces the hardcoded `rgba(0, 0, 0, .5)` — the same
+   token `.nav-scrim` (feature-nav-groups.css) already paints its own scrim
+   with, so the two drawers dim the page identically in both themes. */
 .reference-panel-scrim { display: none; }
 
 @media (max-width: 1024px) {
@@ -65,7 +90,7 @@
     display: block;
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, .5);
+    background: var(--scrim);
     z-index: calc(var(--z-nav) - 1);
   }
 }

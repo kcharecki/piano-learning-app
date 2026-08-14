@@ -43,10 +43,12 @@ afterEach(() => {
 
 describe('TechniqueScreen', () => {
   it('is fully usable with no MIDI keyboard connected — REQ-4.1', () => {
+    // Roadmap UI-04b: the "No MIDI keyboard connected" status moved out of
+    // this screen entirely, into the shell's topbar input-status chip —
+    // proved in `InputCapabilityBanner.test.tsx`, not here.
     const neverResolves = (): Promise<never> => new Promise(() => {})
     render(<TechniqueScreen connectMidi={neverResolves} />)
 
-    expect(screen.getByText(/no MIDI keyboard connected/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Start' })).toBeEnabled()
     // roadmap 5.5a: with no device, the on-screen fallback is on by default —
     // before this fix Technique had no `OnScreenKeyboard` at all.

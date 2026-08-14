@@ -479,9 +479,13 @@ export function Shell() {
         </button>
         <p className="screen-title">{activeLabel}</p>
         {/* Roadmap UI-04a: the right-aligned action cluster — a normal
-            topbar citizen now, never `position: fixed`. UI-04b mounts the
-            input-status chip here too, before the Reference button. */}
+            topbar citizen now, never `position: fixed`. Roadmap UI-04b: the
+            input-status chip mounts here, before the Reference button — its
+            one home now, replacing the in-flow banner that used to render at
+            the top of `<main>` (and, before that, at the top of seven
+            separate screens). */}
         <div className="topbar-actions">
+          <InputCapabilityBanner />
           <button
             type="button"
             ref={referenceToggleRef}
@@ -505,7 +509,6 @@ export function Shell() {
         />
       </nav>
       <main className="app-main">
-        <InputCapabilityBanner />
         {/* Roadmap 5.40: purely additive, only ever on Today, only until
             completed/skipped — see OnboardingGateway.tsx's module doc for why
             this is a callout rather than a hard gate. */}

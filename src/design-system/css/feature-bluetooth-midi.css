@@ -1,3 +1,43 @@
+/* Input-status chip + popover (roadmap UI-04b, 2026-08-12 UI audit): before
+   this, "No MIDI keyboard connected" plus this file's own Bluetooth pairing
+   control rendered as in-flow content at the TOP of seven different screens
+   (Practice, Sight reading, Flashcards, Ear training, Rhythm, Technique,
+   Theory), pushing the actual task below them on every one. This gives that
+   status one home instead: a small chip in the topbar's `.topbar-actions`
+   cluster (base.css, roadmap UI-04a), always present, with the detail
+   (device name, Bluetooth pairing, the mic fallback) tucked into a popover
+   that opens on demand — `InputCapabilityBanner.tsx`.
+   No dedicated feature-input-status.css exists (single-writer file list,
+   docs/ui-overhaul-brief.md) — this is the closest owned stylesheet, since
+   the popover's main job is hosting exactly the Bluetooth control below. */
+.input-status { position: relative; }
+
+/* `.card` (primitives.css) already supplies background/radius/padding; this
+   only adds what a FLOATING panel needs beyond a static in-flow card:
+   anchored under the chip, above the topbar (--z-dialog, the same tier
+   ReferencePanel and its scrim use), with --elev-3 instead of .card's
+   default --elev-1 (same override technique feature-reference-panel.css
+   uses for its own panel — this file loads after primitives.css in the
+   barrel, so the later, more specific-in-intent rule wins on source order
+   at equal specificity). */
+.input-status-popover {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  z-index: var(--z-dialog);
+  width: min(20rem, 90vw);
+  box-shadow: var(--elev-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.input-status-popover p { margin: 0; }
+
+.input-status-mic-hint {
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+
 /* Bluetooth MIDI pairing control (roadmap B.2), rendered inside
    `MidiDeviceStatus` alongside the existing USB status line — a small
    secondary control, never competing visually with the primary status text

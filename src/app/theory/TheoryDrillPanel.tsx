@@ -49,7 +49,6 @@
 import { createBrowserClock } from '@app/practice/clock.ts'
 import { useMidiConnection, type ConnectMidi } from '@app/practice/useMidiConnection.ts'
 import { usePracticeLog } from '@app/practice/usePracticeLog.ts'
-import { MidiDeviceStatus } from '@app/practice/MidiDeviceStatus.tsx'
 import { OnScreenKeyboard } from '@app/drills/OnScreenKeyboard.tsx'
 import { QwertyHint } from '@app/keyboardInput/QwertyHint.tsx'
 import { defaultBaseNote } from '@app/keyboardInput/qwertyNoteMap.ts'
@@ -362,12 +361,6 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
   return (
     <div className="theory-drill-panel">
       <h2>Theory drills</h2>
-      <MidiDeviceStatus
-        connected={midiConn.input !== undefined}
-        devices={midiConn.devices}
-        selectedDeviceId={midiConn.selectedDeviceId}
-        connectionError={midiConn.connectionError}
-      />
 
       <div className="theory-level" role="group" aria-label="Level">
         <button

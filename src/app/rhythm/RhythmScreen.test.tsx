@@ -42,11 +42,15 @@ function manualDriver(): { driver: FrameDriver; pump: () => void } {
 
 describe('RhythmScreen', () => {
   it('is fully usable with no MIDI keyboard connected — REQ-4.1', () => {
+    // Roadmap UI-04b: the "No MIDI keyboard connected" status moved out of
+    // this screen's sight-tap mode entirely, into the shell's topbar
+    // input-status chip — proved in `InputCapabilityBanner.test.tsx`, not
+    // here. (Clap-back mode's own `RhythmClapback.tsx` still renders it
+    // in-flow — out of this screen task's file list.)
     const neverResolves = (): Promise<never> => new Promise(() => {})
     render(<RhythmScreen connectMidi={neverResolves} rng={seededRng(1)} />)
 
     expect(screen.getByRole('heading', { name: 'Rhythm' })).toBeInTheDocument()
-    expect(screen.getByText(/no MIDI keyboard connected/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Start' })).toBeInTheDocument()
   })
 

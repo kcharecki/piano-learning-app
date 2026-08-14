@@ -28,10 +28,12 @@ afterEach(() => {
 
 describe('TheoryDrillPanel', () => {
   it('is fully usable with no MIDI keyboard connected — REQ-4.1', () => {
+    // Roadmap UI-04b: the "No MIDI keyboard connected" status moved out of
+    // this screen entirely, into the shell's topbar input-status chip —
+    // proved in `InputCapabilityBanner.test.tsx`, not here.
     const neverResolves = (): Promise<never> => new Promise(() => {})
     render(<TheoryDrillPanel connectMidi={neverResolves} rng={scriptedRng([0])} />)
 
-    expect(screen.getByText(/no MIDI keyboard connected/i)).toBeInTheDocument()
     expect(screen.getByTestId('theory-prompt')).toBeInTheDocument()
   })
 

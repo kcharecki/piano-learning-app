@@ -44,7 +44,6 @@ import { HandMuteControl } from './HandMuteControl.tsx'
 import { LoopRangeControl } from './LoopRangeControl.tsx'
 import { MetronomeControl } from './MetronomeControl.tsx'
 import { MicInputControl } from './MicInputControl.tsx'
-import { MidiDeviceStatus } from './MidiDeviceStatus.tsx'
 import { PianoRoll, type PianoRollHandle } from './PianoRoll.tsx'
 import { createPlayableInput, type PlayableMidiInput } from './playableInput.ts'
 import { PracticeKeyboard } from './PracticeKeyboard.tsx'
@@ -631,12 +630,6 @@ export function PracticeScreen(props: PracticeScreenProps) {
           />
         </div>
         <div className="status-group">
-          <MidiDeviceStatus
-            connected={midi.input !== undefined}
-            devices={midi.devices}
-            selectedDeviceId={midi.selectedDeviceId}
-            connectionError={midi.connectionError}
-          />
           <MicInputControl
             enabled={mic.enabled}
             connected={mic.input !== undefined}

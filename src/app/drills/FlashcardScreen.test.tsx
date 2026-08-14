@@ -43,10 +43,12 @@ afterEach(() => {
 
 describe('FlashcardScreen', () => {
   it('is fully usable with no MIDI keyboard connected — REQ-4.1', () => {
+    // Roadmap UI-04b: the "No MIDI keyboard connected" status moved out of
+    // this screen entirely, into the shell's topbar input-status chip —
+    // proved in `InputCapabilityBanner.test.tsx`, not here.
     const neverResolves = (): Promise<never> => new Promise(() => {})
     render(<FlashcardScreen connectMidi={neverResolves} rng={seededRng(1)} />)
 
-    expect(screen.getByText(/no MIDI keyboard connected/i)).toBeInTheDocument()
     expect(screen.getByRole('img', { name: /staff/i })).toBeInTheDocument()
   })
 

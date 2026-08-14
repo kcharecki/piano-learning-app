@@ -15,7 +15,6 @@
 import { QwertyHint } from '@app/keyboardInput/QwertyHint.tsx'
 import { defaultBaseNote } from '@app/keyboardInput/qwertyNoteMap.ts'
 import { useQwertyNoteInput } from '@app/keyboardInput/useQwertyNoteInput.ts'
-import { MidiDeviceStatus } from '@app/practice/MidiDeviceStatus.tsx'
 import type { ConnectMidi } from '@app/practice/useMidiConnection.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { useMetronome } from '@app/metronome/useMetronome.ts'
@@ -128,12 +127,6 @@ export function FlashcardScreen(props: FlashcardScreenProps) {
   return (
     <div className="flashcard-screen">
       <h2>Flashcards</h2>
-      <MidiDeviceStatus
-        connected={drill.midi.input !== undefined}
-        devices={drill.midi.devices}
-        selectedDeviceId={drill.midi.selectedDeviceId}
-        connectionError={drill.midi.connectionError}
-      />
 
       <fieldset>
         <legend>Metronome</legend>

@@ -278,4 +278,18 @@ describe('Shell', () => {
     expect(toggle.closest('.app-topbar')).not.toBeNull()
     expect(toggle).not.toHaveClass('reference-toggle')
   })
+
+  // Roadmap UI-04b: the input-status chip's one home, before the Reference
+  // button in the same cluster — replacing the in-flow "No MIDI keyboard
+  // connected" banner that used to render at the top of every screen.
+  it('mounts the input-status chip inside the topbar action cluster, before Reference', () => {
+    render(<Shell />)
+    const chip = screen.getByRole('button', { name: /MIDI/i })
+    const actions = chip.closest('.topbar-actions')
+    expect(actions).not.toBeNull()
+    const reference = screen.getByRole('button', { name: 'Reference' })
+    expect(actions).toContainElement(reference)
+    // The chip precedes Reference in DOM order within the cluster.
+    expect(chip.compareDocumentPosition(reference) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
 })
