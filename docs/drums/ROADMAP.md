@@ -88,8 +88,15 @@ item lands inside a slice that drives something (specs state their proof surface
 
 - [ ] DR-01 ‖ Instrument switcher — two apps in one shell, `/drums/*` URLs, per-instrument
       nav, persisted choice → [spec](features/DR-01-instrument-switcher.md)
-- [ ] DR-04 ‖ Drum domain model — pads, `GrooveScore`, grid projection, MusicXML bridge
-      → [spec](features/DR-04-drum-domain-model.md)
+- [x] DR-04 ‖ Drum domain model — pads, `GrooveScore`, grid projection, MusicXML bridge
+      → [spec](features/DR-04-drum-domain-model.md). Core-only slice, no screen of its own
+      (gate is its consumers'): `src/core/drums/model/**`, 21 files (11 source/10 test),
+      102 tests incl. fast-check properties for grid round-trip, MusicXML round-trip on
+      generated grooves, the voice invariant (feet never stems-up), and swing-application
+      reversibility. The three reference grooves (money beat, open-hat variant, ghosted
+      funk bar) parse from MusicXML to the exact `GrooveScore` and re-serialize
+      byte-stable. `npm test` 2.1s (75 files/2442 tests); `npm run verify` green (207
+      files/4243 tests).
 - [ ] DR-02 E-drum MIDI input — kit maps, presets, MIDI-learn wizard, CC4 hi-hat state
       machine, chokes, debounce → [spec](features/DR-02-edrum-midi-input.md)
 - [ ] DR-03 ‖ Fallback inputs — keyboard map with dynamics modifiers, on-screen pads,
