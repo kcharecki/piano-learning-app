@@ -122,31 +122,21 @@ describe('generateChordQualityItem', () => {
     )
   })
 
-  // roadmap 5.55: the tonal-context TRIAD's key must be independent of the
-  // drawn quality — level 1's own answer set is exactly {major, minor}, so a
-  // context key that always matched the quality would let a learner answer
-  // from the drone alone. `contextKey` still names a real, valid key.
-  it('carries an independent tonal-context key, defined and valid for every draw (property)', () => {
+  // roadmap 5.55, review finding F2b: level 1's own answer set IS exactly
+  // {major, minor}, so ANY tonal-context triad here would either leak the
+  // answer (matches the drawn quality) or actively mislead (does not) —
+  // there is no key to establish that is not itself part of the question.
+  // Quality ID is context-free by design; this item carries no `contextKey`
+  // at all, on any level or seed (replaces the old "independent key" tests,
+  // which the redesign made obsolete — that design is what F2 found
+  // incoherent in the first place).
+  it('carries no tonal-context key at all, on any level or seed (property)', () => {
     fc.assert(
       fc.property(levelArb, seedArb, (level, seed) => {
         const item = generateChordQualityItem(level, {}, seededRng(seed))
-        expect(item.contextKey).toBeDefined()
-        expect(['major', 'minor']).toContain(item.contextKey?.mode)
+        expect(item.contextKey).toBeUndefined()
       }),
     )
-  })
-
-  it('the tonal-context key is not always the same mode as the drawn quality — it does not leak the answer (level 1)', () => {
-    let sawMatch = false
-    let sawMismatch = false
-    for (let seed = 0; seed < 300 && !(sawMatch && sawMismatch); seed++) {
-      const item = generateChordQualityItem(1, {}, seededRng(seed))
-      if (item.answerKey !== 'major' && item.answerKey !== 'minor') continue
-      if (item.contextKey?.mode === item.answerKey) sawMatch = true
-      else sawMismatch = true
-    }
-    expect(sawMatch).toBe(true)
-    expect(sawMismatch).toBe(true)
   })
 
   it('property: any other quality grades wrong, reporting both sides', () => {
@@ -293,33 +283,16 @@ describe('generateScaleModeItem', () => {
     )
   })
 
-  // roadmap 5.55: same fix as the chord-quality drill above — level 1's own
-  // scale-type set is exactly {major, naturalMinor}, so the context key must
-  // not track which one was drawn.
-  it('carries an independent tonal-context key, defined and valid for every draw (property)', () => {
+  // roadmap 5.55, review finding F2b — same reason as the chord-quality
+  // drill above: level 1's own scale-type set is exactly {major,
+  // naturalMinor}, so this item carries no `contextKey` at all.
+  it('carries no tonal-context key at all, on any level or seed (property)', () => {
     fc.assert(
       fc.property(levelArb, seedArb, (level, seed) => {
         const item = generateScaleModeItem(level, {}, seededRng(seed))
-        expect(item.contextKey).toBeDefined()
-        expect(['major', 'minor']).toContain(item.contextKey?.mode)
+        expect(item.contextKey).toBeUndefined()
       }),
     )
-  })
-
-  it('the tonal-context key is not always the same mode as the drawn scale type — it does not leak the answer (level 1)', () => {
-    const modeOf = (type: string): 'major' | 'minor' | undefined =>
-      type === 'major' ? 'major' : type === 'naturalMinor' ? 'minor' : undefined
-    let sawMatch = false
-    let sawMismatch = false
-    for (let seed = 0; seed < 300 && !(sawMatch && sawMismatch); seed++) {
-      const item = generateScaleModeItem(1, {}, seededRng(seed))
-      const answerMode = modeOf(item.answerKey)
-      if (answerMode === undefined) continue
-      if (item.contextKey?.mode === answerMode) sawMatch = true
-      else sawMismatch = true
-    }
-    expect(sawMatch).toBe(true)
-    expect(sawMismatch).toBe(true)
   })
 
   it('property: any other scale type grades wrong, reporting both sides', () => {

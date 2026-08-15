@@ -1250,22 +1250,17 @@ next item, no completion state, no sense of being 3 of 5 through today.
       *Proof: the recorded `AudioOutput` calls carry three distinct pitch classes forming the key's own
       tonic triad before the item's first note (the 5.28/3.13 pattern — assert the calls, not the
       projection), a minor-key item sounds a minor triad, and the key is read off the running screen.*
-      **Shipped**: every drill kind now carries a `contextKey: Key` (chord-quality/scale-mode/interval
-      drills draw an *independent* key via `pickContextKey`, since their own answer set is {major,
-      minor} and reusing the drawn quality would leak the answer; melodic dictation reflects its own
-      real generation key, since its answer is notes/rhythm, never mode). `useEarTraining.scheduleContext`
-      now schedules `chordMidi(buildChord(key.tonic, key.mode, 0))` — three distinct pitch classes —
-      instead of `[tonic, fifth]`, and renders `contextKeyName` (`Key: <name>`,
-      `data-testid="eartraining-context-key"`) gated by the same `tonalContext` toggle as the sound.
-      Unit tests assert the recorded `AudioOutput` calls directly: `useEarTraining.test.ts` checks the
-      scheduled triad has 3 notes and 3 distinct pitch classes ending at tick 0, and that a level-5
-      minor-key melodic-dictation item's triad has a root→third gap of 3 semitones (minor third) and
-      root→fifth of 7. Live-driven: `/ear-training` at `http://localhost:5307`, level 1 interval-melodic,
-      clicking Play rendered `Key: A major` on screen alongside the major-third/minor-third answer pad.
-      `npx vitest run src/core/eartraining src/app/eartraining` — 250 tests, all files green.
-      `npm run verify` — 190 files / 3910 tests, exit 0. Visual pass (`scripts/visual-pass.mjs`) on the
-      ear-training destination, 1280/1024 × dark/light, all four clean, console clean, no stale key
-      label on the empty/first-load state.
+      **Shipped**, then **redesigned by adversarial review**: the first pass gave chord-quality and
+      scale-mode drills a random *independent* `contextKey` too — a worse leak, since their own
+      answer IS a key/mode. Context now applies only where the answer isn't the key itself: interval
+      (diatonic lower note of `contextKey`) and melodic-dictation. Chord-quality/scale-mode carry no
+      `contextKey` and render no label. `scheduleContext`'s triad transposes under the item's lowest
+      prompt note; `scheduleItem` anchors `baseMs` on the *earliest* scheduled offset (was `now()`),
+      so the pre-roll no longer collapses onto the first note. The label latches to the context last
+      actually scheduled, not the live toggle.
+      `npx vitest run src/core/eartraining src/app/eartraining` — 257 tests green, incl. distribution
+      properties (≥1000 seeds: ≥6 keys, both modes, P(major) ∈ [.42, .58]) and an every-event-≥-now
+      property. `npm run typecheck` and `npx eslint src/core/eartraining src/app/eartraining` clean.
 - [ ] 5.56 `app/rhythm` + `core/generator/rhythm`: the engraved rhythm pattern is titled **"Untitled
       Score"**. That is verbatim the defect the 2026-08-06 review named and roadmap **5.13 is ticked as
       fixing** — 5.13 titled `generateMelody` and `techniqueScore` (both confirmed fixed) and never

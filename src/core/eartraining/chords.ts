@@ -50,7 +50,6 @@ import {
 } from '@core/theory/chords.ts'
 import { fromMidi, type SpelledPitch, toMidi } from '@core/theory/pitch.ts'
 import { SCALE_INTERVALS, type ScaleType, scaleNotes } from '@core/theory/scales.ts'
-import { keyFromFifths, type Key, type Mode } from '@core/theory/keys.ts'
 import { type Hand, makeScore, type ScoreNoteInput } from '@core/notation/score.ts'
 import type { EarGrade, EarItem } from './item.ts'
 
@@ -148,37 +147,6 @@ function candidateRoots(range: MidiRange, maxSpan: number): readonly Midi[] {
 }
 
 // ---------------------------------------------------------------------------
-// tonal context (roadmap 5.55) — shared by both drills in this file
-// ---------------------------------------------------------------------------
-
-/** Same bound `intervals.ts`'s own `pickContextKey` uses — see that
- *  function's doc, and `levelDefaults.ts`'s comment on the same bound
- *  applied to the sight-reading generator. */
-const CONTEXT_MIN_FIFTHS = -4
-const CONTEXT_MAX_FIFTHS = 4
-
-/**
- * roadmap 5.55: the tonal-context triad establishes a real KEY, independent
- * of the quality/type this item actually draws. Both drills here already
- * anchor `contextTonicMidi` on the item's own root/tonic (see that field's
- * own doc in item.ts) — safe for the ROOT, since the root does not reveal
- * quality, but 5.28's fifth-only drone never had a third to worry about. Now
- * that the drone is a full triad, its MODE has to come from somewhere, and
- * tying it to the item's own quality would hand the answer over directly:
- * level 1's chord-quality set is exactly {major, minor} and level 1's
- * scale-mode set is exactly {major, naturalMinor} — a context chord matching
- * the drawn quality would let a learner answer from the drone alone, never
- * hearing the actual item. Drawing an independent key here — nothing else in
- * either drill ever reads it back — keeps the mode uninformative about the
- * answer, exactly like `intervals.ts`'s identical fix.
- */
-function pickContextKey(rng: Rng): Key {
-  const fifths = randomInt(rng, CONTEXT_MIN_FIFTHS, CONTEXT_MAX_FIFTHS)
-  const mode: Mode = randomInt(rng, 0, 1) === 0 ? 'major' : 'minor'
-  return keyFromFifths(fifths, mode)
-}
-
-// ---------------------------------------------------------------------------
 // chord-quality drill
 // ---------------------------------------------------------------------------
 
@@ -253,10 +221,14 @@ export function generateChordQualityItem(level: number, opts: ChordItemOptions, 
   // (roadmap 5.28): `contextTonicMidi` stays the ROOT as a reference (see
   // item.ts's own doc on why RevealPanel's use of it is untouched), exactly
   // like the answer itself is graded by quality, never by voicing (see this
-  // module's own doc on inversions grading as their quality). `contextKey`
-  // (roadmap 5.55) is the independent key the PRE-answer triad actually
-  // plays from — see `pickContextKey`'s own doc above for why it must not be
-  // the chord's own quality.
+  // module's own doc on inversions grading as their quality). No `contextKey`
+  // (roadmap 5.55, review finding F2b): this drill's own answer set IS a
+  // major/minor-style quality choice with no separate "key" to establish
+  // that would not either leak the answer (a triad matching the drawn
+  // quality) or actively mislead (a triad in the OTHER quality) — quality ID
+  // is context-free by design in every syllabus this app cites, so this item
+  // gets no tonal-context triad and no on-screen key label at all. See
+  // item.ts's own doc on `contextKey` for the full rationale.
   return {
     id,
     kind: 'chord-quality',
@@ -264,7 +236,6 @@ export function generateChordQualityItem(level: number, opts: ChordItemOptions, 
     answerKey: quality,
     level: clampedLevel,
     contextTonicMidi: toMidi(root),
-    contextKey: pickContextKey(rng),
   }
 }
 
@@ -313,10 +284,12 @@ export function generateScaleModeItem(level: number, opts: ScaleItemOptions, rng
   const prompt = makeScore({ id, measures: [{}], notes: noteInputs })
   // roadmap 5.28: `contextTonicMidi` stays the scale's own tonic — it is
   // also the prompt's own first and last sounding note, and RevealPanel
-  // reads it unchanged (item.ts's own doc). `contextKey` (roadmap 5.55) is
-  // the independent key the PRE-answer triad actually plays from — see
-  // `pickContextKey`'s own doc above for why it must not be the drawn scale
-  // type (level 1 is exactly {major, naturalMinor}).
+  // reads it unchanged (item.ts's own doc). No `contextKey` (roadmap 5.55,
+  // review finding F2b) for the same reason `generateChordQualityItem` above
+  // has none: level 1's own answer set is exactly {major, naturalMinor}, so
+  // any tonal-context triad here either leaks or misleads the mode answer —
+  // scale/mode ID is context-free by design. See item.ts's own doc on
+  // `contextKey`.
   return {
     id,
     kind: 'scale-mode',
@@ -324,7 +297,6 @@ export function generateScaleModeItem(level: number, opts: ScaleItemOptions, rng
     answerKey: type,
     level: clampedLevel,
     contextTonicMidi: toMidi(tonic),
-    contextKey: pickContextKey(rng),
   }
 }
 

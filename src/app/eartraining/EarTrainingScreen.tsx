@@ -224,10 +224,13 @@ export function EarTrainingScreen(props: EarTrainingScreenProps) {
           ("The examiner will identify the key, play the tonic triad
           once…") — undefined (so nothing renders) exactly when the tonic
           triad itself would not sound: no item yet, no real key to
-          establish (rhythmic dictation — rhythm has no scale), or the
-          learner has switched tonal context off. */}
+          establish (rhythmic dictation — rhythm has no scale; chord-quality
+          and scale-mode, review finding F2b — their own answer IS a
+          major/minor-style pair), or the learner has switched tonal context
+          off. `role="status"` (review finding F5e) so a screen reader
+          announces the key the same way it would hear an examiner speak it. */}
       {drill.contextKeyName !== undefined && (
-        <p data-testid="eartraining-context-key">Key: {drill.contextKeyName}</p>
+        <p role="status" data-testid="eartraining-context-key">Key: {drill.contextKeyName}</p>
       )}
 
       {drill.item === undefined ? (

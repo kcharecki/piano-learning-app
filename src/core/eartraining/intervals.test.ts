@@ -18,6 +18,9 @@ import {
 } from '@core/theory/intervals.ts'
 import { unwrap } from '@core/shared/result.ts'
 import { HALF, midi, QUARTER } from '@core/shared/units.ts'
+import { keyName, type Mode } from '@core/theory/keys.ts'
+import { spelledPitchClass } from '@core/theory/pitch.ts'
+import { SCALE_INTERVALS } from '@core/theory/scales.ts'
 
 const iv = (n: number, q: Parameters<typeof makeInterval>[1]): Interval => unwrap(makeInterval(n, q))
 
@@ -175,18 +178,39 @@ describe('generateIntervalItem', () => {
     )
   })
 
-  // roadmap 5.55: the tonal-context TRIAD's key is independent of the drawn
-  // interval — level 1's own answer set is exactly {M3, m3}, so a context key
-  // tied to the interval's own quality (or anchored on its own lower note, as
-  // 5.28 shipped it) would hand the answer over through the drone. `contextKey`
-  // still names a real, valid key, and is decoupled from `contextTonicMidi`,
-  // which stays the interval's own lower note (RevealPanel's unrelated use).
-  it('carries an independent tonal-context key, defined and valid for every draw (property)', () => {
+  // roadmap 5.55, redesigned per review finding F2: the tonal-context
+  // TRIAD's key is always defined and valid, and (unlike the original
+  // "fully independent" design) the interval's own lower note is drawn as a
+  // DIATONIC DEGREE of it — see `pickContextKey`'s doc in `intervals.ts` and
+  // the coherence property test below. The key's MODE still carries no
+  // information about the drawn interval's SIZE (level 1's own answer set is
+  // exactly {M3, m3}) — `contextKey` stays decoupled from `contextTonicMidi`,
+  // which is unchanged: the interval's own lower note (RevealPanel's use).
+  it('carries a defined, valid tonal-context key for every draw (property)', () => {
     fc.assert(
       fc.property(arbLevel, fc.boolean(), arbSeed, (level, harmonic, seed) => {
         const item = generateIntervalItem(level, { harmonic }, seededRng(seed))
         expect(item.contextKey).toBeDefined()
         expect(['major', 'minor']).toContain(item.contextKey?.mode)
+      }),
+    )
+  })
+
+  // roadmap 5.55, review finding F2c: the whole redesign's coherence claim —
+  // the announced key is not just A valid key, it is the SAME key the
+  // interval's own lower note actually belongs to.
+  it('the lower note is always a diatonic scale degree of its own tonal-context key (property, review finding F2c)', () => {
+    fc.assert(
+      fc.property(arbLevel, fc.boolean(), arbSeed, (level, harmonic, seed) => {
+        const item = generateIntervalItem(level, { harmonic }, seededRng(seed))
+        const lowMidi = Math.min(...item.prompt.notes.map((n) => n.midi))
+        const key = item.contextKey
+        expect(key).toBeDefined()
+        if (key === undefined) return
+        const scaleType = key.mode === 'major' ? 'major' : 'naturalMinor'
+        const tonicPc = spelledPitchClass(key.tonic)
+        const pcs = new Set(SCALE_INTERVALS[scaleType].map((iv) => (tonicPc + iv) % 12))
+        expect(pcs.has(((lowMidi % 12) + 12) % 12)).toBe(true)
       }),
     )
   })
@@ -203,6 +227,61 @@ describe('generateIntervalItem', () => {
     }
     expect(sawMatch).toBe(true)
     expect(sawMismatch).toBe(true)
+  })
+
+  // roadmap 5.55, review finding F4(a): a mutant that always returns the
+  // same fixed key (e.g. `pickContextKey = () => keyFromFifths(0, 'major')`)
+  // survived every test above — none of them look at the DISTRIBUTION across
+  // many draws, only at any-one-draw validity. Over >=1000 seeded draws, a
+  // real draw hits both modes and at least 6 distinct key names; a constant
+  // mutant hits exactly one of each.
+  it('draws from at least 6 distinct context keys and both modes, over >=1000 seeded draws (distribution, kills a constant-key mutant)', () => {
+    const names = new Set<string>()
+    const modes = new Set<Mode>()
+    const N = 1000
+    for (let seed = 0; seed < N; seed++) {
+      const item = generateIntervalItem(1, { harmonic: true }, seededRng(seed))
+      if (item.contextKey === undefined) continue
+      names.add(keyName(item.contextKey))
+      modes.add(item.contextKey.mode)
+    }
+    expect(names.size).toBeGreaterThanOrEqual(6)
+    expect(modes).toEqual(new Set<Mode>(['major', 'minor']))
+  })
+
+  // roadmap 5.55, review finding F4(b): the old anti-leak test above only
+  // ever needed to see ONE match and ONE mismatch out of up to 300 seeds, so
+  // a generator that leaked the answer 90% of the time would still pass it.
+  // This instead measures the actual major/minor split (must sit close to
+  // 50/50 — a real coin flip, not a correlated draw) AND — the coherence
+  // redesign's own risk, since F2c now ties the lower note's pitch class to
+  // the key — that every interval SIZE in level 3's pool still occurs paired
+  // with BOTH context modes, so the size itself never correlates with mode.
+  it('the context key is major ~half the time, and every level-3 interval size occurs under both context modes (distribution, >=1000 seeds)', () => {
+    const N = 1000
+    let majorCount = 0
+    const modesBySize = new Map<string, Set<Mode>>()
+    for (let seed = 0; seed < N; seed++) {
+      const item = generateIntervalItem(3, { harmonic: true }, seededRng(seed))
+      const mode = item.contextKey?.mode
+      expect(mode).toBeDefined()
+      if (mode === undefined) continue
+      if (mode === 'major') majorCount++
+      const seen = modesBySize.get(item.answerKey) ?? new Set<Mode>()
+      seen.add(mode)
+      modesBySize.set(item.answerKey, seen)
+    }
+    const pMajor = majorCount / N
+    expect(pMajor).toBeGreaterThanOrEqual(0.42)
+    expect(pMajor).toBeLessThanOrEqual(0.58)
+
+    // Level 3's pool is {M3, m3, P5, P4} (see `intervalsForLevel`) — every
+    // size drawn at all here must have appeared under both modes.
+    expect(modesBySize.size).toBeGreaterThan(0)
+    for (const [, modes] of modesBySize) {
+      expect(modes.has('major')).toBe(true)
+      expect(modes.has('minor')).toBe(true)
+    }
   })
 
   it('kind matches the harmonic option', () => {

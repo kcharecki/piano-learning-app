@@ -56,21 +56,31 @@ export type EarItem = {
   readonly contextTonicMidi?: Midi
   /**
    * The real key (tonic + mode) whose tonic TRIAD is sounded as tonal
-   * context before this item plays (roadmap 5.55) — undefined exactly when
-   * `contextTonicMidi` is (no real tonal center: `rhythmic-dictation`).
-   * Fixes 5.28's "a drone: tonic + fifth", which has no third and so cannot
-   * establish major or minor — both RCM 2022 ("play the tonic triad once")
-   * and ABRSM 2025–26 aural p.45 ("play a tonic chord") specify a full
-   * triad. `melodic-dictation` sets its own REAL generation key here (its
-   * answer is the notes/rhythm, not major-vs-minor, so reflecting the
-   * genuine mode teaches nothing false); every other kind draws an
-   * INDEPENDENT key, decoupled from `answerKey`, precisely because their
-   * level-1 answer sets are themselves a major/minor pair ({M3, m3} for
-   * intervals, {major, minor} for chords, {major, naturalMinor} for scales)
-   * — a context key correlated with the draw would hand the answer over
-   * through the drone rather than merely orienting the ear to a key, the way
-   * an examiner's tonic chord is unrelated to which specific item follows
-   * it. Distinct from `contextTonicMidi` (see that field's own doc) so
+   * context before this item plays (roadmap 5.55) — undefined whenever there
+   * is no real tonal center to establish, OR establishing one would leak or
+   * distract from the answer. Only `interval-*` and `melodic-dictation` ever
+   * set this:
+   *
+   *  - `melodic-dictation` sets its own REAL generation key (its answer is
+   *    the notes/rhythm, never major-vs-minor, so the genuine mode teaches
+   *    nothing false).
+   *  - `interval-*` draws a key whose MODE carries no information about the
+   *    drawn interval's SIZE (the actual answer), but whose lower sounding
+   *    note is drawn as a diatonic degree OF that key — so the announced key
+   *    and the material are coherent, the way a real key and a real melodic
+   *    fragment always are, rather than two unrelated draws (review finding
+   *    F2: the original "fully independent key" design left the announced
+   *    key diatonic to the sounding interval only 30.1% of the time).
+   *  - `chord-quality` and `scale-mode` never set this (review finding F2b):
+   *    their own level-1 answer sets ARE a major/minor-style pair ({major,
+   *    minor}, {major, naturalMinor}), so any tonic triad either leaks the
+   *    answer (matches the drawn quality/type) or actively misleads (does
+   *    not) — there is no key to establish that is not itself part of the
+   *    question. Quality/mode identification is context-free by design in
+   *    every syllabus this app cites.
+   *  - `rhythmic-dictation` never sets this: rhythm has no scale.
+   *
+   * Distinct from `contextTonicMidi` (see that field's own doc) so
    * `RevealPanel.tsx`'s unrelated post-answer use is never disturbed.
    */
   readonly contextKey?: Key
