@@ -19,16 +19,27 @@
  *  3. **Input** — `MidiDeviceStatus` (unchanged, unforked — the same
  *     component the topbar's input-status popover renders) plus a pointer to
  *     the microphone fallback on Practice.
- *  4. **Audio** — see the module comment on `AUDIO_STATUS` below for why
- *     this is a constant, not a live readout.
+ *  4. **Audio** — a route the learner can actually change, as of roadmap U.2:
+ *     Built-in piano sound (Web Audio, works with no hardware) or My
+ *     instrument (MIDI-out to a connected digital piano, REQ-4.7's preferred
+ *     route — zero synthesis latency, the instrument's own sound). See
+ *     `handleSelectAudioRoute` and `@adapters/audio/audioRoute.ts` for the
+ *     mechanics; `describeAudioRouteStatus` for the status line's states.
  *
  * Re-running the questionnaire from here still marks the onboarding gate
  * completed (`useOnboardingGate`'s `markCompleted`), exactly like the old
  * screen did — a learner who sets up their plan from Settings (never having
  * seen Today's first-run banner) should not be nagged by it afterwards.
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { MidiInput, Store } from '@core/ports/index.ts'
+import {
+  connectMidiOutputRoute,
+  getAudioOutputRoute,
+  setAudioOutputRoute,
+  type AudioOutputRoute,
+  type ConnectMidiOutput,
+} from '@adapters/audio/audioRoute.ts'
 import { MidiDeviceStatus } from '@app/practice/MidiDeviceStatus.tsx'
 import { useMidiConnection, type ConnectMidi } from '@app/practice/useMidiConnection.ts'
 import { useLevelStore } from '@app/state/levelStore.ts'
@@ -48,6 +59,8 @@ export type SettingsScreenProps = {
   /** Injection seams for the Input section's live MIDI connection; default to the real Web MIDI adapter, mirroring `InputCapabilityBanner`. */
   readonly midiInput?: MidiInput
   readonly connectMidi?: ConnectMidi
+  /** Test seam for the Audio section's MIDI-out connection attempt; defaults to the real Web MIDI adapter. Independent of `connectMidi` above — see `audioRoute.ts`'s module comment on why Input and Audio each open their own connection. */
+  readonly connectMidiOutput?: ConnectMidiOutput
   /** Test seam forwarded to the embedded plan editor's session-run write; defaults to the real IndexedDB store. */
   readonly openStore?: () => Promise<Store>
 }
@@ -58,22 +71,33 @@ const THEME_OPTIONS: readonly { readonly value: ThemePreference; readonly label:
   { value: 'light', label: 'Light' },
 ]
 
-/**
- * REQ-4.7's preferred route — a connected digital piano over MIDI-out — is
- * implemented at the adapter level (`@adapters/audio`'s `selectAudioOutput`)
- * but not plumbed into the practice screen: `createDefaultAudioOutput.ts`
- * (the one real call site every screen shares) always builds a Web Audio
- * output, regardless of whether a MIDI keyboard is connected — see that
- * file's own doc comment. So "what does the learner actually hear right
- * now" has exactly one real answer today, not a live-detected one; showing
- * anything else (a toggle, a "connected via MIDI" state that can never
- * actually occur yet) would be inventing a value that looks authoritative
- * but isn't backed by what the adapter really does. This is a constant
- * pending that wiring, not a bug in this screen.
- */
-const AUDIO_STATUS = 'Sound: built-in piano sounds'
+const AUDIO_ROUTE_OPTIONS: readonly { readonly value: AudioOutputRoute; readonly label: string }[] = [
+  { value: 'webaudio', label: 'Built-in piano sound' },
+  { value: 'midi', label: 'My instrument' },
+]
 
-export function SettingsScreen({ onGoToToday, midiInput, connectMidi, openStore }: SettingsScreenProps) {
+type MidiRouteStatus = 'idle' | 'connecting' | 'connected' | 'error'
+
+/** The Audio card's status line — the one place "what does the learner actually hear" is stated, so it must always be true of what `createDefaultAudioOutput` really does. */
+function describeAudioRouteStatus(
+  route: AudioOutputRoute,
+  midiStatus: MidiRouteStatus,
+  midiError: string | undefined,
+): string {
+  if (route === 'webaudio') return 'Sound: built-in piano sounds'
+  if (midiStatus === 'connecting') return 'Sound: connecting to your instrument…'
+  if (midiStatus === 'connected') return 'Sound: routed to your connected instrument'
+  if (midiStatus === 'error') return `Sound: built-in piano sounds — couldn't reach your instrument (${midiError ?? 'connection failed'})`
+  return 'Sound: built-in piano sounds'
+}
+
+export function SettingsScreen({
+  onGoToToday,
+  midiInput,
+  connectMidi,
+  connectMidiOutput,
+  openStore,
+}: SettingsScreenProps) {
   const gate = useOnboardingGate()
   const theme = useThemeStore((s) => s.theme)
   const setTheme = useThemeStore((s) => s.setTheme)
@@ -86,9 +110,45 @@ export function SettingsScreen({ onGoToToday, midiInput, connectMidi, openStore 
     midiInput !== undefined ? { midiInput } : connectMidi !== undefined ? { connect: connectMidi } : {},
   )
 
+  const [audioRoute, setAudioRoute] = useState<AudioOutputRoute>(() => getAudioOutputRoute())
+  const [midiRouteStatus, setMidiRouteStatus] = useState<MidiRouteStatus>('idle')
+  const [midiRouteError, setMidiRouteError] = useState<string | undefined>(undefined)
+
+  // Reconnects whenever this screen mounts with MIDI already the learner's
+  // choice — mirroring how `useMidiConnection` reconnects its input per-mount
+  // rather than at app boot (see that file's module comment) — and again
+  // whenever the learner flips the toggle to MIDI. Never fires on 'webaudio'.
+  useEffect(() => {
+    if (audioRoute !== 'midi') {
+      setMidiRouteStatus('idle')
+      return undefined
+    }
+    let cancelled = false
+    setMidiRouteStatus('connecting')
+    connectMidiOutputRoute(connectMidiOutput)
+      .then((result) => {
+        if (cancelled) return
+        setMidiRouteStatus(result.ok ? 'connected' : 'error')
+        setMidiRouteError(result.ok ? undefined : result.error)
+      })
+      .catch((reason: unknown) => {
+        if (cancelled) return
+        setMidiRouteStatus('error')
+        setMidiRouteError(reason instanceof Error ? reason.message : String(reason))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [audioRoute, connectMidiOutput])
+
   function handlePlanDone(): void {
     gate.markCompleted()
     setEditingPlan(false)
+  }
+
+  function handleSelectAudioRoute(route: AudioOutputRoute): void {
+    setAudioRoute(route)
+    setAudioOutputRoute(route)
   }
 
   return (
@@ -156,13 +216,29 @@ export function SettingsScreen({ onGoToToday, midiInput, connectMidi, openStore 
 
       <section className="card" aria-labelledby="settings-audio-heading">
         <h2 id="settings-audio-heading">Audio</h2>
-        <p className="settings-audio-status">{AUDIO_STATUS}</p>
-        {/* Roadmap UI-24 (DESIGN.md rule 7): "isn't wired up yet" is a
-            developer's note about the code, not a sentence a teacher says.
-            The limitation is real and stays stated — only the voice changes. */}
+        <div className="field">
+          <label id="settings-audio-route-label">Sound</label>
+          <div className="seg-control" role="radiogroup" aria-labelledby="settings-audio-route-label">
+            {AUDIO_ROUTE_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                role="radio"
+                aria-checked={audioRoute === option.value}
+                onClick={() => handleSelectAudioRoute(option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className="settings-audio-status">
+          {describeAudioRouteStatus(audioRoute, midiRouteStatus, midiRouteError)}
+        </p>
         <p className="settings-audio-note">
-          Practice always plays back through the built-in piano sound, even when a MIDI keyboard is
-          connected. Playing back through your own instrument&apos;s sound isn&apos;t available yet.
+          {audioRoute === 'midi'
+            ? 'Uses the first connected instrument found. If you plug one in after opening this page, reopen Settings to connect it.'
+            : 'Pick "My instrument" above to hear your own connected instrument instead of the built-in piano sound.'}
         </p>
       </section>
     </div>
@@ -177,9 +253,9 @@ export function SettingsScreen({ onGoToToday, midiInput, connectMidi, openStore 
  * `OnboardingFlow.tsx`'s own comment: goal never biased anything, and the
  * chosen minutes only ever became a single day's `SessionRunSnapshot`, not a
  * durable "usual minutes" setting) — inventing values for them here would be
- * exactly the "looks authoritative but isn't" trap the Audio section's own
- * comment calls out, so they are simply omitted until `onFinish` reports the
- * real, just-chosen answers for this screen's own lifetime.
+ * a value that looks authoritative but isn't backed by what is actually
+ * stored, so they are simply omitted until `onFinish` reports the real,
+ * just-chosen answers for this screen's own lifetime.
  */
 function summarizePlan(
   lastAnswers: OnboardingAnswers | undefined,

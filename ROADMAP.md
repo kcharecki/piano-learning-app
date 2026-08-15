@@ -299,12 +299,29 @@ purpose is reading and playing.
       numbers both called "level"). Author a short description per trainer level.
       *Proof: the Sight reading header renders a real per-level description, and a content test
       fails the build if a level has none.*
-- [ ] U.2 `adapters/audio`: audio output is single-route in practice. `createDefaultAudioOutput`
-      always builds Web Audio; `selectAudioOutput`'s MIDI-out path exists but is never called
-      from Practice, so UI-05's Settings "Audio" section states a verified constant rather than
-      a live route. Either wire the MIDI-out route to a real control or delete the dead path.
-      *Proof: either Settings offers a route the learner can change and the change is audible,
-      or `knip:prod` stops reporting the unused export.*
+- [x] U.2 `adapters/audio`: audio output was single-route in practice. `createDefaultAudioOutput`
+      always built Web Audio; `selectAudioOutput`'s MIDI-out path existed but was never called
+      from Practice, so UI-05's Settings "Audio" section stated a verified constant rather than
+      a live route. Wired, not deleted: `adapters/audio/audioRoute.ts` (new) owns the learner's
+      route preference (`localStorage`, not `app/state`'s IndexedDB-versioned store — that store
+      is integrator-owned this round, see the module comment) and the MIDI-out connection itself
+      (auto-selects the first output port, REQ-4.6). Settings' Audio card now offers a real
+      "Built-in piano sound" / "My instrument" `.seg-control`; `createDefaultAudioOutput` (the one
+      call site all seven playing screens share) asks `audioRoute.ts` what is ready and calls
+      `selectAudioOutput` accordingly, instead of hardcoding Web Audio.
+      *Proof: `createDefaultAudioOutput.test.ts` proves a live, device-selected fake `MidiOutput`
+      makes real `noteOn`/`noteOff` calls land on it instead of Web Audio, once `getPlaybackMidiOutput`
+      reports it ready; `SettingsScreen.test.tsx` drives the control with a fake MIDI-out connect
+      end-to-end and shows the choice survives a remount (reload). 16 new tests
+      (`audioRoute.test.ts` × 9, `createDefaultAudioOutput.test.ts` × 3, 4 new + 1 updated in
+      `SettingsScreen.test.tsx`'s Audio suite), `npm run verify` green. Physical audibility
+      through a real instrument is unverified in this sandbox — no MIDI hardware to drive — the
+      same caveat B.5 stated for mic capture. Known, stated-in-code limitation: like the
+      pre-U.2 Web Audio singleton it replaces, the route is decided once per session at the first
+      Play press and not re-evaluated — a learner who flips the toggle mid-session hears the old
+      route until reload, and one who reloads straight into Practice without revisiting Settings
+      gets Web Audio until they do (Settings reconnects on mount, same pattern `useMidiConnection`
+      already uses for the input side).*
 - [ ] U.3 `core/rhythm`: no per-tap early/late feedback, and no manual Stop. Neither
       `useRhythmDrill` nor `useClapbackDrill` classifies a tap in real time — both produce one
       batch grade at run end — so UI-14 shipped a generic hit flash and deliberately refused to
