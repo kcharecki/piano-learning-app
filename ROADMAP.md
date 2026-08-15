@@ -522,12 +522,6 @@ closed `<details>` still reports a non-zero rect, which inflated the first measu
       other shell work. *Proof: no `.app-topbar` in the DOM above 1024px; rail spans the full
       viewport; the status popover opens unclipped from the footer; Escape still returns focus
       to the visible Reference toggle at both widths.*
-- [ ] UI-37 `adapters/osmd`: navigating away from Practice while a score is still engraving
-      throws `Cannot set properties of null (setting 'vexFlowCanvasContext')` — OSMD's async
-      render resolves after the container has been torn down. Seen in the console during the
-      UI overhaul's browser passes, not caught by any spec because the e2e suite waits for the
-      SVG before navigating. *Proof: a spec that routes away mid-render with a console-error
-      assertion, red before and green after.*
 - [-] UI-38 `app/practice`: dropped 2026-08-15 — the premise is false, verified in code and by
       running the existing test. With no score loaded `PracticeScreen` early-returns a "Load a
       score" paragraph (`PracticeScreen.tsx:603`) — the whole toolbar, `LoopRangeControl`
@@ -536,6 +530,29 @@ closed `<details>` still reports a non-zero rect, which inflated the first measu
       unreachable in production anyway. The only disabled-gate any transport control uses is
       `assessmentRunning`, which the loop fieldset already participates in. Entry appears to
       have misread the comment at `PracticeScreen.tsx:667` (about the assessment case).
+- [x] UI-37 `adapters/osmd`: navigating away from Practice while a score is still engraving
+      threw `Cannot set properties of null (setting 'vexFlowCanvasContext')`. Root cause:
+      `osmdEngraver.ts` installs one `instance.render` wrapper per OSMD instance, and the
+      wrapper ran the real render unconditionally for ANY caller — not only through this
+      file's own `osmd?.render()` call sites, which `destroy()` already neutralises by
+      clearing the `osmd` closure variable. A call landing on `instance.render` directly
+      (e.g. a stray reference kept elsewhere, or OSMD's own internal machinery in a future
+      version/config) still ran against a host `destroy()` had already detached — VexFlow
+      rebuilding its drawing backend against a torn-down host is exactly the shape of a null
+      `vexFlowCanvasContext` write. Fixed with a `host.parentNode` guard inside the wrapper,
+      covering both `destroy()` paths (plain detach and the T.6 cache's idle-entry detach)
+      and staying correct across a cache re-adopt, which reconnects the same host. *Diagnosis
+      note: read OSMD 1.9.9's actual bundled source — for this app's usage (always an
+      already-decompressed MusicXML string, never a URL/Blob; `autoResize: false`) `load()`
+      and `render()` are both fully synchronous and OSMD registers no internal timer/observer,
+      so the literal "browser click lands mid-`await`" race is not reachable here; three
+      honest, increasingly aggressive e2e attempts (plain click, CPU-throttled click,
+      CPU-throttled raw-DOM click) all confirmed this. Proof therefore lives in
+      `osmdEngraverLifecycle.test.ts`'s "render calls that arrive after destroy (UI-37)"
+      suite: red against the pre-fix code (`instance.render()` called directly post-destroy
+      re-ran the real render), green after. `e2e/osmd-teardown.spec.ts` stays as a
+      real-browser regression net for any future async path (URL/Blob load, `autoResize:
+      true`, a future OSMD version).*
 
 ## Backlog / optional
 
