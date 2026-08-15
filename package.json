@@ -30,7 +30,8 @@
     "verify": "npm run check:conflicts && npm run check:css && npm run docs:budget && npm run typecheck && npm run lint && npm run test:all",
     "verify:full": "npm run verify && npm run knip && npm run knip:prod:all && npm run test:e2e",
     "checkpoint": "node scripts/checkpoint.mjs",
-    "check:css": "node scripts/check-css.mjs"
+    "check:css": "node scripts/check-css.mjs",
+    "audit:a11y": "node scripts/a11y-contrast-audit.mjs"
   },
   "dependencies": {
     "fflate": "^0.8.3",

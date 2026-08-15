@@ -104,6 +104,39 @@ async function hasNoHorizontalScroll(page: Page): Promise<boolean> {
  * control's actual hit area.
  */
 async function undersizedControls(page: Page): Promise<string[]> {
+  // Measure the SETTLED layout, not a frame mid-transition.
+  //
+  // Roadmap UI-22 gave the app real motion (the nav drawer slides, a
+  // `<details>` reveal rises, buttons press). `getBoundingClientRect()` on an
+  // element inside an actively transformed ancestor comes back sub-pixel — a
+  // control whose `min-height` is exactly `--touch-min` reads 43.9921875 and
+  // fails a `< 44` test, which is how this spec started flaking across
+  // different screens on different runs (Practice, then Repertoire, then
+  // neither) after that pass landed.
+  //
+  // This is NOT a loosened assertion: the threshold, the selector and the
+  // exclusions are all unchanged, and the 44px floor is still checked exactly.
+  // The guarantee this spec exists to protect is about the resting target a
+  // finger lands on, not about a 200ms animation frame — so wait for the
+  // animations to finish and then measure that.
+  await page.evaluate(async () => {
+    const running = document.getAnimations()
+    await Promise.all(running.map((a) => a.finished.catch(() => undefined)))
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(undefined))))
+  })
+
+  // `getAnimations()` plus a frame barrier still was not enough: a transition
+  // that has not STARTED when we sample is not in that list, and the drawer
+  // begins sliding shut a tick after the navigation click. 400ms clears the
+  // longest motion token in the system (`--dur-3`, 320ms) with margin, so the
+  // read always lands on the resting layout.
+  //
+  // Deliberately a settle, not a retry-until-green loop: retrying until the
+  // numbers agree would hide a control that is genuinely undersized at rest.
+  // This is the same fixed-settle approach `scripts/visual-pass.mjs` already
+  // uses before it screenshots.
+  await page.waitForTimeout(400)
+
   return page.evaluate((min) => {
     function effectiveBox(el: Element): { width: number; height: number } {
       const isCheckboxOrRadio =

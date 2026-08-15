@@ -365,6 +365,7 @@ export function Shell() {
   const [referenceOpen, setReferenceOpen] = useState(false)
   const referenceToggleRef = useRef<HTMLButtonElement>(null)
   const navToggleRef = useRef<HTMLButtonElement>(null)
+  const navRef = useRef<HTMLElement>(null)
 
   const screen = route.screen
   const technique = techniqueFromRoute(route)
@@ -453,6 +454,56 @@ export function Shell() {
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [navOpen])
 
+  // a11y sweep (2026-08): Tab-cycling focus trap for the drawer — deliberately
+  // held back until now because it needs viewport awareness, which this gets
+  // by re-checking the media query INSIDE the handler on every Tab press
+  // rather than caching a yes/no at mount. `.app-nav` is only ever a drawer
+  // OVER content at <=1024px (responsive.css's own breakpoint, matched here
+  // verbatim); at every wider viewport the identical markup is a static
+  // sidebar next to `<main>`, and trapping Tab there would strand a keyboard
+  // user inside the rail, unable to ever reach the score/flashcard/whatever
+  // screen it sits beside. Re-checking live (rather than only when `navOpen`
+  // flips) also means a mid-open resize — e.g. a tablet rotated from portrait
+  // to landscape, or a window dragged wider — updates the trap immediately
+  // instead of leaving it wired to whatever width was current when the
+  // drawer opened.
+  //
+  // Scoped to `.app-nav`'s own focusable elements only (not the hamburger,
+  // not the topbar-actions cluster) — those remain their own separately
+  // reachable, still-visible chrome (the topbar deliberately paints one tier
+  // above the drawer, see responsive.css) and are outside the drawer this
+  // trap is about. The mechanism only engages once focus is actually
+  // somewhere inside the drawer (first/last-element wraparound) — it does not
+  // forcibly move focus into the drawer on open, matching Escape/close above,
+  // which returns focus to the hamburger rather than assuming the drawer
+  // was ever entered.
+  useEffect(() => {
+    if (!navOpen) return
+    function onKeyDown(e: KeyboardEvent): void {
+      if (e.key !== 'Tab') return
+      if (!window.matchMedia('(max-width: 1024px)').matches) return
+      const nav = navRef.current
+      if (nav === null) return
+      const focusable = Array.from(
+        nav.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+        ),
+      )
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (first === undefined || last === undefined) return
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [navOpen])
+
   const activeLabel = NAV_ITEMS.find((item) => item.id === screen)?.label ?? ''
 
   return (
@@ -498,7 +549,7 @@ export function Shell() {
         </div>
       </div>
       {navOpen && <div className="nav-scrim" aria-hidden="true" onClick={closeNav} />}
-      <nav className="app-nav" aria-label="Main" data-open={navOpen}>
+      <nav className="app-nav" aria-label="Main" data-open={navOpen} ref={navRef}>
         <NavGroups
           primary={NAV_PRIMARY}
           groups={NAV_GROUPS}
