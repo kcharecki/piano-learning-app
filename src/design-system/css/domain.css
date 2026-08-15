@@ -406,7 +406,20 @@
 }
 .circle-of-fifths .wedge.is-related { fill: var(--accent-dim); }
 .circle-of-fifths text {
+  /* UI-23 a11y sweep: `<text>` sits inside the same `<g class="wedge">` as
+     the wedge `<path>`, and `stroke`/`stroke-width` are inherited SVG
+     properties — without an explicit reset here, the label silently
+     inherited `.wedge`'s `stroke: var(--border-2)` (a pale tone) at the
+     default `paint-order: normal` (fill first, stroke painted OVER it), so
+     every label read washed-out at 1x pixel density (crisp at 3x, where the
+     1px stroke all but disappears — this is why `review-probe.mjs`'s
+     computed-`fill` contrast check never caught it: fill was AA-fine, the
+     rendered pixel wasn't). `stroke: none` removes the inherited stroke
+     outright rather than only reordering the paint, so the label can never
+     regain a stroke by accident from a future `.wedge` change.
+  */
   fill: var(--text-1);
+  stroke: none;
   font-family: var(--font-ui);
   font-size: 15px;
   font-weight: var(--weight-semibold);
