@@ -175,6 +175,36 @@ describe('generateIntervalItem', () => {
     )
   })
 
+  // roadmap 5.55: the tonal-context TRIAD's key is independent of the drawn
+  // interval — level 1's own answer set is exactly {M3, m3}, so a context key
+  // tied to the interval's own quality (or anchored on its own lower note, as
+  // 5.28 shipped it) would hand the answer over through the drone. `contextKey`
+  // still names a real, valid key, and is decoupled from `contextTonicMidi`,
+  // which stays the interval's own lower note (RevealPanel's unrelated use).
+  it('carries an independent tonal-context key, defined and valid for every draw (property)', () => {
+    fc.assert(
+      fc.property(arbLevel, fc.boolean(), arbSeed, (level, harmonic, seed) => {
+        const item = generateIntervalItem(level, { harmonic }, seededRng(seed))
+        expect(item.contextKey).toBeDefined()
+        expect(['major', 'minor']).toContain(item.contextKey?.mode)
+      }),
+    )
+  })
+
+  it('the tonal-context key is not always the same mode as the drawn interval — it does not leak the answer (level 1)', () => {
+    let sawMatch = false
+    let sawMismatch = false
+    for (let seed = 0; seed < 300 && !(sawMatch && sawMismatch); seed++) {
+      const item = generateIntervalItem(1, { harmonic: true }, seededRng(seed))
+      const answerMode = item.answerKey === 'M3' ? 'major' : item.answerKey === 'm3' ? 'minor' : undefined
+      if (answerMode === undefined) continue
+      if (item.contextKey?.mode === answerMode) sawMatch = true
+      else sawMismatch = true
+    }
+    expect(sawMatch).toBe(true)
+    expect(sawMismatch).toBe(true)
+  })
+
   it('kind matches the harmonic option', () => {
     fc.assert(
       fc.property(arbLevel, fc.boolean(), arbSeed, (level, harmonic, seed) => {

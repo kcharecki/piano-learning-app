@@ -12,7 +12,9 @@ import type { DictationGrade } from '@core/eartraining/dictation.ts'
 import { emptyEarSession } from '@core/eartraining/session.ts'
 import { makeTempoMap, tickToMs } from '@core/timing/tempo.ts'
 import { midi as asMidi, ticks as asTicks, type Ticks } from '@core/shared/units.ts'
+import { buildChord, chordMidi } from '@core/theory/chords.ts'
 import { makeInterval, type Interval } from '@core/theory/intervals.ts'
+import { keyName, type Key } from '@core/theory/keys.ts'
 import { seededRng } from '@core/ports/rng.ts'
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { FakeClock, FakeMidiInput, RecordingAudioOutput, scriptedRng } from '@test/fakes.ts'
@@ -753,77 +755,126 @@ describe('useEarTraining — count-in and prompt tempo (roadmap 3.23, REQ-3.6.1)
   })
 })
 
-describe('useEarTraining — tonal context (roadmap 5.28)', () => {
+/** The three sounding pitches of `key`'s own tonic triad, root position —
+ *  built exactly the way `useEarTraining.ts`'s own `contextTriadMidi` does,
+ *  so the test asserts against the real theory functions, never a
+ *  reimplementation that could not catch a regression in the original. */
+function expectedTriadMidi(key: Key): readonly number[] {
+  return chordMidi(buildChord(key.tonic, key.mode, 0))
+}
+
+describe('useEarTraining — tonal context (roadmap 5.28, triad since roadmap 5.55)', () => {
   // Asserted against the RECORDED AudioOutput calls with exact timestamps —
   // the same "assert the calls, not the projection" pattern the count-in
   // tests above use (roadmap 3.13/3.23).
-  it('schedules a tonic+fifth drone ending exactly at tick 0, before a non-dictation item', () => {
+  it('schedules a real tonic TRIAD (three distinct pitch classes) ending exactly at tick 0, before a non-dictation item', () => {
     const { result, audioOutput, clock } = setup({ tonalContext: true })
     const baseMs = clock.now()
 
     act(() => result.current.start())
 
-    const tonic = result.current.item?.contextTonicMidi
-    expect(tonic).toBeDefined()
-    if (tonic === undefined) return
-    const fifth = tonic + 7
+    const key = result.current.item?.contextKey
+    expect(key).toBeDefined()
+    if (key === undefined) return
+    const triad = [...expectedTriadMidi(key)].sort((a, b) => a - b)
+    // roadmap 5.55's whole point: a bare fifth (two notes) cannot establish
+    // major or minor — a real triad is three notes, three distinct pitch
+    // classes.
+    expect(triad).toHaveLength(3)
+    expect(new Set(triad.map((n) => n % 12)).size).toBe(3)
 
     const noteOns = audioOutput.calls.filter((c) => c.kind === 'noteOn')
     const noteOffs = audioOutput.calls.filter((c) => c.kind === 'noteOff')
     // Two beats at the default 120bpm = 1000ms — ends where the prompt's own
     // first note begins (baseMs), starts 1000ms before that.
     const contextOns = noteOns.filter((c) => c.at === baseMs - 1000)
-    expect(contextOns.map((c) => c.note).sort((a, b) => a - b)).toEqual([tonic, fifth].sort((a, b) => a - b))
+    expect(contextOns.map((c) => c.note).sort((a, b) => a - b)).toEqual(triad)
     expect(contextOns.every((c) => c.velocity === 55)).toBe(true)
     const contextOffs = noteOffs.filter((c) => c.at === baseMs)
-    expect(contextOffs.map((c) => c.note).sort((a, b) => a - b)).toEqual([tonic, fifth].sort((a, b) => a - b))
+    expect(contextOffs.map((c) => c.note).sort((a, b) => a - b)).toEqual(triad)
 
-    // The prompt's own first note starts exactly where the drone ends —
+    // The prompt's own first note starts exactly where the triad ends —
     // adjacent, never overlapping.
     const promptOnset = noteOns.find((c) => c.at === baseMs)
     expect(promptOnset).toBeDefined()
   })
 
-  it('for a dictation item, the drone ends exactly where the count-in begins, before it, not overlapping it', () => {
+  it('for a dictation item, the triad ends exactly where the count-in begins, before it, not overlapping it', () => {
     const { result, audioOutput, clock } = setup({ tonalContext: true })
     act(() => result.current.setKind('melodic-dictation'))
     const baseMs = clock.now()
 
     act(() => result.current.start())
 
-    const tonic = result.current.item?.contextTonicMidi
-    expect(tonic).toBeDefined()
-    if (tonic === undefined) return
-    const fifth = tonic + 7
+    const key = result.current.item?.contextKey
+    expect(key).toBeDefined()
+    if (key === undefined) return
+    const triad = [...expectedTriadMidi(key)].sort((a, b) => a - b)
 
     // The count-in is a one-bar (4-beat) 4/4 count-in starting at baseMs - 2000
-    // (see the count-in tests above) — the drone's own 2 beats (1000ms) must
+    // (see the count-in tests above) — the triad's own 2 beats (1000ms) must
     // end exactly there, at baseMs - 2000, i.e. start at baseMs - 3000.
     const noteOns = audioOutput.calls.filter((c) => c.kind === 'noteOn')
     const noteOffs = audioOutput.calls.filter((c) => c.kind === 'noteOff')
     const contextOns = noteOns.filter((c) => c.at === baseMs - 3000)
-    expect(contextOns.map((c) => c.note).sort((a, b) => a - b)).toEqual([tonic, fifth].sort((a, b) => a - b))
+    expect(contextOns.map((c) => c.note).sort((a, b) => a - b)).toEqual(triad)
     const contextOffs = noteOffs.filter((c) => c.at === baseMs - 2000)
-    expect(contextOffs.map((c) => c.note).sort((a, b) => a - b)).toEqual([tonic, fifth].sort((a, b) => a - b))
+    expect(contextOffs.map((c) => c.note).sort((a, b) => a - b)).toEqual(triad)
 
     const firstClick = audioOutput.calls.find((c) => c.kind === 'click')
     expect(firstClick?.at).toBe(baseMs - 2000)
-    // No prompt/count-in note-on shares the drone's own start time — it never
+    // No prompt/count-in note-on shares the triad's own start time — it never
     // reaches back further than its own 2 beats.
     expect(noteOns.some((c) => c.at < baseMs - 3000)).toBe(false)
   })
 
-  it('tonalContext: false schedules no drone at all', () => {
+  // roadmap 5.55's headline claim: a MINOR-key item sounds a MINOR triad —
+  // level 5 melodic dictation is generated in a fixed minor key
+  // (`levelDefaults.ts` row 5), so this is deterministic, not a lucky draw.
+  it('a minor-key melodic-dictation item sounds a genuinely minor triad — root, MINOR third, fifth', () => {
+    const { result, audioOutput } = setup({ tonalContext: true, kind: 'melodic-dictation' })
+    // Seed the session directly so `start()` draws at level 5 without a long
+    // adaptive climb — the level-1 default setup() ships wouldn't reach it.
+    act(() => {
+      useEarTrainingStore.getState().setSession({
+        ...useEarTrainingStore.getState().session,
+        levels: { ...useEarTrainingStore.getState().session.levels, 'melodic-dictation': 5 },
+      })
+    })
+
+    act(() => result.current.start())
+
+    const key = result.current.item?.contextKey
+    expect(key).toBeDefined()
+    if (key === undefined) return
+    expect(key.mode).toBe('minor')
+    expect(result.current.contextKeyName).toBe(keyName(key))
+
+    const triad = expectedTriadMidi(key)
+    expect(triad).toHaveLength(3)
+    const [root, third, fifth] = [...triad].sort((a, b) => a - b)
+    expect(third).toBeDefined()
+    expect(root).toBeDefined()
+    // A minor third above the root (3 semitones) — a MAJOR triad would be 4.
+    expect((third ?? 0) - (root ?? 0)).toBe(3)
+    expect((fifth ?? 0) - (root ?? 0)).toBe(7)
+
+    const noteOns = audioOutput.calls.filter((c) => c.kind === 'noteOn')
+    const contextNoteOns = noteOns.filter((c) => triad.includes(c.note))
+    expect(contextNoteOns).toHaveLength(3)
+  })
+
+  it('tonalContext: false schedules no triad at all', () => {
     const { result, audioOutput } = setup({ tonalContext: false })
 
     act(() => result.current.start())
 
     // Level 1 melodic interval item is exactly 2 notes (see the "generating
-    // and playing" describe block above) — no drone means no more than that.
+    // and playing" describe block above) — no triad means no more than that.
     expect(audioOutput.calls.filter((c) => c.kind === 'noteOn')).toHaveLength(2)
   })
 
-  it('replay() schedules a fresh drone too, respecting tonalContext exactly like start() does', () => {
+  it('replay() schedules a fresh triad too, respecting tonalContext exactly like start() does', () => {
     const { result, audioOutput } = setup({ tonalContext: true })
     act(() => result.current.start())
     const afterStart = audioOutput.calls.filter((c) => c.kind === 'noteOn').length
@@ -833,21 +884,33 @@ describe('useEarTraining — tonal context (roadmap 5.28)', () => {
     expect(audioOutput.calls.filter((c) => c.kind === 'noteOn')).toHaveLength(afterStart * 2)
   })
 
-  // `rhythmic-dictation` never carries a `contextTonicMidi` (rhythm has no
-  // scale — core/eartraining/dictation.ts's own doc) — a drone there would be
-  // noise, not context, so none is scheduled even with the option on. The
-  // count-in is unrelated to tonal context and must still play.
-  it('a rhythmic-dictation item gets no drone (no tonic to anchor on) but keeps its count-in', () => {
+  // `rhythmic-dictation` never carries a `contextKey` (rhythm has no scale —
+  // core/eartraining/dictation.ts's own doc) — a triad there would be noise,
+  // not context, so none is scheduled even with the option on. The count-in
+  // is unrelated to tonal context and must still play.
+  it('a rhythmic-dictation item gets no triad (no key to establish) but keeps its count-in', () => {
     const { result, audioOutput } = setup({ tonalContext: true })
     act(() => result.current.setKind('rhythmic-dictation'))
 
     act(() => result.current.start())
 
-    expect(result.current.item?.contextTonicMidi).toBeUndefined()
+    expect(result.current.item?.contextKey).toBeUndefined()
+    expect(result.current.contextKeyName).toBeUndefined()
     expect(audioOutput.calls.filter((c) => c.kind === 'click')).toHaveLength(4)
     expect(audioOutput.calls.filter((c) => c.kind === 'noteOn')).toHaveLength(
       result.current.item?.prompt.notes.length ?? -1,
     )
+  })
+
+  // roadmap 5.55: context-free practice must be genuinely context-free — the
+  // key name disappears from the screen data, not just the sound.
+  it('contextKeyName is undefined when tonalContext is off, even though the item still carries a contextKey', () => {
+    const { result } = setup({ tonalContext: false })
+
+    act(() => result.current.start())
+
+    expect(result.current.item?.contextKey).toBeDefined()
+    expect(result.current.contextKeyName).toBeUndefined()
   })
 
   // The literal proof text (roadmap 5.28): "the drill still grades the same

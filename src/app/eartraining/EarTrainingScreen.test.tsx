@@ -532,16 +532,45 @@ describe('EarTrainingScreen — tonal context toggle (roadmap 5.28)', () => {
     expect(toggle).toBeChecked()
 
     await user.click(screen.getByRole('button', { name: 'Play' }))
-    // Level 1 melodic interval prompt is 2 notes; the default-on drone adds
-    // 2 more (tonic + fifth) ahead of them.
-    expect(audioOutput.calls.filter((c) => c.kind === 'noteOn')).toHaveLength(4)
+    // Level 1 melodic interval prompt is 2 notes; the default-on tonal
+    // context (roadmap 5.55: a real tonic triad, 3 notes) adds 3 more ahead
+    // of them.
+    expect(audioOutput.calls.filter((c) => c.kind === 'noteOn')).toHaveLength(5)
     const afterFirstPlay = audioOutput.calls.filter((c) => c.kind === 'noteOn').length
 
     await user.click(toggle)
     expect(toggle).not.toBeChecked()
     await user.click(screen.getByRole('button', { name: 'Replay' }))
 
-    // Only the 2 prompt notes this time — no drone.
+    // Only the 2 prompt notes this time — no tonal-context triad.
     expect(audioOutput.calls.filter((c) => c.kind === 'noteOn')).toHaveLength(afterFirstPlay + 2)
+  })
+
+  // roadmap 5.55: the key name on screen is exactly as context-gated as the
+  // sound itself — never a stale label left behind after the toggle mutes it.
+  it('shows the tonal-context key by name while the toggle is on, and removes it when switched off', async () => {
+    const user = userEvent.setup()
+    const clock = new FakeClock(9000)
+    const audioOutput = new RecordingAudioOutput(clock)
+    const date = new FakeClock(1_700_000_000_000)
+    const midiInput = new FakeMidiInput()
+    render(
+      <EarTrainingScreen
+        date={date}
+        audioOutput={audioOutput}
+        rng={scriptedRng([0])}
+        midiInput={midiInput}
+      />,
+    )
+
+    expect(screen.queryByTestId('eartraining-context-key')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Play' }))
+    expect(screen.getByTestId('eartraining-context-key')).toHaveTextContent(/^Key: /)
+
+    const toggle = screen.getByRole('checkbox', { name: 'Play tonal context before each item' })
+    await user.click(toggle)
+
+    expect(screen.queryByTestId('eartraining-context-key')).not.toBeInTheDocument()
   })
 })

@@ -55,6 +55,7 @@ import {
   makeInterval,
   parseInterval,
 } from '@core/theory/intervals.ts'
+import { keyFromFifths, type Key, type Mode } from '@core/theory/keys.ts'
 import { HALF, type Midi, midi, QUARTER } from '@core/shared/units.ts'
 
 const MIDDLE_C = 60
@@ -150,6 +151,32 @@ function pickDirection(level: number, opts: IntervalItemOptions, rng: Rng): 1 | 
   return randomInt(rng, 0, 1) === 0 ? 1 : -1
 }
 
+/** Fifths this drill's tonal-context key is drawn from — 0-4 sharps/flats,
+ *  comfortably inside what every syllabus this app cites teaches in its
+ *  first several grades (see `levelDefaults.ts`'s own comment for the same
+ *  bound applied to the sight-reading generator). */
+const CONTEXT_MIN_FIFTHS = -4
+const CONTEXT_MAX_FIFTHS = 4
+
+/**
+ * roadmap 5.55: the tonal-context triad establishes a real KEY, independent
+ * of the interval this item actually draws — the pre-5.55 behaviour anchored
+ * the drone on the interval's OWN lower note (an open fifth above it, no
+ * third), which both failed to establish major/minor (a bare fifth has no
+ * third to do that with) and handed the learner the exact bottom note of the
+ * dyad they were about to be asked to identify. This draws a key nothing
+ * else in `generateIntervalItem` ever reads back — `interval` and `rng`'s
+ * other draws are already committed by the time this runs — so the chosen
+ * mode carries zero information about whether the drawn interval is major or
+ * minor: the whole point, since level 1's own answer set IS exactly that
+ * pair ({M3, m3}).
+ */
+function pickContextKey(rng: Rng): Key {
+  const fifths = randomInt(rng, CONTEXT_MIN_FIFTHS, CONTEXT_MAX_FIFTHS)
+  const mode: Mode = randomInt(rng, 0, 1) === 0 ? 'major' : 'minor'
+  return keyFromFifths(fifths, mode)
+}
+
 export function generateIntervalItem(level: number, opts: IntervalItemOptions, rng: Rng): EarItem {
   const range = opts.range ?? DEFAULT_RANGE
   invariant(
@@ -205,11 +232,20 @@ export function generateIntervalItem(level: number, opts: IntervalItemOptions, r
         ],
       })
 
-  // The lower note anchors the tonal context (roadmap 5.28) — an interval
-  // item has no real key, so the lower note itself is the most honest thing
-  // to call "the tonic" here: it is the note the learner's ear settles on
-  // before the interval moves away from it.
-  return { id, kind, prompt, answerKey, level, contextTonicMidi: lowMidi }
+  // The lower note anchors `contextTonicMidi` (roadmap 5.28) — see that
+  // field's own doc in item.ts for why this stays exactly as 5.28 shipped it
+  // (RevealPanel's post-answer root highlight) while `contextKey` (roadmap
+  // 5.55, drawn above, independent of everything about this item) is what
+  // the PRE-answer tonal-context triad actually plays from.
+  return {
+    id,
+    kind,
+    prompt,
+    answerKey,
+    level,
+    contextTonicMidi: lowMidi,
+    contextKey: pickContextKey(rng),
+  }
 }
 
 // ---------------------------------------------------------------------------

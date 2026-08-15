@@ -87,6 +87,21 @@ describe('generateMelodicDictation', () => {
     const item = generateMelodicDictation(1, { key, range }, seededRng(11))
     expect(item.contextTonicMidi).toBe(toMidi(key.tonic))
   })
+
+  // roadmap 5.55: melodic dictation is the one drill allowed to reflect its
+  // REAL key's mode in the tonal-context triad — the answer here is the
+  // notes/rhythm played back, never "major or minor", so there is nothing to
+  // leak. A minor-key item genuinely carries a minor `contextKey`.
+  it('carries its own real key (mode included) as the tonal-context key', () => {
+    const majorKey = keyFromFifths(2, 'major')
+    const majorItem = generateMelodicDictation(1, { key: majorKey }, seededRng(3))
+    expect(majorItem.contextKey).toEqual(majorKey)
+
+    const minorKey = keyFromFifths(1, 'minor')
+    const minorItem = generateMelodicDictation(5, { key: minorKey }, seededRng(3))
+    expect(minorItem.contextKey).toEqual(minorKey)
+    expect(minorItem.contextKey?.mode).toBe('minor')
+  })
 })
 
 describe('generateMelodicDictation / generateRhythmicDictation — REQ-3.6.1 phrase length', () => {
@@ -229,6 +244,8 @@ describe('generateRhythmicDictation', () => {
   it('carries no tonal-context tonic — rhythm has no scale', () => {
     const item = generateRhythmicDictation(1, {}, seededRng(7))
     expect(item.contextTonicMidi).toBeUndefined()
+    // roadmap 5.55: no `contextKey` either, for the same reason.
+    expect(item.contextKey).toBeUndefined()
   })
 })
 
