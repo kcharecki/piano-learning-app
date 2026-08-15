@@ -1269,15 +1269,27 @@ closed `<details>` still reports a non-zero rect, which inflated the first measu
       content and make the row the target. *Proof: ≤8 visible; session specs green.*
 - [ ] UI-30 `app/lessons`: 13 controls at 1280px — five level tabs plus four track chips are a
       two-axis filter competing with the list it filters. Merge them. *Proof: ≤8 visible.*
-- [ ] UI-31 `design-system`: sweep orphaned CSS and gate it. 25 class selectors are declared and
-      emitted by no `.tsx` — `.flashcard-screen`, `.drill-feedback`, `.practice-controls`,
-      `.transport-group`, `.accuracy-value`, `.streak-value`, `.osmd-cursor` and more. UI-24
-      deleted two such blocks only because each was actively breaking a screen (a duplicated
-      exit-criterion glyph, a wrapped Repertoire row); the rest are silent and will keep
-      accumulating. Extend `check-css.mjs` to flag selectors no JSX emits — it catches orphaned
-      FILES, not orphaned RULES — allowlisting runtime-generated ones. **Note: `.practice-controls`
-      being dead removes the stated blocker for making the topbar sticky at desktop (below).**
-      *Proof: the check fails on a deliberately orphaned selector, then passes clean.*
+- [x] UI-31 `design-system`: swept the orphaned CSS and gated it. `check-css.mjs` now collects
+      every class any selector declares and fails on any the app's own source never emits.
+      **The gate had to understand composition first**: `LessonBody.tsx` builds
+      `` `lesson-body-diagram-${diagram.kind}` ``, so a plain token search called a class dead
+      that an e2e was asserting on — a gate that reports live code as dead is a gate someone
+      switches off. Accepting `prefix-${` cut 27 candidates to 18, all confirmed absent from
+      both `src/**` and `e2e/**` before deletion. **186 lines of dead CSS removed** across
+      `base.css`, `domain.css`, `primitives.css`, `responsive.css`, including whole sections
+      (the old practice transport bar, the pre-`SrsSummary` flashcard/retention stats, the
+      in-flow input-capability banner) and several dead selectors de-grouped out of rules that
+      are still live. Deleting `.practice-controls` also removed the stated blocker for
+      UI-34's sticky topbar.
+      Two things worth keeping: `.eartraining-stats` (40 lines) survived the automated check
+      and was found by hand — its only occurrence in source was `idPrefix="eartraining-stats"`,
+      a `data-testid` prefix, while the component's real className is `srs-summary`. That
+      blind spot is now named concretely in the script's header, because "a string used for
+      something other than a class still counts as a hit" is the shape of the next one.
+      *Proof: the check exits 1 on a deliberately orphaned selector and 0 after (negative
+      control run both ways); `npm run verify` green (195 files, 4099 tests); full playwright
+      149 passed; and the deletion is provably invisible — 24 of 28 before/after screenshots
+      byte-identical, the 4 that differ being Flashcards drawing a different random note.*
 - [ ] UI-32 `app/drills`: Flashcards jitters ~31px of scrollHeight per card answered (rule 5
       wants none). Reserve the pill's space. *Proof: scrollHeight identical across an answer.*
 - [ ] UI-33 `app/shell`: the input-status popover swallows the next click on a control beneath

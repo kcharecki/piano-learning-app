@@ -57,7 +57,7 @@ code, kbd, samp {
 }
 
 /* Numbers that update live must not jitter */
-.stat, .tempo-value, .accuracy-value, time, [data-testid*="count"] {
+.stat, .tempo-value, time, [data-testid*="count"] {
   font-variant-numeric: tabular-nums;
 }
 
@@ -76,7 +76,7 @@ svg.icon, .icon > svg {
 /* Print (lesson pages): force light, drop chrome */
 @media print {
   body { background: #fff; color: #111; }
-  nav, .practice-controls, .export-panel { display: none !important; }
+  nav, .export-panel { display: none !important; }
 }
 
 /* ============================================================

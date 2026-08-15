@@ -616,17 +616,7 @@ dialog[open] {
   font-size: var(--text-sm);
 }
 [role="status"].is-ok { color: var(--fb-correct); border-color: var(--fb-correct); background: var(--fb-correct-dim); }
-[role="status"].is-warn { color: var(--fb-late); border-color: var(--fb-late); background: var(--fb-late-dim); }
 [role="status"].is-error { color: var(--fb-wrong); border-color: var(--fb-wrong); background: var(--fb-wrong-dim); }
-
-/* ---------- Inline error ---------- */
-.inline-error {
-  display: block;
-  margin-top: var(--space-1);
-  color: var(--fb-wrong);
-  font-size: var(--text-sm);
-}
-.inline-error::before { content: "✕ "; font-weight: var(--weight-bold); }
 
 /* ---------- Progress bar ---------- */
 progress, .progress-bar {
@@ -663,7 +653,6 @@ progress::-moz-progress-bar { background: var(--accent); border-radius: var(--ra
 }
 .badge.is-accent { color: var(--accent); border-color: var(--accent); background: var(--accent-dim); }
 .badge.is-ok { color: var(--fb-correct); border-color: var(--fb-correct); background: var(--fb-correct-dim); }
-.badge.is-warn { color: var(--fb-late); border-color: var(--fb-late); background: var(--fb-late-dim); }
 .badge.is-error { color: var(--fb-wrong); border-color: var(--fb-wrong); background: var(--fb-wrong-dim); }
 
 /* ---------- Tabs (role-based hooks: part of the aria contract) ---------- */

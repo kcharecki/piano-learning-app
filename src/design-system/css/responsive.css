@@ -46,7 +46,6 @@
      34px-wide reference key would get a 44px-wide black key next to it. */
   .keyboard-diagram { --key-h: 190px; --white-key-w: 52px; --black-key-w: max(44px, calc(var(--white-key-w) * 0.62)); }
   .chord-scale-reference .keyboard-diagram { --black-key-w: calc(var(--white-key-w) * 0.62); }
-  .practice-controls .tempo-group input[type="range"] { width: 180px; }
 
   /* Nav collapses to drawer */
   .app-layout { display: block; }
@@ -115,8 +114,6 @@
     z-index: calc(var(--z-nav) - 1);
   }
   .app-main { max-width: none; padding-top: var(--space-4); }
-  /* transport sits below the topbar */
-  .practice-controls { top: var(--topbar-h); }
 
   /* 2026-08 UI audit MAJOR: `.page--wide`'s own max-width (`--content-max`,
      72rem/1152px, base.css) only ever constrains it on viewports wide enough
@@ -167,8 +164,6 @@
     border-right: 0;
     -webkit-overflow-scrolling: touch;
   }
-  .practice-controls { gap: var(--space-2); }
-  .practice-controls .status-group { flex-basis: 100%; margin-left: 0; justify-content: space-between; }
   .dictation-result .note-chip { min-height: var(--touch-min); }
   .chord-scale-reference .chord-list > li { grid-template-columns: 3em 1fr auto; }
   .chord-scale-reference .figured-bass { display: none; }
