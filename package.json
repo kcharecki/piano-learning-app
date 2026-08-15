@@ -7,6 +7,7 @@
     "node": ">=20"
   },
   "scripts": {
+    "preinstall": "node scripts/guard-worktree-install.mjs",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
