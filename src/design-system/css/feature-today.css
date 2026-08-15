@@ -76,9 +76,14 @@
 }
 button.session-plan-item {
   cursor: pointer;
+  transition: background var(--dur-1) var(--ease-out), transform var(--dur-1) var(--ease-out);
 }
 button.session-plan-item:hover {
   background: var(--bg-3);
+}
+button.session-plan-item:active {
+  background: var(--bg-3);
+  transform: scale(0.99);
 }
 .session-plan-item > svg {
   flex: none;

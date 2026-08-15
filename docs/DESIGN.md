@@ -79,6 +79,11 @@ The shell (`Shell.tsx`) is chrome, built like a screen: rail, topbar, main — n
   already carries the title everywhere else, so it is never duplicated), and a right-aligned
   `.topbar-actions` cluster at every width — the slot the Reference button now mounts into,
   with the input-status chip to follow. Nothing in this cluster ever uses `position: fixed`.
+  "Non-sticky at desktop" is now a measured position, not a default (roadmap UI-34): the bar
+  carries a status chip and one button there, and Practice already spends a sticky transport
+  bar at the top of the viewport, so sticking this one too would put ~112px of permanent
+  chrome above the score. Anything that offsets itself by `--topbar-h` must therefore do so
+  only at ≤1024px, where the bar really is overhead.
 - **Drawer (≤1024px only)** — `.app-nav` becomes an off-canvas panel; `.nav-scrim` dims the
   page behind it with the `--scrim` token, fading in over `--dur-2` on open (it unmounts
   instantly on close — no fade out — because the drawer's own e2e proof asserts the scrim is

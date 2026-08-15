@@ -23,10 +23,32 @@
  * spec reads off this screen (`e2e/repertoire*.spec.ts`,
  * `e2e/m4-acceptance-repertoire*.spec.ts`, `e2e/empty-state-starting-actions.spec.ts`)
  * is preserved: the "Repertoire"/"Review due"/"Graded library" region names,
- * the "Repertoire pieces"/"Pieces due for review"/"Graded pieces" list names,
- * the "Level"/"Status"/"Notes" labels, the "Add loaded score"/"Add"/"Open in
+ * the "Repertoire pieces"/"Pieces due for review" list names, the
+ * "Level"/"Status"/"Notes" labels, the "Add loaded score"/"Add"/"Open in
  * Practice" button names, the `.repertoire-catalogue-provenance` class, and
  * the exact empty-state strings — only the visual layout around them changed.
+ *
+ * The ONE contract that could not be preserved: the catalogue used to be a
+ * single `<ul aria-label="Graded pieces">`. Grouping by level means one list
+ * per group, and five lists sharing one name is both a worse screen-reader
+ * experience and a Playwright strict-mode violation, so each is now named for
+ * its own level ("Level 3 graded pieces") and the specs scope to this screen's
+ * "Graded library" region instead. See `e2e/repertoire-helpers.ts`.
+ *
+ * Roadmap UI-26: the flat 40-piece catalogue (five level headings, no
+ * disclosure) read as a 5000px wall with no shape for a stranger arriving on
+ * the screen. Each level group is now a native `<details>`/`<summary>` —
+ * keyboard-operable and screen-reader-announced for free, no hand-rolled
+ * ARIA — with only the group matching the learner's own `playingLevel`
+ * (`useRepertoire`, sourced from `@app/state/levelStore.ts`, same number the
+ * "Below my level" filter already reads) open on load; every other group
+ * starts collapsed. `defaultOpenLevel` below is the "level cannot be
+ * determined" fallback the task brief calls for. While the search box holds
+ * a query, every rendered group (which by construction — see
+ * `visibleCatalogue`/`atLevel` below — holds only matches once a query is
+ * active) forces open, so a match is never trapped inside a collapsed
+ * section (acceptance criterion 5); it collapses back to the learner's own
+ * open/close choices the moment the query is cleared.
  */
 import { MAX_LEVEL, MIN_LEVEL } from '@core/curriculum/types.ts'
 import { REPERTOIRE_STATUSES, type RepertoirePiece, type RepertoireStatus } from '@core/repertoire/repertoire.ts'
@@ -48,6 +70,31 @@ const LEVEL_TITLES: ReadonlyMap<number, string> = new Map(
 )
 function levelHeading(level: number): string {
   return LEVEL_TITLES.get(level) ?? `Level ${level}`
+}
+
+/**
+ * Roadmap UI-26: which level group opens by default. The learner's own
+ * playing-track level when the catalogue actually has an entry there —
+ * true for every level 1–5 today, since `gradedPieces.ts` covers the whole
+ * ladder — otherwise the first level that does, so a mismatched/empty level
+ * ("cannot be determined", per the task brief) still opens exactly one
+ * group rather than none. Takes the FULL catalogue, not the search/below-
+ * level-narrowed `visibleCatalogue` — the initial open group is about the
+ * learner's level, not about whatever filter happens to be active on mount.
+ */
+function defaultOpenLevel(catalogue: readonly GradedPiece[], playingLevel: number): number {
+  if (catalogue.some((piece) => piece.level === playingLevel)) return playingLevel
+  const first = catalogue[0]
+  return first === undefined ? MIN_LEVEL : first.level
+}
+
+/** Rule 6/7: a group header states the level in learner language AND how
+ *  many pieces it holds, with a real noun ("1 piece"/"8 pieces") — never a
+ *  bare count, never a "0 piece(s)" plural, which this can't produce anyway
+ *  since an empty group is never rendered (see `atLevel.length === 0` below). */
+function levelGroupHeading(level: number, pieceCount: number): string {
+  const noun = pieceCount === 1 ? 'piece' : 'pieces'
+  return `${levelHeading(level)} (${pieceCount} ${noun})`
 }
 
 /** Rounds to whole days for display — `daysSincePractice` returns a fractional
@@ -102,6 +149,25 @@ export function RepertoireScreen({ onOpenInPractice }: RepertoireScreenProps) {
     : repertoire.filteredCatalogue
 
   const hasQuery = repertoire.catalogueQuery.trim() !== ''
+
+  // Roadmap UI-26: which level groups are open, independent of the search-
+  // driven force-open above — the learner's own manual expand/collapse
+  // choices, restored the moment a search query is cleared. Seeded once,
+  // from the FULL catalogue and the learner's playing level at mount, not
+  // recomputed on every render (a learner mid-session raising their level
+  // elsewhere should not silently snap a group open/closed under them).
+  const [openLevels, setOpenLevels] = useState<ReadonlySet<number>>(
+    () => new Set([defaultOpenLevel(repertoire.catalogue, repertoire.playingLevel)]),
+  )
+
+  function toggleLevelGroup(groupLevel: number, isOpenNow: boolean): void {
+    setOpenLevels((prev) => {
+      const next = new Set(prev)
+      if (isOpenNow) next.add(groupLevel)
+      else next.delete(groupLevel)
+      return next
+    })
+  }
 
   const addDisabledReason =
     repertoire.loadedScoreTitle === undefined
@@ -244,25 +310,52 @@ export function RepertoireScreen({ onOpenInPractice }: RepertoireScreenProps) {
               : `No catalogue pieces below level ${repertoire.playingLevel} yet.`}
           </p>
         ) : (
-          <ul className="repertoire-catalogue-list" aria-label="Graded pieces">
-            {LEVELS.flatMap((groupLevel) => {
+          <div className="repertoire-catalogue-groups">
+            {LEVELS.map((groupLevel) => {
               const atLevel = visibleCatalogue.filter((piece) => piece.level === groupLevel)
-              if (atLevel.length === 0) return []
-              return [
-                <li key={`level-${groupLevel}`} className="repertoire-level-header">
-                  {levelHeading(groupLevel)}
-                </li>,
-                ...atLevel.map((piece) => (
-                  <CatalogueRow
-                    key={piece.id}
-                    piece={piece}
-                    alreadyAdded={repertoire.catalogueAddedIds.has(piece.id)}
-                    onAdd={() => repertoire.addFromCatalogue(piece.id)}
-                  />
-                )),
-              ]
+              if (atLevel.length === 0) return null
+              // Acceptance criterion 5: a query narrows `visibleCatalogue`
+              // first, so every group that reaches this point already holds
+              // only matches — forcing it open here is what keeps a match
+              // from being trapped behind a collapsed disclosure.
+              const isOpen = hasQuery || openLevels.has(groupLevel)
+              return (
+                <details
+                  key={`level-${groupLevel}`}
+                  className="repertoire-level-group"
+                  open={isOpen}
+                  onToggle={(e) => toggleLevelGroup(groupLevel, e.currentTarget.open)}
+                >
+                  <summary className="repertoire-level-header">
+                    <Icon name="chevron-down" />
+                    {levelGroupHeading(groupLevel, atLevel.length)}
+                  </summary>
+                  {/* One list PER GROUP, so each needs its own name. The
+                      pre-UI-26 screen had a single `aria-label="Graded pieces"`
+                      list; keeping that label inside this map would emit five
+                      lists all answering to the same name, which is both a
+                      worse screen-reader experience (five identically-named
+                      lists in the rotor) and a Playwright strict-mode
+                      violation for every spec that resolves it. Specs now
+                      scope to this section's own `region` ("Graded library")
+                      instead — see `e2e/repertoire-helpers.ts`. */}
+                  <ul
+                    className="repertoire-catalogue-list"
+                    aria-label={`Level ${groupLevel} graded pieces`}
+                  >
+                    {atLevel.map((piece) => (
+                      <CatalogueRow
+                        key={piece.id}
+                        piece={piece}
+                        alreadyAdded={repertoire.catalogueAddedIds.has(piece.id)}
+                        onAdd={() => repertoire.addFromCatalogue(piece.id)}
+                      />
+                    ))}
+                  </ul>
+                </details>
+              )
             })}
-          </ul>
+          </div>
         )}
       </section>
     </section>
@@ -351,21 +444,37 @@ type CatalogueRowProps = {
 /**
  * The catalogue row itself — roadmap UI-18's fix for the audit's worst
  * finding. Title, composer and level were ALREADY separate `<span>`s before
- * this task; what was missing was a layout rule putting them on distinct
- * lines/columns instead of letting inline flow run them together. Title sits
- * at `--text-md`/`--text-1`, composer below it at `--text-sm`/`--text-2`
- * (`.repertoire-catalogue-info`, feature-repertoire.css), the level badge and
- * Add button sit in their own fixed-width trailing columns so every row's Add
- * button lines up under the last, regardless of how long the title/composer
- * text runs.
+ * this task; what was missing was a layout rule putting them apart instead
+ * of letting inline flow run them together. A follow-up measurement pass
+ * (still roadmap UI-26) found the two-line version — title on its own line,
+ * composer + provenance sharing a second — measured 63.19px per row in the
+ * browser, which put the 18-row level-1 group (the learner's own level, open
+ * by default on a fresh profile) over the page's <2000px scroll-height
+ * budget. Title, composer and provenance now sit on ONE baseline-aligned
+ * line (`.repertoire-catalogue-info`, feature-repertoire.css, is a wrapping
+ * flex row) — still three separate `<span>`s with `aria-hidden` middots
+ * between them, never one merged text node, just laid out side by side
+ * instead of stacked, wrapping to a second line only when a genuinely long
+ * title/composer/provenance combination can't fit the viewport's width. The
+ * level badge and Add button sit in their own fixed-width trailing columns
+ * so every row's Add button lines up under the last, regardless of how long
+ * the title/composer text runs.
  */
 function CatalogueRow({ piece, alreadyAdded, onAdd }: CatalogueRowProps) {
   return (
     <li className="repertoire-catalogue-piece">
       <div className="repertoire-catalogue-info">
         <span className="repertoire-catalogue-title">{piece.title}</span>
-        <span className="repertoire-catalogue-composer">{piece.composer}</span>
-        <span className="repertoire-catalogue-provenance">{provenanceText(piece)}</span>
+        <span className="repertoire-catalogue-meta">
+          <span className="repertoire-catalogue-sep" aria-hidden="true">
+            &middot;
+          </span>
+          <span className="repertoire-catalogue-composer">{piece.composer}</span>
+          <span className="repertoire-catalogue-sep" aria-hidden="true">
+            &middot;
+          </span>
+          <span className="repertoire-catalogue-provenance">{provenanceText(piece)}</span>
+        </span>
       </div>
       <span className="badge repertoire-catalogue-level">Level {piece.level}</span>
       <div className="repertoire-catalogue-action">

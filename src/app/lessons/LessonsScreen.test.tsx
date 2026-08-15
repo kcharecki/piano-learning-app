@@ -17,6 +17,19 @@ import type { Exercise } from '@core/curriculum/types.ts'
 import { makeScore } from '@core/notation/score.ts'
 import { LessonsScreen } from './LessonsScreen.tsx'
 
+// UI-30's empty-state test navigates to Level 4, whose default lesson carries
+// a 'staff' diagram (see `LessonBody.tsx`'s `kind`-discriminated union).
+// `LessonBody.test.tsx`'s own module doc explains why this mock exists:
+// "OSMD cannot run in this test environment (no canvas to measure text)" —
+// the real `ScoreViewer` is mocked there for every staff/rhythm diagram, and
+// this file needs the same mock for the same reason now that a test here
+// reaches one, not a workaround invented fresh for this task.
+vi.mock('@app/score/ScoreViewer.tsx', () => ({
+  ScoreViewer: ({ score }: { readonly score: { readonly id: string } }) => (
+    <div data-testid="mock-score-viewer" data-score-id={score.id} />
+  ),
+}))
+
 function resetScoreStore(): void {
   useScoreStore.setState({
     loaded: undefined,
@@ -213,6 +226,68 @@ describe('LessonsScreen', () => {
     // the card forwards the real exercise (kind included), which is what lets
     // the shell's router send it to the right destination.
     expect(onOpen).toHaveBeenCalledWith(target.exercise)
+  })
+
+  it('UI-30: the track filter is a closed-by-default disclosure whose summary states the active track in words, and every level+track combination the old chip row reached is still reachable', async () => {
+    const user = userEvent.setup()
+    render(<LessonsScreen onOpen={vi.fn()} onOpenDemo={vi.fn()} />)
+
+    // Closed by default (no track filter active yet): the summary reads
+    // "Track: all tracks" and is the disclosure's own trigger.
+    const summary = screen.getByText('Track: all tracks')
+    const disclosure = summary.closest('details')
+    if (disclosure === null) throw new Error('expected the track filter to be a <details> disclosure')
+    expect(disclosure).not.toHaveAttribute('open')
+
+    // The words that say why the (unfiltered) list is the length it is —
+    // rule 6/7 — present even before the disclosure is opened.
+    const level1 = lessonsForLevel(CURRICULUM, 1)
+    expect(screen.getByText(`${level1.length} lessons · Level 1 · all tracks`)).toBeInTheDocument()
+
+    // Opening the disclosure reveals the same buttons, same testids, that
+    // used to sit directly under the level tabs.
+    await user.click(summary)
+    expect(disclosure).toHaveAttribute('open')
+    await user.click(screen.getByTestId('lessons-track-theory'))
+
+    const theoryLessons = level1.filter((l) => l.track === 'theory')
+    const list = screen.getByRole('list', { name: 'Lessons' })
+    expect(within(list).getAllByRole('listitem').length).toBe(theoryLessons.length)
+
+    // The summary now names the active track, in words, whether or not the
+    // disclosure is still open — this is the "stated in words" readout.
+    expect(screen.getByText('Track: Theory')).toBeInTheDocument()
+    expect(
+      screen.getByText(`${theoryLessons.length} lesson${theoryLessons.length === 1 ? '' : 's'} · Level 1 · Theory`),
+    ).toBeInTheDocument()
+
+    // Clicking "All tracks" restores the full level-1 list — the same
+    // combination the old "All tracks" chip reached.
+    await user.click(screen.getByRole('button', { name: 'All tracks' }))
+    expect(within(list).getAllByRole('listitem').length).toBe(level1.length)
+  })
+
+  it('UI-30: an empty level+track combination teaches instead of showing a bare "no items", and its one action clears the track filter', async () => {
+    const user = userEvent.setup()
+    render(<LessonsScreen onOpen={vi.fn()} onOpenDemo={vi.fn()} />)
+
+    // Level 4 ships theory lessons only (src/content/curriculum/lessonsLevel4.ts) —
+    // "playing" is a real, reachable combination that yields zero lessons.
+    await user.click(screen.getByRole('button', { name: 'Level 4' }))
+    await user.click(screen.getByText('Track: all tracks'))
+    await user.click(screen.getByTestId('lessons-track-playing'))
+
+    expect(screen.getByRole('list', { name: 'Lessons' })).toBeEmptyDOMElement()
+    const empty = screen.getByRole('status')
+    expect(within(empty).getByText(/playing lessons in Level 4/i)).toBeInTheDocument()
+
+    const clear = within(empty).getByRole('button', { name: 'Show every track' })
+    await user.click(clear)
+
+    const level4 = lessonsForLevel(CURRICULUM, 4)
+    expect(within(screen.getByRole('list', { name: 'Lessons' })).getAllByRole('listitem').length).toBe(
+      level4.length,
+    )
   })
 
   it('an exercise item card is keyboard-activatable: focusing it and pressing Enter opens it, exactly like a click', async () => {

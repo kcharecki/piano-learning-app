@@ -140,9 +140,18 @@
    feedback color; this file only centers the pill on the stage and fades it
    in/out via `--dur-1` so an ungraded card shows an empty, invisible-but-
    present box rather than a visible neutral one. */
+/* The reserved box has to match the FILLED box, not merely exist. Measured:
+   `[role="status"]`'s shared `min-height: var(--control-h)` (36px) reserved 3px
+   less than this pill actually occupies once it holds a line of `--text-sm`
+   text plus its own padding and border (39px), so the first graded answer of a
+   session still nudged everything below it down by 3px — a smaller version of
+   the jump this pill was already supposed to absorb. The floor is now derived
+   from the same three values the filled box is built from, so the two cannot
+   drift apart again. */
 .flashcard-feedback {
   width: fit-content;
   justify-content: center;
+  min-height: calc(var(--text-sm) * var(--leading-normal) + var(--space-2) * 2 + var(--border-w) * 2);
   opacity: 0;
   transition: opacity var(--dur-1) var(--ease-out);
 }
@@ -151,4 +160,28 @@
 }
 .flashcard-feedback svg {
   flex: none;
+}
+
+/* ---------- UI-32: reserve the wrapped-line case too ----------
+   `[role="status"]`'s own `min-height: var(--control-h)` (primitives.css)
+   only reserves ONE line, which is enough everywhere the pill's text stays
+   on one line — including the wrong-answer copy ("Not quite — it comes back
+   for review") at 768px and up, so that case is left alone there and the
+   pill's height stays pixel-identical to before this change (rule 4). Below
+   640px — the codebase's established phone-ish cutoff (responsive.css:137,
+   feature-repertoire.css:192) — the narrower column lets that same string
+   wrap onto a second line, and a wrapped verdict would grow the box at the
+   exact moment it appears: the same jump this task exists to remove, just
+   moved from "pill appears" to "pill wraps". So under 640px the box instead
+   reserves two lines of `--text-sm` content at the page's own line-height,
+   plus the padding `[role="status"]` already applies — computed from those
+   same tokens (`--leading-normal`, `--space-2`), not a hard-coded pixel
+   height, so an empty pill and a two-line wrapped one always measure the
+   same. "Correct" never wraps, so this only ever adds blank reserved space
+   under a correct verdict at narrow widths — it never changes what the pill
+   shows, only how much room it always occupies. */
+@media (max-width: 640px) {
+  .flashcard-feedback {
+    min-height: calc(var(--text-sm) * var(--leading-normal) * 2 + var(--space-2) * 2);
+  }
 }

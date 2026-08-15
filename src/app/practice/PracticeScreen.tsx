@@ -10,6 +10,17 @@
  * through it. Setup controls (assessment, review, loop/hand/metronome/wait,
  * record/replay) stay below the score, unchanged.
  *
+ * Roadmap UI-27 (2026-08-15): loop range and hand mute moved OUT of the
+ * "Practice setup" drawer and INTO the toolbar — the two controls a learner
+ * reaches constantly mid-practice ("bars 5-8, left hand only"), which UI-24
+ * had made cost an extra click. They join transport as a THIRD toolbar unit,
+ * `.practice-toolbar-primary` (transport + "what am I practising"), so the
+ * toolbar still wraps as designed BLOCKS rather than control-by-control —
+ * see feature-practice.css's own comment on `.practice-toolbar-primary` for
+ * the mechanism that keeps it to 2 rows at 768px regardless. Sound
+ * (metronome), the piano roll, wait mode and record/replay stay in the
+ * drawer, untouched.
+ *
  * UI-09 (2026-08-12 UI audit): screen order top to bottom is now title (in
  * `ScoreScreen`'s `.page-header`) -> transport toolbar -> score -> the honest
  * feedback strip. The strip is a NEW element, not a move of the old one — it
@@ -625,25 +636,58 @@ export function PracticeScreen(props: PracticeScreenProps) {
             : ''}
         </p>
       )}
-      {/* UI-09 (2026-08-12 UI audit): title -> transport toolbar -> score.
-          Sticky below the topbar while the score scrolls (feature-practice.css).
-          Two groups so the toolbar wraps as designed units, not one control at
-          a time, at 768px (acceptance criterion 4) — transport stays together
-          on its own line before tempo/mic wrap to a second. */}
+      {/* UI-09 (2026-08-12 UI audit) / UI-27 (2026-08-15): title -> transport
+          toolbar -> score. Sticky below the topbar while the score scrolls
+          (feature-practice.css). THREE designed units so the toolbar wraps as
+          BLOCKS, never control-by-control (acceptance criterion 2):
+          `.practice-toolbar-primary` (transport + loop range/hands — "what am
+          I doing" and "what am I practising" travel together) shares a row at
+          every width; `.practice-toolbar-tempo` (tempo + mic — "how fast")
+          drops to its own full-width row at <=1024px. See
+          feature-practice.css's comment on `.practice-toolbar-primary` for
+          the horizontal-scroll fallback that keeps the toolbar to 2 rows at
+          768px regardless of exactly how wide loop range + hands turn out to
+          be at a given width. */}
       <div className="toolbar practice-toolbar">
-        <div className="practice-toolbar-transport">
-          <TransportControls
-            phase={engine.phase}
-            position={engine.position}
-            onPlay={handlePlay}
-            // REQ-3.3.4: an assessment run cannot be paused or stopped once
-            // started — enforced by disabling the buttons (`disabled` below),
-            // not by swallowing the click in a no-op handler, so a click during
-            // a run visibly does nothing instead of silently doing nothing.
-            onPause={engine.pause}
-            onStop={handleStop}
-            disabled={assessmentRunning}
-          />
+        <div className="practice-toolbar-primary">
+          <div className="practice-toolbar-transport">
+            <TransportControls
+              phase={engine.phase}
+              position={engine.position}
+              onPlay={handlePlay}
+              // REQ-3.3.4: an assessment run cannot be paused or stopped once
+              // started — enforced by disabling the buttons (`disabled` below),
+              // not by swallowing the click in a no-op handler, so a click during
+              // a run visibly does nothing instead of silently doing nothing.
+              onPause={engine.pause}
+              onStop={handleStop}
+              disabled={assessmentRunning}
+            />
+          </div>
+          {/* Roadmap UI-27: promoted from the "Practice setup" drawer — see
+              the module comment above. `LoopRangeControl` has no `disabled`
+              prop of its own (owned by another agent, same constraint the
+              drawer's fieldset used to work around) — a bare `<fieldset>` is
+              still the only lever available for it; `display: contents`
+              (feature-practice.css) strips its default border/margin so it
+              adds no box inside the toolbar, while its native `disabled`
+              cascade to every descendant input still applies regardless of
+              that CSS. */}
+          <div className="practice-toolbar-setup">
+            <fieldset className="practice-toolbar-loop-fieldset" disabled={assessmentRunning}>
+              <LoopRangeControl
+                score={loaded.score}
+                loop={settings.loop}
+                onChange={setLoop}
+                tempoScale={settings.tempoScale}
+              />
+            </fieldset>
+            <HandMuteControl
+              activeHands={settings.activeHands}
+              onChange={setActiveHands}
+              disabled={assessmentRunning}
+            />
+          </div>
         </div>
         <div className="practice-toolbar-tempo">
           <TempoControl
@@ -769,37 +813,18 @@ export function PracticeScreen(props: PracticeScreenProps) {
       <details className="practice-setup card--sunken">
         <summary>Practice setup</summary>
         <div className="practice-setup-body">
-          {/* Roadmap UI-10: Range/Hands/Sound as three titled groups
-              (`<fieldset><legend>`) rather than three flat top-level
-              controls — `<legend>` gives each one the same visible label
-              treatment `.field > label` uses elsewhere, and `<fieldset>` is
-              the correct native primitive for "a titled group of controls"
-              (each control inside already carries its own `role="group"`/
-              `radiogroup` for its OWN name — "Loop range", "Hands" — this
-              adds the outer section title the audit asked for without
-              fighting either). `LoopRangeControl` has no `disabled` prop of
-              its own (owned by another agent) — the fieldset's native
-              `disabled` is the only lever available without touching that
-              file; Hands/Sound already take their own `disabled` prop, so
-              the fieldset's `disabled` here is redundant-but-harmless
-              belt-and-suspenders, not the only mechanism. */}
-          <fieldset className="practice-setup-group" disabled={assessmentRunning}>
-            <legend>Range</legend>
-            <LoopRangeControl
-              score={loaded.score}
-              loop={settings.loop}
-              onChange={setLoop}
-              tempoScale={settings.tempoScale}
-            />
-          </fieldset>
-          <fieldset className="practice-setup-group" disabled={assessmentRunning}>
-            <legend>Hands</legend>
-            <HandMuteControl
-              activeHands={settings.activeHands}
-              onChange={setActiveHands}
-              disabled={assessmentRunning}
-            />
-          </fieldset>
+          {/* Roadmap UI-10: Sound/View as titled groups (`<fieldset><legend>`)
+              rather than flat top-level controls — `<legend>` gives each one
+              the same visible label treatment `.field > label` uses
+              elsewhere, and `<fieldset>` is the correct native primitive for
+              "a titled group of controls". Range and Hands used to be the
+              first two groups here — roadmap UI-27 (2026-08-15) promoted
+              both into the toolbar (see `PracticeScreen`'s module comment
+              and the toolbar JSX above) because they are the two controls a
+              learner reaches constantly mid-practice; they are NOT
+              duplicated here — a role-scoped query for either now has
+              exactly one match on the whole screen, not one per location.
+              Sound and View stay demoted in this drawer, same as before. */}
           <fieldset className="practice-setup-group" disabled={assessmentRunning}>
             <legend>Sound</legend>
             <MetronomeControl

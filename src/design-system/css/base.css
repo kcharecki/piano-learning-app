@@ -183,25 +183,47 @@ svg.icon, .icon > svg {
    responsive.css already compensates the drawer for this element at
    <=1024px (`inset: var(--topbar-h) ...`) — this is that same compensation,
    generalized to desktop now that the topbar renders there too.
-   `var(--topbar-h, 56px)` supplies the same height responsive.css's own
-   `<=1024px` block defines (`--topbar-h` is only ever SET inside that media
-   query) at every wider viewport where nothing else defines the token, so
-   the bar's height never actually changes width to width even though the
-   token stays conditional. */
+   `--topbar-h` is a real token at every width as of roadmap UI-34
+   (tokens/spacing.css); the `var(--topbar-h, 56px)` fallbacks that used to
+   stand in for it here are gone, because a fallback that hardcodes the same
+   number the token holds is not a fallback, it is a second source of truth.
+
+   UI-34 also re-opened the question UI-31 deferred — should this topbar be
+   STICKY at desktop? No. It carries a MIDI-status chip and one Reference
+   button here (the screen title lives in each screen's own `.page-header`),
+   and Practice already spends a sticky transport bar's worth of height at the
+   top of the viewport: sticking this one too would stack ~112px of permanent
+   chrome above the score on the screen that most needs vertical room, which
+   is rule 4 (content dominates, chrome does not) failing by construction.
+   DESIGN.md's "non-floating, non-sticky-at-desktop bar" stands, now on
+   measured grounds rather than by default.
+
+   The cost of that answer, stated plainly: because the bar scrolls away while
+   the rail below pins at `top: var(--topbar-h)`, a scrolled desktop page has
+   a 56px strip of bare rail background above the rail. Pinning the rail at 0
+   instead does not fix it, it relocates it — the rail's box starts below the
+   topbar in flow, so a full-height rail would hang its level/streak footer
+   below the fold at rest, the exact bug this override exists to prevent. The
+   only resolution that removes the wasted height rather than moving it is to
+   delete the desktop topbar outright and rehome its two controls into the
+   rail footer; that is a shell change with its own hazards (the status
+   popover would be clipped by the rail's `overflow-y: auto`, and the cluster
+   would need one home per breakpoint without breaking the Reference toggle's
+   focus-return ref), so it is roadmap UI-36, not a quiet edit here. */
 .app-layout { flex-wrap: wrap; }
 .app-layout > .app-topbar {
   flex-basis: 100%;
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  min-height: var(--topbar-h, 56px);
+  min-height: var(--topbar-h);
   padding: 0 var(--space-3);
   background: var(--bg-1);
   border-bottom: var(--border-w) solid var(--border-1);
 }
 .app-layout > .app-nav {
-  top: var(--topbar-h, 56px);
-  height: calc(100vh - var(--topbar-h, 56px));
+  top: var(--topbar-h);
+  height: calc(100vh - var(--topbar-h));
 }
 /* The hamburger only ever opens something at <=1024px — above that, `.app-nav`
    is a static sidebar, not a drawer, so a visible toggle with nothing to

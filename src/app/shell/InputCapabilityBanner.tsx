@@ -81,20 +81,30 @@ export function InputCapabilityBanner({
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [open])
 
-  // A click anywhere outside the chip or the popover closes it — no focus
-  // return here (unlike Escape): the learner clicked somewhere else on
-  // purpose, so following that click is the expected outcome, not fighting it.
+  // A pointerdown anywhere outside the chip or the popover closes it — no
+  // focus return here (unlike Escape): the learner is pressing on something
+  // else on purpose (roadmap UI-33), so the popover must get out of the way
+  // of that press rather than fight it. This is a non-modal, undimmed,
+  // informational popover, not a menu of pending commands, so it follows the
+  // same light-dismiss contract as `popover="auto"`: dismiss on pointerdown
+  // WITHOUT calling preventDefault/stopPropagation, so the same press's
+  // subsequent mouseup/click still lands on and activates whatever control
+  // sits underneath — one press both closes this and operates that control.
+  // Listening on `pointerdown` rather than `click` is what makes that
+  // ordering possible (`click` fires after the underlying control would
+  // already need to have reacted); `pointerdown` also unifies mouse, touch
+  // and pen in one handler, which `mousedown` does not reliably do on touch.
   useEffect(() => {
     if (!open) return undefined
-    function onPointerDown(e: MouseEvent): void {
+    function onPointerDown(e: PointerEvent): void {
       const target = e.target
       if (!(target instanceof Node)) return
       if (popoverRef.current?.contains(target) === true) return
       if (chipRef.current?.contains(target) === true) return
       setOpen(false)
     }
-    document.addEventListener('mousedown', onPointerDown)
-    return () => document.removeEventListener('mousedown', onPointerDown)
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
   }, [open])
 
   return (
@@ -112,43 +122,34 @@ export function InputCapabilityBanner({
         {connected ? 'MIDI connected' : 'No MIDI — using on-screen keys'}
       </button>
       {open && (
-        <>
-          {/* Light-dismiss layer (2026-08 UI audit BLOCKER): the popover is a
-              floating `.card` — opaque background, padding, gaps between its
-              children — parked directly over page content on 5 of 10 screens
-              (Today's "Set up my practice" among them). Padding/gaps inside
-              the popover are NOT interactive, but the outside-click handler
-              below still treated any click landing on them as "inside" and
-              did nothing: the click neither closed the popover nor reached
-              the control it happened to be sitting over, so that control was
-              unreachable. This full-viewport layer sits BENEATH the popover
-              (z-index below it — feature-bluetooth-midi.css) and the popover
-              itself now lets pointer events pass through everywhere except
-              its real controls (same file), so a click on the popover's dead
-              space now falls through to this layer and closes it — reliably,
-              on the first click, everywhere the popover can float. Dismiss
-              only, no pass-through to whatever sat underneath: same contract
-              as the outside-click handler already had (no focus return
-              either) — a second click, now that the popover is gone, reaches
-              the control normally. */}
-          <div className="input-status-scrim" aria-hidden="true" onPointerDown={() => setOpen(false)} />
-          <div id={POPOVER_ID} ref={popoverRef} className="card input-status-popover">
-            {!supported && (
-              <p role="status">
-                This browser can&apos;t connect a MIDI keyboard — you can still listen, read and
-                play with the on-screen keys.
-              </p>
-            )}
-            <MidiDeviceStatus
-              connected={midi.input !== undefined}
-              devices={midi.devices}
-              selectedDeviceId={midi.selectedDeviceId}
-              connectionError={midi.connectionError}
-              hideUsbStatus={!supported}
-            />
-            <p className="input-status-mic-hint">No keyboard? Try the microphone on Practice.</p>
-          </div>
-        </>
+        // No full-viewport scrim here (roadmap UI-33 — one used to sit
+        // beneath this popover solely to catch clicks on its own dead space
+        // and close it). The popover's own dead space (padding, the `flex`
+        // gaps between its children) is already `pointer-events: none` in
+        // feature-bluetooth-midi.css, with only its real controls opted back
+        // in — that CSS predates this fix and needed no change — so a press
+        // there falls straight through to whatever the popover is floating
+        // over, and the document-level pointerdown listener above (which
+        // sees every press, not just ones a scrim would have intercepted)
+        // closes the popover in response. A full-viewport interactive layer
+        // would consume the press instead of letting it reach the control
+        // underneath, which is exactly the behaviour roadmap UI-33 removed.
+        <div id={POPOVER_ID} ref={popoverRef} className="card input-status-popover">
+          {!supported && (
+            <p role="status">
+              This browser can&apos;t connect a MIDI keyboard — you can still listen, read and
+              play with the on-screen keys.
+            </p>
+          )}
+          <MidiDeviceStatus
+            connected={midi.input !== undefined}
+            devices={midi.devices}
+            selectedDeviceId={midi.selectedDeviceId}
+            connectionError={midi.connectionError}
+            hideUsbStatus={!supported}
+          />
+          <p className="input-status-mic-hint">No keyboard? Try the microphone on Practice.</p>
+        </div>
       )}
     </div>
   )

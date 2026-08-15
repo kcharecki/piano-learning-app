@@ -152,6 +152,35 @@
   box-shadow: inset 0 0 0 2px var(--fb-wrong);
 }
 
+/* ---------- Results container (roadmap UI-28 focus fix) ----------
+   Verdict, dictation breakdown, explanation and Next used to be separate
+   direct `.page` children, each spaced by `.page`'s own flex `gap`
+   (base.css, `--space-5` "vertical rhythm between direct children"). Now
+   they are grandchildren of `.eartraining-results` (the one focusable
+   container the coordinator's focus-management follow-up wraps them in —
+   see EarTrainingScreen.tsx), so this file replicates that exact same gap
+   on the wrapper itself — same token, same value — so wrapping them changes
+   nothing about how far apart they sit on screen. */
+.eartraining-results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+/* ---------- Next (roadmap UI-28) ----------
+   A direct `.page` child (base.css) is a column-flex item with the default
+   `align-items: stretch` — an unwrapped `<button>` (itself `inline-flex`,
+   primitives.css) would stretch to the FULL page width, the exact bug
+   `.seg-control`'s own comment in primitives.css documents (Metronome's
+   Accents group, Theory's tabs, Settings' Theme picker, Rhythm's mode
+   picker). Wrapping it in a `justify-content: center` row keeps it the same
+   shape as every other primary action on this screen (`.eartraining-play-btn`
+   above) instead of a page-wide bar. */
+.eartraining-next-row {
+  display: flex;
+  justify-content: center;
+}
+
 /* ---------- Feedback line ---------- */
 .eartraining-feedback {
   text-align: center;

@@ -16,6 +16,46 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
+## 2026-08-15 — UI overhaul finished: UI-25…UI-35 shipped, three roadmap premises disproven
+
+- user-reported defects since last session: 0
+- slices proven / started: 11/11 (UI-25, 26, 27, 28, 29, 30, 32, 33, 34, 35, plus the
+  Phase 5 archive that unblocked the docs budget). Ten parallel Sonnet builders with
+  disjoint file ownership; this session held the dev server, Playwright, the shared CSS,
+  the roadmap and every commit.
+- gate catches before commit: **five, and four of them were invisible to `npm run verify`.**
+  (1) UI-26 shipped five `<ul>`s all named "Graded pieces" — a Playwright strict-mode
+  violation across four specs and a real screen-reader regression, caught by grepping the
+  e2e suite for accessible-name matches, not by any test run. (2) UI-29's appended duration
+  broke three specs' whole-string `name` matches; two of them only surfaced in the full
+  Playwright run. (3) UI-28's reorder dropped keyboard focus to `<body>`; the agent proposed
+  a follow-up ticket and was sent back instead. (4) UI-32's first fix removed the jitter by
+  sizing every staff for a note the learner will not see for months — correct by the
+  acceptance criteria as written, 2.4x too large on screen, and only visible as a number in
+  the agent's own report. (5) ROADMAP.md crossed its 1500-line budget, caught by `verify`.
+- docs budget (ROADMAP+CLAUDE+PROCESS lines): 596 + 101 + 130 = **827**, after moving
+  Phase 5's 57 completed tasks to `docs/roadmap-archive-phase5-2026-08-15.md`.
+- cost note: the expensive part was not building, it was **measuring**. Three of the
+  roadmap's own premises were wrong — UI-29's duplicate buttons had already been removed by
+  UI-08, UI-32 blamed a pill that is permanently mounted, and UI-27's own agent predicted a
+  row count the browser contradicted — and none of the three would have been caught by
+  reading code or running tests. Four throwaway Playwright harnesses against the live dev
+  server produced every number in the commit.
+- hypothesis: **the weakest part of this process is that a task's acceptance criteria are
+  written before anyone has measured the thing.** Every one of this session's disproven
+  premises was a number or a cause asserted at authoring time and never checked. Worse, an
+  agent handed a wrong criterion will satisfy it exactly — UI-32's first attempt met all five
+  of its stated criteria and produced a worse screen, and UI-30 stalled for a round trying to
+  reach a control count that was counting content.
+- change: **the experience gate gains a "measure before you specify" step for any task whose
+  acceptance is a number.** Before a builder is briefed on a numeric criterion (scroll height,
+  control count, row count, pixel height), the orchestrator measures the current value in the
+  running app and pastes the measurement into the brief — so the agent is correcting a real
+  number, not chasing an authored one. Review by 2026-08-29: keep if it catches at least one
+  wrong premise in the next two sessions, revert if every measured value merely confirms what
+  the roadmap already said.
+- experiment verdicts due: none this session.
+
 ## 2026-08-11 (ninth session) — integrator round: nine branches merged, roadmap archived
 
 - user-reported defects since last session: 0

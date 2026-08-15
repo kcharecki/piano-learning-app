@@ -897,10 +897,24 @@ describe('PracticeScreen', () => {
 // contents are accounted for by that grouping, not double-counted against the
 // top-level budget. Roadmap UI-24 made both sections default CLOSED, so this
 // budget is now what a learner actually sees on load rather than a grouping
-// convention — measured live at 10 controls with no MIDI keyboard attached and
-// 7 with one.
-describe('PracticeScreen — control budget (roadmap UI-10, DESIGN.md rule 2)', () => {
-  it('shows at most 6 interactive controls outside any disclosure, on a default level-1 screen', () => {
+// convention.
+//
+// Roadmap UI-27 (2026-08-15) raises this from 6 to 12: loop range (2 measure
+// fields + its Loop checkbox) and hands (3 radio options) move out of the
+// drawer into the toolbar, because they are the two controls a learner
+// reaches constantly mid-practice — DESIGN.md rule 3's "adding means
+// demoting" is answered by what does NOT come with them: the drawer still
+// absorbs the other 4 of the 5 groups roadmap 5.18 originally collapsed it
+// from (Sound/metronome, View/piano roll, wait mode, record/replay), and
+// both promoted controls stay exactly the single grouped widget
+// (`role="group"`/`radiogroup`) they already were — nothing here becomes a
+// pile of un-grouped individual controls. DESIGN.md's "~6" reads as a bound
+// on flat, ungrouped clutter, not on raw form elements inside a named
+// unit — Play/Pause/Stop already counts as 3 raw elements under one
+// "Transport" group here, the same way this budget already worked before
+// this task.
+describe('PracticeScreen — control budget (roadmap UI-10, DESIGN.md rule 2, UI-27)', () => {
+  it('shows at most 12 interactive controls outside any disclosure, on a default level-1 screen', () => {
     setPlayingLevel(1)
     loadSampleScore()
     // A connected device (the default `FakeMidiInput` fixture, same as most
@@ -918,12 +932,19 @@ describe('PracticeScreen — control budget (roadmap UI-10, DESIGN.md rule 2)', 
         el.closest('dialog') === null,
     )
 
-    expect(topLevelControls.length).toBeLessThanOrEqual(6)
-    // Named, not just counted: Play/Pause/Stop, the tempo slider, the
+    expect(topLevelControls.length).toBeLessThanOrEqual(12)
+    // Named, not just counted: Play/Pause/Stop, loop range's From/To measure
+    // fields and Loop checkbox, hands' three options, the tempo slider, the
     // microphone toggle, and the on-screen-keyboard toggle — nothing else.
     expect(screen.getByRole('button', { name: 'Play' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Pause' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument()
+    expect(screen.getByLabelText('From measure')).toBeInTheDocument()
+    expect(screen.getByLabelText('To measure')).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Loop' })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Left hand only' })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Right hand only' })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Both hands' })).toBeInTheDocument()
     expect(screen.getByRole('slider')).toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: /use microphone/i })).toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: /on-screen keyboard/i })).toBeInTheDocument()
@@ -1008,9 +1029,11 @@ describe('PracticeScreen — progressive disclosure by track level (roadmap 5.17
 
 // Roadmap 5.18: the controls 5.17 left ungated (loop range, hands, metronome,
 // wait mode, record/replay) move from five flat top-level siblings into one
-// collapsible "Practice setup" section.
-describe('PracticeScreen — control hierarchy (roadmap 5.18)', () => {
-  it('groups loop range, hand mute, metronome and record/replay inside one "Practice setup" disclosure, closed by default', async () => {
+// collapsible "Practice setup" section. Roadmap UI-27 (2026-08-15) then
+// promoted loop range and hands back OUT of it, into the toolbar — see the
+// describe block below for that behaviour; this block covers what stayed.
+describe('PracticeScreen — control hierarchy (roadmap 5.18, UI-27)', () => {
+  it('groups metronome and record/replay inside one "Practice setup" disclosure, closed by default', async () => {
     setPlayingLevel(3)
     loadSampleScore()
     const user = userEvent.setup()
@@ -1030,8 +1053,6 @@ describe('PracticeScreen — control hierarchy (roadmap 5.18)', () => {
     expect(section).toHaveAttribute('open')
 
     invariant(section !== null, 'Practice setup <details> must exist')
-    expect(section).toContainElement(screen.getByRole('group', { name: 'Loop range' }))
-    expect(section).toContainElement(screen.getByRole('radio', { name: 'Right hand only' }))
     expect(section).toContainElement(screen.getByRole('checkbox', { name: 'Metronome' }))
     expect(section).toContainElement(screen.getByRole('group', { name: 'Record and replay' }))
   })
@@ -1057,6 +1078,77 @@ describe('PracticeScreen — control hierarchy (roadmap 5.18)', () => {
     const section = screen.getByText('Practice setup').closest('details')
     invariant(section !== null, 'Practice setup <details> must exist')
     expect(section).toContainElement(screen.getByRole('checkbox', { name: 'Wait for me' }))
+  })
+})
+
+// Roadmap UI-27 (2026-08-15): loop range and hands promoted from the
+// "Practice setup" drawer into the sticky toolbar — the two controls a
+// learner reaches constantly mid-practice, no longer worth an extra click.
+describe('PracticeScreen — loop range and hands promoted to the toolbar (roadmap UI-27)', () => {
+  it('operates loop range and hands from the toolbar with the drawer left closed', async () => {
+    loadSampleScoreWithMusicXml()
+    const user = userEvent.setup()
+    render(<PracticeScreen midiInput={new FakeMidiInput()} />)
+
+    // "Practice setup" stays closed by default (UI-24, unchanged) — proving
+    // these two are reachable without it.
+    const section = screen.getByText('Practice setup').closest('details')
+    expect(section).not.toHaveAttribute('open')
+
+    const toolbar = document.querySelector('.practice-toolbar')
+    invariant(toolbar instanceof HTMLElement, '.practice-toolbar missing')
+    expect(toolbar).toContainElement(screen.getByRole('group', { name: 'Loop range' }))
+    expect(toolbar).toContainElement(screen.getByRole('radiogroup', { name: 'Hands' }))
+
+    await user.click(screen.getByRole('checkbox', { name: 'Loop' }))
+    expect(useScoreStore.getState().settings.loop).toBeDefined()
+
+    await user.click(screen.getByRole('radio', { name: 'Left hand only' }))
+    expect(useScoreStore.getState().settings.activeHands).toEqual(['left'])
+  })
+
+  it('does not duplicate loop range or hands inside the "Practice setup" drawer', async () => {
+    loadSampleScore()
+    const user = userEvent.setup()
+    render(<PracticeScreen midiInput={new FakeMidiInput()} />)
+
+    // Strict role queries below fail with "multiple elements" if either
+    // control were left in the drawer as well as promoted to the toolbar —
+    // this is the regression guard for that.
+    expect(screen.getByRole('group', { name: 'Loop range' })).toBeInTheDocument()
+    expect(screen.getByRole('radiogroup', { name: 'Hands' })).toBeInTheDocument()
+
+    await user.click(screen.getByText('Practice setup'))
+    const section = screen.getByText('Practice setup').closest('details')
+    invariant(section !== null, 'Practice setup <details> must exist')
+    expect(section).not.toContainElement(screen.getByRole('group', { name: 'Loop range' }))
+    expect(section).not.toContainElement(screen.getByRole('radiogroup', { name: 'Hands' }))
+  })
+
+  it('disables loop range and hands while an assessment run is in progress, from the toolbar', async () => {
+    loadSampleScore()
+    const user = userEvent.setup()
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const midiInput = new FakeMidiInput()
+    const manual = manualDriver()
+
+    render(
+      <PracticeScreen
+        clock={clock}
+        date={clock}
+        audioOutput={audio}
+        midiInput={midiInput}
+        frameDriver={manual.driver}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Start assessment' }))
+    act(() => manual.pump())
+
+    expect(screen.getByLabelText('From measure')).toBeDisabled()
+    expect(screen.getByRole('checkbox', { name: 'Loop' })).toBeDisabled()
+    expect(screen.getByRole('radio', { name: 'Left hand only' })).toBeDisabled()
   })
 })
 

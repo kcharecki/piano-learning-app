@@ -13,10 +13,21 @@ export type HandMuteControlProps = {
   readonly disabled?: boolean
 }
 
-const OPTIONS: readonly { readonly label: string; readonly hands: readonly Hand[] }[] = [
-  { label: 'Left hand only', hands: ['left'] },
-  { label: 'Right hand only', hands: ['right'] },
-  { label: 'Both hands', hands: ['left', 'right'] },
+/**
+ * `short` is what renders; `label` (the pre-existing full wording) becomes
+ * `aria-label` (roadmap UI-27, toolbar-width fix, 2026-08-15) — `aria-label`
+ * wins the accessible-name computation over a button's own text content, so
+ * every existing `getByRole('radio', { name: 'Left hand only' })` query still
+ * matches, and the group's own `aria-label="Hands"` already carries the
+ * "hand" context these three no longer need to repeat. This control sits in
+ * the sticky toolbar (roadmap UI-27) beside transport, loop range, tempo and
+ * mic; "Left hand only" / "Right hand only" at full width was the single
+ * widest thing in the row.
+ */
+const OPTIONS: readonly { readonly label: string; readonly short: string; readonly hands: readonly Hand[] }[] = [
+  { label: 'Left hand only', short: 'Left', hands: ['left'] },
+  { label: 'Right hand only', short: 'Right', hands: ['right'] },
+  { label: 'Both hands', short: 'Both', hands: ['left', 'right'] },
 ]
 
 function sameHands(a: readonly Hand[], b: readonly Hand[]): boolean {
@@ -41,10 +52,11 @@ export function HandMuteControl({
             type="button"
             role="radio"
             aria-checked={selected}
+            aria-label={option.label}
             disabled={disabled}
             onClick={() => onChange(option.hands)}
           >
-            {option.label}
+            {option.short}
           </button>
         )
       })}

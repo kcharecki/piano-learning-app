@@ -104,10 +104,19 @@
   color: var(--accent);
   background: var(--accent-dim);
 }
+/* Roadmap UI-34: `.app-main` no longer declares its own `max-width`. Both it
+   and `.page` used to cap at `--content-max`, which is the same measurement
+   expressed twice — and the two caps did not mean the same thing. `.app-main`
+   is the shell's content SLOT (whatever the rail leaves over); `.page` is the
+   content COLUMN inside it, and DESIGN.md has described that column as
+   "centered" since UI-02. Capping the slot as well pinned the column to the
+   slot's left edge on any monitor wider than 1152px + the rail, so
+   `.page--focus`'s 48rem screens sat left-of-center in a wide void with all
+   the slack on the right. The slot now fills the row and `.page`'s
+   `margin-inline: auto` does the centering it always declared. */
 .app-main {
   flex: 1;
   min-width: 0;
-  max-width: var(--content-max);
   padding: var(--space-5) var(--content-pad) var(--space-8);
 }
 

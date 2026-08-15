@@ -30,4 +30,11 @@
   --nav-w: 12rem;
   --content-max: 72rem;
   --content-pad: var(--space-5);
+  /* The topbar's height. Defined HERE, unconditionally, as of roadmap UI-34:
+     it used to be set only inside responsive.css's <=1024px block, so every
+     desktop rule that depended on it (the nav rail's sticky offset, the
+     lessons catalogue pane) had to carry a `var(--topbar-h, 56px)` fallback
+     and silently hardcode the number a second time. Four fallbacks, one real
+     value, and no way for the token to ever change without them drifting. */
+  --topbar-h: 56px;
 }

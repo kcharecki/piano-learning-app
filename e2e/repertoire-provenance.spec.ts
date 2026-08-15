@@ -1,4 +1,5 @@
 import { expect, test, type ConsoleMessage, type Page } from '@playwright/test'
+import { expandRepertoireLevelGroup } from './repertoire-helpers.ts'
 
 /**
  * E2E proof for roadmap 5.52 — the "playable content" finding from the
@@ -49,7 +50,14 @@ test('the Repertoire catalogue row discloses a per-piece provenance line, and it
   await page.goto('/practice')
   await navButton(page, 'Repertoire').click()
 
-  const catalogue = page.getByRole('list', { name: 'Graded pieces' })
+  // Roadmap UI-26 grouped the catalogue by level behind a <details> per group,
+  // so there is no longer ONE "Graded pieces" list to resolve — there is one
+  // per level. Scope to the section instead, and expand each piece's own group
+  // before asserting on its row: both titles here are level 3, which is not the
+  // group open by default on a fresh profile.
+  const catalogue = page.getByRole('region', { name: 'Graded library' })
+  await expandRepertoireLevelGroup(page, VERIFIED_TITLE)
+  await expandRepertoireLevelGroup(page, FLAGGED_TITLE)
   const verifiedRow = catalogue.getByRole('listitem').filter({ hasText: VERIFIED_TITLE })
   const flaggedRow = catalogue.getByRole('listitem').filter({ hasText: FLAGGED_TITLE })
   await expect(verifiedRow).toBeVisible()

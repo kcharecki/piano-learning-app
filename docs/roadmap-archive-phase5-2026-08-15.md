@@ -1,0 +1,1028 @@
+# Roadmap archive — Phase 5 (Milestone M5: teachable product)
+
+Lifted verbatim out of ROADMAP.md on 2026-08-15, at the point where 57 of Phase 5's 61
+tasks were done and the file had grown past its own 1500-line budget. Nothing here was
+edited on the way out: the four tasks still open (5.53, 5.54, 5.55, 5.58) stayed behind in
+ROADMAP.md and are the only part of Phase 5 that is still live work. Everything below is
+shipped, and is kept because each entry records the evidence that closed it — the measured
+numbers, the specs, the visual passes — which is the part a later session actually needs.
+
+## Phase 5 — Milestone M5: teachable product
+
+Source: [docs/ux-pedagogy-review-2026-08-06.md](docs/ux-pedagogy-review-2026-08-06.md) — the app driven
+screen by screen as an adult beginner, cross-checked against source, with the pedagogy claims verified
+against RCM 2022, ABRSM 2025–26, Faber/Alfred and the Taubman literature. It scored **17 aspects** and
+rated the whole **4.5/10 as a teaching product**: "an impressive engine wrapped around almost no
+content, aimed at nobody in particular."
+
+**Exit condition for M5: every aspect in that table scores ≥ 9/10 on a re-run of the same review.**
+Each group below names its aspect, its measured score, and the specific defects that hold it there —
+the group is done when all of its boxes are ticked *and* the named defect is gone in the running app.
+Groups are ordered by the review's own "learner impact per unit of effort" ranking, not by module, so
+the first unchecked box is still the next task.
+
+Two standing rules for this phase, both learned from the review:
+- **A score does not move because a task was ticked.** Every task here states the observable thing a
+  re-review would check. Prose fixes count only if the prose is on screen.
+- **Do not duplicate Phase 3.** Several M3 gaps (3.14, 3.15, 3.16, 3.21, 3.23, 3.24, 3.25, 3.26) are
+  the same defects seen from the requirements side; those tasks are referenced, not restated, and the
+  aspect they gate cannot reach 9 until they land too.
+
+### Playable content — **2/10 → 9**
+
+`src/content/scores/` holds exactly one score, `twinkle-twinkle-little-star.musicxml`. The 20-piece
+graded library is metadata with no music behind it: adding *Für Elise* gives a row with a status
+dropdown and **no way to open, view or play it**. Everything else in the app — matcher, wait mode,
+assessment, read-ahead, loop practice, tempo ramp — exists to be used on a piece.
+
+- [x] 5.1 `content/scores`: bundled a real hand-authored `.musicxml` for all 20 `GRADED_PIECES`
+      entries (`gradedScoreFiles.ts`, untrusted parse) — MuseScore/IMSLP download was out of scope,
+      so 11 are research-verified note-for-note and the rest a flagged stylistic excerpt (7d0721d).
+      Full history: git log.
+- [x] 5.2 `app/repertoire`: an "Open in Practice" control per piece row (shown only when
+      `canOpenInPractice` resolves the piece's `scoreId` to a bundled file — a manually
+      "Add loaded score"-d piece gets no dead control) loads the score into `scoreStore` and
+      navigates, the same `openDemoScore`/`onOpenDemo` split 4.9b/5.9b established.
+      *Proof: `e2e/repertoire-open-practice.spec.ts` — add Greensleeves (level 3) from the catalogue,
+      open it from a different score already loaded (the default Twinkle), assert the Practice
+      heading and engraving are Greensleeves', then play its first beat and see it graded correct.
+      Visual pass both widths/themes, console clean.* Extended `scripts/visual-pass.mjs` with
+      `--click <label>` to reach a post-interaction state (e.g. an added piece's row) for a screenshot.
+- [x] 5.3 `content`: widened the catalogue toward the 40 Piece Challenge shape — `GRADED_PIECES` now
+      has 40 entries (was 20), all 20 new ones at level 1–2, every one resolving to a real bundled
+      `.musicxml` (19 newly authored + `twinkle-twinkle-little-star.musicxml` newly added to the
+      catalogue), giving 31 of 40 at level ≤ 2. Melodies for 6 (Row Row Row Your Boat, Old MacDonald,
+      Yankee Doodle, Oh! Susanna, Auld Lang Syne, When the Saints Go Marching In) were fetched from
+      noobnotes.net letter-note transcriptions this session, not just recalled; the remaining 14 are
+      this app's own rendition of a single universally-known melody, flagged as such rather than
+      claimed as source-verified — see `LICENSE.md`'s new "Roadmap 5.3" section for the full
+      per-piece breakdown. Added a "Below my level" checkbox to the Repertoire screen's Graded
+      library, filtering to `piece.level < playingLevel` (strictly below, so a level-1 learner
+      correctly sees an honest empty state, not a silently-empty list).
+      *Proof: `gradedPieces.test.ts` asserts ≥ 40 entries and ≥ 25 at level ≤ 2, plus every scoreId
+      resolves to a real parsed Score. Driven in the browser on this worktree's own dev server: all
+      40 catalogue rows render; raising the playing track level to 3 via the dashboard's own override
+      and checking "Below my level" shows exactly the 31 level 1–2 pieces and hides Für Elise
+      (level 3) and above; unchecking restores all 40. Visual pass (`scripts/visual-pass.mjs
+      Repertoire --level playing=3`) at both widths, both themes: console clean, no layout
+      regression.*
+
+### Input accessibility — **3/10 → 9**
+
+`PracticeScreen` takes `midiInput` and nothing else. On Safari, Firefox or an iPad — no Web MIDI —
+note matching, feedback colouring, wait mode, assessment, timing feedback, recording and the tempo
+ramp are all inert. Flashcards, Theory and Dictation *do* render the 37-key `OnScreenKeyboard`; the
+one screen where playing matters is the one that refuses non-MIDI input.
+
+- [x] 5.4 `app/practice`: render `OnScreenKeyboard` on Practice when no MIDI device is present (behind
+      a toggle when one is); gave `waitmode.ts` a real press/release mode plus a "Hold keys down" latch
+      so a mouse's one pointer can still clear a chord barrier. Gate caught a render-time state-update
+      bug and a no-hardware default keyed off the wrong signal. Full history: git log.
+- [x] 5.5 `app/keyboardInput`: computer-keyboard note input as a first-class second input
+      (`qwertyNoteMap.ts`), shared by Practice, Flashcards, Theory and Dictation. `KeyA` climbs from the
+      bottom of whatever range is in view (A S D F G H J K L ; white, W E T Y U O P black), anchored at
+      the range's own low note, not middle C. Spans 17 semitones — a wide Practice range is only partly
+      reachable by typing, a real keyboard limit, not a bug. Found, not fixed: Technique has no
+      `OnScreenKeyboard` to hang this on (5.5a). Full history: git log.
+- [x] 5.5a `app/technique`: `useTechniqueDrill` fed its `NoteMatcher` straight from `midi.input.onEvent`,
+      with no on-screen fallback for 5.5's computer-keyboard mapping to attach to. Reused the
+      `PlayableMidiInput` wrapper roadmap 5.4 already built (`@app/practice/playableInput.ts`) rather
+      than a second one, and reused `PracticeKeyboard` itself (already generic over any `Score` +
+      press/release pair) rather than duplicating its toggle/latch UI. `useTechniqueDrill` now exposes
+      `press`/`release`; `TechniqueScreen` renders the same on-screen keyboard + qwerty hint Practice
+      does, directly under the engraving. Driven in the browser: a level-1 drill run entirely through
+      clicked on-screen keys, no MIDI at all, scores clean and lands in the tempo history — same proof
+      as a unit test driving `press()`/`release()` directly. Both widths/themes, console clean.
+- [x] 5.6 `app/shell`: `InputCapabilityBanner` — one-line, dismissible, mounted once in `Shell`,
+      naming Web MIDI's absence and what it costs (see B.7's platform reality). Gated on
+      `isWebMidiSupported` (feature detection), deliberately distinct from `MidiDeviceStatus`'s
+      per-screen "nothing plugged in yet" line, which still fires on its own for a permission
+      denial or no hardware on a browser that does have the API.
+      *Proof: `e2e/input-capability-banner.spec.ts` — with `navigator.requestMIDIAccess` stubbed
+      absent the banner names the limitation and dismisses; with it present (this repo's headless
+      Chromium ships the API) the banner stays hidden even though `smoke.spec.ts` still shows the
+      unrelated "no MIDI keyboard connected" line. Visual pass both widths/themes, console clean.*
+- [x] 5.7 **Promoted B.1** (microphone pitch detection) into this phase. Three-layer build: pure
+      YIN pitch detection (`core/audio/pitchDetection.ts` — difference function, cumulative-mean
+      normalisation, first-dip selection to avoid octave errors, parabolic interpolation) feeding a
+      pure onset/offset debounce state machine (`core/audio/noteOnsetDetector.ts`, hysteresis so a
+      struck-note transient or a decaying tail can't flicker into spurious notes), wrapped by the
+      DOM edge (`adapters/audio/micPitchInput.ts`, `getUserMedia` + `AnalyserNode` on a schedule)
+      implementing the same `MidiInput` port `webmidi.ts` does — so a sung/played-acoustically note
+      goes through the exact matcher, wait-mode and recording path a MIDI note does. Practice screen
+      gets a `useMicInput` connection (opt-in — requesting the mic holds the browser's recording
+      indicator lit, so it never fires without an explicit toggle) and a `MicInputControl` status
+      line next to `MidiDeviceStatus`.
+      *Proof: `core/audio/pitchDetection.test.ts` — 200-run property test recovers every piano note
+      A0–C8 from a synthesised sine within 10 cents, plus an explicit harmonic-rich-tone test that
+      the first-dip rule doesn't octave-error. `core/audio/noteOnsetDetector.test.ts` and
+      `adapters/audio/micPitchInput.test.ts` drive the debounce state machine and the adapter's tick
+      loop with synthetic buffers end-to-end (onset after N clean frames, release after silence,
+      dispose stops the track and the loop). Driven in the browser: the toggle renders, connecting
+      surfaces a real permission-denied error without crashing (this sandbox has no mic hardware to
+      grant), and disabling tears the connection down cleanly — the actual "a sung note grades"
+      path is proven by the algorithm/state-machine property tests above, not by a screenshot, since
+      no real microphone was available to drive end-to-end here. Caught and fixed one real defect in
+      the process: `.status-group`'s row had no `flex-wrap`, so adding this control pushed the
+      practice-controls bar past both required widths (1024px and 1280px) into horizontal overflow —
+      fixed with a `flex-wrap: wrap` matching the pattern its own parent `.practice-controls` already
+      uses. Console clean, dark and light both checked (computed style, not screenshot — the preview
+      pane's screenshot capture was unavailable this session).
+
+### Lesson content quality — **6/10 → 9**
+
+The G major lesson teaches one sharp and then plays a demonstration with none: all three scale lessons
+set `demoScoreId: demo('demo-c-major-scale-one-octave-rh')`, and `demoScores.ts` contains no G or F
+major scale at all — 14 demos, all in C except the two rhythm ones. The prose is good, which makes the
+mismatch worse: the audio wins and a beginner cannot tell which one is lying.
+
+- [x] 5.8 `content/demoScores`: authored real G/F major scale demos and pointed those lessons at them.
+      Root cause a layer down: `techniqueScore` defaulted `keyFifths` to 0, so all 12 technique-library
+      tonics engraved in C regardless — `keySignatureForTonic` now supplies it. Full history: git log.
+- [x] 5.9 `content`: audited all 40 `demoScoreId` lessons on five dimensions (key, hand, octave, note
+      values, concept) — **11 mismatches, not the 2 reported**. The 4 key ones fixed by 5.8; the other
+      7 real but a different fix shape, tracked as 5.9a. Full table in the commit body.
+- [x] 5.9a `content`: authored a real demo for each of the 7 non-key mismatches (hand/octave, eighth
+      notes, dotted rhythm, I-IV-I progression, circle of fifths, relative minors, contrary motion) —
+      all via `@core/notation/score.ts` builders, no verbatim transcription. `demoScores.ts` split into
+      `demoScores.ts` + `harmonyDemoScores.ts` + `demoScoreTypes.ts` on file-size grounds. Each fix has
+      a content assertion reading the demo's actual notes, not its title; all 7 driven live (a0f985f).
+      Full history: git log.
+- [x] 5.9b `app/lessons`: "Open demonstration" now navigates to Practice after loading the demo score
+      (`LessonsScreen`'s new `onOpenDemo` → `Shell`'s `goTo('practice')`), instead of leaving the
+      learner on the Lessons screen. Driven in a browser: one click, no second step (ec91440).
+- [x] 5.10 The gate itself, over what 3.24/3.25 landed. Verified live, not from the ticked boxes: every
+      theory lesson at every level (1-5) opens with a real engraved `<svg>` diagram, console clean —
+      driven in the browser on port 5325, screenshotted both widths/themes on `l4-seventh-chords` and
+      `l5-minor-scale-forms` (both new), console clean throughout.
+      **Content audit, the 5.9 five dimensions (key, hand, octave, note values, concept) re-run over
+      what exists now: 46 `demoScoreId` lessons audited (40 from 5.9 + 6 new from 3.24), 6 defects
+      found** — all six new level 4-5 lessons' demos were on-topic but not on-topic enough: a
+      triad-inversion cycle standing in for `l4-seventh-chords`' actual seventh chord, a bare V-I
+      standing in for all four of `l4-cadences`' named types, one progression standing in for
+      `l4-common-progressions`' three, a chord pair (not a scale at all) standing in for
+      `l5-minor-scale-forms`, a plain I-V-I never sounding the borrowed chord `l5-secondary-dominants`
+      names, and a same-key run with no chord ever reinterpreted standing in for
+      `l5-modulation-closely-related-keys`'s pivot. Both of the task's flagged open gaps are closed, not
+      argued acceptable: authored 6 new demos in `harmonyDemoScores.ts` (`@core/notation/score.ts`
+      builders only, no transcription) that play exactly what each lesson's prose promises, verified
+      against the real theory core, not the demo's title — `romanNumeralFor`/`classifyCadence` on the
+      cadences and the modulation's actual pivot chord, `scaleNotes` pitch-class assertions on the three
+      minor forms. The 40 pre-existing lessons re-checked clean (5.9/5.9a's fixes hold).
+      A second, smaller pass over diagram-vs-prose (part of verifying 3.25, not a demoScoreId
+      dimension): 1 of 25 diagrammed lessons found short — `l3-keys-to-two-sharps-flats` names D major
+      and B-flat major with equal weight but only diagrammed D major; added `b-flat-major-scale` to
+      `diagrams.ts` and referenced it. *Proof: `curriculum.test.ts`/`demoKeyConsistency.test.ts` stay
+      green; `demoScores.test.ts` gained 11 new content assertions reading each new demo's actual notes
+      (never its title) — 108 of 108 scoped tests pass, `npm run typecheck` clean, `eslint` clean on
+      every owned file.* Deleted nothing — the six repointed lessons' old demoScoreIds
+      (`demo-c-major-triad-blocked`, `demo-authentic-cadence-c-major`, `demo-i-iv-v-i-c-major`,
+      `demo-c-major-and-a-minor-triads`, `demo-i-v-i-c-major`, `demo-circle-of-fifths-c-g-f`) stay in
+      the registry, still referenced by their original level 2-3 lessons.
+
+### Sight reading — **5/10 → 9**
+
+The rules are exactly right — 30-second silent preview matching ABRSM's "up to half a minute", a
+forced start, no stopping, unrepeatable exercises, an 80–90% adaptive band. The ladder is wrong.
+`melody.ts:626 LEVEL_ROWS` resolves to: level 1 C major with a **7-semitone leap** permitted; level 4
+**E major (4♯)**; level 5 **D♯ minor (6♯)**.
+
+- [x] 5.11 `core/generator/melody`: rebuilt `LEVEL_ROWS` into six levels (was five) — level 1 is a
+      genuine stepwise-one-direction run (`stepwiseLine.ts`, new), no level below the top exceeds 2
+      accidentals (old E-major/D♯-minor bug moved to level 6, on purpose). Opus review caught two real
+      regressions, both fixed (`doubleHand` unison octave fold, `dictation.ts`'s leap budget). Proof:
+      monotonic-ladder property test, 500-seed level-1 assertion; browser: level 1 renders a real
+      4-note ascending run (5e3d8be). Full history: git log.
+- [x] 5.12 `app/sightreading`: exposed the generator parameters `core/generator/melody.ts` already
+      supported (REQ-3.4.2: key, range, rhythm, hands, accidentals, independence) behind a closed-by-
+      default "Customize exercise" panel (`customization.ts`'s pure merge over a level's own
+      `defaultParamsForLevel`, applied only when at least one field is actually set — the ordinary
+      auto-drawn, retirement-aware path is unchanged). Bars/time signature/max leap stay level-governed;
+      range is a register shift (±1 octave, clamped to the real piano) rather than a free-form width,
+      so a custom range can never break the generator's own leap-vs-width invariant.
+      *Proof: `e2e/sight-reading-customizer.spec.ts` sets key = G, hands = left only, no accidentals,
+      and reads the rendered SVG — one `.vf-keysignature` sharp, one `.vf-clef` (single staff, not a
+      grand staff with an empty half), and every `.vf-modifiers` group empty. Visual pass both widths/
+      themes, console clean — caught and fixed one real defect: the unstyled control row wrapped
+      mid-label ("No" / "accidentals" split across lines) at 1024px, fixed with a `domain.css` rule
+      that wraps each label+control as one atomic unit.*
+- [x] 5.13 `core/generator`: generated exercises engraved with the title "Untitled Score" — the part
+      name half ("Piano" above the staff) was already fixed app-wide as a side effect of 3.14. Gave
+      `generateMelody` a `Sight Reading — <key>` title and `techniqueScore` the drill's own title
+      (all four drill kinds: five-finger, scale, arpeggio, chord-inversions). Driven in the browser:
+      Sight reading renders "Sight Reading — C major", Technique renders "C major five-finger
+      pattern, right hand". Full history: git log.
+
+### Progress & motivation — **4/10 → 9**
+
+`practiceLog.start(...)` has **exactly one call site** in the whole app — `PracticeScreen.tsx:267`,
+hardcoded to `'repertoire'`. Sight reading, Flashcards, Ear training, Rhythm, Technique, Theory and
+Lessons log nothing, so a learner who follows the Today plan and skips the repertoire segment records
+**0 minutes and breaks their streak**. `'warmup'` is a declared category, is rendered on the Progress
+screen, and is written by nothing. The review's verdict: a practice log that silently drops 6/7 of the
+work is worse than none, because it will be trusted.
+
+- [x] 5.14 `app`: log practice time from all seven activity screens through the existing
+      `usePracticeLog` hook (2.24/@app/practice/usePracticeLog.ts), reused across screens rather than
+      copied — Sight reading, Ear training and Technique log on their own explicit start/stop; Rhythm
+      shares `'technique'` (a tapping drill is the same physical/timing family); Flashcards and Theory
+      share `'theory'` (recall practice, and `FlashcardScreen` already doubles as the theory-quiz deck
+      per 4.9c); Lessons logs on `selected` lesson changes. Deleted `'warmup'` from `ActivityKind`
+      rather than writing it — nothing wrote it, and the real warm-up SEGMENT feature is 5.45, out of
+      scope here — so this is six `ActivityKind`s from seven screens, not seven from seven. Mount-driven
+      starts (Flashcards/Theory/Lessons) defer their `start()` one macrotask and cancel it in cleanup:
+      un-deferred, React 18 StrictMode's synchronous mount→cleanup→remount double-invoke stored a real,
+      near-zero-duration phantom entry on every fresh mount, caught by this task's own e2e before it
+      shipped — a `PracticeTimer` session is not the idempotent kind of resource that pattern is usually
+      applied to.
+      *Proof: `e2e/practice-log-all-screens.spec.ts` drives all seven screens for real in one session
+      (never seeded) and reads the resulting rows back from the real IndexedDB `practiceLog` store,
+      cross-checked against `totalMinutes` (the 4.7b pattern). Deviates from the proof as originally
+      written in two ways, both explained in the spec's own module doc: six non-empty `ActivityKind`
+      buckets, not seven (per the `'warmup'` deletion above), and per-kind duration is asserted exact
+      and positive from IndexedDB rather than demanding every individual on-screen row round to a
+      visible non-zero minute (the display rounds to the nearest whole minute; six real per-screen
+      interactions each meeting that bar would cost 3+ minutes of real wait for no stronger a proof).
+      The six controlled interactions do sum past that rounding threshold, so the Progress screen's
+      aggregate "This week" figure is asserted as a genuine visible non-zero number too, matching
+      `totalMinutes` run over the real stored rows. Visual pass (Progress screen, the only one whose
+      rendering changed — the `'warmup'` row is gone): both widths, both themes, console clean.
+- [x] 5.15 `core/progress`: found already correct, not a code defect — `currentStreakDays`/
+      `longestStreakDays` never read `PracticeEntry.kind` at all, and `useDashboard.ts` already passed
+      the full, unfiltered `practiceEntries` through (confirmed by `useDashboard.test.ts`'s own fixture,
+      which already mixed technique/sightreading/repertoire/theory/warmup days). The review's finding
+      was real in EFFECT — the streak only ever moved because repertoire was the one screen that logged
+      anything (5.14) — but not in the streak function itself. Closed the actual gap: no browser-driven
+      proof existed (the 4.7b pattern this project holds itself to — "a screen re-deriving a plausible
+      number cannot pass" cuts the other way too: code proven only by inspection cannot pass either).
+      *Proof: `log.test.ts` gained an explicit eartraining-only-day case plus an all-`ACTIVITY_KINDS`
+      property test; `e2e/streak-any-activity.spec.ts` seeds IndexedDB directly with a
+      technique+eartraining two-day streak (no repertoire at all), reads "2 day(s)" off the live
+      dashboard, then removes the earlier day and reads "1 day(s)" — the gap breaking it. Console clean.*
+- [x] 5.16 `app/dashboard`: the Progress screen prints raw category keys — `warmup / technique /
+      sightreading / repertoire / lesson / theory / eartraining`. Give them display names, from one
+      mapping that a new category cannot silently bypass.
+      *Proof: the screen shows "Sight reading", not `sightreading`, and a type-level exhaustiveness
+      check fails the build if a `PracticeCategory` is added without a display name.*
+
+### Practice screen usability — **3/10 → 9**
+
+30 controls in 13 labelled groups across ~5100px of scroll, nothing collapsed, nothing marked "start
+here". *Tempo ramp*, *Read ahead*, *Assessment* and the annotation editors sit at the same visual
+weight as Play. The app already tracks a per-track level and does not use it to decide what to show —
+except for the analysis panel, correctly gated to theory level 4+ (3.18). That pattern should be the
+rule, not the exception.
+
+- [x] 5.17 `app/practice`: progressive disclosure gated by the `playing` track's level. A level-1
+      learner sees transport, tempo, hands, metronome, loop range and record — everything the screen
+      showed before this task. Curriculum content (`curriculum.ts`) never names "wait mode" or
+      "assessment" against a level number (it is lesson prose, not a skills-per-level table), so the
+      two thresholds are a judgement call, documented in `PracticeScreen.tsx`'s own comment: wait mode
+      unlocks at level 2 (REQ-3.3.3 ties it to hands-together, level 1's own last unit); Assessment,
+      tempo ramp, Read ahead and the annotation panel unlock at level 3, behind a collapsed "More
+      tools" `<details>` (the 5.12/3.18a convention) that is entirely ABSENT below the gate, not
+      merely closed. "Manual override for the learner who wants everything" is the dashboard's own
+      existing per-track level override (2.36/4.3) — no second toggle was added. Each gate also stays
+      open once its own feature is already active (wait mode/read-ahead/the ramp/a running assessment),
+      so a dashboard override dropping the level mid-session can never strand a control the learner has
+      no way left to turn off.
+      *Proof: `PracticeScreen.test.tsx`'s new "progressive disclosure" describe block — level 1 hides
+      both tiers (ABSENT, via `queryBy`, not collapsed), level 2 reveals wait mode only, level 3 reveals
+      "More tools" (closed by default), the hydration race shows neither at a qualifying level while
+      unsettled, and an active Read ahead survives a level drop. Driven in the real app: seeded
+      `playing: 3` into IndexedDB, confirmed via the accessibility tree that Wait mode and a collapsed
+      More tools (Tempo ramp, Read ahead, Assessment, Fingering, Highlight, Measure note) appear, and
+      confirmed via `scripts/visual-pass.mjs` that level 1 and level 3 are each console-clean at both
+      widths/themes. Eight e2e specs that drove the now-gated controls directly (`waitmode`,
+      `practice-onscreen-keyboard`, `assessment`, `assessment-locked`, `dashboard-assessment`,
+      `read-ahead`, `notehead-select`, `round6`'s measure-note test) updated to seed a qualifying level
+      first — real regressions this task would otherwise have introduced into the existing suite, all
+      now green.*
+- [x] 5.18 `app/practice`: give the remaining controls a hierarchy — primary transport pinned, related
+      groups collapsed into sections rather than one flat column. Loop range, hand mute, metronome,
+      wait mode and record/replay (5.17's ungated level-1 groups) move into one new collapsible
+      "Practice setup" `<details>`, styled like "More tools" (previously unstyled) via new rules in
+      `feature-practice-sections.css`. Defaults OPEN unlike "More tools" (5.17 promises these with no
+      extra click, and nine e2e specs outside this boundary reach them directly — all re-run green,
+      untouched); still real and closable, which the proof exercises.
+      *Proof: Playwright, 1280px, level 3, the real bundled piece — 6 controls visible without
+      scrolling (≤10), 874.5px practice column with both closed (<2000px), Play visible after
+      scrolling 2000px (1.21 holds). `visual-pass.mjs` clean both widths/themes; 270 `vitest` green.*
+
+### Rhythm drill — **2/10 → 9**
+
+A complexity-1 drill renders `Bar 1: half, half / Bar 2: whole / Bar 3: whole rest / Bar 4: half rest,
+half`. No notation. This is the identical defect 2.20 fixed for sight reading and never applied here —
+it trains reading the word "half". Two further problems in that same screenshot: the lowest complexity
+opens on whole and half **rests** (Faber puts the quarter rest last, at unit 10), and "complexity 1 =
+whole and half notes" inverts the order Faber and Alfred agree on, **quarter → half → whole**.
+
+- [x] 5.19 `app/rhythm`: engrave the pattern — reused `rhythmToScore` (already built for silent
+      transport playback) and `@app/sightreading/ExerciseScore.tsx` (already reused by Technique)
+      instead of a third MusicXML-writer wiring. Deleted `PatternPreview.tsx`'s text stand-in
+      ("Bar 1: half, half…"), the same precedent 2.20 set deleting `NoteListPreview`.
+      *Proof: `e2e/rhythm.spec.ts` — a real OSMD svg (83 elements, past the 50-element discriminator),
+      no "half"/"whole" text, `[data-note-id]` count equals matched+missed. Driven live, both themes/
+      widths, console clean.*
+- [x] 5.20 `core/generator/rhythm`: reorder complexity — level 1 is quarters and halves with **no rests**;
+      rests enter after note values are secure, quarter rest first. Gave complexity 1 a `QUARTER`
+      floor (was `HALF`) plus a new `HALF` ceiling (`mergePulses`'s optional-merge pass otherwise
+      folds a whole bar into one whole note), and made `REST_PROBABILITY` complexity-keyed (0 at
+      complexity 1, unchanged 0.25 elsewhere) instead of one flat constant — complexity 2 inherits
+      `QUARTER` as its existing floor, so it is automatically also the first complexity whose rests
+      can't be shorter than a quarter, with no second table to keep in sync.
+      *Proof: `rhythm.test.ts` — 500-run property confirms zero rests and quarter-to-half-only notes
+      at complexity 1, plus two mutant checks (broken floor, broken ceiling) and two complexity-2
+      rest-ordering tests. Browser: `visual-pass.mjs Rhythm --click Start` on real generated content
+      reads "Bar 1: quarter, quarter, half" / "Bar 2: quarter, quarter, quarter, quarter" / etc. —
+      quarters and halves only, no rests, no wholes. `e2e/rhythm.spec.ts` updated for the new
+      quarter-note grid (was hardcoded to the old half-note-only assumption) and passes against the
+      real dev server. Console clean, `npm run verify` green.*
+- [x] 5.21 Rhythm also needed **3.21** (clap/tap-back). Done together with 3.21 — see that line;
+      "Clap-back mode" on the Rhythm screen IS the Rhythm-specific delivery this line asked for.
+
+### Technique — **5/10 → 9**
+
+The content is right and was verified note by note: pentascales before scales before two-octave
+hands-together, and the fingerings are exactly standard including B♭ major, descending included. The
+presentation destroys it — that fingering is rendered as **58 numbers on one line with both hands
+interleaved and unlabelled**. Fingering numbers belong above the noteheads, which is where every
+printed edition puts them and which OSMD renders natively.
+
+- [x] 5.22 `app/technique` + `core/notation`: put fingering numbers on the staff, above their own
+      noteheads, per hand. Deleted the interleaved string. The gap was the writer, not OSMD or the
+      adapter: `ScoreNote.fingering` was already correct end to end (`techniqueScore` →
+      `makeScore`), and OSMD's `RenderFingerings`/`FingeringPositionFromXML` default to exactly what
+      this needed — `writeMusicXml` (`musicxmlwriter.ts`) just never emitted the
+      `<technical><fingering>` notation. Now writes it with an explicit `placement` (`above` for the
+      right hand, `below` for the left), so OSMD's own above/below heuristic is never in play.
+      *Proof: `e2e/technique-fingering.spec.ts` drives the real C major two-octave drill, reads the
+      first 8 right-hand fingering glyphs off the rendered SVG (not the model) matched to their OWN
+      notehead by nearest x, and asserts each reads `1 2 3 1 2 3 4 1`, is horizontally centred on
+      that notehead (±4px) and sits above it; the left hand gets the same per-note check, below.
+      Visual pass both widths/themes, console clean, screenshotted.*
+- [x] 5.23 `app/technique`: say what MIDI cannot see. Wrist height and collapse, forearm alignment,
+      finger curl, *which* finger was actually used, shoulder tension, bench height, posture — the
+      Taubman/Golandsky literature names dropped wrists and isolated finger motion as direct causes of
+      tendonitis. A clean tempo history implies technical validation the app cannot perform. Say so
+      once on the screen, and prompt periodically for a human check.
+      *Proof: the statement is on the Technique screen (asserted by an e2e reading it, so it cannot be
+      deleted silently), and a periodic posture prompt fires on a schedule driven by the injected
+      `Clock`, never real time.*
+      Done: a standing statement (`technique-safety-statement`) sits directly under the "Technique"
+      heading, always rendered, not behind a disclosure — `e2e/technique-safety.spec.ts` reads it off
+      the running app. The posture prompt's schedule (`src/app/technique/posturePromptSchedule.ts`) is
+      pure, has no React/Clock/`Date.now()` dependency of its own, and fires once EITHER 10 minutes of
+      cumulative drill-running time OR 6 completed attempts (clean or not) have passed since the last
+      acknowledgement — argued in the module's own comment: static-tension injury builds with time,
+      isolated-finger-motion injury builds with reps, and a short fixed-interval timer (rejected) trains
+      the learner to dismiss it by reflex. 8 property tests (`posturePromptSchedule.test.ts`) plus 4
+      `useTechniqueDrill.test.ts` cases prove both triggers fire from a `FakeClock` alone, never real
+      time; `e2e/technique-posture-prompt.spec.ts` drives 6 real on-screen-keyboard attempts in a
+      browser to the prompt-visible state and back. Visual pass (dark/light × 1280/1024, plus the
+      prompt-visible state at 1280) console-clean in every configuration; screenshots reviewed by hand.
+      Deleted nothing.
+
+### Accessibility — **7/10 → 9** · visual design system — **8/10 → 9**
+
+Contrast was measured live from the CSSOM and every pair passes AA; the one that fails is commented as
+deliberately decorative. One real defect: `colors.css` states the rule in its own comment — *"Color is
+NEVER the only signal"* — `domain.css` implements `.note-missed { stroke-dasharray: 2 2 }`, and
+**nothing ever applies those classes**. `osmdEngraver` writes `NoteheadColor`/`StemColor` only, from
+three hardcoded hexes duplicated out of the token file (`useNoteFeedback.ts:136-138`). So correct
+(#1c7c3c) vs wrong (#c22f2c) is distinguished **by hue alone** — the worst pair for red-green CVD.
+
+- [x] 5.24 `adapters/osmd`: `paint()` classifies the colour `setNoteColor` gets against `FEEDBACK_CORRECT_COLOR`/`WRONG`/`MISSED` and stamps the matching
+      `.note-correct`/`.note-wrong`/`.note-missed` class on the notehead, on the no-re-render fast path; `reapplyFeedbackClasses` restamps after every
+      OSMD-triggered re-render (autoResize), since a class has no model-level survival. 3 states colour a note; `extra` colours none, needs no class — 3
+      reported, 3 confirmed. 2 more `domain.css` defects found and fixed: the class landed on `<g class="vf-notehead">`, but the child `<path>` OSMD
+      paints has its OWN `stroke="none"`/`dasharray="none"`, blocking inheritance — even `.note-missed` (never exercised before) was inert; added a
+      `path` descendant selector plus explicit `stroke-width` (was an invisible inherited 0.3px). `.note-wrong` redesigned hollow+dotted, not
+      filled+scalloped, which read as noise at real notehead size (verified live). `useNoteFeedback.ts`'s colours stay literal hex, not imported —
+      `note-colour.spec.ts` (out of scope) scrapes `WRONG_PITCH_COLOR` verbatim; `osmdEngraver.ts` exports the same 3 under its own names, synced by comment.
+      *Proof: `e2e/note-shape.spec.ts` (new) — under greyscale, a wrong note carries `class="note-wrong"` and non-empty `stroke-dasharray`;
+      `note-colour.spec.ts`/`perf-large-score.spec.ts` (0 long tasks) unchanged, green. 8 new `osmdEngraver.test.ts` cases.*
+- [x] 5.25 `app`: `OnScreenKeyboard` keys were labelled `"Key 48"`, `"Key 49"` — MIDI numbers read out
+      loud. The default (sharp) spelling from `core/theory/pitch.ts`'s `midiToName` now backs the
+      `aria-label`; the key stays visually unlabelled (a real piano prints nothing either, and the
+      module doc's whole point is that a flashcard printing the answer would test nothing). Nine
+      consumers across four unit-test files and four e2e specs asserted the old `"Key N"` string —
+      `e2e/qwerty-note-input.spec.ts` derived the lowest playable MIDI note by PARSING that string, so
+      it gained the inverse of `midiToName` (sharps-only, matching the default) rather than reading a
+      number off the label.
+      *Proof: `OnScreenKeyboard.test.tsx`'s new case reads the middle-C key's accessible name as "C4"
+      through Testing Library's role query (which resolves the real accname algorithm, not
+      `textContent`); confirmed live — `document.querySelector('[aria-label="C4"]')` finds the key.
+      All four rewritten e2e specs pass unchanged in behaviour. Console clean, no visual change (the
+      change is accessibility-tree only).*
+- [x] 5.26 `app/flashcards`: clef glyphs are Unicode `U+1D11E`/`U+1D122` rendered in `system-ui` with
+      no bundled music font, so they depend entirely on OS font fallback. Bundled Bravura (SIL OFL
+      1.1) — `src/design-system/fonts/bravura/Bravura.woff2`, 323,528 bytes, fetched from the official
+      `steinbergmedia/bravura` GitHub release (`bravura-1.481`) since neither `opensheetmusicdisplay`
+      nor `vexflow` ship an actual font file in `node_modules` (only the string "Bravura" as a
+      fallback name, plus their own JS glyph-path data for canvas engraving). Verified with `fontTools`
+      that plain `Bravura` (not `BravuraText`) already covers every codepoint this app uses as text —
+      no SMuFL remapping needed. Not subset (would need a new build-time dependency, out of this
+      task's scope); shipped unsubsetted, size stated above. `feature-music-font.css` declares the
+      `@font-face` and a `.music-glyph` class; `StaffNote.tsx`'s clef and accidental `<text>` nodes
+      (the only glyph-as-text usages in the file this task owns) now carry it. Found 2 more instances
+      of the same defect outside this task's owned files — `KeySignatureAnswerPad.tsx` and
+      `NoteNameAnswerPad.tsx` also render `♯`/`♭`/`\u{1D12A}`/`\u{1D12B}` as plain button-label text —
+      reported, not fixed (out of scope: `src/app/drills/**` other than `StaffNote.tsx` was explicitly
+      not owned by this session).
+      *Proof: self-hosted confirmed live — the running app fires a real network request for
+      `http://localhost:5307/src/design-system/fonts/bravura/Bravura.woff2` (same origin as the page,
+      captured via Playwright's request log), never a third-party host. `e2e/music-font.spec.ts` drives
+      the actual Flashcards screen (no fixture), confirms `document.fonts.check('34px Bravura')` is
+      true, reads the real clef glyph's live `getBBox()` (width 24px, height 137px — non-zero on both
+      axes) and compares it against a control element rendered with the pre-fix `system-ui` fallback
+      stack in the same fontless Chromium (18px × 46px) — bundled rendered area is ~3.7x the control's,
+      proving the font swap changed what actually painted, not merely that `font-family` was declared.
+      Visual pass (`visual-pass.mjs Flashcards`, both widths, both themes) shows a correctly engraved
+      treble/bass clef seated on the staff lines with the right baseline, console clean in all four.*
+- [x] 5.27 `app`: confirm the ≤1024px responsive drawer **by hand in a real browser at tablet width**.
+      The review could not verify it — the automation pane does not composite frames, so the nav's
+      `translateX(-100%)` transition sits frozen at t=0. That is an environment artefact, not a defect,
+      and it is the one claim in the review that is unchecked. Folds into **B.6**.
+      *Proof: at 768×1024, the drawer opens and closes on tap, the scrim dismisses it, no control is
+      under 44px, and the page does not scroll horizontally — screenshotted, not asserted from CSS.*
+      The interactive Browser pane would not composite here either, so verified via Playwright (a real
+      compositing Chromium) instead, per the task's own fallback instruction — `e2e/responsive-drawers.spec.ts`,
+      covering both drawers this app now has (nav, and 3.17's new reference drawer). **The drawer was
+      genuinely broken and is now fixed**: `.app-nav` and `.app-topbar` shared the same `--z-nav` tier,
+      and `.app-nav` painted later in the DOM, so the OPEN nav drawer visually covered its own
+      `.nav-toggle` hamburger — a second tap on the same icon that opened it hit the drawer's own
+      "Today" button instead of closing anything, and only the scrim or a nav item's own
+      navigate-and-close could dismiss it. Fixed in `src/design-system/css/responsive.css` by giving
+      `.app-topbar` a z-index one tier above `.app-nav` (`calc(var(--z-nav) + 1)`), documented in place.
+      Fixing that then covered the reference toggle in turn (same tier collision), fixed by raising
+      `.reference-toggle` to the panel's own `--z-dialog` tier in `feature-reference-panel.css`. First
+      screenshot attempt also caught a genuinely mid-transition frame (proof the composite-frame problem
+      is real) — fixed by waiting out the 200ms `--dur-2` transition before each capture; real settled
+      screenshots are in `visual-pass/5-27-responsive-drawers/`. Full existing e2e suite (101 specs)
+      re-run clean after both CSS fixes — no regression.
+
+### Ear training — **4/10 → 9**
+
+Level 1 plays an interval **cold** and offers four buttons. Both exam boards do the opposite,
+explicitly: RCM states the key and plays the tonic triad first; ABRSM plays the key-chord and the
+tonic and counts in two bars — **at Grade 1**. Karpinski: tonic inference is the first and most
+fundamental process a listener carries out. ABRSM's aural tests contain **no interval-identification
+test at any grade**. Feedback is "Correct" — a learner who guesses right learns exactly as much as one
+who guesses wrong.
+
+- [x] 5.28 `app/eartraining` + `core/eartraining`: a tonic+fifth drone plays before every item that has
+      a real tonic to anchor on — the item's own root/lower note for interval/chord/scale items, the
+      generated `Key`'s tonic for melodic dictation; rhythmic dictation gets none (rhythm has no scale,
+      `dictation.ts`'s own doc). A screen-local checkbox ("Play tonal context before each item",
+      defaulted on) is the context-free override. Driven in the browser: interval and melodic-dictation
+      drills play, grade and toggle correctly; console clean both widths/themes. Full history: git log.
+      *Proof: the recorded `AudioOutput` calls carry the key chord's pitches at the right timestamps
+      BEFORE the item's first note (the 3.13 pattern — assert the calls, not the projection), and the
+      drill still grades the same answers.*
+- [x] 5.29 `app/eartraining`: reveal the answer. New `RevealPanel.tsx` renders after every graded item
+      (correct or wrong, since a correct guess taught as little as a wrong one before this) — the
+      answer named with its REAL sounding pitches ("major third — C3 and E3", not just "a major
+      third"), engraved on a staff (`ExerciseScore` + `createOsmdEngraver({ presentation: 'reference'
+      })`, the same pipeline `ScaleStaff` uses — imported, not edited) and shown on `KeyboardDiagram`
+      (imported, not edited), plus — interval kinds only — a "Play reference interval" control
+      (`useEarTraining.ts`'s new `playIntervalReference`, always middle-C-anchored, register-
+      independent of the draw) and a named mnemonic tune (title only, no melody or lyrics reproduced).
+      The existing Replay control is what "replay with the answer named" reuses; no second Replay
+      button.
+      *Proof: `EarTrainingScreen.test.tsx`'s "a wrong answer reveals the two actual pitches, a staff, a
+      keyboard, and replays on request" asserts the DOM (pitch names, staff, keyboard) and the
+      `RecordingAudioOutput` calls after pressing Replay; `RevealPanel.test.tsx` (11 tests) covers
+      every kind directly; `e2e/eartraining-reveal.spec.ts` drives the real running app end to end
+      (interval and chord-quality kinds), 2/2 green against a real OSMD render. Visual pass
+      (`scripts/visual-pass.mjs "Ear training" --url http://localhost:5303 --click Play --click
+      "major third"`) at both widths, both themes: console clean, reveal fully visible.*
+- [x] 5.30 `core/eartraining/intervals`: staged the interval set by level — level 1 is exactly {M3,
+      m3}; level 2 adds P5; level 3 adds P4; level 4 adds P8 (the octave); level 5 folds in the rest
+      (M2/m2/M6/m6/M7/m7, the tritone, and the compounds of levels 1–4 minus the octave). Follows RCM;
+      the module doc states explicitly this is a defensible choice among several (Trinity's 2nd–6th
+      together, Musical U's 2nds-first), not the only one.
+      *Proof: `intervals.test.ts` asserts the exact level-1 set and that each later level adds rather
+      than replaces (plus the pre-existing monotonic property test, unchanged); `IntervalAnswerButtons.
+      test.tsx` confirms the on-screen pad matches the new staging. `useEarTraining.test.ts` and
+      `EarTrainingScreen.test.tsx` updated throughout for the new level-1 draw (M3 instead of P5).*
+- [x] 5.31 `app`: the SRS panel exposes Anki's internal vocabulary to a piano beginner — *Cards / Due /
+      Young / Mature / Average ease 2.50* — on Ear training, Flashcards and Theory. Nobody learning
+      piano knows what a mature card is. Replace with learner-facing language; keep the raw numbers
+      behind a details toggle if they are wanted for debugging.
+      3 reported, 4 found: `DashboardScreen.tsx`'s "Theory retention" section rendered the identical
+      *Young / Mature / Average ease* row and was not named in the original report. Built one shared
+      `src/app/srs/SrsSummary.tsx` (never four copies) and pointed all four screens at it. New words:
+      **Due now** (unchanged — already plain), **New** (`total - young - mature`: never yet answered
+      correctly), **Learning** (the scheduler's `young`: recalled once, interval still short — "still
+      building the memory"), **Mastered** (the scheduler's `mature`: interval ≥ 21 days — "you know
+      this well now"). The scheduler's own words move into a closed-by-default `<details>` ("Scheduler
+      details"), the same disclosure convention `SightReadingCustomizer.tsx`/`.practice-more-tools`
+      already use — not deleted, one click away for debugging. Numbers unchanged throughout; only
+      label and default visibility moved. `src/core/srs/scheduler.ts` untouched, its own tests
+      unchanged and green.
+      *Proof: `SrsSummary.test.tsx` (new, 4 tests) asserts the translation and the empty state; none
+      of "Young", "Mature" or "ease" appears in the default (closed-`<details>`) view of any of the
+      three drill screens — confirmed both by component test and a driven Playwright run against
+      `localhost:5322` that answers a real Key-signature flashcard, watches Cards/Due now/New/
+      Learning/Mastered move with real numbers (1/0/0/1/0), then opens "Scheduler details" and reads
+      the same data back as Young:1 Mature:0 Average ease:2.65. `visual-pass.mjs` clean (console, both
+      themes, both widths) on Flashcards, Ear training, Theory and Progress.*
+- [x] 5.32 `app/eartraining`: added a persistent on-screen statement, visible for every drill: "This
+      screen has no microphone — it can't hear you sing, only what you click or play on a keyboard.
+      RCM accepts keyboard playback like the answers here as an equivalent response, but ABRSM,
+      Kodály, Dalcroze and Berklee all grade aural skills by having you sing back what you heard. Get
+      the fuller benefit by singing the interval, chord or phrase back out loud — away from this
+      screen — before you check the answer below."
+      *Proof: `EarTrainingScreen.test.tsx`'s "states on screen that it cannot hear singing, names
+      RCM's keyboard exception, and tells the learner what to do instead" asserts the statement, the
+      named RCM exception, and the named away-from-the-app practice (sing back out loud); a second
+      test confirms it persists across drill selection.*
+- [x] 5.33 Copy bug fixed: `describeExpected` now prepends a phonetic (not orthographic) indefinite
+      article via a new `articleFor` helper — "it was a perfect fifth" / "it was an augmented fourth".
+      Class searched within the owned files: 1 reported, 1 found — `EarTrainingScreen.tsx`'s
+      wrong-answer feedback line is the only place this sentence is built.
+      *Proof: `EarTrainingScreen.test.tsx` asserts "it was a major third" from a real wrong answer
+      driven through the app; a dedicated `articleFor`/`describeExpected` suite covers every quality
+      this drill can produce, plus the "unison"-is-a-consonant-sound exception ("a unison" vs "an
+      octave") directly.*
+- [x] 5.34 `core/eartraining/dictation`: the 2–8 note bound now scales linearly by level via a new
+      `noteBoundsForLevel` — level 1 is 2–3 notes, level 5 is 7–8, levels 2–4 interpolate (3–4, 5–6,
+      6–7) — the outer bracket (`MIN_DICTATION_NOTES`/`MAX_DICTATION_NOTES`, still 2 and 8) is kept
+      exactly as REQ-3.6.1 states it, applied identically to both the melodic and rhythmic generators.
+      *Proof: `dictation.test.ts`'s new property test asserts level 1 is 2–3 notes and level 5 is 7–8,
+      over 200 generated items per level, for both kinds; a second property test pins the level-3
+      midpoint (5–6 notes) to guard against a mutant that scales only one end of the window.*
+
+### Theory reference — **6/10 → 9**
+
+Verified correct: both rings of the circle of fifths including every enharmonic pairing, C major
+fingering, mode-aware degree names (C Dorian correctly shows *subtonic* B♭), diatonic triads. The gaps
+are half-finished features, and one of them is a real teaching blocker: **minor scales show `—` in
+both fingering columns**, and minor scales are required from RCM Preparatory B onward.
+
+- [x] 5.35 `core/theory`: shipped **minor** scale fingerings as a lookup table (`MINOR_FINGERINGS`,
+      shared by natural/harmonic; `MELODIC_MINOR_RIGHT_HANDS` overrides exactly C♯/F♯ minor's right
+      hand) — narrower and safer than 3.16's reverted full 16-type derivation. Adversarial re-review
+      confirmed every row against relative-major rotation and found one real defect one layer down:
+      `technique/library.ts`'s multi-octave descent reused natural minor's OWN fingering rather than
+      the ascent's, repeating a finger at the top in exactly C♯/F♯ melodic minor (latent — no shipped
+      drill reached it); fixed to mirror the ascent's fingers, pitches unchanged. 3.16's four
+      properties hold over all 12 tonics × 3 forms × both hands (exhaustive, not sampled), plus a
+      score-level property test over every shipped scale drill. Driven in the browser: A harmonic
+      minor reads RH 1 2 3 1 2 3 4 5 / LH 5 4 3 2 1 3 2 1 (leading tone never a thumb), Db melodic
+      minor reads the C♯ exception, Ab natural minor reads its forced two-white-key fingering —
+      real numbers where the reference showed `—`. Full history: git log.
+- [x] 5.36 `app/theory`: **Major** and **Ionian** are separate dropdown entries, as are **Natural
+      minor** and **Aeolian**. They are the same scales, and a beginner reads two entries as two
+      things. Merge, with the alternative name shown as a subtitle.
+      *Proof: `#reference-scale-select` now has 14 options, not 16 — no separate "Ionian" or
+      "Aeolian" row (`SCALE_TYPE_OPTIONS` filters them out of the local `SCALE_TYPE_LABEL` map,
+      the picker's own source of truth; `scales.ts`'s core `TYPE_NAMES` — which feeds the
+      `scaleName()` header, a different concern — is untouched and unowned this round). Selecting
+      "Major" or "Natural minor" shows a `<small>` subtitle under the picker ("Also known as
+      Ionian"/"Aeolian"); every other scale type shows none. A `scaleType` prop of literally
+      `'ionian'`/`'aeolian'` (the type still carries both, unedited) still lands the picker on its
+      merged option rather than showing nothing selected. 5 new tests in
+      `ChordScaleReference.test.tsx`. Driven live at `http://localhost:5302`:
+      `node scripts/visual-pass.mjs Theory --url http://localhost:5302 --select
+      "#reference-scale-select=Major"` and `...=Natural minor`, both widths, both themes, console
+      clean, subtitle visible in every shot.*
+- [x] 5.37 `—` for the modes is defensible and should be *labelled*, not filled. RCM's 2022 technical
+      requirements chart returns **zero hits** for dorian/phrygian/lydian/mixolydian/aeolian/locrian/
+      whole-tone/blues/pentatonic at any level; modes appear only in ABRSM's Jazz syllabus. Replaced the
+      bare `—` with "no standard fingering — modes are not in the graded syllabi" for exactly those
+      11 types (`NO_STANDARD_FINGERING_TYPES`, `core/theory/scales.ts`) — deliberately EXCLUDING the
+      three minor forms, which still read a bare dash: they lack a table today too, but they ARE in
+      the graded syllabi (RCM Preparatory B on), so the sentence would be false for them. That gap is
+      5.35's, not this one's.
+      *Proof: the Dorian row reads that sentence rather than a dash (both fingering cells merged into
+      one, roadmap-`ChordScaleReference.test.tsx`), a natural-minor row still reads a bare dash
+      unchanged, and 3.16 is re-scoped in the same commit to say the mode half is deliberately not
+      shipped. Driven live: Theory reference, Dorian selected, sentence visible; console clean.*
+- [x] 5.38 **Closed 2026-08-12 by 5.50**, the one gap its 2026-08-11 re-verification left open. Every
+      other half of this aspect was already proven that day (see below); what was missing was a chord
+      on a staff anywhere in the theory layer. 5.50 shipped `ChordStaff.tsx` through the same
+      `Score` → `ExerciseScore` → `createOsmdEngraver({ presentation: 'reference' })` path `ScaleStaff`
+      uses — no third rendering route — for BOTH consumers: `ChordLookup`'s looked-up chord and
+      `ChordScaleReference`'s diatonic rows. Verified by the integrator on merged master rather than
+      from the ticked box: `e2e/theory-chord-staff.spec.ts` reads each notehead's engraved pitch off
+      the SVG (not its presence) — D-flat diminished seventh gives 4 noteheads at midi 61/64/67/70,
+      the V7 diatonic row 4 at 67/71/74/77 — and both pass alongside the rest of the merged round
+      (11/11 specs, one dev server, one run). The spelling comes from core's own `SpelledPitch` per
+      3.14a, never a re-derived enharmonic guess. One thing deliberately NOT done: the original bullet
+      said "grand staff"; the shipped engraving is a single treble staff, because reusing `ScaleStaff`'s
+      existing pipeline was the explicit instruction and a second bass-clef part would have been a new
+      rendering route. Flagged here rather than quietly satisfied.
+      The 2026-08-11 record of the other halves is kept below.
+      The rest of this aspect was **3.14** (no staff rendering in the theory layer — `osmdEngraver`
+      is never imported there), **3.15** (no chord picker, no sevenths, and the chord section vanishes
+      entirely for the 10 modal/exotic types) and **3.17** (reference is a destination you leave your
+      place for). Referenced, not restated; the aspect cannot reach 9 without them, because "you
+      cannot look up D♭ diminished seventh" is what a reference is *for*.
+      **Re-verified 2026-08-11, once 3.17 landed — still not shippable, one real gap found.** Driven
+      live against the running app (`node scripts/_verify-538.mjs`-style Playwright drive, not
+      inspection): opened the reference from Practice without leaving; looked up any chord including
+      sevenths and diminished sevenths (`ChordLookup`'s `CHORD_QUALITIES` covers all 13, confirmed live
+      with D♭ diminished seventh → symbol "Dbdim7"); looked up any scale, all 16 `SCALE_TYPES` including
+      the modes/pentatonics/blues/whole-tone (3.15's fix); heard both (Play buttons, confirmed wired);
+      saw the SCALE on staff (`ScaleStaff`, confirmed rendered). **The gap: a chord — neither a looked-up
+      one in `ChordLookup` nor a diatonic one in `ChordScaleReference`'s own list — is EVER shown on
+      staff, anywhere.** `grep`-confirmed no chord-staff component exists in `src/app/theory/**` or
+      `src/core/theory/**`; live-confirmed 0 staff/score elements inside `.chord-lookup` or
+      `.diatonic-chords` with a diminished seventh chord selected (screenshot on file from this
+      session). REQ-3.5.3/3.5.4's "see it on staff and keyboard" is met for scales, not chords — every
+      chord is keyboard + audio only. **Leaving unticked**; the gap is 5.50 below.
+- [x] 5.50 `app/theory`: engrave a chord on staff, not just the keyboard diagram — the gap 5.38's
+      2026-08-11 re-verification found. Both `ChordScaleReference`'s diatonic chord rows and
+      `ChordLookup`'s looked-up chord need a small staff rendering of the chord's own notes (reuse
+      `ScaleStaff`'s pattern of building a real `Score`/`Measure` and handing it to the existing
+      `ExerciseScore`/`ScoreViewer` — a chord is a single simultaneity, a strict subset of what that
+      path already engraves for a scale's run of single notes). Owned by whichever session next touches
+      `src/app/theory/**` (not this shell/onboarding/reference-panel session — out of file boundary).
+      **Done.** New `ChordStaff.tsx` builds a whole-note-chord `Score` (every tone `startTick: 0`, same
+      duration, so `musicxmlwriter.ts` marks them a real `<chord/>` simultaneity) with each tone's own
+      `spelling` carried through untouched — Db diminished 7th engraves Db Fb Abb Cbb, not a respelled
+      guess. Single treble staff, right hand, `presentation: 'reference'` — the exact same pipeline
+      `ScaleStaff` already uses (a literal "grand staff" was this bullet's own loose wording; the task
+      brief for this slice was explicit about reusing `ScaleStaff`'s existing single-staff path rather
+      than inventing a second one, and a grand staff has no left-hand part to put on its bass clef for a
+      chord that is a single right-hand simultaneity). Wired into both consumers: `ChordLookup` renders
+      it below the keyboard diagram for the looked-up chord; `ChordScaleReference`'s shared `ChordRow`
+      renders it for every row in both `DiatonicChords` and the no-key `ScaleDegreeChords` fallback.
+      *Proof: `npm run verify` green (183 files, 3753 tests). Playwright
+      (`e2e/theory-chord-staff.spec.ts`, driven live on port 5302): looked up D♭ diminished seventh in
+      `ChordLookup` — exactly 4 `.vf-notehead`s, engraved pitches read off each notehead's own
+      `data-note-id` equal midi [61, 64, 67, 70] (Db4 Fb4 Abb4 Cbb5); toggled "Show seventh chords" and
+      selected the `ChordScaleReference` V7 row — exactly 4 noteheads, midi [67, 71, 74, 77] (G7).
+      Visual pass (`scripts/visual-pass.mjs Theory`, both widths, both themes, Db dim7 selected):
+      console clean in all four configurations; every diatonic row and the lookup show a compact
+      "paper" staff under their keyboard diagram, correct in both themes. States: empty/loading/error
+      N/A (a chord is always ≥3 notes, built synchronously; OSMD failure already surfaces through
+      `ScoreViewer`'s existing error paragraph, unchanged here); no-MIDI N/A (read-only reference,
+      unaffected by MIDI connection state).*
+
+### First-run experience — **2/10 → 9**
+
+The app opens on Practice (`Shell.tsx:185`) showing Twinkle, with 30 controls below it. There is no
+onboarding, no first-run state, and no "start here". The front door is the most intimidating screen in
+the app.
+
+- [x] 5.39 `app/shell`: the default destination is **Today**, not Practice — `/` now parses to Today's
+      own route (landed with 5.42). *Proof: `e2e/default-destination.spec.ts` wipes IndexedDB, reloads,
+      asserts Today (not Practice) is active at `/today` — a fresh profile the test itself creates.*
+- [x] 5.40 `app/onboarding`: a first-run flow — a few questions (experience, goal, practice minutes), a
+      MIDI/input check that tells the truth about this browser (5.6), starting track levels set from
+      the answers, and a first session ready to start. Skippable, and re-runnable from settings.
+      *Proof: e2e from an empty IndexedDB — complete onboarding, assert the chosen levels are what the
+      dashboard shows after a reload, and that Today's plan is non-empty and matches the chosen
+      minutes.* Shipped as a dismissible callout on Today (`src/app/onboarding/OnboardingGateway.tsx`)
+      that expands into the full flow (`OnboardingFlow.tsx`), plus a new Settings destination
+      (`SettingsScreen.tsx`, `route.ts`'s `settings` screen id) that re-runs it unconditionally — **not**
+      a hard gate blocking every destination, a deliberate deviation from the literal "complete
+      onboarding" reading; see the design note below. Reuses `isWebMidiSupported` (5.6) unchanged. On
+      Finish: `setTrackLevel` on the existing `useLevelStore` for all three tracks (no second
+      persistence path), and a real `SessionRunSnapshot` built with the same `planSession`/
+      `sessionCandidates` `SessionPlanScreen` itself uses, written directly to `useSessionRun.ts`'s own
+      exported `SESSION_RUN_COLLECTION`/`SESSION_RUN_KEY` — using that existing persisted contract, not
+      inventing one, because `src/app/session/**` is outside this task's file boundary. *Proof done:*
+      `e2e/onboarding.spec.ts`, two specs — completing onboarding (experience → level 2, 60 min) then
+      reloading: dashboard shows level 2 on all three tracks, and the raw IndexedDB `todaySessionRun`
+      record (read directly, not off a UI readout) has `totalMinutes: 60` and a non-empty item list,
+      with Today itself showing "Item 1 of N" on that same reload; a second spec proves Skip changes
+      nothing and persists (banner never returns after reload), and Settings re-runs the flow and
+      writes new levels. Full existing e2e suite (101 specs, ~60 of which `goto('/')` against an empty
+      IndexedDB) re-run clean with the banner present — see the design note for why that mattered.
+
+      **Design note — banner, not a gate.** The roadmap text ("complete onboarding" before reaching the
+      dashboard) reads like a hard gate blocking `renderScreen('today', …)` until completed. Rejected on
+      concrete evidence: this app's e2e suite is ~60 spec files, nearly all of which land on Today
+      against a Playwright-fresh (i.e. empty) IndexedDB with no onboarding interaction at all — a gate
+      would have intercepted nearly every one of them, most owned by other live parallel sessions this
+      round. `OnboardingGateway` is instead purely additive (a sibling rendered before `renderScreen`'s
+      own output, alongside `InputCapabilityBanner`), confirmed safe by re-running the full existing
+      suite clean. If a harder gate is wanted later, the two questions worth asking first: is the
+      collision with ~60 fresh-IndexedDB specs still real (some may since have been rewritten to seed
+      onboarding-complete), and does the product actually want first-run to block every destination
+      including a direct deep link.
+
+      **Simplifications stated plainly, not left silent:** the experience answer sets all three tracks
+      (playing/sight-reading/theory) to the same level (1/2/3) — no per-track granularity in the
+      questions; the goal answer is captured but does not yet bias the session mix (`DEFAULT_MIX` is
+      used as-is) — both are reasonable defaults for "a few questions", not full placement testing, but
+      are named here rather than assumed obvious.
+- [x] 5.41 `app`: honest first-run empty states on every screen that can be reached with no data —
+      what this screen is for, and the one action that starts it. Today's dashboard renders zeros
+      correctly (proved in 4.7); the other screens were not checked for this.
+      **12 checked, 0 had no honest empty state.** Visited every one of the 12 nav destinations
+      (`app/shell/Shell.tsx`'s full `NAV_PRIMARY`/`NAV_GROUPS` list) against a genuinely wiped
+      IndexedDB and wrote down what each one actually rendered before changing anything: Today
+      already builds and shows a real session plan with a working "Start session"; Lessons/Practice/
+      Sight reading/Rhythm/Metronome are content- or generator-driven, not user-data-driven, so
+      "empty" does not apply and each already opens on a real, playable state; Flashcards/Ear
+      training/Theory generate their first card/item on load and already say "Nothing recorded yet."
+      under the SRS summary (5.31, this same round); Technique already says "No clean run yet at this
+      drill."; Repertoire already says "No pieces in your library yet — add the score you have loaded
+      above." and correctly disables "Add loaded score" with a stated reason ("Load a score first...")
+      until one is; Progress was already proved in 4.7. Spot-checked the five that looked most likely
+      to hide an inert control — Repertoire's disabled "Add loaded score", Today's "Start session",
+      Rhythm's "Start", Sight reading's "Start exercise", Repertoire's catalogue "Add" — by actually
+      clicking them against a fresh profile: all five did real work (a piece added, a session item
+      opened, a rhythm prompt generated, a sight-reading countdown started). Added nothing new to any
+      screen; this item is the survey plus the regression guard below.
+      *Proof: `e2e/empty-state-starting-actions.spec.ts` (new) wipes IndexedDB, reloads, then walks
+      all 12 destinations in one test — Progress first (its "Theory retention" section reads the same
+      store the Theory destination writes to, so it has to be read before Theory touches it) — and at
+      each one asserts the real starting action is enabled, clicks it, and asserts a genuine output
+      (a status appearing, a button's enabled state flipping, a message disappearing), never mere
+      presence. Confirmed the guard actually guards by deliberately breaking one assertion and
+      watching the test fail, then reverting. Passed 3/3 parallel runs, console clean throughout
+      (0 console/page errors across the whole walk).*
+
+### Information architecture — **3/10 → 9**
+
+12 flat nav buttons with no grouping. Navigation is `useState`, not routing: the URL never changes,
+there are no deep links, a refresh returns you to Practice, and **the browser Back button exits the
+app**.
+
+- [x] 5.42 `app/shell`: real routing — a hand-rolled History-API router (`route.ts`: pure path↔`Route`,
+      unit + property tested; `routing.ts`: impure History wiring). A URL per destination; deep links
+      carry identity for technique/flashcard-deck/theory-quiz (id+level), round-tripped via the URL, not
+      `useState`. Scope note: `LessonsScreen`/`useLessons.ts` (not owned here) keep the selected lesson
+      in a private `useState` with nothing to seed externally, so the lesson BODY isn't deep-linkable
+      without adding `initialLessonId`/`onSelectLesson` there — flagged, not guessed at.
+      *Proof: `e2e/routing.spec.ts` — URL changes at every step Practice → Lessons → a lesson's quiz,
+      Back twice lands on Practice with the same score, Forward replays the deck/level, the deep-link
+      URL reloads the same place; a second deep-link kind survives reload; an unknown path falls back
+      to Today.*
+- [x] 5.43 `app/shell`: group the nav — Practice / Learn / Drills / Progress — so Flashcards, Ear
+      training, Rhythm, Technique and Theory read as drills, and Today as the entry point.
+      `NavGroups.tsx` renders Today standalone (accent-coloured, heavier) then four `role="group"`
+      landmarks in `<nav aria-label="Main">`. Found in the same pass: the new "Drills" group's name
+      collided with two specs' non-exact `getByLabel('Drill')` — fixed with `{ exact: true }`, matching
+      five specs already using it for the same label.
+      *Proof: `NavGroups.test.tsx` + `e2e/nav-groups.spec.ts` — labelled landmarks hold the right
+      destinations, Today reads distinctly, and `Tab` visits Today then each group in visual order.*
+
+### Curriculum & session planning — **6/10 → 9**
+
+The lesson sequence is sound and matches Faber's order, including the deliberate choice to put reading
+after keyboard geography and rhythm. The planner's 15/30/60 presets are a defensible synthesis (no
+source gives an evidence-based split — these are conventions, and worth saying so). What is missing is
+that **the plan doesn't run**: each item is an "Open" button that navigates away, with no timer, no
+next item, no completion state, no sense of being 3 of 5 through today.
+
+- [x] 5.44 `app/session`: make the plan runnable — a timer per segment, an explicit next-item step,
+      completion state per item, a visible "3 of 5" (was links to elsewhere). New `useSessionRun.ts`
+      persists a run record (own `Store` slice, independent of `persistence.ts`); `SessionPlanScreen.tsx`
+      renders "Item N of TOTAL", a done/current/upcoming list, live elapsed, "Complete" stops/starts
+      `usePracticeLog` (StrictMode-safe, mirrors `useLessons.ts`). Mix behind `<details>`, demoted.
+      *Proof: `e2e/session-run-resume.spec.ts` — real 15-min plan, completes warm-up (5.45) + 1 item, 2
+      positive-duration `practiceLog` rows in IndexedDB, reloads, resumes at item 3 with 1-2 done, no
+      phantom entries minted. Visual pass clean, both widths/themes.*
+- [x] 5.45 `core/curriculum/session` + `content`: add the **warm-up** segment, away *from the keys* —
+      jaw, shoulders, posture, stretch — first. `planSession` reserves flat `WARMUP_MINUTES` (5) off
+      the top, splits the remainder across the four mixable segments as before; cannot rescue an
+      unfillable plan. New `content/curriculum/warmups.ts` (the one file allowed there): a 5-step
+      checklist + `WARMUP_EXERCISE`, wired in by `candidates.ts` (`session.ts` never imports content).
+      `WarmupChecklist.tsx` is what it opens, inline in the running view. Re-adds `'warmup'` to
+      `ActivityKind`. **Follow-up (not owned here):** `DashboardScreen.tsx` needs `warmup: 'Warm-up',` in `ACTIVITY_KIND_LABELS`, else `typecheck` errors there.
+      *Proof: `session.test.ts` — first/present every budget (property test), clamps, declines cleanly.
+      `warmups.test.ts` stays off-keyboard. Driven: completing it logs a real `warmup` entry; given 35s
+      elapsed, Progress's weekly total reads "1 min" non-zero (number correct, label pending follow-up).*
+- [x] 5.46 `content/curriculum`: recalibrated level 1's playing exit criterion (`l1-exit-assessment`)
+      off the hands-together `demo-lh-root-rh-melody-simple-piece` and onto the hands-separate
+      `demo-five-finger-c-major-hands-separately` (RH bars 1-3, LH bars 4-6, genuinely hands-alone).
+      `l2-exit-assessment` was already, deliberately, the hands-together gate (own pre-existing
+      comment says so). Faber and Alfred both spend book 1 on hands-alone playing, introducing real
+      hands-together only in book 2 — level 1 was demanding a skill neither method teaches yet.
+      *Proof: `curriculum.test.ts` unchanged and green; the two dashboard tests seeding a level-1
+      assessment updated to the new piece id, same met/unmet split.*
+- [x] 5.47 `app/progress`: a teacher/parent output — a printable practice sheet or assignment view.
+      Export is JSON/CSV of raw logs, which is a backup format, not something anyone reads.
+      *Proof: a week's practice renders as a printable summary (categories, minutes, pieces, what was
+      assessed) and prints to one page in a browser.* DONE: `PracticeSheet` (`src/app/progress/`),
+      toggled from the Progress screen, reduces `useProgressStore` (via `usePracticeSheet`) into
+      by-category minutes/sessions, per-item sessions/minutes/last-practiced, and any repertoire
+      assessments in the trailing 7 days, with an honest "no practice recorded" empty state and an
+      explicit caveat on what the accuracy % does/does not cover (pitch+timing only, no tone,
+      posture). `e2e/practice-sheet-print.spec.ts` seeds a genuine week into IndexedDB, reloads,
+      asserts the real numbers on screen, then measures the printed PDF's own page count via
+      `page.pdf()` — exactly 1 page for both a populated and an empty week.
+
+### Overall honesty — **the review's #14**
+
+- [x] 5.48 `app` + `docs`: say once, visibly, what the app does not assess. `matcher.ts` judges
+      **onsets only** — its own comment says `durationTicks` is never read, so a note released early
+      or held over still counts as written. That is exactly the hole reviewers name in Skoove and
+      Yousician, and the app currently implies otherwise by reporting a bare accuracy percentage.
+      Combined with 5.23's technique blind spot: supplement, not replacement, stated on screen.
+      Re-verified onsets-only against `matcher.ts` first — its comment still says it plainly. A
+      closed-by-default `<details>` sits under the sticky strip, above the score, not buried in
+      5.18's disclosures. REQ-3.3.2 in `requirements.md` states it too.
+      *Proof: one click from Practice; `e2e/practice-accuracy-caveat.spec.ts` (new) drives the click
+      and asserts the revealed text; matching `PracticeScreen.test.tsx` block; REQ-3.3.2 records it.*
+- [x] 5.49 M5 acceptance pass — re-ran the 2026-08-06 review's method adversarially and re-scored all
+      17 aspects: [docs/ux-pedagogy-review-2026-08-12.md](docs/ux-pedagogy-review-2026-08-12.md).
+      **M5 DOES NOT EXIT.** Nine aspects reach ≥ 9 (breadth 10, engineering 9, first-run 9, practice
+      usability 9, input accessibility 9, lesson content 9, technique 9, theory reference 9, progress
+      9); **eight do not** — visual design system 7, information architecture 8, playable content 7,
+      sight reading 7, ear training 7, rhythm 8, accessibility 7, and overall **4.5 → 8**. Each gets a
+      task below (5.51–5.58); no score was softened to reach the bar.
+      *Proof: the nav has **13** destinations now, not 12 (Settings, from 5.40) — all 13 driven from an
+      empty IndexedDB, console clean on every one. `npm run verify` green (190 files / 3900 tests);
+      `npx playwright test` 123/123 green on port 5280; `npm run verify:full` **exits 1** at the `knip`
+      step only, an artefact of this worktree's empty local `node_modules` shadowing the root install —
+      localised, not proven clean, stated as such in the doc. New `scripts/review-probe.mjs`
+      (`walk`/`contrast`/`claims`) makes the method re-runnable instead of prose: it reads the
+      destination list off the running app, measures **every** visible text element against its own
+      effective background at both themes (27 AA failures found, all `--text-3`, worst 2.90:1), and
+      seeds IndexedDB behind the app's back. Progress passes that seed test exactly — 5 days × 41 min
+      of `eartraining` reads back as "Longest streak 5 day(s) / This week 205 min / Ear training:
+      205 min", every other category 0. Sight-reading leaps measured off the engraved output, not the
+      table (level 1 max 2 st, level 2 max 10 st). Pedagogy re-checked against RCM 2022, ABRSM 2025–26
+      and Faber's own scope-and-sequence; one 2026-08-06 claim found **false** and corrected in the
+      app's favour (ABRSM does test interval identification, Grades 6–8). Screenshots in
+      `visual-pass/5-49*`.* Deleted nothing.
+
+### M5 acceptance follow-ups — from the 2026-08-12 re-score
+
+- [x] 5.51 `design-system`: `--text-3` is documented in `tokens/colors.css:26` as "decorative only —
+      fails AA on purpose", and two M5 tasks then used it for load-bearing text — `.nav-group-title`
+      (`feature-nav-groups.css:37`, roadmap 5.43's own IA labels: 4.36 dark, **3.12 light**) and
+      `.session-plan-warmup-note` (`feature-session-run.css`, roadmap 5.45: **2.90 light**). 27 AA
+      failures across all 13 destinations, both themes. Move information-bearing text to `--text-2`
+      (the AA-compliant secondary tone `feature-ear-reveal.css` already names), or raise `--text-3`
+      and retire the comment — not both. Found in the same pass, fix alongside: `.app-nav`'s
+      background stops at ~897px on a page taller than the viewport instead of filling the scroll
+      height. Blocks aspects **visual design system**, **accessibility** and half of **information
+      architecture**.
+      *Proof: `node scripts/review-probe.mjs contrast --url <dev>` exits **0** — it exits 1 on any AA
+      failure, so this is a check and not a claim. Visual pass both widths/themes.*
+      *Done 2026-08-12: chose "raise `--text-3`", not "move to `--text-2`" — a sweep of every
+      `--text-3` use (`domain.css`, `feature-nav-groups.css`, `feature-session-run.css`,
+      `primitives.css`) found it was already load-bearing well beyond the two named selectors: the
+      running session view's 3-tier state color (current=`--text-1`, done=`--text-2`,
+      upcoming=`--text-3`, `feature-session-run.css`'s `.session-run-item-list`), item-duration
+      badges, and `.trend-chart` axis labels. Moving only the two named selectors to `--text-2` would
+      have collapsed `done` and `upcoming` into the same color; recoloring the token fixes every
+      current and future use without special-casing selectors. New values (computed against the
+      *worst-case* surface in each theme, `--bg-3` dark / `--bg-0` light, not just the two failing
+      spots): dark `#7b838e → #969ea8`, light `#858c96 → #5c646e` — both ≥4.5:1 everywhere in their
+      theme, confirmed by re-deriving the review's own luminance numbers from the CSSOM formula before
+      picking replacements. Comment rewritten to state the AA guarantee and the reasoning, not "fails
+      on purpose"; `docs/DESIGN.md` gets a standing rule against reintroducing an AA-exempt text
+      token. `.app-nav`: root cause is `height: 100vh` on a `position: sticky` sidebar — correct for
+      real interactive scroll (verified live: sticky re-pins to the viewport top at every scroll depth
+      on a 1891px page, JS-measured, no gap) but wrong for anything that renders the full document
+      without scrolling, which is exactly what `visual-pass.mjs`'s `page.screenshot({ fullPage: true
+      })` does — it paints the nav's 100vh box once at the top and leaves the rest of the column bare.
+      Fixed with a `.app-layout::before` pseudo-element, full container height, one stacking level
+      below the real nav, that only ever shows through where the always-on-top sticky nav doesn't
+      reach a non-scrolled render — zero effect on interactive use, suppressed entirely
+      (`content: none`) under the ≤1024px drawer where it would otherwise paint an unwanted stripe.
+      **Before/after (measured, `node scripts/review-probe.mjs contrast`): 27 → 0 AA failures.**
+      `npm run verify`: 190 files / 3900 tests green. Visual pass on Today/Practice/Progress at
+      1280/1024 × dark/light: console clean, nav labels and the warm-up note legible in both themes,
+      the running-session 3-tier hierarchy confirmed distinct via direct DOM read (current
+      `rgb(232,230,227)`, upcoming `rgb(150,158,168)` on `rgb(20,22,26)`), `.app-nav` background
+      confirmed filling the full 2099px Progress page and the full 1891px Practice page, not just the
+      first viewport. Files touched: `tokens/colors.css`, `css/domain.css`, `css/responsive.css`,
+      `docs/DESIGN.md`. `feature-nav-groups.css`/`feature-session-run.css` needed no edits — the fix
+      is at the token, not the call sites. Deleted nothing.
+- [x] 5.52 `app/repertoire` + `content`: the catalogue row reads "Für Elise (Theme A) / Ludwig van
+      Beethoven (1770–1827) / Level 3 / Add" and discloses nothing, while `src/content/scores/
+      LICENSE.md` and `gradedPieces.ts`'s own doc say these files are "a faithful rendition of the
+      named melody/theme… **not a verified note-for-note transcription**", with four classical pieces
+      "a stylistically-faithful excerpt", most 2–6 bars, and 14 of 5.3's 20 additions "this app's own
+      rendition". Surface that per piece — a provenance field on `GradedPiece` rendered on the row and
+      on the Practice heading when a catalogue piece is loaded, with the excerpt length. Same sweep:
+      `warmups.ts`'s "Piano tension hides in the jaw first" is unsourced (Juilliard's guide verifies
+      shoulders/posture at the bench and never mentions the jaw) — soften to what is supportable.
+      Blocks **playable content**.
+      *Proof: an e2e reads a per-piece provenance line off the real Repertoire row for a
+      research-verified piece AND for a flagged excerpt, and the two differ; a content test fails the
+      build if a `GRADED_PIECES` entry has no provenance value.*
+      **Done:** `GradedPiece.provenance` (`gradedPieces.ts`) adds a `tier` — `source-verified` /
+      `confirmed-contour` / `stylistic-excerpt` / `own-rendition`, four classes lifted verbatim from
+      LICENSE.md's own groupings, never invented or upgraded — plus an optional `excerptNote` naming
+      what portion is bundled (own-rendition count == 14, stylistic-excerpt count == 4, pinned by a
+      test against the review's own numbers). Rendered as a secondary line on the Repertoire catalogue
+      row (`.repertoire-catalogue-provenance`) and, only when the loaded score resolves to a catalogue
+      entry, on Practice (`.practice-piece-provenance`, sitting under `ScoreScreen`'s existing title
+      heading rather than duplicating it — a second title-repeating `<h2>` there broke
+      `ScoreScreen.test.tsx` on an ambiguous match and was reverted). `gradedPieces.test.ts` fails the
+      build if any `GRADED_PIECES` entry has no provenance. `warmups.ts`'s jaw step lost the "hides...
+      first" claim; the jaw/neck roll action stays as a general release, sourced comment explains what
+      Juilliard's guide does and does not support. `npm run verify` green (190 files / 3907 tests).
+      `e2e/repertoire-provenance.spec.ts` green against the real dev server: Mary Had a Little Lamb
+      reads "Source-verified transcription", Für Elise reads "Source-verified transcription — Opening
+      A section only, not the full rondo." (the two differ, asserted), and the Practice heading area
+      shows the same line after "Open in Practice". Visual pass (Repertoire, Practice; 1280/1024,
+      dark/light) console-clean. Demotes: the catalogue row's composer and level move from full-weight
+      row text to the same secondary caption line the new provenance text uses, so the row gained a
+      fourth fact without four equally-loud facts. States: empty library unaffected (pre-existing copy);
+      a non-catalogue score (import/manual add) shows no provenance line, proven by a `PracticeScreen`
+      component test asserting `.practice-piece-provenance` is absent (the default-load screenshot
+      instead shows the OTHER edge — Twinkle IS a catalogue piece, so it correctly shows one); the
+      sonatina/Bach-Prelude rows carry the longest strings shipped and wrap cleanly at both widths.
+- [ ] 5.53 `core/generator/levelDefaults`: level 1 is genuinely stepwise (measured max leap **2
+      semitones**) and level 2 immediately permits **10** — a minor seventh — with levels 2/3/4 all
+      sharing `maxLeap: 10`, because the column is sized for the cadence walk's reachability, not for
+      pedagogy (the file's own comment says so). Faber Level 1 prepares reading "with intervals up
+      through the 5th"; the 2026-08-06 "level 1 → 2 is a cliff" finding still stands and the cliff is
+      now wider than the P5 it objected to. Re-grade the leap column so it rises monotonically and
+      no level below 4 exceeds a 5th (7 st), decoupling the cadence-reachability constraint from the
+      pedagogical ceiling. Blocks **sight reading**.
+      *Proof: `node scripts/review-probe.mjs claims` re-run — measured max leap off the ENGRAVED
+      output rises level by level and level 2 never exceeds 7 st over ≥ 50 sampled intervals; the
+      existing `levelDefaults.test.ts` cadence-reachability property stays green.*
+- [ ] 5.54 `core/generator/levelDefaults`: level 1's rhythm is `'whole-half'` and level 2 is the first
+      `'quarters'` — a level-1 exercise engraves four whole notes. Faber Piano Adventures Primer
+      introduces **quarter → half → whole, all inside Unit 2** (official Teacher Guide, verified
+      2026-08-12). This is the identical inversion roadmap 5.20 fixed for the Rhythm drill on exactly
+      this source and never applied here. Blocks **sight reading**.
+      *Proof: a driven level-1 exercise engraves quarter and half notes and no whole notes; the
+      monotonic-ladder property test in `levelDefaults.test.ts`/`melody.test.ts` extended to rhythm.*
+- [ ] 5.55 `app/eartraining` + `core/eartraining`: 5.28's "tonal context" is documented in its own code
+      as "a drone: tonic + fifth" — an **open fifth, with no third**, so it cannot establish major or
+      minor. Both cited authorities specify something that can: RCM 2022 "identify the key, **play the
+      tonic triad once**"; ABRSM 2025–26 aural p.45 "**play a tonic chord** (to establish the key)".
+      Level 1's answer set is exactly {major 3rd, minor 3rd} — mode is the one thing a bare fifth
+      withholds and the one thing that distinguishes the two answers. Play a real tonic triad, and name
+      the key on screen the way RCM's examiner does. Second, smaller: the drone anchors on the item's
+      own lower sounding note (`chords.ts:221`), not on a key, so for an interval item it hands over
+      the bottom note. Blocks **ear training**.
+      *Proof: the recorded `AudioOutput` calls carry three distinct pitch classes forming the key's own
+      tonic triad before the item's first note (the 5.28/3.13 pattern — assert the calls, not the
+      projection), a minor-key item sounds a minor triad, and the key is read off the running screen.*
+- [x] 5.56 `app/rhythm` + `core/generator/rhythm`: the engraved rhythm pattern is titled **"Untitled
+      Score"**. That is verbatim the defect the 2026-08-06 review named and roadmap **5.13 is ticked as
+      fixing** — 5.13 titled `generateMelody` and `techniqueScore` (both confirmed fixed) and never
+      touched `rhythmToScore`. Give it the drill's own title, and sweep for any remaining untitled
+      generated score. Blocks **rhythm drill**.
+      *Proof: a driven complexity-1 drill engraves a real title naming the drill and complexity, and no
+      screen in the app renders "Untitled Score" — asserted across all 13 destinations by
+      `review-probe.mjs walk`.*
+      **Done 2026-08-12.** 1 reported, 3 found: `rhythmToScore` (`core/generator/rhythm.ts`) had
+      exactly the same missing-title bug 5.13 fixed in `generateMelody`/`techniqueScore`, and it has
+      three production callers, all of which built an untitled `Score` — `useRhythmDrill.ts` (the
+      reported sight-reading-style tap drill, `ExerciseScore`-engraved with `drawTitle: true`),
+      `useClapbackDrill.ts` (never engraved — the hook's own return type structurally excludes
+      `Score` — but titled anyway for the same class-level guarantee), and
+      `core/eartraining/dictation.ts`'s `generateRhythmicDictation` (out of this task's file scope,
+      fixed for free — see below). Fixed at the class, not the instance: `rhythmToScore` now always
+      writes a real `meta.title` — the caller's `opts.title` when given (`useRhythmDrill.ts` passes
+      `Rhythm — complexity N`, matching the label already used for the practice log; `useClapbackDrill.ts`
+      passes `Clap back — level N`), or else a generated fallback (`Rhythm pattern, N bars (B/T)`) — so
+      no path through this function can produce an empty title, which is what silently fixes
+      `generateRhythmicDictation`'s identical call without touching that file. Also swept and confirmed
+      legitimately untitled: `ScaleStaff.tsx`, `ChordStaff.tsx`, `LessonBody.tsx`'s diagram scores and
+      `RevealPanel.tsx`'s ear-training prompt (`intervals.ts`/`chords.ts`/dictation's melodic path) all
+      render through `createReferenceEngraver`'s `drawTitle: false` (`osmdEngraver.ts`), which never
+      draws a title at all — the title would duplicate the surrounding screen's own heading (that
+      module's own doc). *Proof:* `npm run verify` green (190 files, 3903 tests, 0 lint warnings).
+      `e2e/rhythm-title.spec.ts` drives a real complexity-1 run and reads `Rhythm — complexity 1` off
+      the live OSMD engraving, asserting `"Untitled Score"` is absent. `review-probe.mjs walk` reported
+      no `"Untitled Score"` occurrence before OR after the fix — it never clicks Start, so it cannot
+      reach generated notation on any drill screen; recorded as a known gap in that tool rather than a
+      false pass; e2e and `visual-pass.mjs` (which does click Start) are the real proof here.
+      `visual-pass.mjs Rhythm --click Start` at 1280/1024px, dark/light: all four screenshots show
+      "Rhythm — complexity 1" engraved where "Untitled Score" used to sit, console clean in all four.
+- [x] 5.57 `app`: one skill, two numbers, both called "level". Driven in one session, the Progress
+      screen read "Sight-reading: level 4 (overridden)" while the Sight reading screen read "Level 1" —
+      the curriculum track level (`settings/levelState`) and the trainer's adaptive level
+      (`sightReadingHistory`, REQ-3.4.6's 80–90% band). Both are legitimate and neither is broken; the
+      product never says they are different things, so a learner who sets level 4 on Progress and gets
+      level-1 exercises has been misled by omission. Name them distinctly on both screens and say what
+      each does. Blocks **information architecture**.
+      *Proof: an e2e seeds the two stores to different values and asserts both screens render distinct,
+      self-explaining labels; the Progress accuracy-trend panel states which of the two it is charting.*
+      **Done 2026-08-12.** 1 reported, 0 further found. The Progress screen's "Current level per track"
+      row is now "Sight-reading (curriculum track): level N", with a note saying it moves via exit
+      criteria or the override select and naming the trainer level as the separate number below; the
+      "Sight-reading accuracy trend" panel's own label is now "Sight-reading trainer level: N" with a
+      note stating it charts this trainer's own accuracy per run (adapts from recent accuracy), not the
+      track level. The Sight reading screen's bare "Level N" is now "Sight-reading trainer level: N"
+      plus a one-line note naming the curriculum track level on Progress and what moves each. Checked
+      for the same collision elsewhere: ear training's per-kind adaptive level (`EarTrainingScreen`'s
+      "Level N") has no colliding counterpart anywhere — `TRACKS` (`@core/curriculum/types.ts`) is only
+      `playing`/`sight-reading`/`theory`, so no "ear-training" row is ever rendered on the Progress
+      screen's "Current level per track" list for it to disagree with — left `EarTrainingScreen.tsx`
+      unedited. Also found, but out of this task's scope (a different pattern, not the reported
+      collision, and outside the frozen file list): `TechniqueScreen`/`TheoryDrillPanel`/
+      `FlashcardScreen`/`RhythmClapback` each show a bare "Level N" too, but it is a local, freely
+      user-adjustable practice-level picker (a `useState`, seeded from a track level, changed with
+      on-screen +/- buttons the learner clicks themselves), not a second persisted/adaptive number a
+      learner could be misled by — reported as a possible follow-up, not fixed here. `npm run verify`
+      green; e2e/level-naming.spec.ts (2 tests) seeds the two sight-reading stores to different and to
+      equal values and passes against the real running app; visual pass clean (console, 1280/1024,
+      dark/light) on both screens. Deleted nothing.
+- [ ] 5.58 `core/eartraining/dictation`: 5.34's per-level bounds are systematically shorter than the
+      syllabus they cite — app level 1 is **2–3 notes**, RCM is **4 at Preparatory A and 5 at Level 1**
+      (verified 2026-08-12); app level 5 is 7–8 against RCM's 8–10. Re-anchor the ladder on the quoted
+      RCM figures, keeping REQ-3.6.1's outer 2–8 bracket or raising it deliberately and saying so.
+      Contributes to **ear training** (smaller than 5.55).
+      *Proof: `dictation.test.ts`'s property tests updated to the RCM-quoted per-level bounds, with the
+      source figures recorded in the module doc.*
+

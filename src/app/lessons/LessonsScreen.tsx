@@ -33,6 +33,17 @@
  * selected lesson's demo score first (`useLessons().openDemoScore`), and
  * offers the same action as its own explicit "Open demonstration" control for
  * opening the demo with no exercise involved.
+ *
+ * FILTER MERGE (UI-30): the level tabs (5 buttons) and track chips (4
+ * buttons) used to sit side by side as two always-visible axes — nine
+ * buttons of filter, more controls than the list they filter has rows on a
+ * narrow level. Level stays a `.seg-control` exactly as it was (several
+ * protected e2e specs click `getByRole('button', { name: 'Level 3' })`
+ * directly — see this task's build report for the exact files/lines); track
+ * is now a `<details>` disclosure closed by default, its `<summary>` stating
+ * the active track in words so collapsing it never hides why the list below
+ * is short (screen rules 6/7). See `feature-lessons.css`'s
+ * `.lessons-track-filter` for the visual side of the merge.
  */
 import { lessonMinutes } from '@core/curriculum/model.ts'
 import type { Exercise, ExerciseKind, Track } from '@core/curriculum/types.ts'
@@ -125,6 +136,21 @@ export function LessonsScreen({ onOpen, onOpenDemo }: LessonsScreenProps) {
 
   const demo = selected?.demoScoreId === undefined ? undefined : demoScoreById(selected.demoScoreId)
 
+  // DEFECT FOUND AND FIXED HERE (screen-level only, `useLessons` untouched —
+  // see this task's build report): `useLessons`'s own `selected` is valid for
+  // the current LEVEL only (its own module doc says so), not the current
+  // TRACK filter, so narrowing the track filter past the already-selected
+  // lesson used to leave `.lessons-body-pane` showing that stale, no-longer-
+  // listed lesson while the list beside it now teaches "no lessons here" —
+  // two panes visibly disagreeing about what is selected. Rather than change
+  // `selected`'s own semantics (risky: `goToNext` deliberately walks to the
+  // next lesson regardless of the CURRENT track filter, and making `selected`
+  // require track membership would silently jump it to some other lesson
+  // instead), this is a presentation-only guard: render the body pane only
+  // when `selected` is actually one of the rows `lessons` (level+track
+  // filtered) is showing right now.
+  const selectedVisible = selected !== undefined && lessons.some((l) => l.id === selected.id)
+
   return (
     <div className="page page--wide lessons-screen" data-mobile-view={mobileView}>
       <header className="page-header">
@@ -151,30 +177,63 @@ export function LessonsScreen({ onOpen, onOpenDemo }: LessonsScreenProps) {
             {/* Level 1 alone ships 16 lessons across three tracks, so the theory
                 thread REQ-3.1.2 cares about is otherwise buried among the playing
                 lessons. Filtering runs through `lessonsForTrack`, not a local
-                `.filter`, so the screen and the model agree on what a track is. */}
-            <div className="lessons-track-chips" role="group" aria-label="Track">
-              <button
-                type="button"
-                aria-pressed={track === undefined}
-                className={track === undefined ? 'selected' : undefined}
-                onClick={() => setTrack(undefined)}
-              >
-                All tracks
-              </button>
-              {tracks.map((t) => (
+                `.filter`, so the screen and the model agree on what a track is.
+
+                UI-30: the track axis used to be four always-visible chips sitting
+                right under the five level tabs — nine buttons of filter before a
+                single lesson was on screen, competing with the list they filter
+                (rule 2/4). It is now ONE disclosure: closed by default (matching
+                the default `track === undefined` state, i.e. nothing to disclose),
+                its `<summary>` doubling as the "stated in words" readout of
+                whichever track is active (rule 6/7) so collapsing it never hides
+                *why* the list is short. The four buttons inside are the exact
+                buttons that were here before — same `data-testid`s, same
+                `setTrack` calls — only their container changed, so every
+                level+track combination the old layout reached is still reachable
+                the same way, just one click further behind the summary toggle. */}
+            <details className="lessons-track-filter">
+              <summary>
+                <Icon name="chevron-down" />
+                {/* Prefixed "Track:" even in the unfiltered case, deliberately
+                    distinct wording from the "All tracks" button one line down
+                    — the summary is a STATEMENT ("Track: all tracks"), the
+                    button is a COMMAND ("All tracks"), so the two never read
+                    as the same control once the disclosure is open. */}
+                Track: {track === undefined ? 'all tracks' : TRACK_LABELS[track]}
+              </summary>
+              <div className="lessons-track-chips" role="group" aria-label="Track">
                 <button
-                  key={t}
                   type="button"
-                  aria-pressed={track === t}
-                  data-testid={`lessons-track-${t}`}
-                  className={track === t ? 'selected' : undefined}
-                  onClick={() => setTrack(t)}
+                  aria-pressed={track === undefined}
+                  className={track === undefined ? 'selected' : undefined}
+                  onClick={() => setTrack(undefined)}
                 >
-                  <Icon name={TRACK_ICONS[t]} />
-                  {TRACK_LABELS[t]}
+                  All tracks
                 </button>
-              ))}
-            </div>
+                {tracks.map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    aria-pressed={track === t}
+                    data-testid={`lessons-track-${t}`}
+                    className={track === t ? 'selected' : undefined}
+                    onClick={() => setTrack(t)}
+                  >
+                    <Icon name={TRACK_ICONS[t]} />
+                    {TRACK_LABELS[t]}
+                  </button>
+                ))}
+              </div>
+            </details>
+
+            {/* The words that say why the list below is the length it is (rule
+                6/7) — level and track together, not split across two controls
+                the learner has to reconcile themselves. Not interactive, so it
+                does not add to the screen's control count. */}
+            <p className="lessons-filter-summary">
+              {lessons.length} lesson{lessons.length === 1 ? '' : 's'} · Level {level} ·{' '}
+              {track === undefined ? 'all tracks' : TRACK_LABELS[track]}
+            </p>
           </div>
 
           <ul className="list lessons-list" aria-label="Lessons">
@@ -197,10 +256,26 @@ export function LessonsScreen({ onOpen, onOpenDemo }: LessonsScreenProps) {
             ))}
           </ul>
 
-          {selected === undefined && <p role="status">No lessons for this level.</p>}
+          {/* Rule 6: an empty result teaches — say what would match instead of a
+              bare "no items", and offer the one action that gets the learner
+              back to something (only the TRACK filter narrows past zero; level
+              alone never does, since every level ships at least one lesson). */}
+          {lessons.length === 0 && (
+            <div className="lessons-empty" role="status">
+              <p>
+                No {track === undefined ? '' : `${TRACK_LABELS[track].toLowerCase()} `}
+                lessons in Level {level} yet.
+              </p>
+              {track !== undefined && (
+                <button type="button" className="btn-ghost" onClick={() => setTrack(undefined)}>
+                  Show every track
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
-        {selected !== undefined && (
+        {selectedVisible && selected !== undefined && (
           <div className="lessons-body-pane">
             <button type="button" className="btn-ghost lessons-back" onClick={() => setMobileView('list')}>
               <Icon name="chevron-right" />

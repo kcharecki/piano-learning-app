@@ -125,6 +125,14 @@ test('opening "The C Major Triad" lesson\'s quiz opens the build-chord theory dr
     .getByRole('group', { name: 'Level' })
     .getByRole('button', { name: `Level ${LESSON_LEVEL}`, exact: true })
     .click()
+  // Roadmap UI-30 merged the two-axis filter: the track chips are the same
+  // buttons with the same testids, but they now sit inside a closed-by-default
+  // <details>. Open it first, idempotently — clicking a <summary> that is
+  // already open would close it again and hide the chip we are about to click.
+  const trackFilter = page.locator('details.lessons-track-filter')
+  if (!(await trackFilter.evaluate((el) => (el as HTMLDetailsElement).open))) {
+    await trackFilter.locator('summary').click()
+  }
   await page.getByTestId(`lessons-track-${lesson.track}`).click()
 
   await page.getByRole('button', { name: lesson.title, exact: true }).click()

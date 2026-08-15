@@ -134,8 +134,13 @@ test('a technique deep link (screen + drill id + level) survives a direct reload
 
   await page.goto('/')
   await nav(page, 'Today').click()
+  // Roadmap UI-29 appended the duration to every plan row's accessible name
+  // ("Open <exercise>, N minutes") so the name states what opening it costs.
+  // Playwright matches `name` as a whole string, so this asserts the new shape
+  // rather than loosening to a substring — the duration is part of the contract
+  // now, and a row that silently loses it should fail here.
   await page
-    .getByRole('button', { name: 'Open C major five-finger pattern, right hand' })
+    .getByRole('button', { name: /^Open C major five-finger pattern, right hand, \d+ minutes?$/ })
     .click()
 
   await expect(page.getByRole('heading', { name: /technique/i })).toBeVisible()

@@ -59,7 +59,11 @@ test('opening the planned "Interval flashcards" item opens the interval deck, no
 
   const openButton = intervalItem.getByRole('button', { name: /^Open/ })
   const ariaLabel = await openButton.getAttribute('aria-label')
-  const match = ariaLabel === null ? null : /^Open (.+)$/.exec(ariaLabel)
+  // Roadmap UI-29 appended the item's duration to this label ("…, 2 minutes")
+  // so a screen-reader user hears what a sighted one already reads. The title
+  // is the part before that suffix; the suffix is asserted rather than skipped,
+  // because a label that silently lost its duration should fail this too.
+  const match = ariaLabel === null ? null : /^Open (.+), \d+ minutes?$/.exec(ariaLabel)
   if (match?.[1] === undefined) {
     throw new Error(`could not read a planned item title out of Open button aria-label "${ariaLabel}"`)
   }

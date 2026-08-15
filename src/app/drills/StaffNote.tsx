@@ -23,23 +23,38 @@
  * that named the note or the interval in the markup would not be testing
  * anything.
  */
-import type { Clef } from '@core/drills/flashcards.ts'
+import type { Clef, Flashcard } from '@core/drills/flashcards.ts'
 import { fromMidi, type SpelledPitch } from '@core/theory/pitch.ts'
-import type { Midi } from '@core/shared/units.ts'
+import { midi, PIANO_HIGHEST_MIDI, PIANO_LOWEST_MIDI, type Midi } from '@core/shared/units.ts'
 import { ledgerSteps, staffStep } from './staffPosition.ts'
 
-export type StaffNoteProps =
+export type StaffNoteProps = (
   | { readonly midi: Midi; readonly clef: Clef }
   | {
       readonly low: SpelledPitch
       readonly high: SpelledPitch
       readonly clef: Clef
     }
+) & {
+  /** The fixed step range this render's viewBox must cover — see
+   *  `fixedViewBox` below. Omit only when the caller has no deck to size
+   *  against; every real deck-driven caller should pass `stepRangeForDeck`'s
+   *  result instead (falling back to `DEFAULT_STEP_RANGE` silently would
+   *  size a level-1 card for a note it will never draw). */
+  readonly stepRange?: StaffStepRange
+}
 
 const LINE_GAP = 12
 const STEP_GAP = LINE_GAP / 2
 const BOTTOM_LINE_Y = 100
-const SINGLE_NOTE_X = 70
+/** Shared by both variants so their viewBoxes have the same aspect ratio —
+ *  `feature-flashcards.css` renders `.staff-note` at `width: 100%; height:
+ *  auto`, so the browser derives the rendered height from viewBox
+ *  width/height alone. A single-note and an interval card would still
+ *  render at different heights if their viewBox widths differed, even with
+ *  an identical viewBox height (see `fixedViewBox` below). */
+const STAFF_WIDTH = 160
+const SINGLE_NOTE_X = STAFF_WIDTH / 2
 const MELODIC_LOW_X = 58
 const MELODIC_HIGH_X = 94
 const LEDGER_HALF_WIDTH = 12
@@ -113,30 +128,118 @@ function ledgerEntries(
   return ledgerSteps(step).map((s) => ({ step: s, x }))
 }
 
-/** A viewBox tight enough to always show every drawn step, staff included. */
-function viewBoxFor(width: number, steps: readonly number[]): string {
-  const top = y(Math.max(...steps)) - VIEWBOX_MARGIN
-  const bottom = y(Math.min(...steps)) + VIEWBOX_MARGIN
-  return `0 ${top} ${width} ${bottom - top}`
+/** A step range every card in some group must fit inside — see
+ *  `fixedViewBox`/`stepRangeForDeck` below. */
+export type StaffStepRange = { readonly min: number; readonly max: number }
+
+/**
+ * Fallback used only when a caller renders `StaffNote` without a
+ * `stepRange` prop. Every note `buildDeck` (`core/drills/flashcards.ts`)
+ * can EVER draw across the whole app falls inside it — the piano's own
+ * extremes, read through this module's own `staffStep`, not a hard-coded
+ * margin: `buildDeck` never prompts a note outside the 88-key piano, and
+ * always pairs the piano's lowest key with the bass clef and its highest
+ * key with the treble clef (middle C is the deck's own clef boundary —
+ * `clefForMidi`). (Verified against every deck `buildDeck` can build,
+ * levels 1-8, both single-note and interval kinds: the true min/max step
+ * across the WHOLE app is exactly [-13, 26], reached only at level 5+.)
+ *
+ * This is deliberately NOT what `FlashcardScreen` uses card to card — a
+ * box sized for the whole app's worst case is much taller than a low-level
+ * deck ever needs (typical levels 1-3 stay inside roughly [-3, 10]), so
+ * using it for every render would fix the page-height jitter (roadmap
+ * UI-32) by permanently shrinking the staff to a fraction of its natural
+ * size instead. `FlashcardScreen` computes a tighter range from the actual
+ * deck on screen via `stepRangeForDeck`, and passes it down, so the box
+ * only grows as wide as answering that particular deck ever requires. This
+ * constant only exists so a caller that skips that step still never clips
+ * a note, rather than silently reproducing the pre-fix bug.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- pure fallback constant, not a component; exported for unit test and for callers with no deck to size against
+export const DEFAULT_STEP_RANGE: StaffStepRange = {
+  min: staffStep(fromMidi(midi(PIANO_LOWEST_MIDI)), 'bass'),
+  max: staffStep(fromMidi(midi(PIANO_HIGHEST_MIDI)), 'treble'),
 }
 
-function SingleStaffNote({ midi, clef }: { readonly midi: Midi; readonly clef: Clef }) {
+/** A viewBox fixed to `range` (with margin), identical for every render
+ *  that is given the same `range` — see `DEFAULT_STEP_RANGE` and
+ *  `stepRangeForDeck` above/below. Every note a caller passing a correctly
+ *  computed `range` can ever ask this component to draw falls inside it,
+ *  so nothing gets clipped. */
+function fixedViewBox(range: StaffStepRange): string {
+  const top = y(range.max) - VIEWBOX_MARGIN
+  const bottom = y(range.min) + VIEWBOX_MARGIN
+  return `0 ${top} ${STAFF_WIDTH} ${bottom - top}`
+}
+
+/**
+ * The step range every card in `cards` needs, so a caller (`FlashcardScreen`)
+ * can size one shared `StaffNote` viewBox per deck instead of per app
+ * (`DEFAULT_STEP_RANGE`) or per card (the pre-fix bug, roadmap UI-32):
+ * within one deck every card renders the same box, so answering a card
+ * never changes the staff's size — but a deck of easy, near-middle-C notes
+ * still gets a box close to its own natural size, not the whole piano's.
+ *
+ * Includes both notes of an interval card, the ledger lines every included
+ * step needs (`ledgerSteps`, belt-and-suspenders — a note's own step is
+ * always at least as far out as any ledger line it needs, but this stays
+ * correct even if that ever stopped being true), and steps 0/8 so the
+ * staff itself is always in frame even for a deck whose notes never reach
+ * it. A `'key-signature'` card has no staff prompt, so it contributes
+ * nothing (its deck is never actually passed here — `FlashcardScreen`
+ * renders a plain-text prompt for that kind instead of a `StaffNote`).
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- pure deck->range computation, not a component; exported for FlashcardScreen and for unit test
+export function stepRangeForDeck(cards: readonly Flashcard[]): StaffStepRange {
+  let min = 0
+  let max = 8
+  const include = (step: number): void => {
+    for (const s of [step, ...ledgerSteps(step)]) {
+      if (s < min) min = s
+      if (s > max) max = s
+    }
+  }
+  for (const card of cards) {
+    switch (card.kind) {
+      case 'note-name':
+      case 'staff-to-key':
+        include(staffStep(fromMidi(card.prompt.midi), card.prompt.clef))
+        break
+      case 'interval-on-staff':
+        include(staffStep(card.prompt.low, card.prompt.clef))
+        include(staffStep(card.prompt.high, card.prompt.clef))
+        break
+      case 'key-signature':
+        break
+    }
+  }
+  return { min, max }
+}
+
+function SingleStaffNote({
+  midi,
+  clef,
+  stepRange,
+}: {
+  readonly midi: Midi
+  readonly clef: Clef
+  readonly stepRange: StaffStepRange | undefined
+}) {
   const spelled = fromMidi(midi)
   const step = staffStep(spelled, clef)
   const ledgers = ledgerSteps(step)
   const accidental = ACCIDENTAL_GLYPH[spelled.alter]
-  const width = 140
 
   return (
     <svg
       className="staff-note"
-      viewBox={viewBoxFor(width, [step, ...ledgers, 0, 8])}
+      viewBox={fixedViewBox(stepRange ?? DEFAULT_STEP_RANGE)}
       role="img"
       aria-label={`A note on the ${clef} staff`}
       data-testid="staff-note"
       data-step={step}
     >
-      <StaffLines width={width} clef={clef} />
+      <StaffLines width={STAFF_WIDTH} clef={clef} />
       {ledgers.map((ledgerStep) => (
         <line
           key={ledgerStep}
@@ -168,27 +271,28 @@ function IntervalStaffNote({
   low,
   high,
   clef,
+  stepRange,
 }: {
   readonly low: SpelledPitch
   readonly high: SpelledPitch
   readonly clef: Clef
+  readonly stepRange: StaffStepRange | undefined
 }) {
   const lowStep = staffStep(low, clef)
   const highStep = staffStep(high, clef)
   const lowX = MELODIC_LOW_X
   const highX = MELODIC_HIGH_X
   const ledgers = [...ledgerEntries(lowStep, lowX), ...ledgerEntries(highStep, highX)]
-  const width = 160
 
   return (
     <svg
       className="staff-note staff-note-interval"
-      viewBox={viewBoxFor(width, [lowStep, highStep, ...ledgers.map((l) => l.step), 0, 8])}
+      viewBox={fixedViewBox(stepRange ?? DEFAULT_STEP_RANGE)}
       role="img"
       aria-label={`An interval on the ${clef} staff`}
       data-testid="staff-note"
     >
-      <StaffLines width={width} clef={clef} />
+      <StaffLines width={STAFF_WIDTH} clef={clef} />
       {ledgers.map(({ step, x }) => (
         <line
           key={`${step}-${x}`}
@@ -208,7 +312,14 @@ function IntervalStaffNote({
 
 export function StaffNote(props: StaffNoteProps) {
   if (isIntervalProps(props)) {
-    return <IntervalStaffNote low={props.low} high={props.high} clef={props.clef} />
+    return (
+      <IntervalStaffNote
+        low={props.low}
+        high={props.high}
+        clef={props.clef}
+        stepRange={props.stepRange}
+      />
+    )
   }
-  return <SingleStaffNote midi={props.midi} clef={props.clef} />
+  return <SingleStaffNote midi={props.midi} clef={props.clef} stepRange={props.stepRange} />
 }

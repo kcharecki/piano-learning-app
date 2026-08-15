@@ -16,6 +16,12 @@
  * box is gone); the bar/beat sentence a screen reader needs is still
  * announced, just moved into an accessible-only `role="status"` node instead
  * of a box every sighted user had to read past.
+ *
+ * Roadmap UI-25 (2026-08-15 UI audit): Beats, Beat unit, Subdivision and the
+ * accent toggles moved behind a closed-by-default `<details>` disclosure —
+ * see that element's own comment below. BPM and Start/Stop are the only
+ * controls visible on load now; everything else is configuration set once,
+ * not glanced at mid-practice.
  */
 import type { AudioOutput, Clock } from '@core/ports/index.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
@@ -97,7 +103,6 @@ export function MetronomeScreen(props: MetronomeScreenProps) {
   const beatsId = useId()
   const beatTypeId = useId()
   const subdivisionId = useId()
-  const meterHeadingId = useId()
 
   const currentBeat =
     metronome.running && metronome.lastClick !== undefined ? metronome.lastClick.beat + 1 : undefined
@@ -204,67 +209,94 @@ export function MetronomeScreen(props: MetronomeScreenProps) {
         {statusText(metronome.running, metronome.lastClick)}
       </p>
 
-      <section className="card--sunken metronome-meter" aria-labelledby={meterHeadingId}>
-        <h2 id={meterHeadingId}>Meter</h2>
+      {
+        // Roadmap UI-25 (2026-08-15 UI audit): with BPM's stage plus Start/Stop,
+        // this section used to bring the visible control count on this screen to
+        // 12 (rule 2 — at most ~6 before disclosure). BPM and Start ARE the
+        // screen; beats, beat unit, subdivision and the per-beat accents are
+        // configuration set once per piece, not glanced at mid-practice, so they
+        // collapse behind a closed-by-default `<details>` — the same disclosure
+        // treatment `docs/ui-overhaul-brief.md` points at (styled once, for every
+        // screen, in primitives.css's `summary` rule; nothing added here). The
+        // old `<h2>Meter</h2>` is gone: the summary text now carries that naming
+        // job itself, in the sentence a learner reads before opening it, rather
+        // than a heading nobody sees until after they already have.
+        //
+        // The chevron is not decoration. `summary` is `display: flex` in
+        // primitives.css, which suppresses the browser's own disclosure
+        // triangle, so a summary with no icon renders as a plain line of text
+        // inside a card — measured in the 1024px dark visual pass, where this
+        // block was indistinguishable from a static panel and gave a learner no
+        // reason to click it. Every other disclosure in the app supplies its own
+        // glyph for exactly this reason (`.lessons-track-filter`,
+        // `.repertoire-level-header`, `.srs-summary-details`); this one now does
+        // too, pointing at the content it reveals and flipping when open.
+      }
+      <details className="card--sunken metronome-meter metronome-config">
+        <summary>
+          <Icon name="chevron-down" />
+          Beats, meter and accents
+        </summary>
+        <div className="metronome-config-body">
+          <div className="field-row metronome-meter-row">
+            <div className="field">
+              <label htmlFor={beatsId}>Beats</label>
+              <input
+                id={beatsId}
+                type="number"
+                min={1}
+                max={MAX_BEATS}
+                value={metronome.timeSignature.beats}
+                onChange={(event) =>
+                  metronome.setTimeSignature({
+                    beats: Number(event.target.value),
+                    beatType: metronome.timeSignature.beatType,
+                  })
+                }
+              />
+            </div>
 
-        <div className="field-row metronome-meter-row">
-          <div className="field">
-            <label htmlFor={beatsId}>Beats</label>
-            <input
-              id={beatsId}
-              type="number"
-              min={1}
-              max={MAX_BEATS}
-              value={metronome.timeSignature.beats}
-              onChange={(event) =>
-                metronome.setTimeSignature({
-                  beats: Number(event.target.value),
-                  beatType: metronome.timeSignature.beatType,
-                })
-              }
-            />
+            <div className="field">
+              <label htmlFor={beatTypeId}>Beat unit</label>
+              <select
+                id={beatTypeId}
+                value={metronome.timeSignature.beatType}
+                onChange={(event) =>
+                  metronome.setTimeSignature({
+                    beats: metronome.timeSignature.beats,
+                    beatType: Number(event.target.value),
+                  })
+                }
+              >
+                {BEAT_TYPES.map((value) => (
+                  <option key={value} value={value}>{`/${value}`}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="field">
+              <label htmlFor={subdivisionId}>Subdivision</label>
+              <select
+                id={subdivisionId}
+                value={metronome.subdivision}
+                onChange={(event) => metronome.setSubdivision(Number(event.target.value) as Subdivision)}
+              >
+                {SUBDIVISIONS.map((value) => (
+                  <option key={value} value={value}>
+                    {value === 1 ? 'Beat' : `${value} clicks / beat`}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
-          <div className="field">
-            <label htmlFor={beatTypeId}>Beat unit</label>
-            <select
-              id={beatTypeId}
-              value={metronome.timeSignature.beatType}
-              onChange={(event) =>
-                metronome.setTimeSignature({
-                  beats: metronome.timeSignature.beats,
-                  beatType: Number(event.target.value),
-                })
-              }
-            >
-              {BEAT_TYPES.map((value) => (
-                <option key={value} value={value}>{`/${value}`}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="field">
-            <label htmlFor={subdivisionId}>Subdivision</label>
-            <select
-              id={subdivisionId}
-              value={metronome.subdivision}
-              onChange={(event) => metronome.setSubdivision(Number(event.target.value) as Subdivision)}
-            >
-              {SUBDIVISIONS.map((value) => (
-                <option key={value} value={value}>
-                  {value === 1 ? 'Beat' : `${value} clicks / beat`}
-                </option>
-              ))}
-            </select>
-          </div>
+          <AccentEditor
+            timeSignature={metronome.timeSignature}
+            accents={metronome.accents}
+            onChange={metronome.setAccents}
+          />
         </div>
-
-        <AccentEditor
-          timeSignature={metronome.timeSignature}
-          accents={metronome.accents}
-          onChange={metronome.setAccents}
-        />
-      </section>
+      </details>
     </div>
   )
 }

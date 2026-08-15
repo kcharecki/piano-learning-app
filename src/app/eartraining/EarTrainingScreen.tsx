@@ -29,7 +29,7 @@
  * `item.kind === 'rhythmic-dictation'` — so its own stage caption says "any
  * key counts" rather than naming particular notes.
  */
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { defaultParamsForLevel } from '@core/generator/melody.ts'
 import { chordQualitiesForLevel, scaleTypesForLevel } from '@core/eartraining/chords.ts'
 import type { DictationGrade } from '@core/eartraining/dictation.ts'
@@ -219,8 +219,39 @@ export function EarTrainingScreen(props: EarTrainingScreenProps) {
   const dictationGrade =
     isDictation && drill.grade !== undefined && isDictationGrade(drill.grade) ? drill.grade : undefined
 
-  const playLabel = drill.phase === 'graded' ? 'Next' : 'Play item'
+  // roadmap UI-28: `Play`/`Next` used to be ONE button (label swapped by
+  // phase) sitting in the transport row ABOVE the answer pad — so once an
+  // item was graded, the exit ("Next") read before the thing that teaches
+  // (the marked answers, the verdict, the explanation), breaking hierarchy
+  // rule 4. They are now two separate elements in two different DOM
+  // positions: `isGraded` picks which one is mounted. The un-graded button
+  // (still called "Play item" for every phase up to and including
+  // 'answering') stays exactly where it always was, in the transport next to
+  // Replay — the unanswered state's DOM is byte-for-byte unchanged. Only once
+  // `isGraded` is true does that button disappear and a new "Next" button
+  // mount, physically last, after the verdict and the explanation.
+  const isGraded = drill.phase === 'graded'
   const playDisabled = drill.phase === 'playing' || drill.phase === 'answering'
+
+  // Coordinator follow-up to roadmap UI-28: moving "Next" physically last
+  // fixed the READING order, but a keyboard user whose focus drops out of
+  // the DOM (see below) now Tabs from the very top of the document to reach
+  // it, instead of landing near it the way the old top-of-screen "Next"
+  // button did — a real regression, not a nitpick. The fix is to move
+  // focus onto the RESULTS CONTAINER (verdict + explanation + Next), not
+  // onto "Next" itself: landing on "Next" directly would let a screen
+  // reader user tab straight past the verdict and the explanation, which is
+  // the exact fault this task exists to fix. Landing on the container puts
+  // "Next" as simply the next stop after reading through it.
+  //
+  // Fires once per transition into 'graded', not on every render while
+  // graded: `[isGraded]` only changes value (false -> true) at the moment
+  // grading happens, so toggling tonalContext or any other re-render while
+  // still graded does not re-run this and steal focus back from the user.
+  const resultsRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (isGraded) resultsRef.current?.focus()
+  }, [isGraded])
 
   return (
     <div className="page page--focus eartraining-screen">
@@ -276,15 +307,22 @@ export function EarTrainingScreen(props: EarTrainingScreenProps) {
         <p className="eartraining-stage-caption">{meta.caption}</p>
 
         <div className="eartraining-stage-transport">
-          <button
-            type="button"
-            className="btn-primary eartraining-play-btn"
-            onClick={drill.start}
-            disabled={playDisabled}
-          >
-            <Icon name={drill.phase === 'graded' ? 'chevron-right' : 'play'} />
-            {playLabel}
-          </button>
+          {/* roadmap UI-28: only mounted before grading — see `isGraded`'s
+              own doc above. This is the one `.btn-primary` on screen while
+              the learner has not yet answered (DESIGN.md rule 1); once
+              graded, the sole primary action becomes the "Next" button
+              rendered after the explanation, further down. */}
+          {!isGraded && (
+            <button
+              type="button"
+              className="btn-primary eartraining-play-btn"
+              onClick={drill.start}
+              disabled={playDisabled}
+            >
+              <Icon name="play" />
+              Play item
+            </button>
+          )}
           <button type="button" onClick={drill.replay} disabled={drill.item === undefined}>
             <Icon name="play" />
             Replay
@@ -380,69 +418,113 @@ export function EarTrainingScreen(props: EarTrainingScreenProps) {
           ))}
       </div>
 
-      {drill.grade !== undefined && (
-        <p
-          role="status"
-          data-testid="eartraining-feedback"
-          className="eartraining-feedback"
-          data-state={drill.grade.correct ? 'correct' : 'wrong'}
+      {/* roadmap UI-28: verdict, explanation and "Next" all live inside ONE
+          focusable results container — see the `resultsRef` effect above.
+          `tabIndex={-1}` keeps it out of the normal Tab sequence (a mouse
+          user never stops here) while still letting the effect focus it
+          programmatically the moment grading happens; from there, Tab
+          continues forward through this container's own contents (the
+          reference-tune button inside RevealPanel, then Next) without ever
+          revisiting the answer grid above, which sits outside this
+          container in the DOM. `aria-label` gives the moved-to landmark a
+          name in learner language, so the move is announced, not silent —
+          distinct wording from the verdict's own live-region text below, so
+          the two do not repeat the same words back to back (see the
+          `role="status"` paragraph's own comment for why that pairing does
+          not double-announce). */}
+      {isGraded && (
+        <div
+          ref={resultsRef}
+          tabIndex={-1}
+          role="group"
+          aria-label="Answer result"
+          className="eartraining-results"
         >
-          {drill.grade.correct
-            ? 'Correct'
-            : isDictation
-              ? 'Not quite — see the note-by-note result below'
-              : `Not quite — it was ${describeExpected(kind, drill.grade.expected)}`}
-        </p>
-      )}
+          {/* `role="status"` is an existing, unchanged live region: it
+              announces "Correct"/"Not quite — ..." on its own the moment
+              this text changes, independent of focus. The focus move above
+              targets the CONTAINER, not this paragraph, so a screen reader
+              gets two distinct announcements — the container's own name
+              ("Answer result, group") from the focus move, and this
+              region's verdict text from the live-region mechanism — never
+              the same text spoken twice. */}
+          {drill.grade !== undefined && (
+            <p
+              role="status"
+              data-testid="eartraining-feedback"
+              className="eartraining-feedback"
+              data-state={drill.grade.correct ? 'correct' : 'wrong'}
+            >
+              {drill.grade.correct
+                ? 'Correct'
+                : isDictation
+                  ? 'Not quite — see the note-by-note result below'
+                  : `Not quite — it was ${describeExpected(kind, drill.grade.expected)}`}
+            </p>
+          )}
 
-      {dictationGrade !== undefined && (
-        <>
-          {/* pitchAccuracy/rhythmAccuracy had no production reader (review
-              finding) even though ROADMAP.md names "pitch and rhythm scored
-              separately" as this feature's own proof — this renders both. */}
-          <dl className="dictation-accuracy accuracy-pair" aria-label="Dictation accuracy">
-            <dt>Pitch accuracy</dt>
-            <dd data-testid="dictation-pitch-accuracy">
-              {Math.round(dictationGrade.pitchAccuracy * 100)}%
-            </dd>
-            <dt>Rhythm accuracy</dt>
-            <dd data-testid="dictation-rhythm-accuracy">
-              {Math.round(dictationGrade.rhythmAccuracy * 100)}%
-            </dd>
-          </dl>
-          <div className="dictation-result">
-            <ul aria-label="Dictation result" data-testid="dictation-result" className="note-row">
-              {dictationGrade.notes.map((n, i) => (
-                <li key={i}>
-                  <span className="note-chip" data-state={n.status}>
-                    {dictationNoteLabel(n)}
-                    {DICTATION_NOTE_STATUS_LABEL[n.status]}
-                  </span>
-                </li>
-              ))}
-            </ul>
+          {dictationGrade !== undefined && (
+            <>
+              {/* pitchAccuracy/rhythmAccuracy had no production reader (review
+                  finding) even though ROADMAP.md names "pitch and rhythm scored
+                  separately" as this feature's own proof — this renders both. */}
+              <dl className="dictation-accuracy accuracy-pair" aria-label="Dictation accuracy">
+                <dt>Pitch accuracy</dt>
+                <dd data-testid="dictation-pitch-accuracy">
+                  {Math.round(dictationGrade.pitchAccuracy * 100)}%
+                </dd>
+                <dt>Rhythm accuracy</dt>
+                <dd data-testid="dictation-rhythm-accuracy">
+                  {Math.round(dictationGrade.rhythmAccuracy * 100)}%
+                </dd>
+              </dl>
+              <div className="dictation-result">
+                <ul aria-label="Dictation result" data-testid="dictation-result" className="note-row">
+                  {dictationGrade.notes.map((n, i) => (
+                    <li key={i}>
+                      <span className="note-chip" data-state={n.status}>
+                        {dictationNoteLabel(n)}
+                        {DICTATION_NOTE_STATUS_LABEL[n.status]}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </>
+          )}
+
+          {/* roadmap 5.29: shown for every graded item, correct or not — the
+              defect this feature fixes is that a CORRECT guess taught nothing
+              either, since nothing ever showed what was actually heard. Reuses
+              the existing "Replay" control above (already wired, already
+              tested) for "replay with the answer named": once this is on
+              screen, Replay plays the same item again while the naming/staff/
+              keyboard stay visible. Renders below the (unchanged) answer grid —
+              never inside it — so answering never resizes or reflows the grid
+              itself (DESIGN.md rule 5/no-jump — see EarTrainingScreen.test.tsx). */}
+          {drill.item !== undefined && drill.grade !== undefined && (
+            <RevealPanel
+              key={drill.item.id}
+              kind={kind}
+              item={drill.item}
+              {...(kind === 'interval-melodic' || kind === 'interval-harmonic'
+                ? { onPlayReference: drill.playIntervalReference }
+                : {})}
+            />
+          )}
+
+          {/* roadmap UI-28: the exit control, physically LAST — after the
+              marked answer cards, the verdict and the explanation, never
+              before them (hierarchy rule 4: what am I doing -> the content ->
+              how I act on it). Same `drill.start` call the pre-answer "Play
+              item" button made; only the label, icon and DOM position differ. */}
+          <div className="eartraining-next-row">
+            <button type="button" className="btn-primary eartraining-play-btn" onClick={drill.start}>
+              <Icon name="chevron-right" />
+              Next
+            </button>
           </div>
-        </>
-      )}
-
-      {/* roadmap 5.29: shown for every graded item, correct or not — the
-          defect this feature fixes is that a CORRECT guess taught nothing
-          either, since nothing ever showed what was actually heard. Reuses
-          the existing "Replay" control above (already wired, already
-          tested) for "replay with the answer named": once this is on
-          screen, Replay plays the same item again while the naming/staff/
-          keyboard stay visible. Renders below the (unchanged) answer grid —
-          never inside it — so answering never resizes or reflows the grid
-          itself (DESIGN.md rule 5/no-jump — see EarTrainingScreen.test.tsx). */}
-      {drill.item !== undefined && drill.grade !== undefined && (
-        <RevealPanel
-          key={drill.item.id}
-          kind={kind}
-          item={drill.item}
-          {...(kind === 'interval-melodic' || kind === 'interval-harmonic'
-            ? { onPlayReference: drill.playIntervalReference }
-            : {})}
-        />
+        </div>
       )}
 
       <SrsSummary stats={drill.stats} idPrefix="eartraining-stats" ariaLabel="Retention" />

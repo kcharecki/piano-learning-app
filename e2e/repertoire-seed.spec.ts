@@ -1,4 +1,5 @@
 import { expect, test, type ConsoleMessage, type Page } from '@playwright/test'
+import { expandRepertoireLevelGroup } from './repertoire-helpers.ts'
 
 /**
  * E2E proof for roadmap 4.9a (REQ-5.2, REQ-3.8.3) — the shipped graded
@@ -12,6 +13,11 @@ import { expect, test, type ConsoleMessage, type Page } from '@playwright/test'
  * out of `COLLECTIONS.repertoire` in IndexedDB (same technique as
  * `e2e/repertoire.spec.ts`), so only a real store round-trip through
  * `addPiece` can pass.
+ *
+ * Roadmap UI-26: the catalogue's level-5 group (this spec's fixed piece is
+ * level 5) is collapsed by default on a fresh, level-1 profile — see
+ * `e2e/repertoire-helpers.ts`'s own doc comment for why every spec that
+ * drives a catalogue row expands its group through that one shared helper.
  */
 
 const DB_NAME = 'piano-learning-app'
@@ -82,6 +88,10 @@ test('adding a graded catalogue piece through the real control persists it into 
 
   // Honest empty library before anything is added.
   await expect(screenRegion.getByText(/No pieces in your library yet/i)).toBeVisible()
+
+  // Roadmap UI-26: this piece's level-5 group is collapsed by default on a
+  // fresh (level 1) profile.
+  await expandRepertoireLevelGroup(page, CATALOGUE_PIECE_TITLE)
 
   const catalogueRow = catalogueRegion.getByRole('listitem').filter({ hasText: CATALOGUE_PIECE_TITLE })
   await expect(catalogueRow).toBeVisible()

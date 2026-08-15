@@ -169,7 +169,34 @@
   background: transparent;
 }
 
-/* ---------- Meter card ---------- */
+/* ---------- Meter card / config disclosure (roadmap UI-25) ---------- */
+/* `.metronome-config` is `<details class="card--sunken metronome-meter
+   metronome-config">` — `card--sunken` gives the whole disclosure (summary
+   included) its padding and background as one block, same as any other
+   sunken card; `<summary>` itself is fully styled by primitives.css (44px
+   touch target, focus ring) and gets nothing added here. This file only
+   supplies the one thing a bare `<details>` needs that a card doesn't:
+   space between the always-visible summary line and the fields it reveals,
+   since `card--sunken`'s padding wraps both as a single box with no gap of
+   its own. */
+.metronome-config-body {
+  margin-top: var(--space-4);
+}
+/* The disclosure chevron — same convention as `.lessons-track-filter` and
+   `.repertoire-level-header`: closed points at the content it reveals, open
+   flips. Needed because `summary`'s shared `display: flex` (primitives.css)
+   removes the browser's own marker, so without this the summary line reads as
+   static card text. */
+.metronome-config > summary {
+  gap: var(--space-2);
+}
+.metronome-config > summary svg {
+  flex-shrink: 0;
+  color: var(--text-2);
+  transition: transform var(--dur-1) var(--ease-out);
+}
+.metronome-config[open] > summary svg { transform: rotate(180deg); }
+
 /* The defect the 2026-08-12 UI audit measured: each field in the row took
    its control's own intrinsic width (Beats 207px vs BPM's 97px — 2.1x for
    the same kind of value — Beat unit 70px, Subdivision 143px), because only

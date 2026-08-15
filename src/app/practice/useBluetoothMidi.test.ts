@@ -253,4 +253,95 @@ describe('useBluetoothMidi', () => {
     await waitFor(() => expect(result.current.device).toEqual(DEVICE))
     expect(result.current.error).toBeUndefined()
   })
+
+  // --- two live consumers (roadmap UI-35) -----------------------------------
+  // The topbar popover and the Settings screen's Input section can both mount
+  // `useBluetoothMidi()` at once. These tests pin down that they share one
+  // connection rather than each keeping (and clobbering) their own.
+
+  it('two consumers see the identical device after only one pairs, not merely a truthy connected flag', async () => {
+    const ble = fakeBluetoothMidi()
+    const connect: ConnectBluetoothMidi = () => Promise.resolve({ ok: true, value: ble })
+    const a = renderHook(() => useBluetoothMidi({ connect }))
+    // b is never used to pair — its own `connect` would hang forever if called.
+    const b = renderHook(() => useBluetoothMidi({ connect: () => new Promise(() => {}) }))
+
+    act(() => a.result.current.pair())
+    await waitFor(() => expect(a.result.current.device).toEqual(DEVICE))
+
+    expect(b.result.current.pairing).toBe(false)
+    expect(b.result.current.device).toEqual(DEVICE)
+    expect(b.result.current.device?.id).toBe(DEVICE.id)
+
+    a.unmount()
+    b.unmount()
+  })
+
+  it('mounting two consumers and pairing from one makes exactly one underlying connect() call', async () => {
+    const ble = fakeBluetoothMidi()
+    const connect = vi.fn<ConnectBluetoothMidi>(() => Promise.resolve({ ok: true, value: ble }))
+    const a = renderHook(() => useBluetoothMidi({ connect }))
+    const b = renderHook(() => useBluetoothMidi({ connect }))
+
+    act(() => a.result.current.pair())
+    await waitFor(() => expect(a.result.current.device).toEqual(DEVICE))
+    expect(b.result.current.device).toEqual(DEVICE)
+
+    // The whole point of the singleton: a per-hook implementation would still
+    // make both flags true, but would have called connect() twice.
+    expect(connect).toHaveBeenCalledTimes(1)
+
+    a.unmount()
+    b.unmount()
+  })
+
+  it('a peripheral drop (onDevicesChanged firing empty) is observed by every consumer, not just the one that paired', async () => {
+    let changeHandler: ((devices: readonly MidiDevice[]) => void) | undefined
+    const input: MidiInput = {
+      listDevices: () => [DEVICE],
+      onEvent: () => () => {},
+      onDevicesChanged: (handler) => {
+        changeHandler = handler
+        return () => {}
+      },
+      selectDevice: () => {},
+      selectedDeviceId: DEVICE.id,
+    }
+    const connect: ConnectBluetoothMidi = () => Promise.resolve({ ok: true, value: { input, dispose: vi.fn() } })
+    const a = renderHook(() => useBluetoothMidi({ connect }))
+    const b = renderHook(() => useBluetoothMidi({ connect: () => new Promise(() => {}) }))
+
+    act(() => a.result.current.pair())
+    await waitFor(() => expect(a.result.current.device).toEqual(DEVICE))
+    expect(b.result.current.device).toEqual(DEVICE)
+
+    act(() => changeHandler?.([]))
+
+    await waitFor(() => expect(a.result.current.device).toBeUndefined())
+    expect(b.result.current.device).toBeUndefined()
+
+    a.unmount()
+    b.unmount()
+  })
+
+  it('a consumer mounted after pairing already happened sees the connected device on its first render, not after an effect', async () => {
+    const ble = fakeBluetoothMidi()
+    const connect: ConnectBluetoothMidi = () => Promise.resolve({ ok: true, value: ble })
+    const a = renderHook(() => useBluetoothMidi({ connect }))
+
+    act(() => a.result.current.pair())
+    await waitFor(() => expect(a.result.current.device).toEqual(DEVICE))
+
+    const b = renderHook(() => useBluetoothMidi({ connect: () => new Promise(() => {}) }))
+
+    // Deliberately no `waitFor` here: useSyncExternalStore's getSnapshot must
+    // already reflect the module singleton's state on the very first render,
+    // not after a subsequent effect fires. If this needed a waitFor to pass,
+    // that would be a real defect, not a flaky assertion to relax.
+    expect(b.result.current.device).toEqual(DEVICE)
+    expect(b.result.current.pairing).toBe(false)
+
+    a.unmount()
+    b.unmount()
+  })
 })

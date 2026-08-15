@@ -28,13 +28,17 @@
    scrolled the list away with it. `position: sticky` plus its own scroll
    region keeps the catalogue reachable — pick a different lesson without
    scrolling back up first — while the body scrolls under it independently.
-   `--topbar-h` falls back to 56px the same way base.css's own topbar
-   compensation does (that token is only ever SET inside its <=1024px media
-   query), so this sticks just below the topbar at every width above it. */
+   Roadmap UI-34: the offset is `--space-4`, not topbar-height + `--space-4`.
+   The topbar is only STICKY at <=1024px; at desktop it scrolls away with the
+   page (see base.css's own note for why that answer is deliberate), so
+   reserving its height here pinned the catalogue 56px lower than anything was
+   occupying and shortened its scroll region by the same 56px — the pane was
+   dodging a bar that had already left the viewport. The <=1024px block below
+   puts the offset back, because there the bar really is overhead. */
 .lessons-list-pane {
   position: sticky;
-  top: calc(var(--topbar-h, 56px) + var(--space-4));
-  max-height: calc(100vh - var(--topbar-h, 56px) - var(--space-6));
+  top: var(--space-4);
+  max-height: calc(100vh - var(--space-6));
   overflow-y: auto;
 }
 
@@ -73,15 +77,42 @@
   align-self: flex-start;
 }
 
+/* Track filter (UI-30): a disclosure — `summary` is sized and made keyboard-
+   operable for free by primitives.css's own disclosure-summary rule, closed
+   by default so the secondary axis never visually competes with the level
+   tabs or the list beneath it (rule 2/4). `align-self: flex-start` for the
+   same reason `.lessons-level-control` opts out of the column's stretch —
+   see that primitive's own comment on `.seg-control`. */
+.lessons-track-filter {
+  align-self: flex-start;
+}
+.lessons-track-filter > summary {
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+.lessons-track-filter > summary svg { width: 1em; height: 1em; }
+/* Chevron points at what opening it reveals — flips to match the rest of
+   the app's disclosure convention (`.theory-chord-notation`, `SrsSummary`'s
+   own `.srs-summary-details`: closed = pointing at the content, no separate
+   "open" glyph). */
+.lessons-track-filter[open] > summary svg { transform: rotate(180deg); }
+
 /* Track chips: a caller-owned "plain button group" per primitives.css's own
    `.seg-control` doc comment — these are NOT a `.seg-control` (that's the
    level picker above), just badge-shaped toggle buttons in a wrapping row,
    since a track filter can legitimately wrap at narrow widths where a
-   segmented control's clipped single row would not. */
+   segmented control's clipped single row would not. Indented under the
+   summary so the disclosure reads as "level, then (optionally) track", not
+   two independent rows fighting for the same visual weight. */
 .lessons-track-chips {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding-left: var(--space-2);
 }
 .lessons-track-chips > button {
   min-height: var(--control-h);
@@ -100,6 +131,29 @@
   border-color: var(--accent);
   color: var(--accent);
   font-weight: var(--weight-semibold);
+}
+
+/* The words that say why the list is the length it is (rule 6/7). */
+.lessons-filter-summary {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--text-xs);
+}
+
+/* Empty state (rule 6): teaches instead of a bare "no items" — the text
+   names the level/track it looked in, the button (only rendered when a
+   track filter is actually narrowing the list) is the one action that
+   gets the learner back to a non-empty list. */
+.lessons-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-3);
+}
+.lessons-empty p {
+  margin: 0;
+  color: var(--text-2);
 }
 
 .lessons-list {

@@ -6,13 +6,42 @@
    LuneTraditional (French folk melody, 18th c., composer
    unknown)Level 1" — because three sibling inline `<span>`s had
    no layout rule forcing them apart. This file is that layout
-   rule: title and composer stack onto their own lines
+   rule: title stacks above a composer/provenance line
    (`.repertoire-catalogue-info`), the level badge and Add button
    sit in fixed-width trailing columns (`flex: 0 0 <width>`) so
    every row's Add button lines up under the last regardless of
    how long the title/composer text runs, and a level group
    header (`.repertoire-level-header`) breaks the flat 40-item
    list into graded sections.
+
+   Roadmap UI-26: those graded sections are now real `<details>`/
+   `<summary>` disclosures (`.repertoire-level-group`) instead of
+   a plain `<li>` heading — see RepertoireScreen.tsx's own doc
+   comment for why only the learner's own level opens by default.
+   Collapsing 4 of 5 groups is what keeps the page inside its
+   scroll-height budget; the row itself was tightened too
+   (`.repertoire-catalogue-meta` puts composer and provenance on
+   one line instead of two) because even the ONE open group can
+   hold 15-20 pieces at level 1, the biggest rung on the "40 Piece
+   Challenge" ladder (see gradedPieces.ts's own module doc).
+
+   Follow-up measurement pass: the two-line row above (title on
+   its own line, composer+provenance sharing a second) still
+   measured 63.19px per row in the browser — at 18 rows for the
+   level-1 group alone, `document.body.scrollHeight` came in at
+   2295px against a <2000px budget. Title, composer and provenance
+   now sit on ONE baseline-aligned line (`.repertoire-catalogue-
+   info` is a wrapping flex ROW, not a column) with `--space-1`
+   vertical padding instead of `--space-2`, so a normal-length row
+   costs one line of text, not two-plus-a-gap. The floor is now the
+   Add button's own `--control-h` (36px at this width), not the
+   text: `--space-1` top + bottom (8px) + `--border-w` (1px) +
+   36px ≈ 45px per row — an 18px/row cut, ~327px off the 18-row
+   level-1 group, which clears the budget with room to spare. A row
+   whose title+composer+provenance genuinely can't fit one line at
+   the viewport's width still wraps (flex-wrap on `.repertoire-
+   catalogue-info` and `.repertoire-catalogue-meta`) rather than
+   truncating — nothing here hides text behind an ellipsis.
    ============================================================ */
 
 /* ---------- Add-loaded-score bar ---------- */
@@ -117,52 +146,113 @@
 }
 .repertoire-catalogue-search-field input[type="search"] { min-width: 14rem; }
 
-/* ---------- Library: level-grouped catalogue ---------- */
-.repertoire-catalogue-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+/* ---------- Library: level-grouped catalogue (roadmap UI-26) ----------
+   `.repertoire-catalogue-groups` holds one `<details class="repertoire-
+   level-group">` per level that has a visible piece — each with its own
+   `<summary>` header and its own `<ul>` named for that level, rather
+   than one flat list with `<li>` headings, so a screen reader gets a real
+   disclosure per group (state announced, Enter/Space toggles) instead of a
+   heading row with no relationship to the rows under it. */
+.repertoire-catalogue-groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
 }
-.repertoire-level-header {
-  margin-top: var(--space-5);
-  padding-bottom: var(--space-2);
+.repertoire-level-group {
   border-bottom: var(--border-w) solid var(--border-1);
-  color: var(--text-2);
+}
+.repertoire-catalogue-groups > .repertoire-level-group:last-child { border-bottom: 0; }
+
+/* `summary` already gets `display: flex; align-items: center; min-height:
+   var(--control-h); cursor: pointer` for free from primitives.css (the
+   44px-touch-target fix every disclosure in the app shares) — this only adds
+   what that shared rule doesn't: the gap to the chevron, the label
+   typography, and the default marker/rotation. Same recipe as
+   `.theory-chord-notation summary` (feature-theory.css) and `.srs-summary-
+   details > summary` (feature-srs-summary.css) — nothing new invented here. */
+.repertoire-level-header {
+  gap: var(--space-2);
+  padding-bottom: var(--space-2);
+  color: var(--text-1);
   font-size: var(--text-sm);
   font-weight: var(--weight-semibold);
   text-transform: uppercase;
   letter-spacing: var(--tracking-caps);
+  list-style: none;
 }
-.repertoire-catalogue-list > .repertoire-level-header:first-child { margin-top: var(--space-3); }
+.repertoire-level-header::-webkit-details-marker { display: none; }
+.repertoire-level-header svg {
+  flex-shrink: 0;
+  color: var(--text-2);
+  transition: transform var(--dur-1) var(--ease-out);
+}
+.repertoire-level-group[open] > .repertoire-level-header svg { transform: rotate(180deg); }
 
+.repertoire-catalogue-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 var(--space-2);
+}
+
+/* Measured pass for UI-26: even the one level group open by default (the
+   learner's own level) can hold 15-20 of the catalogue's ~40 pieces (level 1
+   is the biggest rung of the "40 Piece Challenge" ladder — see
+   gradedPieces.ts), so this row needed to be shorter than a re-grouped-only
+   version to keep the whole page inside its scroll-height budget. `--space-1`
+   vertical padding (was `--space-2`) plus collapsing title/composer/
+   provenance onto one baseline-aligned line (see `.repertoire-catalogue-info`
+   below) bring the row to roughly the Add button's own `--control-h` floor —
+   nothing here reduces below AA contrast, and the interactive control (Add)
+   keeps `--control-h` from `.btn-ghost` untouched, so it still clears
+   `--touch-min` at ≤1024px same as every other primitive button. */
 .repertoire-catalogue-piece {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  min-height: var(--control-h);
-  padding: var(--space-3) 0;
-  border-bottom: var(--border-w) solid var(--border-1);
+  padding: var(--space-1) 0;
+  border-top: var(--border-w) solid var(--border-1);
 }
-.repertoire-catalogue-list > .repertoire-catalogue-piece:last-child { border-bottom: 0; }
+.repertoire-catalogue-list > .repertoire-catalogue-piece:first-child { border-top: 0; }
 
+/* One wrapping flex ROW, not a column: title, then the composer/provenance
+   cluster, sit on the same baseline by default and only drop to a second
+   line if the viewport is too narrow to fit all three — see CatalogueRow's
+   own doc comment for why this replaced the two-line (title row + meta row)
+   layout. */
 .repertoire-catalogue-info {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--space-2);
+  row-gap: 2px;
 }
 .repertoire-catalogue-title {
   font-size: var(--text-md);
+  line-height: var(--leading-tight);
   color: var(--text-1);
   font-weight: var(--weight-medium);
 }
+/* Composer and provenance share one line (still two separate `<span>`s — see
+   CatalogueRow's own doc comment), wrapping as a pair only when the combined
+   text is too long for the row. A leading separator (added in the component)
+   now also divides this cluster from the title on the same baseline. */
+.repertoire-catalogue-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px var(--space-2);
+}
 .repertoire-catalogue-composer {
   font-size: var(--text-sm);
+  line-height: var(--leading-tight);
   color: var(--text-2);
 }
+.repertoire-catalogue-sep { color: var(--text-3); }
 .repertoire-catalogue-provenance {
   font-size: var(--text-xs);
+  line-height: var(--leading-tight);
   color: var(--text-3);
 }
 

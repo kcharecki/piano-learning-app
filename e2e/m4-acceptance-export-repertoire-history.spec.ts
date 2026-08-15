@@ -1,4 +1,5 @@
 import { expect, test, type ConsoleMessage, type Page } from '@playwright/test'
+import { expandRepertoireLevelGroup } from './repertoire-helpers.ts'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -169,7 +170,11 @@ async function backdateStoredSessions(page: Page, atEpochMs: number): Promise<vo
 /** Add Greensleeves from the graded catalogue, play it in Practice, stop. */
 async function addAndPractise(page: Page): Promise<void> {
   await nav(page, 'Repertoire').click()
-  const catalogue = page.getByRole('list', { name: 'Graded pieces' })
+  // Roadmap UI-26: the catalogue is grouped by level behind one <details> per
+  // group, so there is one list per level rather than a single "Graded pieces"
+  // list, and Greensleeves' level-3 group is collapsed on a fresh profile.
+  const catalogue = page.getByRole('region', { name: 'Graded library' })
+  await expandRepertoireLevelGroup(page, TITLE)
   await catalogue.getByRole('listitem').filter({ hasText: TITLE }).getByRole('button', { name: 'Add' }).click()
 
   const library = page.getByRole('list', { name: 'Repertoire pieces' })

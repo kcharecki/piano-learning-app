@@ -1,4 +1,5 @@
 import { expect, test, type ConsoleMessage, type Page } from '@playwright/test'
+import { expandRepertoireLevelGroup } from './repertoire-helpers.ts'
 
 /**
  * E2E proof for roadmap 5.2 (REQ-3.8.2, closing the loop 5.1 opened): the
@@ -14,6 +15,11 @@ import { expect, test, type ConsoleMessage, type Page } from '@playwright/test'
  * that is this spec's "a different score loaded first" — landing on
  * Greensleeves afterwards cannot be satisfied by an implementation that did
  * nothing.
+ *
+ * Roadmap UI-26: Greensleeves is a level-3 catalogue entry, collapsed by
+ * default on a fresh (level 1) profile — see `e2e/repertoire-helpers.ts`'s
+ * own doc comment for why every spec that drives a catalogue row expands its
+ * group through that one shared helper.
  */
 
 const GREENSLEEVES_TITLE = 'Greensleeves'
@@ -59,7 +65,10 @@ test('adding a graded piece and opening it in Practice loads and plays that piec
   await expect(page.getByRole('heading', { name: 'Twinkle, Twinkle, Little Star' })).toBeVisible()
 
   await navButton(page, 'Repertoire').click()
-  const catalogue = page.getByRole('list', { name: 'Graded pieces' })
+  await expandRepertoireLevelGroup(page, GREENSLEEVES_TITLE)
+  // Roadmap UI-26 gives each level group its own list, so scope to the
+  // section rather than to a single (no longer unique) "Graded pieces" list.
+  const catalogue = page.getByRole('region', { name: 'Graded library' })
   const greensleevesRow = catalogue.getByRole('listitem').filter({ hasText: GREENSLEEVES_TITLE })
   await greensleevesRow.getByRole('button', { name: 'Add' }).click()
 

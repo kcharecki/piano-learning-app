@@ -22,9 +22,10 @@
   :root {
     --control-h: 44px;        /* every control clears touch min */
     --control-pad-x: 16px;
-    /* The drawer's origin, the topbar's own height and the sticky transport
+    /* `--topbar-h` used to be declared here, and only here — see
+       tokens/spacing.css, which now owns it at every width (roadmap UI-34).
+       The drawer's origin, the topbar's own height and the sticky transport
        offset all have to agree; they were three separate hardcoded 56px. */
-    --topbar-h: 56px;
   }
   input[type="range"]::-webkit-slider-thumb { width: 28px; height: 28px; margin-top: -11px; }
   input[type="range"]::-moz-range-thumb { width: 24px; height: 24px; }
@@ -113,7 +114,10 @@
     background: rgba(0, 0, 0, .5);
     z-index: calc(var(--z-nav) - 1);
   }
-  .app-main { max-width: none; padding-top: var(--space-4); }
+  /* `max-width: none` used to live here to undo `.app-main`'s desktop cap;
+     roadmap UI-34 removed that cap outright (domain.css), so there is nothing
+     left to undo and only the tighter top padding remains. */
+  .app-main { padding-top: var(--space-4); }
 
   /* 2026-08 UI audit MAJOR: `.page--wide`'s own max-width (`--content-max`,
      72rem/1152px, base.css) only ever constrains it on viewports wide enough

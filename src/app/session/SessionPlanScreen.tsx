@@ -338,7 +338,7 @@ export function SessionPlanScreen({ onOpen, clock, date, openStore }: SessionPla
                     type="button"
                     className="card session-plan-item"
                     data-testid={`session-plan-item-${index}`}
-                    aria-label={`Open ${item.exercise.title}`}
+                    aria-label={`Open ${item.exercise.title}, ${pluralize(item.minutes, 'minute')}`}
                     onClick={() => onOpen(item.exercise)}
                   >
                     <Icon name={SEGMENT_ICONS[item.segment]} />

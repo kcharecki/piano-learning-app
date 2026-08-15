@@ -69,7 +69,11 @@ test("opening a non-first planned technique item opens THAT drill, not the level
   const secondTechniqueItem = techniqueItems.nth(1)
   const openButton = secondTechniqueItem.getByRole('button')
   const ariaLabel = await openButton.getAttribute('aria-label')
-  const match = ariaLabel === null ? null : /^Open (.+)$/.exec(ariaLabel)
+  // Roadmap UI-29 appended the item's duration to this label ("…, 6 minutes").
+  // The drill title is the part before it, and is looked up in the real
+  // technique library below — so a mis-parsed suffix fails loudly here rather
+  // than silently matching no drill.
+  const match = ariaLabel === null ? null : /^Open (.+), \d+ minutes?$/.exec(ariaLabel)
   if (match?.[1] === undefined) {
     throw new Error(`could not read a planned drill title out of Open button aria-label "${ariaLabel}"`)
   }

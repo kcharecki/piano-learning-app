@@ -360,9 +360,9 @@ describe('RepertoireScreen', () => {
 
     await user.type(screen.getByLabelText('Search'), 'twinkle')
 
-    const rows = within(catalogueRegion)
-      .getAllByRole('listitem')
-      .filter((li) => !li.classList.contains('repertoire-level-header'))
+    // Roadmap UI-26: group headers are `<summary>`s now, not `<li>`s, so
+    // every remaining `listitem` is a real catalogue row.
+    const rows = within(catalogueRegion).getAllByRole('listitem')
     expect(rows).toHaveLength(1)
     expect(within(catalogueRegion).getByText('Twinkle, Twinkle, Little Star')).toBeInTheDocument()
   })
@@ -403,5 +403,101 @@ describe('RepertoireScreen', () => {
 
     expect(within(overdueRow as HTMLElement).getByText('Review due')).toBeInTheDocument()
     expect(within(recentRow as HTMLElement).queryByText('Review due')).not.toBeInTheDocument()
+  })
+
+  // ---------------------------------------------------------------------
+  // Roadmap UI-26: the flat 40-piece catalogue collapses into one native
+  // `<details>`/`<summary>` disclosure per level, open by default only for
+  // the group matching the learner's own playing-track level.
+  // ---------------------------------------------------------------------
+
+  it('opens only the catalogue group matching the learner\'s playing level on a fresh profile (roadmap UI-26)', () => {
+    const { container } = renderScreen()
+
+    const groups = Array.from(
+      container.querySelectorAll<HTMLDetailsElement>('details.repertoire-level-group'),
+    )
+    // Five levels, five groups — otherwise this test would trivially pass by
+    // there being nothing to collapse.
+    expect(groups).toHaveLength(5)
+
+    const openGroups = groups.filter((details) => details.open)
+    // Fresh profile: `initialLevelState()` puts every track (including
+    // 'playing') at level 1 — see levelStore.ts — so exactly the Level 1
+    // group opens and the rest start collapsed.
+    expect(openGroups).toHaveLength(1)
+    expect(openGroups[0]?.querySelector('summary')?.textContent).toMatch(/^Level 1 —/)
+  })
+
+  it('opens the group matching a non-default playing level instead of always defaulting to level 1 (roadmap UI-26)', () => {
+    act(() => {
+      useLevelStore.getState().setTrackLevel('playing', 4)
+    })
+    const { container } = renderScreen()
+
+    const groups = Array.from(
+      container.querySelectorAll<HTMLDetailsElement>('details.repertoire-level-group'),
+    )
+    const openGroups = groups.filter((details) => details.open)
+
+    expect(openGroups).toHaveLength(1)
+    expect(openGroups[0]?.querySelector('summary')?.textContent).toMatch(/^Level 4 —/)
+  })
+
+  it('states the level in learner language AND how many pieces are inside, never a bare count or a "0 piece(s)" plural (rule 6/7)', () => {
+    renderScreen()
+    const catalogueRegion = screen.getByRole('region', { name: 'Graded library' })
+
+    const level1Count = GRADED_PIECES.filter((p) => p.level === 1).length
+    expect(level1Count).toBeGreaterThan(0)
+    const noun = level1Count === 1 ? 'piece' : 'pieces'
+    expect(
+      within(catalogueRegion).getByText(new RegExp(`^Level 1 — .+\\(${level1Count} ${noun}\\)$`)),
+    ).toBeInTheDocument()
+
+    // A group is never rendered for a level with no visible pieces (see
+    // `atLevel.length === 0` in RepertoireScreen.tsx), so this heading text
+    // can never appear — the honest way to prove the "never 0 piece(s)"
+    // rule rather than just asserting the happy path reads correctly.
+    expect(within(catalogueRegion).queryByText(/\(0 pieces?\)/)).not.toBeInTheDocument()
+  })
+
+  it('clicking a collapsed group\'s header opens it, and clicking again closes it (native <details>/<summary> keyboard/AT semantics apply for free — acceptance criterion 3)', async () => {
+    renderScreen()
+    const user = userEvent.setup()
+    const catalogueRegion = screen.getByRole('region', { name: 'Graded library' })
+
+    const level2Header = within(catalogueRegion).getByText(/^Level 2 —/)
+    const level2Group = level2Header.closest('details')
+    if (level2Group === null) throw new Error('expected the level 2 group to render as a <details>')
+
+    expect(level2Group).not.toHaveAttribute('open')
+    await user.click(level2Header)
+    expect(level2Group).toHaveAttribute('open')
+    await user.click(level2Header)
+    expect(level2Group).not.toHaveAttribute('open')
+  })
+
+  it('a search query forces every remaining (already match-only) group open, even one collapsed by default (acceptance criterion 5)', async () => {
+    renderScreen()
+    const user = userEvent.setup()
+    const catalogueRegion = screen.getByRole('region', { name: 'Graded library' })
+
+    // Bach's Invention is level 5 — collapsed by default on a fresh (level 1)
+    // profile.
+    const bachEntry = GRADED_PIECES.find((p) => p.id === 'bach-invention-no-1-bwv-772')
+    if (bachEntry === undefined) throw new Error('expected the seeded Bach Invention catalogue entry')
+
+    await user.type(screen.getByLabelText('Search'), 'invention')
+
+    const level5Header = within(catalogueRegion).getByText(/^Level 5 —/)
+    const level5Group = level5Header.closest('details')
+    if (level5Group === null) throw new Error('expected the level 5 group to render as a <details>')
+    expect(level5Group).toHaveAttribute('open')
+    expect(within(catalogueRegion).getByText(bachEntry.title)).toBeInTheDocument()
+
+    // Clearing the query returns the group to its own (collapsed) default.
+    await user.clear(screen.getByLabelText('Search'))
+    expect(level5Group).not.toHaveAttribute('open')
   })
 })

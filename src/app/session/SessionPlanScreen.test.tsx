@@ -189,6 +189,12 @@ describe('SessionPlanScreen — planning', () => {
     // The whole card is the click target — a real <button>, keyboard
     // reachable and focusable by default, not a link buried inside a row.
     expect(openCard.tagName).toBe('BUTTON')
+    // UI-29: the accessible name says what opening it does, including how
+    // long it is — not just "Open <title>" — and there is exactly one
+    // focusable/clickable element in the row (no nested "Open" button
+    // duplicating the card itself).
+    expect(openCard.getAttribute('aria-label')).toMatch(/^Open .+, \d+ minutes?$/)
+    expect(within(lastRow).getAllByRole('button')).toHaveLength(1)
 
     await user.click(openCard)
 

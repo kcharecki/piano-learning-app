@@ -26,6 +26,18 @@ function manualDriver(): { driver: FrameDriver; pump: () => void } {
   return { driver, pump: () => callback?.() }
 }
 
+/**
+ * Roadmap UI-25: Beats, Beat unit, Subdivision and the accent toggles live
+ * behind a closed-by-default `<details>` disclosure now, so any test that
+ * reaches them has to open it first — exactly what a real user does. Mirrors
+ * `e2e/metronome.spec.ts`'s `openMetronomeConfig` (same idempotent shape),
+ * just against RTL instead of a real page.
+ */
+function openConfig(): void {
+  const summary = screen.getByText('Beats, meter and accents')
+  if (summary.closest('details')?.open !== true) fireEvent.click(summary)
+}
+
 afterEach(cleanup)
 
 describe('MetronomeScreen', () => {
@@ -244,6 +256,7 @@ describe('MetronomeScreen', () => {
     const audio = new RecordingAudioOutput(clock)
     const manual = manualDriver()
     render(<MetronomeScreen clock={clock} audioOutput={audio} frameDriver={manual.driver} />)
+    openConfig()
 
     // Default 4/4 accents only beat 1. Turn beat 2 on as well.
     fireEvent.click(screen.getByRole('button', { name: /^Beat 2/ }))
@@ -324,6 +337,7 @@ describe('MetronomeScreen', () => {
     const { container } = render(
       <MetronomeScreen clock={clock} audioOutput={audio} frameDriver={manual.driver} />,
     )
+    openConfig()
 
     const row = container.querySelector('.metronome-meter-row')
     expect(row).not.toBeNull()
@@ -341,22 +355,57 @@ describe('MetronomeScreen', () => {
     expect(beatsInput).toHaveAttribute('max', '32')
   })
 
-  it('groups Beats/Beat unit/Subdivision/accents inside a "Meter" card and BPM stays out of it, on a page--focus panel', () => {
+  it('groups Beats/Beat unit/Subdivision/accents inside the config disclosure and BPM stays out of it, on a page--focus panel', () => {
     const clock = new FakeClock()
     const audio = new RecordingAudioOutput(clock)
     const manual = manualDriver()
     const { container } = render(
       <MetronomeScreen clock={clock} audioOutput={audio} frameDriver={manual.driver} />,
     )
+    openConfig()
 
     expect(container.querySelector('.page.page--focus')).not.toBeNull()
     const meter = container.querySelector('.metronome-meter')
     expect(meter).not.toBeNull()
-    expect(screen.getByRole('heading', { name: 'Meter' })).toBeInTheDocument()
     expect(meter?.contains(screen.getByLabelText('Beats'))).toBe(true)
     expect(meter?.querySelector('[role="group"]')).not.toBeNull()
-    // BPM lives on the stage, not inside the Meter card.
+    // BPM lives on the stage, not inside the config disclosure.
     expect(meter?.contains(screen.getByLabelText('BPM'))).toBe(false)
+  })
+
+  // Roadmap UI-25 (2026-08-15 UI audit): the screen measured 12 visible
+  // interactive controls, breaking rule 2 (~6 before disclosure). BPM and
+  // Start are the screen; everything else is configuration set once.
+  it('starts with the meter/accent configuration collapsed, leaving only the BPM group, Start and the disclosure itself visible', () => {
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const manual = manualDriver()
+    render(<MetronomeScreen clock={clock} audioOutput={audio} frameDriver={manual.driver} />)
+
+    // `<details>` closed is what the browser (and DESIGN.md rule 2) hides the
+    // config behind; jsdom does not implement the browser's own content-
+    // visibility for a closed `<details>` (its children stay queryable
+    // regardless), so this asserts the actual `open` DOM state a browser
+    // renders from, plus every control this redesign leaves outside it — not
+    // a query-based visibility proxy jsdom can't back up. The rendered-count
+    // claim itself (6 controls, both widths, both themes) is the visual
+    // pass's job, driven against the real app.
+    const details = screen.getByText('Beats, meter and accents').closest('details')
+    expect(details).not.toBeNull()
+    expect(details?.open).toBe(false)
+
+    // The six controls the redesign leaves outside the disclosure: the BPM
+    // stepper's three pieces (−, the value, +), the BPM slider, Start, and
+    // the disclosure trigger itself.
+    expect(screen.getByRole('button', { name: 'Decrease BPM' })).toBeInTheDocument()
+    expect(screen.getByLabelText('BPM')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Increase BPM' })).toBeInTheDocument()
+    expect(screen.getByLabelText('BPM slider')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Start' })).toHaveLength(1)
+
+    openConfig()
+    expect(details?.open).toBe(true)
+    expect(screen.getByLabelText('Beats')).toBeInTheDocument()
   })
 
   it('renders the BPM readout at the glance type size', () => {
@@ -379,6 +428,7 @@ describe('MetronomeScreen', () => {
     const audio = new RecordingAudioOutput(clock)
     const manual = manualDriver()
     render(<MetronomeScreen clock={clock} audioOutput={audio} frameDriver={manual.driver} />)
+    openConfig()
 
     const bpmSlider = screen.getByLabelText('BPM slider')
     fireEvent.change(bpmSlider, { target: { value: '300' } })
@@ -395,6 +445,7 @@ describe('MetronomeScreen', () => {
     const audio = new RecordingAudioOutput(clock)
     const manual = manualDriver()
     render(<MetronomeScreen clock={clock} audioOutput={audio} frameDriver={manual.driver} />)
+    openConfig()
 
     const beatsInput = screen.getByLabelText('Beats')
     expect(() => fireEvent.change(beatsInput, { target: { value: '' } })).not.toThrow()

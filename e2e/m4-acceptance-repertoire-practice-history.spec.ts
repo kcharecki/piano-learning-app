@@ -1,4 +1,5 @@
 import { expect, test, type ConsoleMessage, type Page } from '@playwright/test'
+import { expandRepertoireLevelGroup } from './repertoire-helpers.ts'
 
 /**
  * roadmap 4.10 (M4 acceptance pass) — REQ-3.8.2 says a repertoire piece
@@ -51,7 +52,10 @@ test('REQ-3.8.2: playing a repertoire piece through the real Practice screen upd
 
   await page.goto('/')
   await navButton(page, 'Repertoire').click()
-  const catalogue = page.getByRole('list', { name: 'Graded pieces' })
+  // Roadmap UI-26: one list per level group now, so scope to the section and
+  // expand Greensleeves' own (level 3) group — collapsed on a fresh profile.
+  const catalogue = page.getByRole('region', { name: 'Graded library' })
+  await expandRepertoireLevelGroup(page, GREENSLEEVES_TITLE)
   const greensleevesRow = catalogue.getByRole('listitem').filter({ hasText: GREENSLEEVES_TITLE })
   await greensleevesRow.getByRole('button', { name: 'Add' }).click()
 

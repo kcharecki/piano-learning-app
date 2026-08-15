@@ -25,6 +25,33 @@ function collectErrors(page: Page): string[] {
   return errors
 }
 
+/**
+ * Opens the Metronome screen's "Beats, meter and accents" disclosure.
+ *
+ * Roadmap UI-25 (2026-08-15 UI audit): that `<details>` is closed by default
+ * — `MetronomeScreen.tsx`'s own comment has the reasoning (BPM and Start are
+ * the screen; Beats, Beat unit, Subdivision and the accent toggles are
+ * configuration set once). This is the expand step, in one place, exactly the
+ * shape `e2e/practice-setup.ts`'s `openPracticeSetup` uses for Practice, so
+ * any spec reaching those controls imports this instead of re-deriving the
+ * click.
+ *
+ * Idempotent: a `<details>` that is already open is left alone rather than
+ * toggled shut, so a spec may call this more than once without tracking the
+ * state itself.
+ *
+ * Deliberately NOT a `summary.click()` unconditionally: clicking an
+ * already-open disclosure closes it, which is the exact failure mode this
+ * guard exists to prevent.
+ */
+export async function openMetronomeConfig(page: Page): Promise<void> {
+  const details = page.locator('details.metronome-config')
+  await details.waitFor({ state: 'attached' })
+  if (await details.evaluate((el: HTMLDetailsElement) => el.open)) return
+  await page.getByText('Beats, meter and accents', { exact: true }).click()
+  await details.waitFor({ state: 'attached' })
+}
+
 test('the standalone metronome runs with no score and advances in real time (roadmap 2.28)', async ({
   page,
 }) => {
@@ -47,9 +74,10 @@ test('the standalone metronome runs with no score and advances in real time (roa
   // which was expressible anywhere in this app before.
   //
   // Roadmap UI-16: there is no longer a single "Tempo and metre" group; BPM
-  // lives in its own stage card while Beats/Beat unit moved into the "Meter"
-  // region alongside Subdivision/Accents. `useMetronome.ts`'s own DEFAULT_BPM
-  // is already 100 — exactly this worked example's tempo — but the control
+  // lives in its own stage card while Beats/Beat unit live alongside
+  // Subdivision/Accents behind the config disclosure (roadmap UI-25).
+  // `useMetronome.ts`'s own DEFAULT_BPM is already 100 — exactly this worked
+  // example's tempo — but the control
   // must still be proven live, not just defaulted right, so this nudges it up
   // and back down with the stepper and reads the displayed number back each
   // time, landing back on 100 for the rest of the run.
@@ -75,7 +103,11 @@ test('the standalone metronome runs with no score and advances in real time (roa
   await bpmValue.blur()
   await expect(bpmValue).toHaveValue('100')
 
-  const meter = page.getByRole('region', { name: 'Meter' })
+  // Roadmap UI-25: Beats, Beat unit and the accent toggles moved behind a
+  // closed-by-default disclosure — expand it before reaching any of them.
+  await openMetronomeConfig(page)
+
+  const meter = page.locator('.metronome-meter')
   await meter.getByLabel('Beats').fill('7')
   await meter.getByLabel('Beat unit').selectOption('8')
 

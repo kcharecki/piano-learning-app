@@ -81,34 +81,50 @@ export function LoopRangeControl({ score, loop, onChange, tempoScale }: LoopRang
   }
 
   return (
-    // Roadmap UI-10 (2026-08-12 UI audit): From/to measure used to sit as bare
-    // `<label>text<input></label>` pairs crammed against each other with no
-    // primitive backing them — replaced with `.field-row` of two `.field`s
-    // (primitives.css), the documented shape for "a horizontal run of
-    // labelled controls" (e.g. BPM/Beats/Beat unit on Metronome already uses
-    // it). The group's own role/label are unchanged, so every existing query
-    // by role or label text still resolves.
+    // Roadmap UI-27 (2026-08-15, toolbar-height fix): From/to measure used to
+    // be two `.field`s (primitives.css) inside a `.field-row` — each stacks
+    // its label ABOVE its input, ~58px tall. That was fine as a drawer
+    // section (roadmap UI-10); promoted into the sticky toolbar, it made this
+    // the tallest thing in the row after `.hand-mute-control`'s single-line
+    // seg-control, and the toolbar's own height is now permanently subtracted
+    // from the learner's view of the score every scroll. `.field-inline`
+    // (primitives.css) puts label and input on ONE line instead, matching
+    // every other toolbar control's height (`--control-h`).
+    //
+    // The visible label text is shortened ("From measure" -> "From") and the
+    // full wording moves to `aria-label`, which WINS over the `<label>`
+    // association for the accessible name (WAI-ARIA accname computation) —
+    // `aria-label` still literally contains the visible text ("From measure"
+    // contains "From"), satisfying WCAG 2.5.3 Label in Name, and every
+    // existing `getByLabelText('From measure')` query still resolves because
+    // it matches the computed accessible name, not the rendered label text.
+    // This is purely a toolbar-width concession (see feature-practice.css's
+    // own comment on the loop-range-fields' explicit input width) — sitting
+    // beside transport, hands, tempo and mic in one sticky band left no room
+    // for "From measure"/"To measure" to render in full.
     <div className="loop-range-control" role="group" aria-label="Loop range">
-      <div className="field-row">
-        <div className="field">
-          <label htmlFor={startId}>From measure</label>
+      <div className="loop-range-fields">
+        <div className="field-inline">
+          <label htmlFor={startId}>From</label>
           <input
             id={startId}
             type="number"
             min={1}
             max={lastMeasure + 1}
             value={startMeasure + 1}
+            aria-label="From measure"
             onChange={(event) => apply(Number(event.target.value) - 1, endMeasure, enabled)}
           />
         </div>
-        <div className="field">
-          <label htmlFor={endId}>To measure</label>
+        <div className="field-inline">
+          <label htmlFor={endId}>To</label>
           <input
             id={endId}
             type="number"
             min={1}
             max={lastMeasure + 1}
             value={endMeasure + 1}
+            aria-label="To measure"
             onChange={(event) => apply(startMeasure, Number(event.target.value) - 1, enabled)}
           />
         </div>

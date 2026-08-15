@@ -29,14 +29,14 @@ import { defaultBaseNote } from '@app/keyboardInput/qwertyNoteMap.ts'
 import { useQwertyNoteInput } from '@app/keyboardInput/useQwertyNoteInput.ts'
 import type { ConnectMidi } from '@app/practice/useMidiConnection.ts'
 import { SrsSummary } from '@app/srs/SrsSummary.tsx'
-import type { GradeResult } from '@core/drills/flashcards.ts'
+import { buildDeck, type GradeResult } from '@core/drills/flashcards.ts'
 import type { Clock, DateSource, MidiInput, Rng } from '@core/ports/index.ts'
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { IntervalAnswerPad } from './IntervalAnswerPad.tsx'
 import { KeySignatureAnswerPad } from './KeySignatureAnswerPad.tsx'
 import { NoteNameAnswerPad } from './NoteNameAnswerPad.tsx'
 import { OnScreenKeyboard } from './OnScreenKeyboard.tsx'
-import { StaffNote } from './StaffNote.tsx'
+import { StaffNote, stepRangeForDeck } from './StaffNote.tsx'
 import { useFlashcardDrill, type DrillKind } from './useFlashcardDrill.ts'
 
 export type FlashcardScreenProps = {
@@ -136,6 +136,17 @@ export function FlashcardScreen(props: FlashcardScreenProps) {
   const [kind, setKind] = useState<DrillKind>(props.initialKind ?? 'staff-to-key')
   const { initialKind: _initialKind, initialLevel: _initialLevel, ...drillProps } = props
   const drill = useFlashcardDrill({ level, kind, ...drillProps })
+  // The staff's viewBox (roadmap UI-32): one fixed box per DECK, not per app
+  // (that would size a level-1 card for a note it will never draw) and not
+  // per card (that is the original bug — the staff resizing every answer).
+  // Recomputed only when `kind`/`level` change — i.e. only on the learner's
+  // own explicit deck switch, matching `useFlashcardDrill`'s own `deck`
+  // memo (`[kind, level]`) so this never redoes the work per card or per
+  // grade. `buildDeck` is the same pure call the hook makes internally to
+  // build the deck it drives from; `useFlashcardDrill` does not expose the
+  // built deck itself, so this recomputes it rather than reaching into the
+  // hook's internals.
+  const staffStepRange = useMemo(() => stepRangeForDeck(buildDeck(kind, level)), [kind, level])
   // Only the 'staff-to-key' card answers with a note at all — the other
   // three kinds have their own answer pads (roadmap 5.5).
   useQwertyNoteInput({
@@ -206,7 +217,11 @@ export function FlashcardScreen(props: FlashcardScreenProps) {
       ) : drill.card.kind === 'staff-to-key' ? (
         <section className="flashcard-stage" aria-label="Flashcard">
           <div className="card flashcard-stage-card">
-            <StaffNote midi={drill.card.prompt.midi} clef={drill.card.prompt.clef} />
+            <StaffNote
+              midi={drill.card.prompt.midi}
+              clef={drill.card.prompt.clef}
+              stepRange={staffStepRange}
+            />
           </div>
           <p className="flashcard-prompt-text">
             Play the note shown, on the keyboard below or your MIDI keyboard.
@@ -234,6 +249,7 @@ export function FlashcardScreen(props: FlashcardScreenProps) {
               low={drill.card.prompt.low}
               high={drill.card.prompt.high}
               clef={drill.card.prompt.clef}
+              stepRange={staffStepRange}
             />
           </div>
           <p className="flashcard-prompt-text">Name the interval shown.</p>
@@ -245,7 +261,11 @@ export function FlashcardScreen(props: FlashcardScreenProps) {
       ) : drill.card.kind === 'note-name' ? (
         <section className="flashcard-stage" aria-label="Flashcard">
           <div className="card flashcard-stage-card">
-            <StaffNote midi={drill.card.prompt.midi} clef={drill.card.prompt.clef} />
+            <StaffNote
+              midi={drill.card.prompt.midi}
+              clef={drill.card.prompt.clef}
+              stepRange={staffStepRange}
+            />
           </div>
           <p className="flashcard-prompt-text">Name the note shown.</p>
           <div className="flashcard-answer">

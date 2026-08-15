@@ -698,6 +698,202 @@ describe('EarTrainingScreen — the reveal never reshapes the answer grid (roadm
   })
 })
 
+// roadmap UI-28: the answered state used to read prompt -> Next -> answer
+// buttons -> verdict -> explanation — offering the exit before the thing
+// that teaches, breaking hierarchy rule 4 (what am I doing -> the content ->
+// how I act on it). This asserts the actual DOM order via
+// `compareDocumentPosition`, not a snapshot or visual check, so a keyboard
+// user and a screen-reader user get the same reading order the eye does.
+describe('EarTrainingScreen — answered-state DOM order (roadmap UI-28)', () => {
+  const FOLLOWING = Node.DOCUMENT_POSITION_FOLLOWING
+
+  it('reads prompt/replay -> answer grid -> verdict -> explanation -> Next, in that document order', async () => {
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
+
+    const replay = screen.getByRole('button', { name: 'Replay' })
+    const grid = screen.getByRole('group', { name: 'Interval answer' })
+
+    await user.click(screen.getByRole('button', { name: 'major third' }))
+
+    const verdict = screen.getByTestId('eartraining-feedback')
+    const explanation = document.querySelector('[aria-label="Answer reveal"]')
+    expect(explanation).not.toBeNull()
+    if (explanation === null) throw new Error('expected the reveal panel to be in the document')
+    const next = screen.getByRole('button', { name: 'Next' })
+
+    expect(replay.compareDocumentPosition(grid) & FOLLOWING).toBeTruthy()
+    expect(grid.compareDocumentPosition(verdict) & FOLLOWING).toBeTruthy()
+    expect(verdict.compareDocumentPosition(explanation) & FOLLOWING).toBeTruthy()
+    expect(explanation.compareDocumentPosition(next) & FOLLOWING).toBeTruthy()
+
+    // "Next" is a distinct element that mounts once graded, not the
+    // pre-answer button relabelled in place — so the pre-answer button is
+    // gone, and there is still exactly one primary action on screen
+    // (DESIGN.md rule 1).
+    expect(screen.queryByRole('button', { name: 'Play item' })).toBeNull()
+  })
+
+  it('the same order holds for a WRONG answer too (verdict and explanation still follow the grid, Next still last)', async () => {
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
+
+    const grid = screen.getByRole('group', { name: 'Interval answer' })
+    await user.click(screen.getByRole('button', { name: 'minor third' })) // wrong — see the level-1/seed-0 comment above
+
+    const verdict = screen.getByTestId('eartraining-feedback')
+    const explanation = document.querySelector('[aria-label="Answer reveal"]')
+    if (explanation === null) throw new Error('expected the reveal panel to be in the document')
+    const next = screen.getByRole('button', { name: 'Next' })
+
+    expect(grid.compareDocumentPosition(verdict) & FOLLOWING).toBeTruthy()
+    expect(verdict.compareDocumentPosition(explanation) & FOLLOWING).toBeTruthy()
+    expect(explanation.compareDocumentPosition(next) & FOLLOWING).toBeTruthy()
+  })
+
+  it('the unanswered/answering states are unchanged: no "Next" button exists, and Play stays in the transport ahead of the answer grid', async () => {
+    const user = userEvent.setup()
+    setup()
+
+    expect(screen.queryByRole('button', { name: 'Next' })).toBeNull()
+    const play = screen.getByRole('button', { name: 'Play item' })
+    const replay = screen.getByRole('button', { name: 'Replay' })
+
+    await user.click(play)
+
+    const grid = screen.getByRole('group', { name: 'Interval answer' })
+    expect(replay.compareDocumentPosition(grid) & FOLLOWING).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Play item' })).toBe(play) // same node, not remounted
+    expect(screen.queryByRole('button', { name: 'Next' })).toBeNull()
+  })
+
+  it('pressing Next starts a fresh item — the previous verdict and explanation clear', async () => {
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
+    await user.click(screen.getByRole('button', { name: 'major third' }))
+    expect(screen.getByTestId('eartraining-feedback')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+
+    expect(screen.queryByTestId('eartraining-feedback')).toBeNull()
+    expect(document.querySelector('[aria-label="Answer reveal"]')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Next' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Play item' })).toBeInTheDocument()
+  })
+})
+
+// Coordinator follow-up to roadmap UI-28: moving "Next" physically last
+// fixed the reading order but, unfixed, would have left a keyboard user
+// Tabbing from the very top of the document to reach it once focus dropped
+// out of the DOM (a disabled answer card cannot hold focus — see the
+// `resultsRef` effect's own comment in EarTrainingScreen.tsx). Grading now
+// moves focus onto the RESULTS CONTAINER (verdict + explanation + Next),
+// never onto Next itself, so a screen reader reads the verdict and the
+// explanation before Next is simply the next stop.
+describe('EarTrainingScreen — focus follows grading onto the results container (roadmap UI-28 follow-up)', () => {
+  const FOLLOWING = Node.DOCUMENT_POSITION_FOLLOWING
+
+  it('after a WRONG multiple-choice answer, focus lands on the results container, not lost to the document body', async () => {
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
+
+    await user.click(screen.getByRole('button', { name: 'minor third' })) // wrong — see the level-1/seed-0 comment above
+
+    const results = screen.getByRole('group', { name: 'Answer result' })
+    expect(document.activeElement).toBe(results)
+    expect(document.activeElement).not.toBe(document.body)
+  })
+
+  it('after a CORRECT answer, focus also lands on the results container', async () => {
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
+
+    await user.click(screen.getByRole('button', { name: 'major third' })) // correct
+
+    expect(document.activeElement).toBe(screen.getByRole('group', { name: 'Answer result' }))
+  })
+
+  // The real claim is these two facts together: the container itself is
+  // focused (so Tab continues from here, not from the top of the document),
+  // AND Next sits after both the container and the already-answered grid in
+  // document order (so continuing Tab can only move forward into this
+  // container's own contents, never back into the grid).
+  it('the focused container sits after the answer grid, and Next sits after the focused container — Tab cannot re-enter the grid', async () => {
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
+    const grid = screen.getByRole('group', { name: 'Interval answer' })
+
+    await user.click(screen.getByRole('button', { name: 'major third' }))
+
+    const results = screen.getByRole('group', { name: 'Answer result' })
+    const next = screen.getByRole('button', { name: 'Next' })
+    expect(document.activeElement).toBe(results)
+    expect(grid.compareDocumentPosition(results) & FOLLOWING).toBeTruthy()
+    expect(results.compareDocumentPosition(next) & FOLLOWING).toBeTruthy()
+  })
+
+  it('the unanswered/answering states never render a results container, so grading\'s focus effect has nothing to move focus to', async () => {
+    const user = userEvent.setup()
+    setup()
+    expect(screen.queryByRole('group', { name: 'Answer result' })).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
+
+    // An item is now loaded and awaiting an answer ('answering' phase) —
+    // still no results container, since nothing has been graded yet.
+    expect(screen.getByRole('group', { name: 'Interval answer' })).toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'Answer result' })).toBeNull()
+  })
+
+  // Dictation is the one case where the pad's own control (Submit) is NOT
+  // disabled once graded, unlike every multiple-choice card — so it is
+  // worth checking explicitly whether moving focus away from it strands the
+  // learner mid-answer. It does not: `useEarTraining`'s `answer()` (which
+  // `submitDictation` calls into) only accepts phase 'answering'/'playing',
+  // and grading has already moved phase to 'graded' by the time this effect
+  // runs — so Submit (and every on-screen key) is already inert, just not
+  // visually disabled. There is nothing "live" for the focus move to
+  // interrupt.
+  it('dictation: submitting also moves focus to the results container — Submit is already inert (phase is graded), so nothing is stranded mid-answer', async () => {
+    const user = userEvent.setup()
+    setup()
+    await user.selectOptions(screen.getByLabelText('Drill'), 'Melodic dictation')
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
+    const [firstKey] = screen.getAllByRole('button', { name: /^[A-G](#+|b+)?-?\d+$/ })
+    if (firstKey === undefined) throw new Error('expected at least one keyboard key')
+    await user.click(firstKey)
+
+    await user.click(screen.getByRole('button', { name: 'Submit' }))
+
+    expect(document.activeElement).toBe(screen.getByRole('group', { name: 'Answer result' }))
+    // Submit itself is untouched by this — still enabled, still on screen —
+    // proving the move does not remove or disable the learner's own control,
+    // only redirects where the keyboard cursor sits next.
+    expect(screen.getByRole('button', { name: 'Submit' })).toBeEnabled()
+  })
+
+  it('re-grading a second item (after Next) moves focus to the new results container again — the effect re-fires on each fresh transition into graded', async () => {
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
+    await user.click(screen.getByRole('button', { name: 'major third' }))
+    const firstResults = screen.getByRole('group', { name: 'Answer result' })
+    expect(document.activeElement).toBe(firstResults)
+
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: 'major third' }))
+
+    const secondResults = screen.getByRole('group', { name: 'Answer result' })
+    expect(document.activeElement).toBe(secondResults)
+  })
+})
+
 // roadmap UI-13 acceptance criterion 4: switching drills only ever swaps
 // which answer surface renders at the bottom of the SAME stage container —
 // proven by checking both the multiple-choice grid and the dictation pad
