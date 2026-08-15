@@ -1,6 +1,7 @@
 import { expect, test, type ConsoleMessage, type Page } from '@playwright/test'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
+import { openPracticeSetup } from './practice-setup.ts'
 
 /**
  * Performance proof against a REAL, large score — Pachelbel's Canon in D as
@@ -143,6 +144,7 @@ test('a 102-measure, 1603-note score plays without blowing the frame budget, and
   // the reliable settle signal rather than the heading alone). The `max`
   // attribute, not the value — the value is whatever loop the learner last
   // set, restored from IndexedDB.
+  await openPracticeSetup(page)
   const loopRange = page.getByRole('group', { name: 'Loop range' })
   await expect(loopRange.getByLabel('to measure')).toHaveAttribute('max', '102', {
     timeout: 60_000,

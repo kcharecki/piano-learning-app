@@ -73,9 +73,18 @@
     width: min(20rem, 80vw);
     transform: translateX(-100%);
     transition: transform var(--dur-2) var(--ease-out);
+  }
+  /* The drop shadow belongs to the OPEN drawer only (UI-24 visual pass). It was
+     unconditional, and `--elev-3` is a 40px blur at zero x-offset — so the
+     closed, fully off-canvas panel still painted 40px of its shadow across
+     x 0-40 of the page behind it, reading as an unexplained dark vertical band
+     down the left edge of every screen at <=1024px, in both themes. The panel
+     itself is the thing that needs lifting off the page; nothing is lifted when
+     nothing is showing. */
+  .app-nav[data-open="true"] {
+    transform: none;
     box-shadow: var(--elev-3);
   }
-  .app-nav[data-open="true"] { transform: none; }
   .app-nav button { min-height: var(--touch-min); }
   .app-topbar {
     display: flex;

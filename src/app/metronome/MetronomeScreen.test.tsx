@@ -12,6 +12,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { FakeClock, RecordingAudioOutput } from '@test/fakes.ts'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
+import { MAX_BPM, MIN_BPM } from '@core/timing/metronome.ts'
 import { MetronomeScreen } from './MetronomeScreen.tsx'
 
 function manualDriver(): { driver: FrameDriver; pump: () => void } {
@@ -101,10 +102,14 @@ describe('MetronomeScreen', () => {
     const manual = manualDriver()
     render(<MetronomeScreen clock={clock} audioOutput={audio} frameDriver={manual.driver} />)
 
-    const bpmSlider = screen.getByLabelText('BPM')
+    // Roadmap UI-24 split the two: 'BPM' is now the typeable glance cell and
+    // 'BPM slider' is the range input, so this names the one it is testing.
+    const bpmSlider = screen.getByLabelText('BPM slider')
     fireEvent.change(bpmSlider, { target: { value: '240' } })
     // `type="range"` reports its value as a string, unlike `type="number"`.
     expect(bpmSlider).toHaveValue('240')
+    // The glance cell tracks the slider — one number, two ways in.
+    expect(screen.getByLabelText('BPM')).toHaveValue(240)
 
     fireEvent.click(screen.getByRole('button', { name: 'Start' }))
     act(() => {
@@ -124,11 +129,114 @@ describe('MetronomeScreen', () => {
     render(<MetronomeScreen clock={clock} audioOutput={audio} frameDriver={manual.driver} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Increase BPM' }))
-    expect(screen.getByLabelText('BPM')).toHaveValue('101')
+    expect(screen.getByLabelText('BPM')).toHaveValue(101)
+    expect(screen.getByLabelText('BPM slider')).toHaveValue('101')
 
     fireEvent.click(screen.getByRole('button', { name: 'Decrease BPM' }))
     fireEvent.click(screen.getByRole('button', { name: 'Decrease BPM' }))
-    expect(screen.getByLabelText('BPM')).toHaveValue('99')
+    expect(screen.getByLabelText('BPM')).toHaveValue(99)
+  })
+
+  // Roadmap UI-24. The measured defect this covers: with the glance cell a
+  // static span, reaching an exact 132 from the default 100 took 32 stepper
+  // clicks or 32 arrow presses, and the 179px slider spans 20-300 (0.64px per
+  // bpm) so dragging cannot land on a value at all.
+  describe('typing an exact tempo (roadmap UI-24)', () => {
+    function renderScreen() {
+      const clock = new FakeClock()
+      const audio = new RecordingAudioOutput(clock)
+      const manual = manualDriver()
+      render(<MetronomeScreen clock={clock} audioOutput={audio} frameDriver={manual.driver} />)
+      return { clock, audio, manual }
+    }
+
+    it('commits a typed tempo on blur, and the slider follows it', () => {
+      renderScreen()
+      const bpm = screen.getByLabelText('BPM')
+
+      fireEvent.change(bpm, { target: { value: '132' } })
+      fireEvent.blur(bpm)
+
+      expect(bpm).toHaveValue(132)
+      expect(screen.getByLabelText('BPM slider')).toHaveValue('132')
+    })
+
+    it('commits on Enter without needing to leave the field', () => {
+      renderScreen()
+      const bpm = screen.getByLabelText('BPM')
+
+      fireEvent.change(bpm, { target: { value: '132' } })
+      fireEvent.keyDown(bpm, { key: 'Enter' })
+
+      expect(screen.getByLabelText('BPM slider')).toHaveValue('132')
+    })
+
+    it('drives the real schedule, not just the readout', () => {
+      const { clock, audio, manual } = renderScreen()
+      const bpm = screen.getByLabelText('BPM')
+
+      fireEvent.change(bpm, { target: { value: '240' } })
+      fireEvent.blur(bpm)
+      fireEvent.click(screen.getByRole('button', { name: 'Start' }))
+      act(() => {
+        // A quarter at 240bpm is 250ms; at the default 100 it would be 600ms
+        // and this window would hold only the downbeat.
+        clock.advance(260)
+        manual.pump()
+      })
+
+      expect(audio.clicks.length).toBeGreaterThanOrEqual(2)
+    })
+
+    it('clamps a typed value to the metronome range instead of accepting it', () => {
+      renderScreen()
+      const bpm = screen.getByLabelText('BPM')
+
+      fireEvent.change(bpm, { target: { value: '9999' } })
+      fireEvent.blur(bpm)
+      expect(bpm).toHaveValue(MAX_BPM)
+
+      fireEvent.change(bpm, { target: { value: '1' } })
+      fireEvent.blur(bpm)
+      expect(bpm).toHaveValue(MIN_BPM)
+    })
+
+    it('leaves the tempo alone when the field is cleared or unreadable, rather than falling to a default', () => {
+      renderScreen()
+      const bpm = screen.getByLabelText('BPM')
+
+      fireEvent.change(bpm, { target: { value: '' } })
+      fireEvent.blur(bpm)
+
+      expect(bpm).toHaveValue(100)
+      expect(screen.getByLabelText('BPM slider')).toHaveValue('100')
+    })
+
+    it('reverts an uncommitted edit on Escape', () => {
+      renderScreen()
+      const bpm = screen.getByLabelText('BPM')
+
+      fireEvent.change(bpm, { target: { value: '200' } })
+      fireEvent.keyDown(bpm, { key: 'Escape' })
+
+      expect(bpm).toHaveValue(100)
+      expect(screen.getByLabelText('BPM slider')).toHaveValue('100')
+    })
+
+    it('does not rewrite the field mid-word while a multi-digit tempo is being typed', () => {
+      renderScreen()
+      const bpm = screen.getByLabelText('BPM')
+
+      // "1" alone would clamp to MIN_BPM=20 if every keystroke committed,
+      // rewriting the field under the caret before "32" could be typed.
+      fireEvent.change(bpm, { target: { value: '1' } })
+      expect(bpm).toHaveValue(1)
+      expect(screen.getByLabelText('BPM slider')).toHaveValue('100')
+
+      fireEvent.change(bpm, { target: { value: '132' } })
+      fireEvent.blur(bpm)
+      expect(bpm).toHaveValue(132)
+    })
   })
 
   it('toggling a beat in the accent editor changes what the metronome actually accents', () => {
@@ -261,7 +369,9 @@ describe('MetronomeScreen', () => {
 
     const value = container.querySelector('.metronome-bpm-stepper .stepper-value')
     expect(value).not.toBeNull()
-    expect(value).toHaveTextContent('100')
+    // Roadmap UI-24: the glance cell is the typeable input itself, so its value
+    // is what it reads out — the same cell, not a separate label beside it.
+    expect(value).toHaveValue(100)
   })
 
   it('rejects an invalid subdivision/tempo combination and leaves the schedule unchanged', () => {
@@ -270,7 +380,7 @@ describe('MetronomeScreen', () => {
     const manual = manualDriver()
     render(<MetronomeScreen clock={clock} audioOutput={audio} frameDriver={manual.driver} />)
 
-    const bpmSlider = screen.getByLabelText('BPM')
+    const bpmSlider = screen.getByLabelText('BPM slider')
     fireEvent.change(bpmSlider, { target: { value: '300' } })
 
     const subdivisionSelect = screen.getByLabelText('Subdivision')

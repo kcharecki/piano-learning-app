@@ -5,6 +5,7 @@ import {
   waitForArmedFakeMidiSchedule,
   type RelativeFakeMidiEvent,
 } from './fake-midi.ts'
+import { openPracticeSetup } from './practice-setup.ts'
 
 /**
  * E2E proof for roadmap 3.17 (REQ-3.5.4): the chord/scale reference is a
@@ -75,6 +76,7 @@ test('the reference panel stays open over a running Practice transport, is not f
 
   // Set a loop range — part of the practice state that must survive the
   // panel opening and closing untouched.
+  await openPracticeSetup(page)
   const loopRange = page.getByRole('group', { name: 'Loop range' })
   await loopRange.getByLabel('From measure').fill('1')
   await loopRange.getByLabel('to measure').fill('2')

@@ -44,9 +44,22 @@
 
 /* Row 3 (evidence): a variable number of cards (charts, retention, repertoire,
    milestones) — auto-fit so it balances itself instead of hand-tuned spans
-   that would drift every time a card is added or removed. */
+   that would drift every time a card is added or removed.
+   The `grid-column: auto` reset is load-bearing, not tidying (UI-24 visual
+   pass): this row replaces the 12-column template with an auto-fit one, but its
+   children still inherited `.dashboard-row > *`'s `grid-column: span 12`. A
+   span of 12 across a 3-track template makes the grid synthesise 9 implicit
+   zero-width tracks, and their 9 extra gaps pushed every evidence card 32px
+   past the `.page` column — measured at 1280px: `.page` 1056px wide, cards
+   1088px, `document.scrollWidth` 1296 against a 1280 client width, i.e. the
+   whole Progress screen scrolled horizontally at desktop. It also meant the
+   auto-fit above never actually fitted anything: all seven cards rendered
+   full-width, one per row. */
 .dashboard-row--evidence {
   grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+}
+.dashboard-row--evidence > * {
+  grid-column: auto;
 }
 
 @media (max-width: 768px) {
@@ -85,7 +98,18 @@
 .level-track-list {
   margin-bottom: var(--space-3);
 }
-.level-track-row {
+/* Scoped through the parent on purpose (UI-24 visual pass): the `<ul>` also
+   carries the `.list` primitive, whose `.list > li` rule (specificity 0,1,1)
+   outranked a bare `.level-track-row` (0,1,0) and won `display: flex` with
+   `align-items: center` — turning this intended vertical stack into a
+   horizontal row. The measured consequence: `.level-track-progress-bar` has a
+   height but no content and no width of its own, so as a horizontal flex item
+   it collapsed to 0px — every progress bar on the Levels card rendered
+   invisible — and the short rows no longer shared a left edge with the long
+   one (measured 36px vs 118px from the card edge). `.level-track-list >`
+   raises this to 0,2,0 so the rule the card was designed around actually
+   applies. */
+.level-track-list > .level-track-row {
   display: flex;
   flex-direction: column;
   align-items: stretch;

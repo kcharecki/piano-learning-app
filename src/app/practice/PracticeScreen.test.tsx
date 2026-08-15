@@ -894,9 +894,11 @@ describe('PracticeScreen', () => {
 // configuration control) that sits OUTSIDE `.practice-setup`,
 // `.practice-more-tools`, and any `<dialog>` — the setup drawer and the
 // "More tools" section ARE the disclosure this rule asks for; their own
-// contents (open by default for "Practice setup", per 5.17/5.18, which this
-// task must not break) are accounted for by that grouping, not double-counted
-// against the top-level budget.
+// contents are accounted for by that grouping, not double-counted against the
+// top-level budget. Roadmap UI-24 made both sections default CLOSED, so this
+// budget is now what a learner actually sees on load rather than a grouping
+// convention — measured live at 10 controls with no MIDI keyboard attached and
+// 7 with one.
 describe('PracticeScreen — control budget (roadmap UI-10, DESIGN.md rule 2)', () => {
   it('shows at most 6 interactive controls outside any disclosure, on a default level-1 screen', () => {
     setPlayingLevel(1)
@@ -1008,16 +1010,23 @@ describe('PracticeScreen — progressive disclosure by track level (roadmap 5.17
 // wait mode, record/replay) move from five flat top-level siblings into one
 // collapsible "Practice setup" section.
 describe('PracticeScreen — control hierarchy (roadmap 5.18)', () => {
-  it('groups loop range, hand mute, metronome and record/replay inside one "Practice setup" disclosure, open by default', () => {
+  it('groups loop range, hand mute, metronome and record/replay inside one "Practice setup" disclosure, closed by default', async () => {
     setPlayingLevel(3)
     loadSampleScore()
+    const user = userEvent.setup()
     render(<PracticeScreen midiInput={new FakeMidiInput()} />)
 
     const summary = screen.getByText('Practice setup')
     const section = summary.closest('details')
     expect(section).not.toBeNull()
-    // Open by default (unlike "More tools"): these are the controls 5.17
-    // already promises a level-1 learner sees without an extra click.
+    // Roadmap UI-24: CLOSED by default, like "More tools". It shipped `open`
+    // and that put Record — the one control DESIGN.md rule 2 names by name as
+    // never-open-by-default — on screen at load, with 21 visible controls
+    // against a stated bar of ~6. See `PracticeScreen.tsx`'s own comment.
+    expect(section).not.toHaveAttribute('open')
+    // …and opening it still reveals every control it is supposed to group,
+    // so "closed" is a default, not a removal.
+    await user.click(summary)
     expect(section).toHaveAttribute('open')
 
     invariant(section !== null, 'Practice setup <details> must exist')
@@ -1034,6 +1043,8 @@ describe('PracticeScreen — control hierarchy (roadmap 5.18)', () => {
     render(<PracticeScreen midiInput={new FakeMidiInput()} />)
 
     const summary = screen.getByText('Practice setup')
+    await user.click(summary)
+    expect(summary.closest('details')).toHaveAttribute('open')
     await user.click(summary)
     expect(summary.closest('details')).not.toHaveAttribute('open')
   })

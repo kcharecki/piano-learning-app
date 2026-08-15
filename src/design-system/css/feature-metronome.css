@@ -28,18 +28,54 @@
 /* The glance-sized BPM readout: the same `.stepper` primitive every other
    screen uses, just with its value cell blown up to `--text-glance` — that
    token's own comment names "tempo" as exactly what it was built for, and
-   this is the first caller. Free-text entry (the old `<input type="number">`
-   with commit-on-blur) is deliberately not kept alongside this: the brief's
-   panel reads as a physical dial (steppers for +/-1, a slider for a fast
-   sweep across the whole 20-300 range, arrow keys on that slider for +/-1
-   once it has focus) rather than a form field, and a fourth way to set the
-   same number would be a fifth control this narrow page doesn't have room
-   to justify under rule 2 (progressive disclosure). */
-.metronome-bpm-stepper .stepper-value {
+   this is the first caller.
+   Roadmap UI-24 (2026-08-15 final visual pass): that cell is an
+   `<input type="number">` — the `.stepper input[type="number"]` shape
+   primitives.css already documents — not a `<span>`. UI-16 dropped free-text
+   entry on the reasoning that the panel should read as a physical dial; the
+   measurement that overturned it is that no dial here can be landed on a
+   value (the slider is 0.64px per bpm across 20-300, and reaching 132 from the
+   default 100 is 32 arrow presses or 32 clicks either way). Typed entry is not
+   a fourth control: it is the same middle cell of the same three-part group,
+   made typeable, so nothing new appears on screen. The rules below only undo
+   what the browser adds to a number input inside a bordered group — the
+   spinner arrows, the field's own border, and the focus ring, which is moved
+   onto the whole `.stepper` so the group lights up as one unit rather than
+   drawing a second box inside itself. */
+/* The selector is `input[type="number"].stepper-value`, not `.stepper-value`,
+   and that is load-bearing: primitives.css's legacy shape
+   `.stepper input[type="number"]` is (0,2,1) and outranks a two-class
+   (0,2,0) rule, so it silently won `font-size: var(--text-md)` and the glance
+   number rendered at body size — the whole point of this stage, lost to a
+   specificity tie-break. (0,3,1) settles it. */
+.metronome-bpm-stepper input[type="number"].stepper-value {
   font-size: var(--text-glance);
   font-weight: var(--weight-semibold);
-  padding: 0 var(--space-4);
+  line-height: 1;
+  padding: 0 var(--space-2);
   min-width: 3ch;
+  width: 4ch;
+  text-align: center;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  color: var(--text-1);
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.metronome-bpm-stepper input[type="number"].stepper-value::-webkit-outer-spin-button,
+.metronome-bpm-stepper input[type="number"].stepper-value::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+/* The focus ring belongs to the whole group, not the bare cell inside it —
+   otherwise the browser draws a second box inside the stepper's own border. */
+.metronome-bpm-stepper input[type="number"].stepper-value:focus-visible {
+  outline: none;
+}
+.metronome-bpm-stepper:has(input.stepper-value:focus-visible) {
+  outline: var(--border-w-strong) solid var(--focus-ring);
+  outline-offset: 2px;
 }
 .metronome-bpm-slider {
   width: 100%;

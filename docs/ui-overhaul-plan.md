@@ -1,5 +1,21 @@
 # UI/UX overhaul plan
 
+> **STATUS: executed 2026-08-14/15. All 24 tasks shipped.** This document is kept as the
+> record of what was asked for and why — the audit evidence in it (measured control counts,
+> the concatenated Repertoire rows, the 5,400px Theory page) describes the app BEFORE the
+> overhaul and should be read as history, not as a description of the current app.
+>
+> What actually shipped, what it cost and what it found: see `ROADMAP.md`'s "UI/UX overhaul"
+> section and the retro entry in `docs/retro-log.md`. The current design language is
+> `docs/DESIGN.md` — that file, not this one, is the live contract.
+>
+> Deviations from this plan, all deliberate and all recorded in the commits: the work ran as
+> parallel agents in the main checkout rather than one worktree session per task (file
+> ownership was already disjoint by construction, so worktrees would have cost 19 merges for
+> no extra safety); UI-04 was split into 04a/04b because five sub-areas in one task exceeded
+> the sizing guidance; and several tasks' acceptance criteria were tightened mid-flight when a
+> review measured something the plan had assumed.
+
 Produced by a full audit on 2026-08-12: every screen driven in the running app (fresh
 profile, real content), screenshotted at 1280px and 768px, dark and light, plus interactive
 states (session run, mid-playback feedback, drills running, drawers open). Reference

@@ -23,6 +23,17 @@
  * `answered` is set — no more picking — and the one matching `pickedKey`
  * renders the feedback tokens plus a glyph (`check`/`x`): color is never the
  * only signal (DESIGN.md rule 8).
+ *
+ * `expectedKey` (roadmap UI-24, 2026-08-15 final visual pass) closes the half
+ * of that UI-13 left open: after a WRONG answer the pad marked the mistake and
+ * nothing else, so the right answer sat among the untouched options with no
+ * colour and no glyph — indistinguishable from every option the learner did
+ * not pick. Rule 8 asks every feedback state to keep a glyph cue, and the
+ * state that teaches most had neither. It carries the same encoding as
+ * `pickedKey` (`gradeIntervalAnswer` returns `expected: item.answerKey`, the
+ * string `given` is compared against), so this is a string equality against a
+ * value already in the grade, not a re-derivation. On a correct answer the two
+ * keys are the same card and it is marked once.
  */
 import { useState } from 'react'
 import { intervalsForLevel } from '@core/eartraining/intervals.ts'
@@ -34,10 +45,14 @@ export type IntervalAnswerButtonsProps = {
   /** Show the ascending/descending toggle. Only meaningful for a melodic item. */
   readonly showDirection: boolean
   readonly onAnswer: (interval: Interval, direction: 1 | -1) => void
-  /** Once this item has been graded: which option was picked, and whether it
-   *  was correct. `undefined` before an answer — every card stays
-   *  interactive and unmarked. */
-  readonly answered?: { readonly pickedKey: string; readonly correct: boolean }
+  /** Once this item has been graded: which option was picked, which one was
+   *  right, and whether they matched. `undefined` before an answer — every
+   *  card stays interactive and unmarked. */
+  readonly answered?: {
+    readonly pickedKey: string
+    readonly expectedKey: string
+    readonly correct: boolean
+  }
 }
 
 export function IntervalAnswerButtons({
@@ -75,18 +90,33 @@ export function IntervalAnswerButtons({
       <div role="group" aria-label="Interval answer" className="eartraining-answer-grid">
         {intervals.map((interval) => {
           const key = `${direction === -1 && showDirection ? '-' : ''}${intervalName(interval)}`
-          const picked = answered !== undefined && key === answered.pickedKey ? answered : undefined
+          // Three states, and the order matters: the picked card owns its own
+          // verdict, and only a card that was NOT picked can be the "this is
+          // what it was" card — otherwise a correct answer would be marked
+          // twice on the same node.
+          const isPicked = answered !== undefined && key === answered.pickedKey
+          const isExpected = answered !== undefined && key === answered.expectedKey
+          const state =
+            answered === undefined
+              ? undefined
+              : isPicked
+                ? answered.correct
+                  ? 'correct'
+                  : 'wrong'
+                : isExpected
+                  ? 'correct'
+                  : undefined
           return (
             <button
               key={`${interval.number}-${interval.quality}`}
               type="button"
               className="card answer-card"
               disabled={locked}
-              data-state={picked === undefined ? undefined : picked.correct ? 'correct' : 'wrong'}
+              data-state={state}
               onClick={() => onAnswer(interval, showDirection ? direction : 1)}
             >
               {intervalLongName(interval)}
-              {picked !== undefined && <Icon name={picked.correct ? 'check' : 'x'} />}
+              {state !== undefined && <Icon name={state === 'correct' ? 'check' : 'x'} />}
             </button>
           )
         })}

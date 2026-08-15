@@ -17,6 +17,14 @@
  * `answered` is set — no more picking — and the one matching `picked`
  * renders the feedback tokens plus a glyph (`check`/`x`): color is never the
  * only signal (DESIGN.md rule 8).
+ *
+ * `expected` (roadmap UI-24, 2026-08-15 final visual pass) closes the half of
+ * that UI-13 left open, the same gap `IntervalAnswerButtons` had: after a
+ * WRONG answer the pad marked the mistake and nothing else, leaving the right
+ * answer among the untouched options with no colour and no glyph, visually
+ * identical to every option the learner did not pick. Both graders return
+ * `expected: item.answerKey` alongside `given`, so this is a comparison
+ * against a value the grade already carries.
  */
 import { Icon } from '@app/ui/Icon.tsx'
 
@@ -25,10 +33,10 @@ export type QualityAnswerButtonsProps<T extends string> = {
   readonly groupLabel: string
   readonly options: readonly T[]
   readonly onAnswer: (value: T) => void
-  /** Once this item has been graded: which option was picked, and whether it
-   *  was correct. `undefined` before an answer — every card stays
-   *  interactive and unmarked. */
-  readonly answered?: { readonly picked: T; readonly correct: boolean }
+  /** Once this item has been graded: which option was picked, which one was
+   *  right, and whether they matched. `undefined` before an answer — every
+   *  card stays interactive and unmarked. */
+  readonly answered?: { readonly picked: T; readonly expected: T; readonly correct: boolean }
 }
 
 /**
@@ -53,18 +61,32 @@ export function QualityAnswerButtons<T extends string>({
   return (
     <div role="group" aria-label={groupLabel} className="quality-answer-buttons eartraining-answer-grid">
       {options.map((value) => {
-        const picked = answered !== undefined && value === answered.picked ? answered : undefined
+        // Order matters: the picked card owns its own verdict, and only a
+        // card that was NOT picked can be the "this is what it was" card, so
+        // a correct answer is never marked twice on the same node.
+        const isPicked = answered !== undefined && value === answered.picked
+        const isExpected = answered !== undefined && value === answered.expected
+        const state =
+          answered === undefined
+            ? undefined
+            : isPicked
+              ? answered.correct
+                ? 'correct'
+                : 'wrong'
+              : isExpected
+                ? 'correct'
+                : undefined
         return (
           <button
             key={value}
             type="button"
             className="card answer-card"
             disabled={locked}
-            data-state={picked === undefined ? undefined : picked.correct ? 'correct' : 'wrong'}
+            data-state={state}
             onClick={() => onAnswer(value)}
           >
             {humanize(value)}
-            {picked !== undefined && <Icon name={picked.correct ? 'check' : 'x'} />}
+            {state !== undefined && <Icon name={state === 'correct' ? 'check' : 'x'} />}
           </button>
         )
       })}

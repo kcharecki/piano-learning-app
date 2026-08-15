@@ -186,8 +186,11 @@ export function DashboardScreen(props: DashboardScreenProps) {
             />
           </TrendCard>
 
+          {/* Roadmap UI-24: `card` was missing here and on nothing else in
+              this row, so Theory retention alone rendered with no surface,
+              padding or border between four neighbours that all had one. */}
           <section
-            className="dashboard-card-retention"
+            className="card dashboard-card-retention"
             aria-label="Theory retention"
             role="region"
           >
@@ -219,16 +222,30 @@ function StreakCard({ streak }: StreakCardProps) {
       <h2>
         <Icon name="flame" /> Streak
       </h2>
-      <div className="stat-group" role="group" aria-label="Streak">
-        <div className="stat">
-          <b data-testid="dashboard-streak-current">{pluralizeDay(streak.currentDays)}</b>
-          <small>Current</small>
+      {/* Roadmap UI-24 (2026-08-15 final visual pass), DESIGN.md rule 6: a
+          learner who has never practised was shown "0 days / 0 days" under
+          Current and Longest — a row of zeros, the exact shape rule 6 names,
+          and the one card on this screen that had no empty branch while every
+          other card already teaches. Gated on `longestDays`, not
+          `currentDays`: a lapsed streak (current 0, longest 12) is real
+          history and the pair still says something worth reading. */}
+      {streak.longestDays === 0 ? (
+        <p role="status" className="empty-state" data-testid="dashboard-streak-empty">
+          <Icon name="flame" />
+          No streak yet &mdash; practise on two days in a row and it starts counting here.
+        </p>
+      ) : (
+        <div className="stat-group" role="group" aria-label="Streak">
+          <div className="stat">
+            <b data-testid="dashboard-streak-current">{pluralizeDay(streak.currentDays)}</b>
+            <small>Current</small>
+          </div>
+          <div className="stat">
+            <b data-testid="dashboard-streak-longest">{pluralizeDay(streak.longestDays)}</b>
+            <small>Longest</small>
+          </div>
         </div>
-        <div className="stat">
-          <b data-testid="dashboard-streak-longest">{pluralizeDay(streak.longestDays)}</b>
-          <small>Longest</small>
-        </div>
-      </div>
+      )}
     </section>
   )
 }

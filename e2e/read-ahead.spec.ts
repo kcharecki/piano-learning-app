@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { installFakeMidi, FAKE_MIDI_DEVICE_NAME } from './fake-midi.ts'
 import { seedPlayingLevel } from './seedLevel.ts'
+import { openPracticeSetup } from './practice-setup.ts'
 
 /**
  * E2E proof for roadmap 2.26 (REQ-3.4.5): the read-ahead drill, driven end to
@@ -167,6 +168,7 @@ test('read-ahead progressively hides notation strictly behind the cursor, leavin
   // Settle point: only the newly-imported 6-bar fixture clamps "to measure"
   // to 6 (see note-colour.spec.ts for why this is the reliable proof the
   // async ScoreViewer load for the NEW score has actually finished).
+  await openPracticeSetup(page)
   const loopRangeSettle = page.getByRole('group', { name: 'Loop range' })
   await expect(loopRangeSettle.getByLabel('to measure')).toHaveValue('6')
   await page.waitForTimeout(300)

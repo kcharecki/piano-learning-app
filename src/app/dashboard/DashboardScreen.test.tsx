@@ -106,7 +106,14 @@ describe('DashboardScreen — empty state', () => {
     expect(screen.getByTestId('dashboard-retention-empty')).toBeTruthy()
     expect(screen.getByTestId('dashboard-repertoire-empty')).toBeTruthy()
 
-    expect(screen.getByTestId('dashboard-streak-current').textContent).toBe('0 days')
+    // Roadmap UI-24: the Streak card was the one card here still printing a
+    // row of zeros ("0 days / 0 days") instead of teaching (DESIGN.md rule 6).
+    // The stat pair is gone on a never-practised profile, replaced by copy
+    // that says what makes a streak — and the numbers themselves are asserted
+    // on a profile that has some, further down this file.
+    expect(screen.queryByTestId('dashboard-streak-current')).toBeNull()
+    expect(screen.queryByTestId('dashboard-streak-longest')).toBeNull()
+    expect(screen.getByTestId('dashboard-streak-empty').textContent).toContain('No streak yet')
     expect(screen.getByTestId('dashboard-retention-total').textContent).toBe('0')
 
     // Milestones (roadmap B.4): a fresh profile shows the honest "0 of 5"

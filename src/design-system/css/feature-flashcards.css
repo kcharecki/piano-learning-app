@@ -49,6 +49,21 @@
   border: var(--border-w) solid var(--paper-edge);
   box-shadow: var(--elev-paper);
 }
+/* Roadmap UI-24 (2026-08-15 final visual pass): the staff drawing gets a
+   maximum, not the whole card width. `.staff-note`'s viewBox is 140x100 user
+   units and the SVG carried only `width: 100%`, so on the 768px card it
+   rendered at 718x513 — a 5.1x blow-up in which one notehead is 68px across
+   and the two clefs sit half a card apart, dwarfing the 273px answer keyboard
+   directly beneath it (measured). 22rem holds it at roughly 2.5x: still a
+   read-it-from-the-bench prompt, now proportionate to the thing you answer it
+   with. The card keeps its full width and `min-height` so the stage's
+   footprint is unchanged and switching decks still cannot jump it. */
+.flashcard-stage-card .staff-note {
+  width: 100%;
+  max-width: 22rem;
+  height: auto;
+}
+
 .flashcard-key-signature-prompt {
   margin: 0;
   font-size: var(--text-xl);

@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { installFakeMidi, FAKE_MIDI_DEVICE_NAME } from './fake-midi.ts'
 import { seedPlayingLevel } from './seedLevel.ts'
+import { openPracticeSetup } from './practice-setup.ts'
 
 /**
  * E2E proof for REQ-3.3.4 (M2 acceptance audit): while an assessment run is
@@ -87,6 +88,7 @@ test('tempo, loop range and Pause/Stop are disabled while an assessment runs, an
   // to 6 (LoopRangeControl clamps endMeasure to the score's lastMeasure), so
   // this proves ScoreViewer's async `engraver.load(...)` for the NEW score
   // has actually finished, not just that the store updated.
+  await openPracticeSetup(page)
   const loopRange = page.getByRole('group', { name: 'Loop range' })
   await expect(loopRange.getByLabel('to measure')).toHaveValue('6')
   await page.waitForTimeout(300)

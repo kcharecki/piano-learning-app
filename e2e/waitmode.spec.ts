@@ -1,6 +1,7 @@
 import { expect, test, type ConsoleMessage, type Page } from '@playwright/test'
 import { installFakeMidi, FAKE_MIDI_DEVICE_NAME } from './fake-midi.ts'
 import { seedPlayingLevel } from './seedLevel.ts'
+import { openPracticeSetup } from './practice-setup.ts'
 
 /**
  * E2E proof for roadmap 2.30 (REQ-3.3.3): wait mode, driven end to end. It is
@@ -68,6 +69,7 @@ test('wait mode holds playback until the owed notes are played, then releases it
   ).toBeVisible()
   await page.keyboard.press('Escape')
 
+  await openPracticeSetup(page)
   const waitMode = page.getByRole('group', { name: 'Wait mode' })
   await waitMode.getByRole('checkbox', { name: 'Wait for me' }).check()
 

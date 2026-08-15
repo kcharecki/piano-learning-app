@@ -8,6 +8,7 @@ import {
   FAKE_MIDI_DEVICE_NAME,
   type RelativeFakeMidiEvent,
 } from './fake-midi.ts'
+import { openPracticeSetup } from './practice-setup.ts'
 
 /**
  * E2E proof for roadmap B.5 (REQ-3.9.2 "audio recording is optional") — the
@@ -161,6 +162,7 @@ test('records audio alongside a MIDI take, stores a non-empty blob with a real m
   await expectMidiStatusText(page, new RegExp(`MIDI keyboard connected: ${FAKE_MIDI_DEVICE_NAME}`))
   await page.waitForTimeout(300)
 
+  await openPracticeSetup(page)
   const recordPanel = page.getByRole('group', { name: 'Record and replay' })
   const recordButton = recordPanel.getByRole('button', { name: 'Record', exact: true })
   const stopRecordingButton = recordPanel.getByRole('button', { name: 'Stop recording' })
@@ -260,6 +262,7 @@ test('a denied microphone permission surfaces a real error, without crashing the
     .click()
   await importScore(page, FIXTURE_PATH, FIXTURE_TITLE)
 
+  await openPracticeSetup(page)
   const recordPanel = page.getByRole('group', { name: 'Record and replay' })
   await recordPanel.getByText('Audio recording', { exact: true }).click()
   // `.click()`, not `.check()`: the checkbox flips true optimistically then

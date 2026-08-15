@@ -605,7 +605,13 @@ describe('EarTrainingScreen — answer cards resolve with color and a glyph (roa
     expect(picked).toBeDisabled()
   })
 
-  it('a wrong pick renders that card with a wrong data-state and an x glyph, and every other card stays unmarked', async () => {
+  // Roadmap UI-24: a wrong pick marks TWO cards — the mistake and the answer.
+  // It used to mark only the mistake, which left the correct option sitting
+  // among the untouched cards with no colour and no glyph, so the one state
+  // that actually teaches was the one the pad did not show (DESIGN.md rule 8:
+  // every feedback state keeps a glyph cue). Every card that is neither still
+  // stays unmarked, which is the half of the original assertion that survives.
+  it('a wrong pick marks that card wrong AND marks the correct card, leaving every uninvolved card unmarked', async () => {
     const user = userEvent.setup()
     setup()
     await user.click(screen.getByRole('button', { name: 'Play item' }))
@@ -615,8 +621,29 @@ describe('EarTrainingScreen — answer cards resolve with color and a glyph (roa
 
     expect(picked).toHaveAttribute('data-state', 'wrong')
     expect(picked.querySelector('svg')).not.toBeNull()
-    const other = screen.getByRole('button', { name: /major third/ })
-    expect(other).not.toHaveAttribute('data-state')
+
+    const answer = screen.getByRole('button', { name: /major third/ })
+    expect(answer).toHaveAttribute('data-state', 'correct')
+    expect(answer.querySelector('svg')).not.toBeNull()
+
+    // Exactly those two and nothing else — the pad never paints a verdict on
+    // an option the learner neither chose nor should have.
+    const grid = screen.getByRole('group', { name: 'Interval answer' })
+    const marked = new Set(grid.querySelectorAll('[data-state]'))
+    expect(marked).toEqual(new Set([picked, answer]))
+  })
+
+  it('a correct pick marks exactly one card — the picked one is also the answer', async () => {
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
+
+    await user.click(screen.getByRole('button', { name: /major third/ }))
+
+    const grid = screen.getByRole('group', { name: 'Interval answer' })
+    const marked = Array.from(grid.querySelectorAll('[data-state]'))
+    expect(marked).toHaveLength(1)
+    expect(marked[0]).toHaveAttribute('data-state', 'correct')
   })
 
   it('a chord-quality pick resolves the same way — color plus glyph on the picked card', async () => {

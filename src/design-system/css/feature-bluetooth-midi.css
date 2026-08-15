@@ -45,6 +45,15 @@
      happened to be floating over unrelated page content. `pointer-events` is
      inherited, so this cascades to every descendant that doesn't opt back in. */
   pointer-events: none;
+  /* Roadmap UI-24: the last surface in the app with no entrance motion — UI-22
+     shipped the fade-and-rise for every `<details>` and every `<dialog>` and
+     recorded this one as still open because it is neither, and lived outside
+     that task's files. Same keyframe pair (`disclosure-in`, primitives.css),
+     same duration and easing, so it enters exactly like the panels around it;
+     the global `prefers-reduced-motion: reduce` rule collapses it with the
+     rest. No exit animation, for the same reason nothing else here has one:
+     the popover leaves the render tree the instant it is dismissed. */
+  animation: disclosure-in var(--dur-2) var(--ease-out);
 }
 .input-status-popover p { margin: 0; }
 /* The opt-in: any real control anywhere inside the popover, regardless of

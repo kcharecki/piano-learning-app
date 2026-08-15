@@ -39,6 +39,17 @@
   flex-direction: column;
   gap: var(--space-3);
 }
+/* The "N / M played" counter is a `.stat`, and `.stat` centres its own value
+   over its own label — correct inside a `.stat-group`, wrong for a lone stat
+   stretched to the full column width, which is what a flex-column child does
+   by default. It rendered centred at x≈735 while the prompt above it and the
+   typing hint below it both sat at the column's left edge, so the one number
+   on the screen was also the one thing not aligned to anything (UI-24 visual
+   pass). `fit-content` keeps the stat's own internal centring and simply stops
+   it spanning the column. */
+.theory-drill-panel .theory-quiz > .stat {
+  width: fit-content;
+}
 
 /* ---------- Circle of fifths tab ---------- */
 /* domain.css's `.circle-of-fifths` already centers and caps the SVG's own

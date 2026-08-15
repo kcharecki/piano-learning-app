@@ -8,6 +8,7 @@ import {
   type RelativeFakeMidiEvent,
 } from './fake-midi.ts'
 import { seedPlayingLevel } from './seedLevel.ts'
+import { openPracticeSetup } from './practice-setup.ts'
 
 /**
  * The a11y sweep's overlay matrix (2026-08 UI audit follow-up): every overlay
@@ -114,6 +115,7 @@ test('the Assessment breakdown dialog and the Review overlay dialog both close o
   await expect(page.getByRole('heading', { name: FIXTURE_TITLE })).toBeVisible()
   await page.getByRole('dialog', { name: 'Change piece' }).getByRole('button', { name: 'Close' }).click()
 
+  await openPracticeSetup(page)
   const loopRangeSettle = page.getByRole('group', { name: 'Loop range' })
   await expect(loopRangeSettle.getByLabel('to measure')).toHaveValue('6')
   await page.waitForTimeout(300)

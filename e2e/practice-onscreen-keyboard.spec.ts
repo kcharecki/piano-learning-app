@@ -1,5 +1,6 @@
 import { expect, test, type ConsoleMessage, type Page } from '@playwright/test'
 import { seedPlayingLevel } from './seedLevel.ts'
+import { openPracticeSetup } from './practice-setup.ts'
 
 /**
  * E2E proof for roadmap 5.4 (REQ-3.3.7): the practice screen is PLAYABLE with
@@ -128,6 +129,7 @@ test('with no Web MIDI, wait mode holds the transport and on-screen notes releas
   await removeWebMidi(page)
   await openPractice(page, 3)
 
+  await openPracticeSetup(page)
   const waitMode = page.getByRole('group', { name: 'Wait mode' })
   await waitMode.getByRole('checkbox', { name: 'Wait for me' }).check()
 

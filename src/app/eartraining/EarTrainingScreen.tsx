@@ -315,7 +315,16 @@ export function EarTrainingScreen(props: EarTrainingScreenProps) {
               onAnswer={(interval, direction) => drill.answer({ kind, interval, direction })}
               {...(drill.grade === undefined
                 ? {}
-                : { answered: { pickedKey: drill.grade.given, correct: drill.grade.correct } })}
+                : {
+                    answered: {
+                      pickedKey: drill.grade.given,
+                      // Roadmap UI-24: the pad needs to be able to mark what
+                      // the answer WAS, not only what the learner said. Same
+                      // encoding on both fields (`item.answerKey`).
+                      expectedKey: drill.grade.expected,
+                      correct: drill.grade.correct,
+                    },
+                  })}
             />
           ) : kind === 'chord-quality' ? (
             <QualityAnswerButtons
@@ -331,7 +340,11 @@ export function EarTrainingScreen(props: EarTrainingScreenProps) {
                     // (core/eartraining/chords.ts), never a re-encoded string, so
                     // this narrows a value already known to be one, not a cast
                     // across an actual type boundary.
-                    answered: { picked: drill.grade.given as ChordQuality, correct: drill.grade.correct },
+                    answered: {
+                      picked: drill.grade.given as ChordQuality,
+                      expected: drill.grade.expected as ChordQuality,
+                      correct: drill.grade.correct,
+                    },
                   })}
             />
           ) : kind === 'scale-mode' ? (
@@ -345,7 +358,11 @@ export function EarTrainingScreen(props: EarTrainingScreenProps) {
                 : {
                     // Same reasoning as chord-quality above: `gradeScaleModeAnswer`
                     // also returns `given: answer` untouched.
-                    answered: { picked: drill.grade.given as ScaleType, correct: drill.grade.correct },
+                    answered: {
+                      picked: drill.grade.given as ScaleType,
+                      expected: drill.grade.expected as ScaleType,
+                      correct: drill.grade.correct,
+                    },
                   })}
             />
           ) : kind === 'melodic-dictation' || kind === 'rhythmic-dictation' ? (

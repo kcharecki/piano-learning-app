@@ -12,6 +12,16 @@
   font-size: var(--text-sm);
   color: var(--text-2);
 }
+/* `.page-header-actions` centres its children (base.css), which is right when
+   they are the same height. Here they are not: the Drill field is a label over
+   a 36px `<select>` and the Level field is a label over a line of static text,
+   so centring pushed "Level" 6px below "Drill" and their two labels — the only
+   thing in that cluster a reader scans as a row — did not line up (measured:
+   tops 80 vs 86). Top-aligning just this field puts the labels on one line
+   without changing the shared rule for every other screen that uses the slot. */
+.page-header-actions > .field:has(> .eartraining-level-label) {
+  align-self: flex-start;
+}
 
 /* ---------- Singing callout ----------
    roadmap UI-13: the six-line wall of singing-pedagogy prose (roadmap 5.32)

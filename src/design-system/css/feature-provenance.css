@@ -3,40 +3,22 @@
    a round of concurrent worktrees never conflicts inside domain.css. Rules that
    outlive their feature's round get folded back into domain.css by the integrator. */
 
-/* roadmap 5.52: the Repertoire catalogue row ("Für Elise (Theme A) / Ludwig
-   van Beethoven / Level 3 / Add") gained a fourth text field — what the
-   bundled file actually is (source-verified, a stylistic excerpt, this
-   app's own rendition...). Per DESIGN.md's "adding means demoting" rule,
-   that is not a free addition: the composer and level move off the row's
-   primary line onto a secondary meta line with the new provenance text
-   (`--text-sm`/`--text-2`, the same secondary tone the rest of the design
-   system already reserves for captions), demoted from full-weight row text
-   down to caption weight so a fourth field fits without the row reading as
-   four equally-loud facts. Title and Add/Already-in-library stay primary. */
-.repertoire-catalogue-piece {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  column-gap: var(--space-3);
-  row-gap: var(--space-1);
-  padding-block: var(--space-2);
-}
-
-.repertoire-catalogue-title {
-  font-weight: var(--weight-medium);
-}
-
-.repertoire-catalogue-composer,
-.repertoire-catalogue-level {
-  font-size: var(--text-sm);
-  color: var(--text-2);
-}
-
-.repertoire-catalogue-provenance {
-  flex-basis: 100%;
-  font-size: var(--text-sm);
-  color: var(--text-2);
-}
+/* roadmap 5.52 shipped the Repertoire catalogue row's layout here — a wrapping
+   baseline-aligned flex row with the provenance line forced onto its own
+   `flex-basis: 100%` line, plus its own typography for the title, composer and
+   level. UI-18 then rebuilt that row properly in `feature-repertoire.css`
+   (`.repertoire-catalogue-info` column + fixed trailing badge/action columns)
+   and the two stylesheets were left fighting: this file loads FIRST, so
+   everything UI-18 also declared won on order — but `flex-wrap: wrap`, which
+   UI-18 never declared, survived unopposed and broke the four rows whose
+   provenance text wraps to two lines (Arabesque, both Sonatinas, the Prelude),
+   dropping their Level badge and Add button onto a fourth, left-aligned line
+   while every other row kept them in the trailing column. The stale rules are
+   deleted rather than patched: `feature-repertoire.css` is now the single
+   owner of that row, and the level is a `.badge` primitive there, not a
+   caption. Deleted here: `.repertoire-catalogue-piece`,
+   `.repertoire-catalogue-title`, `.repertoire-catalogue-composer`,
+   `.repertoire-catalogue-level`, `.repertoire-catalogue-provenance`. */
 
 /* The Practice screen (roadmap 5.52): immediately under `ScoreScreen.tsx`'s
    own piece-title heading (outside this task's file boundary) — only when

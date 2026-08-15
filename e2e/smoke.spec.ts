@@ -1,4 +1,5 @@
 import { expect, test, type ConsoleMessage, type Page } from '@playwright/test'
+import { openPracticeSetup } from './practice-setup.ts'
 
 /**
  * E2E smoke suite (roadmap 1.19). Thin on purpose: this only proves the app
@@ -105,6 +106,7 @@ test('pressing play advances the position readout, and pause stops it', async ({
 test('setting a loop range and enabling looping is reflected in the UI', async ({ page }) => {
   await page.goto('/practice')
 
+  await openPracticeSetup(page)
   const loopRange = page.getByRole('group', { name: 'Loop range' })
   await loopRange.getByLabel('From measure').fill('2')
   await loopRange.getByLabel('to measure').fill('4')
@@ -129,6 +131,7 @@ test('looping bars 3-4 does not report the bars before the loop as missed on eve
 
   await page.goto('/practice')
 
+  await openPracticeSetup(page)
   const loopRange = page.getByRole('group', { name: 'Loop range' })
   await loopRange.getByLabel('From measure').fill('3')
   await loopRange.getByLabel('to measure').fill('4')

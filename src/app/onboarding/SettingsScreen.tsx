@@ -157,9 +157,12 @@ export function SettingsScreen({ onGoToToday, midiInput, connectMidi, openStore 
       <section className="card" aria-labelledby="settings-audio-heading">
         <h2 id="settings-audio-heading">Audio</h2>
         <p className="settings-audio-status">{AUDIO_STATUS}</p>
+        {/* Roadmap UI-24 (DESIGN.md rule 7): "isn't wired up yet" is a
+            developer's note about the code, not a sentence a teacher says.
+            The limitation is real and stays stated — only the voice changes. */}
         <p className="settings-audio-note">
-          Practice always plays back through the built-in piano sound today, even with a MIDI
-          keyboard connected — routing sound through your own instrument isn&apos;t wired up yet.
+          Practice always plays back through the built-in piano sound, even when a MIDI keyboard is
+          connected. Playing back through your own instrument&apos;s sound isn&apos;t available yet.
         </p>
       </section>
     </div>

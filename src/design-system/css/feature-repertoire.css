@@ -177,6 +177,11 @@
   flex: 0 0 8rem;
   display: flex;
   justify-content: flex-end;
+  /* Matches `.repertoire-catalogue-level` above (UI-24 visual pass): the badge
+     was top-aligned and Add was centred, so on any row whose provenance text
+     wraps the two halves of one trailing cluster sat on different lines. They
+     are one unit; they start at the same edge. */
+  align-self: flex-start;
 }
 .repertoire-catalogue-added {
   font-size: var(--text-sm);

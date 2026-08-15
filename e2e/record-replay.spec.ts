@@ -8,6 +8,7 @@ import {
   FAKE_MIDI_DEVICE_NAME,
   type RelativeFakeMidiEvent,
 } from './fake-midi.ts'
+import { openPracticeSetup } from './practice-setup.ts'
 
 /**
  * E2E proof for roadmap 2.14 (REQ-3.9.2): record a short performance, replay
@@ -111,6 +112,7 @@ test('record a live take, replay it with no further input, and the note feedback
   // The harness is live and the app adopted it as the connected device — same
   // settle-and-check as e2e/assessment.spec.ts.
   await expectMidiStatusText(page, new RegExp(`MIDI keyboard connected: ${FAKE_MIDI_DEVICE_NAME}`))
+  await openPracticeSetup(page)
   const loopRangeSettle = page.getByRole('group', { name: 'Loop range' })
   await expect(loopRangeSettle.getByLabel('to measure')).toHaveValue('6')
   await page.waitForTimeout(300)

@@ -104,7 +104,7 @@ describe('IntervalAnswerButtons — answered feedback (roadmap UI-13)', () => {
         level={1}
         showDirection={false}
         onAnswer={vi.fn()}
-        answered={{ pickedKey: 'M3', correct: true }}
+        answered={{ pickedKey: 'M3', expectedKey: 'M3', correct: true }}
       />,
     )
 
@@ -113,7 +113,8 @@ describe('IntervalAnswerButtons — answered feedback (roadmap UI-13)', () => {
     // The glyph is a real, separate cue — not merely a color the button
     // happens to carry (DESIGN.md rule 8: color is never the only signal).
     expect(picked.querySelector('svg')).not.toBeNull()
-    // The unpicked option gets no state at all.
+    // A right answer marks ONE card: picked and expected are the same card,
+    // so it is never double-marked (roadmap UI-24).
     expect(screen.getByRole('button', { name: 'minor third' })).not.toHaveAttribute('data-state')
   })
 
@@ -123,14 +124,20 @@ describe('IntervalAnswerButtons — answered feedback (roadmap UI-13)', () => {
         level={1}
         showDirection={false}
         onAnswer={vi.fn()}
-        answered={{ pickedKey: 'm3', correct: false }}
+        answered={{ pickedKey: 'm3', expectedKey: 'M3', correct: false }}
       />,
     )
 
     const picked = screen.getByRole('button', { name: /minor third/ })
     expect(picked).toHaveAttribute('data-state', 'wrong')
     expect(picked.querySelector('svg')).not.toBeNull()
-    expect(screen.getByRole('button', { name: 'major third' })).not.toHaveAttribute('data-state')
+    // Roadmap UI-24: the answer the learner SHOULD have given is marked too,
+    // with its own check glyph. It used to render plain, indistinguishable
+    // from every option nobody picked — the one state that teaches, shown as
+    // nothing (DESIGN.md rule 8).
+    const answer = screen.getByRole('button', { name: 'major third' })
+    expect(answer).toHaveAttribute('data-state', 'correct')
+    expect(answer.querySelector('svg')).not.toBeNull()
   })
 
   it('locks every card — including the direction toggle — once answered, so a second pick is impossible', async () => {
@@ -141,7 +148,7 @@ describe('IntervalAnswerButtons — answered feedback (roadmap UI-13)', () => {
         level={1}
         showDirection
         onAnswer={onAnswer}
-        answered={{ pickedKey: 'M3', correct: true }}
+        answered={{ pickedKey: 'M3', expectedKey: 'M3', correct: true }}
       />,
     )
 
@@ -160,7 +167,7 @@ describe('IntervalAnswerButtons — answered feedback (roadmap UI-13)', () => {
         level={1}
         showDirection
         onAnswer={vi.fn()}
-        answered={{ pickedKey: '-M3', correct: true }}
+        answered={{ pickedKey: '-M3', expectedKey: '-M3', correct: true }}
       />,
     )
 

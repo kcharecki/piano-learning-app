@@ -80,6 +80,15 @@
 .app-nav button {
   display: flex;
   align-items: center;
+  /* The base `button` primitive centres its content, and `text-align: left`
+     below does nothing to a flex child — so every rail item's icon+label pair
+     sat centred, its indent set by however long the label happened to be
+     (measured: the icon started at x=42 for "Ear training" and x=58 for
+     "Theory"). Thirteen destinations, thirteen different left edges, and no
+     icon column to scan down. DESIGN.md has described this rail as "a 16px
+     Icon + left-aligned label" since UI-04a; this is the line that makes that
+     true (UI-24 visual pass). */
+  justify-content: flex-start;
   width: 100%;
   gap: var(--space-2);
   min-height: var(--control-h);
@@ -670,17 +679,15 @@
 .trend-chart .trend-area { fill: var(--accent-dim); stroke: none; }
 .trend-chart .trend-grid { stroke: var(--border-1); stroke-width: 1; }
 .trend-chart text { fill: var(--text-3); font-size: 11px; font-family: var(--font-ui); }
-.exit-criteria { list-style: none; margin: 0; padding: 0; }
-.exit-criteria > li {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: var(--control-h);
-  color: var(--text-2);
-}
-.exit-criteria > li::before { content: "○"; color: var(--text-3); font-size: var(--text-lg); }
-.exit-criteria > li[data-state="met"] { color: var(--text-1); }
-.exit-criteria > li[data-state="met"]::before { content: "✓"; color: var(--fb-correct); font-weight: var(--weight-bold); }
+/* The pre-UI-19 exit-criteria block lived here and drew its met/unmet marker as
+   a `::before` glyph ("✓"/"○"). UI-19 replaced that with a real
+   `<span class="exit-criterion-icon">` element (`DashboardScreen.tsx` +
+   `feature-progress.css`) but left this block behind, so every criterion
+   rendered BOTH: two hollow circles side by side on an unmet row, a pseudo-tick
+   next to the real check icon on a met one. Deleted whole (UI-24 visual pass) —
+   the `<ul>` also carries the `.list` primitive, which supplies the
+   list-style/margin/padding reset and the `> li` flex row this block was
+   otherwise duplicating. */
 .repertoire-list .badge { margin-left: auto; }
 
 /* ---------- Lesson body ---------- */

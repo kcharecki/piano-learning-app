@@ -216,7 +216,11 @@ describe('LoopRangeControl', () => {
   // the caller passes in — this control never computes it, only displays it —
   // so the coupling between the selected range and its own tempo is visible.
   describe('per-loop tempo display (roadmap 2.29, REQ-3.9.3)', () => {
-    it('shows the whole-piece tempo while no loop is active', () => {
+    // Roadmap UI-24: the readout is a LOOP tempo or it is nothing. While no
+    // loop is active the number is identical to the two the transport toolbar
+    // already shows, so a third copy is noise; the per-loop coupling this
+    // display exists for only exists once a loop does.
+    it('shows nothing while no loop is active — the transport toolbar already reads the whole-piece tempo', () => {
       render(
         <LoopRangeControl
           score={C_MAJOR_SCALE_RH}
@@ -225,9 +229,7 @@ describe('LoopRangeControl', () => {
           tempoScale={1}
         />,
       )
-      const stat = screen.getByTestId('loop-tempo')
-      expect(stat).toHaveTextContent('100%')
-      expect(stat).toHaveTextContent('Tempo')
+      expect(screen.queryByTestId('loop-tempo')).not.toBeInTheDocument()
     })
 
     it('shows the active loop\'s own tempo, and updates when the caller passes a different one', () => {

@@ -34,9 +34,19 @@ label as bare text next to an input, you skipped a primitive.
   below), never `.field-inline`.
 - **`.stepper`** — bordered `[−] value [+]` group. The label is never inside it — wrap the group
   in a `.field`/`.field-inline` instead.
+- **`.stepper`** value cell — a `.stepper-value` span, or an `<input type="number">` carrying that
+  same class where an exact value has to be typeable (Metronome's BPM, roadmap UI-24). Both shapes
+  render as one `[−] value [+]` group; the input is not an extra control, it is the same cell.
 - **`.seg-control`** — single-select segmented group (replaces ad-hoc button rows: 15/30/60 min,
   mode tabs). Selection reads `[aria-checked="true"]`, `[aria-current]`, or `.selected` —
   callers own the role (`radiogroup`/`radio`, `tablist`/`tab`, …).
+- **`.list`** — a bordered row list. **Its `.list > li` rule has specificity (0,1,1) and will beat
+  a single-class feature rule (0,1,0) on the same `<li>`.** That is not theoretical: it silently
+  won `display: flex` + `align-items: center` over `.level-track-row`'s `flex-direction: column`
+  (collapsing every Progress level bar to 0px width) and over `.exit-criterion`'s
+  `align-items: flex-start`, both shipped and both found by UI-24's visual pass, not by any test.
+  If you style an `<li>` inside a `.list`, scope through the parent
+  (`.level-track-list > .level-track-row`) or you are writing a rule that does not apply.
 
 ## Page scaffold
 
@@ -110,10 +120,11 @@ frame except the playback cursor.
   Covers every native `<dialog>` (Practice's Change-piece/accuracy-info popovers, the
   Review/Assessment breakdown dialogs); a caller with its own `[open]` rule
   (`.review-overlay-dialog`, `.assessment-breakdown-dialog`) overrides it on specificity, not
-  conflict. The Reference panel and the topbar input-status popover are their own
-  non-`<dialog>` components outside this task's file list — the Reference panel already
-  slide-ins (`feature-reference-panel.css`); the input-status popover has no entrance motion
-  yet, flagged for whichever task next owns `src/app/shell/**`.
+  conflict. The Reference panel and the topbar input-status popover are neither `<details>` nor
+  `<dialog>`, so each opts in by name: the Reference panel slides in
+  (`feature-reference-panel.css`) and the input-status popover reuses the same `disclosure-in`
+  keyframes (`feature-bluetooth-midi.css`, roadmap UI-24 — it was the last surface in the app
+  with no entrance motion). **Every floating surface now has one.**
 - **Answer-feedback pulse** (`--dur-2`) — `fb-pop` (`primitives.css`): scale 1 → 1.04 → 1 plus
   a brightness lift, `transform`/`filter` only so it can never shift layout. One keyframe pair,
   three callers: the Flashcards result pill, the Ear training answer cards
@@ -129,14 +140,47 @@ frame except the playback cursor.
 
 ## Screen rules
 
-1. **One primary action per screen.** Exactly one `.btn-primary`, positioned where the eye
-   lands first. Everything else is secondary, ghost, or hidden. **Start / Play / Begin count
-   as primaries** — a screen whose true entry point renders as a default-styled gray button
-   has not satisfied this rule, even if some other control happens to carry `.btn-primary`.
+1. **At most one primary action per screen.** Never two `.btn-primary` on one screen. **Exactly
+   one** on a screen that has a single dominant action, positioned where the eye lands first;
+   everything else secondary, ghost, or hidden. **Start / Play / Begin count as primaries** — a
+   screen whose true entry point renders as a default-styled gray button has not satisfied this
+   rule, even if some other control happens to carry `.btn-primary`.
+   **Zero is correct on a screen with no dominant action** (roadmap UI-24 settled this against
+   the rule's earlier "exactly one per screen" wording, which four shipped screens contradicted).
+   The test: finish the sentence *"the learner came here to ___"* with one control. If you can't,
+   the screen has none, and **manufacturing one is worse than having none** — an arbitrary focal
+   point teaches the learner to trust a signal that is lying. Repertoire has forty equally-valid
+   *Add* buttons and no reason to promote one; Settings is configuration where every control
+   commits itself; Progress is read-only evidence; Theory's Drills tab and Flashcards are
+   answered by playing the keyboard, which is the action surface — a button beside it would be a
+   decoy. Current state, measured at 1280px: **one** on Today (Start session), Practice (Play),
+   Sight reading (Start exercise), Metronome (Start), Lessons (Next lesson: …), Ear training
+   (Play item), Rhythm (Start), Technique (Start); **zero** on Repertoire, Flashcards, Theory,
+   Progress, Settings. Lessons is a master/detail split at ≤1024px: the list view has none and
+   the lesson view it opens into carries the primary. A screen moving from zero to one, or one to
+   zero, is a design decision — say so in the slice, and update this list.
 2. **Progressive disclosure.** Defaults visible; configuration collapsed. A learner-facing
    screen shows at most ~6 interactive controls before disclosure (`<details>`, tabs, or a
    settings drawer). Advanced/diagnostic controls (tempo ramp numbers, fingering entry,
-   record/replay) are never open by default.
+   record/replay) are never open by default — **including on Practice**, which is the screen
+   this whole rule set was written for (see the opening paragraph) and therefore the last screen
+   that may hold an exception. Roadmap UI-24 settled that: `.practice-setup` shipped `open`,
+   which put Practice at 21 visible controls and left Record — named in this rule — on screen at
+   load; it now defaults closed, like "More tools". Roadmap 5.18's promise that a level-1 learner
+   gets those controls without hunting is kept by the *level gate* (they are present and named at
+   level 1), not by the default open state.
+   **Count controls, not content.** A row in a list of lessons, catalogue pieces or flashcards is
+   content the learner is scanning, not a control competing for the primary action, and it does
+   not count against the ~6. Repertoire's 40 *Add* buttons and Lessons' 25 lesson buttons are
+   lists; their filters, level tabs and search field are controls, and those are what the budget
+   governs. Without this distinction every list screen fails the rule by construction, which is
+   the same as the rule not existing.
+   Measured 2026-08-15 at 1280px with `Element.checkVisibility()` (a closed `<details>` still
+   reports a non-zero bounding rect in Chromium, so a rect-based count silently includes
+   everything the learner cannot see — that mistake inflated Practice from 10 to 20 during this
+   very pass): Sight reading 3, Repertoire 4, Flashcards 5, Ear training 6, Rhythm 6, Settings 6,
+   Progress 7, Technique 8, Theory 8, **Practice 10**, Today 12, Metronome 12, Lessons 13 (9 at
+   ≤1024px). **Today, Metronome and Lessons are over the bar and known to be** — see "Known gaps".
 3. **Adding means demoting.** A slice that adds a visible control to an existing screen must
    name what it demotes, groups, or hides. Screens only ever get denser by explicit decision.
 4. **Hierarchy reads top-down:** what am I doing → the content (score, staff, prompt) → how I
@@ -214,18 +258,50 @@ every screen, and are not re-listed per row).
 | Progress | shipped — every card branches to its own teach-copy | n/a — store hydrates silently | n/a — no error surface | n/a — no note input |
 | Settings | n/a — always has theme/plan/audio content | n/a — synchronous | n/a — no error surface | shipped — its own always-visible Input card |
 
-Fixed this pass: sight reading's missing no-MIDI fallback (the one screen with genuinely no
-way to answer without hardware); the microphone path leaking raw browser exceptions
+Fixed in the UI-21 states sweep: sight reading's missing no-MIDI fallback (the one screen with
+genuinely no way to answer without hardware); the microphone path leaking raw browser exceptions
 (`describeMicError`, mirroring `webmidi.ts`'s shape); Theory's bare `0 / N played` and the nav
 rail's bare `0-day streak` (both zero-rows, rule 6); the "Audio recording" and "Adjust mix"
 disclosures rendering as inert captions (missing chevron, global `summary` reset had dropped
 the native marker); Practice's bare `Tempo: 100%` string; "From measure" / "to measure"
 capitalisation.
 
-## Known worst offenders (fix as slices, per ROADMAP Phase 5)
+Fixed in the UI-24 visual pass, which found the row above had missed one: **Progress' Streak card
+still printed `0 days / 0 days`** on a never-practised profile — the last zero-row in the app, and
+the only card on that screen with no empty branch while every one of its neighbours already had
+one. The Empty column for Progress now means every card, Streak included.
 
-- Practice screen density and flatness — roadmap 5.17 / 5.18 (progressive disclosure,
-  control hierarchy).
-- 12 flat nav items, no grouping, no routing — roadmap 5.42 / 5.43.
-- First-run lands on the densest screen with no guidance — roadmap 5.39 / 5.40 / 5.41.
-- MIDI-number key labels — roadmap 5.25; SRS jargon — 5.31; raw category keys — 5.16.
+## Fixed, and what replaced them
+
+The five entries this section used to list as "known worst offenders" are all shipped. Kept as a
+record of what the rules above are actually made of — each rule exists because one of these hurt.
+
+| Was | Now |
+|---|---|
+| Practice: 30 controls in 13 groups over ~5100px of scroll | 10 controls, one score, two closed disclosures (5.17 / 5.18 / UI-09 / UI-10 / UI-24) |
+| 12 flat nav items, no grouping, no routing | Today alone at the top + four titled groups, icons, real routes (5.42 / 5.43 / UI-04a) |
+| First run landed on the densest screen with no guidance | Today is the entry point, with a one-minute setup offer (5.39 / 5.40 / 5.41) |
+| MIDI-number key labels ("Key 48"), SRS jargon ("ease", "lapses"), raw category keys | Learner language throughout (5.25 / 5.31 / 5.16), enforced by rule 7 |
+| No screen shared a layout skeleton; several rendered a clump of controls in ~80% void | `.page > .page-header + sections`, two archetypes, on all 13 screens (UI-02) |
+
+## Known gaps
+
+Open, measured, and deliberately not fixed in the pass that found them. Do not re-report these
+as new findings; either fix one properly as a slice or leave it.
+
+- **Today shows 12 controls** (rule 2's bar is ~6): the first-run banner's two buttons, the
+  session-length segmented control (3), the custom-minutes field, the "Adjust mix" summary, one
+  "Open …" button per plan item (4), and Start session. The per-item Open buttons are arguably
+  content, but each is a real button and they are counted rather than argued away.
+- **Metronome shows 12 controls.** BPM (field, −, +, slider), Start, and the Meter card's Beats /
+  Beat unit / Subdivision / four accent buttons. The Meter card is configuration and belongs
+  behind a disclosure; it is not there yet because collapsing it would change what several
+  metronome specs reach without an expand step.
+- **Lessons shows 13 at 1280px** (5 level tabs, 4 track chips, 3 "Open …" buttons, Next lesson);
+  9 at ≤1024px, where the detail pane is a second view. The level tabs and track chips are a
+  two-axis filter that would read better as one control.
+- **Repertoire is 5000px of ungrouped catalogue** with no disclosure between the level headings.
+  It passes rule 2 on the count-controls-not-content reading above, but "would a stranger call
+  this clean?" is a hesitation, and hesitation is a fail.
+- **`.app-main` and `.page` both declare `max-width`.** The padding half of the redundancy is
+  fixed; the `max-width` half is still declared in both places.

@@ -20,7 +20,7 @@
 import type { AudioOutput, Clock } from '@core/ports/index.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { MAX_BPM, MIN_BPM, SUBDIVISIONS, type Subdivision } from '@core/timing/metronome.ts'
-import { useId } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { Icon } from '@app/ui/Icon.tsx'
 import { AccentEditor } from './AccentEditor.tsx'
 import { useMetronome } from './useMetronome.ts'
@@ -58,6 +58,41 @@ export function MetronomeScreen(props: MetronomeScreenProps) {
     ...(props.frameDriver === undefined ? {} : { frameDriver: props.frameDriver }),
   })
 
+  // Roadmap UI-24 (2026-08-15 final visual pass). The glance number was a
+  // static `<span class="stepper-value">`, leaving three ways to set the tempo
+  // and none of them exact: the slider is 179px across a 20-300 range (0.64px
+  // per bpm, so it cannot be landed on a value), arrow-keying that slider to
+  // 132 from the default 100 is 32 presses, and the ±1 buttons are the same 32
+  // clicks. On the one screen where an exact number is the whole point, there
+  // was no way to say "132". The cell is now the same cell, typeable — the
+  // `.stepper input[type="number"]` shape `primitives.css` already documents,
+  // NOT a fourth control: the group still renders as `[−] 132 [+]` and nothing
+  // new appears on screen (DESIGN.md rule 3).
+  //
+  // Held as a draft string rather than driving `setBpm` per keystroke: typing
+  // "132" passes through "1" (clamped to MIN_BPM=20 by `useMetronome`, which
+  // would rewrite the field under the caret mid-word) and an empty field is a
+  // legal intermediate state, not a tempo. Commit is blur or Enter; Escape and
+  // any unparseable value revert to the live bpm. The effect resyncs the draft
+  // whenever the tempo changes from anywhere else — the ± buttons, the slider,
+  // or a future caller.
+  const [bpmDraft, setBpmDraft] = useState(String(metronome.bpm))
+  useEffect(() => {
+    setBpmDraft(String(metronome.bpm))
+  }, [metronome.bpm])
+
+  function commitBpmDraft(): void {
+    const parsed = Number.parseInt(bpmDraft, 10)
+    if (Number.isNaN(parsed)) {
+      setBpmDraft(String(metronome.bpm))
+      return
+    }
+    const clamped = Math.min(MAX_BPM, Math.max(MIN_BPM, parsed))
+    setBpmDraft(String(clamped))
+    metronome.setBpm(clamped)
+  }
+
+  const bpmInputId = useId()
   const bpmSliderId = useId()
   const beatsId = useId()
   const beatTypeId = useId()
@@ -81,7 +116,7 @@ export function MetronomeScreen(props: MetronomeScreenProps) {
 
       <div className="card metronome-stage">
         <div className="field metronome-bpm-field">
-          <label htmlFor={bpmSliderId}>BPM</label>
+          <label htmlFor={bpmInputId}>BPM</label>
           <div className="stepper metronome-bpm-stepper">
             <button
               type="button"
@@ -91,7 +126,26 @@ export function MetronomeScreen(props: MetronomeScreenProps) {
             >
               <Icon name="minus" />
             </button>
-            <span className="stepper-value">{metronome.bpm}</span>
+            <input
+              id={bpmInputId}
+              className="stepper-value"
+              type="number"
+              inputMode="numeric"
+              min={MIN_BPM}
+              max={MAX_BPM}
+              step={1}
+              value={bpmDraft}
+              onChange={(event) => setBpmDraft(event.target.value)}
+              onBlur={commitBpmDraft}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  commitBpmDraft()
+                } else if (event.key === 'Escape') {
+                  setBpmDraft(String(metronome.bpm))
+                }
+              }}
+            />
             <button
               type="button"
               aria-label="Increase BPM"
@@ -104,6 +158,7 @@ export function MetronomeScreen(props: MetronomeScreenProps) {
           <input
             id={bpmSliderId}
             className="metronome-bpm-slider"
+            aria-label="BPM slider"
             type="range"
             min={MIN_BPM}
             max={MAX_BPM}

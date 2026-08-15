@@ -9,6 +9,7 @@ import {
   type RelativeFakeMidiEvent,
 } from './fake-midi.ts'
 import { seedPlayingLevel } from './seedLevel.ts'
+import { openPracticeSetup } from './practice-setup.ts'
 
 /**
  * E2E proof for roadmap 4.7c (REQ-3.3.4/REQ-3.10.1): a repertoire assessment
@@ -134,6 +135,7 @@ test('a repertoire assessment run through the UI is surfaced on the dashboard af
 
   // Settle point (see e2e/assessment.spec.ts): only the newly-imported 6-bar
   // fixture clamps "to measure" to 6, proving the async score load finished.
+  await openPracticeSetup(page)
   const loopRangeSettle = page.getByRole('group', { name: 'Loop range' })
   await expect(loopRangeSettle.getByLabel('to measure')).toHaveValue('6')
   await page.waitForTimeout(300)

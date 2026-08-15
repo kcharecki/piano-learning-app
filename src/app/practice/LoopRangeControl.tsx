@@ -121,10 +121,21 @@ export function LoopRangeControl({ score, loop, onChange, tempoScale }: LoopRang
           Loop
         </label>
       </div>
-      <div className="stat loop-tempo" data-testid="loop-tempo">
-        <span className="stat-value">{Math.round(tempoScale * 100)}%</span>
-        <span className="stat-label">{enabled ? 'Loop tempo' : 'Tempo'}</span>
-      </div>
+      {/* Roadmap UI-24 (2026-08-15 final visual pass): rendered only while a
+          loop is ACTIVE. Unlooped, this repeated a number the sticky transport
+          toolbar directly above the score already shows twice ("Tempo — 100% of
+          written 100" and "100 bpm") — a third readout of one value, and the
+          only thing in the Range group's right-hand half, so it floated alone in
+          the panel's dead space with no control beside it. Looped, it is not a
+          duplicate at all: it is THIS range's own remembered scale (roadmap
+          2.29), which is exactly the coupling the module comment above exists to
+          make visible, so it stays. */}
+      {enabled && (
+        <div className="stat loop-tempo" data-testid="loop-tempo">
+          <span className="stat-value">{Math.round(tempoScale * 100)}%</span>
+          <span className="stat-label">Loop tempo</span>
+        </div>
+      )}
     </div>
   )
 }

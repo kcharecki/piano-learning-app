@@ -738,25 +738,35 @@ export function PracticeScreen(props: PracticeScreenProps) {
           record/replay were five flat top-level siblings — every control 5.17
           kept unconditionally visible at level 1, none of them Play, all of
           them at Play's own visual weight. One collapsible section, titled
-          for what it is. Defaults OPEN, unlike "More tools" below: these are
-          the controls a level-1 learner is TOLD are theirs from the first
-          session (5.17's own record of what that level sees), so hiding them
-          behind an extra click by default would be a second, un-asked-for
-          disclosure stacked on top of 5.17's level gate — and a dozen existing
-          e2e specs outside this task's file boundary (`assessment-locked`,
-          `dashboard-assessment`, `metronome`, `metronome-drills`,
-          `note-colour`, `qwerty-note-input`, `record-replay`, `repertoire`,
-          `smoke`) already reach Loop range/Metronome/Record directly, with no
-          "open this section first" step, and this task owns none of them to
-          fix. It is still a REAL, working disclosure — `open` only seeds the
-          initial state; the learner can close it, and closing it is exactly
-          what the 5.18 proof's "under 2000px with all sections closed"
-          measures. */}
-      {/* Roadmap UI-10 (2026-08-12 UI audit): `.card--sunken` (primitives.css)
+          for what it is.
+          Roadmap UI-10 (2026-08-12 UI audit): `.card--sunken` (primitives.css)
           replaces the section's own hand-rolled border/background — the
           disclosure chrome (summary marker, body spacing) stays in
-          feature-practice-sections.css. */}
-      <details className="practice-setup card--sunken" open>
+          feature-practice-sections.css.
+
+          Roadmap UI-24 (2026-08-15 final visual pass): defaults CLOSED. It
+          shipped `open`, on the reasoning that 5.17/5.18 had promised a level-1
+          learner these controls without an extra click and that nine e2e specs
+          reached inside with no expand step. That put Practice at 21 visible
+          interactive controls (measured, piano keys excluded) against
+          DESIGN.md rule 2's stated bar of ~6 — and left Record, the one
+          control rule 2 names by name as never-open-by-default, open on load.
+          Closing it is what makes the written rule true on the screen the rule
+          was written for: DESIGN.md's own opening paragraph cites this
+          screen's density (30 controls, 13 groups, ~5100px) as the failure the
+          whole rule set exists to fix, so an exception here would empty the
+          rule rather than qualify it. The 5.18 promise is kept by the level
+          gate, not by the default state — every one of these controls is
+          present, named and one click away at level 1, which is what "theirs
+          from the first session" meant. Closed, the screen measures 10 visible
+          controls: Change piece, Play, Pause, Stop, tempo, Use microphone,
+          On-screen keyboard, Hold keys down, Show keys, Practice setup. Counted
+          with `Element.checkVisibility()` — a closed `<details>` still reports a
+          non-zero bounding rect in Chromium, so a rect-based count reads 20 and
+          silently includes everything the learner cannot see. The fourteen e2e
+          specs that reached inside now open it first, via `openPracticeSetup`
+          in `e2e/practice-setup.ts`. */}
+      <details className="practice-setup card--sunken">
         <summary>Practice setup</summary>
         <div className="practice-setup-body">
           {/* Roadmap UI-10: Range/Hands/Sound as three titled groups
@@ -804,17 +814,25 @@ export function PracticeScreen(props: PracticeScreenProps) {
               synchronized with the score below rather than a second clock
               (see `engineCursorRef` above). Off by default: sight reading is
               the target skill, so a beginner leaning on the roll instead of
-              the staff is an opt-in, not the default experience. */}
-          <div className="piano-roll-control" role="group" aria-label="Piano roll">
-            <label>
-              <input
-                type="checkbox"
-                checked={pianoRollEnabled}
-                onChange={(event) => setPianoRollEnabled(event.target.checked)}
-              />
-              Piano roll
-            </label>
-          </div>
+              the staff is an opt-in, not the default experience.
+              Roadmap UI-24: wrapped in its own "View" fieldset. It was a bare
+              sibling of the Range/Hands/Sound fieldsets, so it rendered flush
+              under Sound's legend and read as a third sound setting — a
+              falling-note display filed under audio. It is what you SEE, not
+              what you hear. */}
+          <fieldset className="practice-setup-group" disabled={assessmentRunning}>
+            <legend>View</legend>
+            <div className="piano-roll-control" role="group" aria-label="Piano roll">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={pianoRollEnabled}
+                  onChange={(event) => setPianoRollEnabled(event.target.checked)}
+                />
+                Piano roll
+              </label>
+            </div>
+          </fieldset>
           {/* Roadmap 5.17: wait mode is the one tier between the level-1
               basics above and "More tools" below — REQ-3.3.3 ties it to
               hands-together, which the curriculum introduces before

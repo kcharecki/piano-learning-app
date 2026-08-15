@@ -46,20 +46,34 @@ test('the standalone metronome runs with no score and advances in real time (roa
   // the accent pattern the requirement's own example asks for, neither of
   // which was expressible anywhere in this app before.
   //
-  // Roadmap UI-16: free-text BPM entry is gone — BPM is a stepper (±1) plus a
-  // slider now, and there is no longer a single "Tempo and metre" group; BPM
+  // Roadmap UI-16: there is no longer a single "Tempo and metre" group; BPM
   // lives in its own stage card while Beats/Beat unit moved into the "Meter"
   // region alongside Subdivision/Accents. `useMetronome.ts`'s own DEFAULT_BPM
   // is already 100 — exactly this worked example's tempo — but the control
   // must still be proven live, not just defaulted right, so this nudges it up
   // and back down with the stepper and reads the displayed number back each
   // time, landing back on 100 for the rest of the run.
+  // Roadmap UI-24 restored typed entry: the glance cell is an
+  // `<input type="number">` carrying the same `.stepper-value` class, so its
+  // value is read with `toHaveValue`, not `toHaveText`. Typing an exact tempo
+  // is asserted below, because 32 clicks to reach 132 was the defect.
   const bpmValue = page.locator('.metronome-bpm-stepper .stepper-value')
-  await expect(bpmValue).toHaveText('100')
+  await expect(bpmValue).toHaveValue('100')
   await page.getByRole('button', { name: 'Increase BPM' }).click()
-  await expect(bpmValue).toHaveText('101')
+  await expect(bpmValue).toHaveValue('101')
   await page.getByRole('button', { name: 'Decrease BPM' }).click()
-  await expect(bpmValue).toHaveText('100')
+  await expect(bpmValue).toHaveValue('100')
+
+  // Roadmap UI-24: an exact tempo is typeable, in one interaction rather than
+  // 32. Committed on blur, and the slider — the other way into the same
+  // number — must follow it.
+  await bpmValue.fill('132')
+  await bpmValue.blur()
+  await expect(bpmValue).toHaveValue('132')
+  await expect(page.getByLabel('BPM slider')).toHaveValue('132')
+  await bpmValue.fill('100')
+  await bpmValue.blur()
+  await expect(bpmValue).toHaveValue('100')
 
   const meter = page.getByRole('region', { name: 'Meter' })
   await meter.getByLabel('Beats').fill('7')

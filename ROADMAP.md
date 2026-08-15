@@ -1190,6 +1190,109 @@ next item, no completion state, no sense of being 3 of 5 through today.
       *Proof: `dictation.test.ts`'s property tests updated to the RCM-quoted per-level bounds, with the
       source figures recorded in the module doc.*
 
+## UI/UX overhaul — [docs/ui-overhaul-plan.md](docs/ui-overhaul-plan.md), shipped 2026-08-14/15
+
+All 24 tasks (UI-01…UI-24) landed: 7 foundation, 13 screens, 4 polish passes. The design
+system gained form and layout primitives, a page scaffold, 24 icons, a real shell and a
+working theme control; every one of the 13 screens was rebuilt on top of it; then four
+whole-app sweeps (states, motion, accessibility, final QA). Full history in git log.
+
+**Two gates were added, both after a defect got through a green build**, per the standing
+"enforce hard rules in automation, not prose" rule:
+- `scripts/check-css.mjs` (in `verify`) — a stray `*/` left prose outside a comment, postcss
+  absorbed it plus the following rule into one garbage selector, and `.page` matched nothing
+  across **three** green verify runs. Nothing in the gate read CSS: typecheck ignores it,
+  eslint does not lint `.css`, no test imports a stylesheet.
+- `scripts/a11y-contrast-audit.mjs` (`npm run audit:a11y`, deliberately NOT in `verify` — it
+  needs a running server). Negative-controlled before being trusted.
+
+**Defects the overhaul found that no unit test could**, kept here because they name a class of
+bug this project keeps paying for: Bluetooth MIDI was destroyed by the next click after
+pairing (a connection's lifetime tied to a component that became transient); both Practice
+dialogs rendered permanently (author `display:flex` beats the UA rule hiding a closed
+`<dialog>`); the Metronome's accent toggles failed the 44px minimum on **width only**;
+`.card--sunken` painted with zero padding on four screens; lesson staff diagrams engraved at
+`width="0"` (a centred flex column sized shrink-to-fit around content OSMD had not drawn yet);
+and the sight-reading trainer level vanished from Progress because it sat inside a trend
+card's children, which only render when the chart has data — invisible exactly when a new
+learner needs it. Sight reading also turned out to have **no on-screen keyboard at all**:
+roadmap 5.4/5.5/5.5a wired that fallback everywhere else and missed the one screen whose
+purpose is reading and playing.
+
+### New work the overhaul surfaced — not in the plan, none of it done
+
+- [ ] U.1 `content/sightreading`: the trainer's levels have no human description. UI-11 could
+      not write the "Level 1 — notes around middle C" subtitle the plan specifies, because no
+      such field exists in `core/generator` or `core/sightreading`, and borrowing the
+      curriculum-track description would reintroduce the roadmap-5.57 collision (two different
+      numbers both called "level"). Author a short description per trainer level.
+      *Proof: the Sight reading header renders a real per-level description, and a content test
+      fails the build if a level has none.*
+- [ ] U.2 `adapters/audio`: audio output is single-route in practice. `createDefaultAudioOutput`
+      always builds Web Audio; `selectAudioOutput`'s MIDI-out path exists but is never called
+      from Practice, so UI-05's Settings "Audio" section states a verified constant rather than
+      a live route. Either wire the MIDI-out route to a real control or delete the dead path.
+      *Proof: either Settings offers a route the learner can change and the change is audible,
+      or `knip:prod` stops reporting the unused export.*
+- [ ] U.3 `core/rhythm`: no per-tap early/late feedback, and no manual Stop. Neither
+      `useRhythmDrill` nor `useClapbackDrill` classifies a tap in real time — both produce one
+      batch grade at run end — so UI-14 shipped a generic hit flash and deliberately refused to
+      add real-time onset matching to correctness-critical timing code. Wiring `engine.stop()`
+      naively would fire the run-ended path mid-pattern and grade every unplayed onset as
+      missed. This is a **core task with property tests**, not a UI task.
+      *Proof: property tests over the tap classifier, then the pad shows early/late/hit per tap.*
+### Proposed by UI-24's final pass — measured, none of it done
+
+Rule 2 (~6 visible controls before disclosure) is missed on three screens. UI-24 settled
+Practice (closed its setup drawer: 21 → 10) and states the rest as known gaps in DESIGN.md
+rather than leaving them implied. Counts are `checkVisibility()`, not bounding rects — a
+closed `<details>` still reports a non-zero rect, which inflated the first measurement.
+
+- [ ] UI-25 `app/metronome`: 12 visible controls. BPM and Start are the screen; Beats, Beat
+      unit, Subdivision and the accent buttons are configuration set once — collapse them
+      behind a disclosure. Blocked only by two specs reaching them with no expand step; add it,
+      as UI-24 did for Practice via `e2e/practice-setup.ts`. *Proof: ≤6 visible; specs green.*
+- [ ] UI-26 `app/repertoire`: the catalogue is a 5000px flat scroll — 40 pieces under five
+      headings, no disclosure, no virtualisation. Passes rule 2 on a count-controls reading and
+      fails the checklist's last line (a stranger hesitates). Collapse each level group, open at
+      the learner's own level, or paginate. *Proof: scrollHeight < 2000px on a fresh profile.*
+- [ ] UI-27 `app/practice`: promote Loop range and Hands into the sticky transport toolbar.
+      Closing the setup drawer cost a click on the two controls reached constantly mid-practice
+      ("bars 5–8, left hand only"); Sound, Piano roll, Wait mode and Record stay inside it.
+      Needs the toolbar's 1024px wrap reworked as designed units. *Proof: driven both widths.*
+- [ ] UI-28 `app/eartraining`: the answered state reads prompt → Next → answers → verdict →
+      explanation, offering the exit before the thing that teaches. Reorder so Next comes last.
+      UI-24 fixed the missing correct-answer glyph; this is the layout half.
+      *Proof: DOM order asserted in the screen's test, driven on a wrong answer.*
+- [ ] UI-29 `app/session`: Today shows 12 controls — the four per-item "Open …" buttons
+      duplicate what tapping the row already does. Decide whether a plan row is a control or
+      content and make the row the target. *Proof: ≤8 visible; session specs green.*
+- [ ] UI-30 `app/lessons`: 13 controls at 1280px — five level tabs plus four track chips are a
+      two-axis filter competing with the list it filters. Merge them. *Proof: ≤8 visible.*
+- [ ] UI-31 `design-system`: sweep orphaned CSS and gate it. 25 class selectors are declared and
+      emitted by no `.tsx` — `.flashcard-screen`, `.drill-feedback`, `.practice-controls`,
+      `.transport-group`, `.accuracy-value`, `.streak-value`, `.osmd-cursor` and more. UI-24
+      deleted two such blocks only because each was actively breaking a screen (a duplicated
+      exit-criterion glyph, a wrapped Repertoire row); the rest are silent and will keep
+      accumulating. Extend `check-css.mjs` to flag selectors no JSX emits — it catches orphaned
+      FILES, not orphaned RULES — allowlisting runtime-generated ones. **Note: `.practice-controls`
+      being dead removes the stated blocker for making the topbar sticky at desktop (below).**
+      *Proof: the check fails on a deliberately orphaned selector, then passes clean.*
+- [ ] UI-32 `app/drills`: Flashcards jitters ~31px of scrollHeight per card answered (rule 5
+      wants none). Reserve the pill's space. *Proof: scrollHeight identical across an answer.*
+- [ ] UI-33 `app/shell`: the input-status popover swallows the next click on a control beneath
+      it — `technique-drill.spec.ts` presses Escape to work around it. UI-23 made the dead region
+      dismiss-only rather than click-through; decide whether it should pass through.
+      *Proof: an e2e click on a control under the open popover activates that control.*
+- [ ] UI-34 `design-system`: `.app-main` and `.page` both declare `max-width`. The padding half
+      of that redundancy is fixed; fold the width half into `.page` now every screen uses the
+      scaffold. Then re-check whether the topbar can finally be sticky at desktop (see UI-31).
+- [ ] UI-35 `app/practice`: two `useBluetoothMidi()` consumers can mount at once (topbar popover
+      + Settings). The module-scope rewrite means they now SHARE one connection rather than
+      clobbering a single-slot registry, so this is no longer a defect — but it is untested at
+      two live consumers. *Proof: a test mounting both, pairing from one, asserting both see it
+      and that unmounting one leaves the other connected.*
+
 ## Backlog / optional
 
 - [x] B.1 Microphone pitch-detection fallback (REQ-3.3.7, optional) — **shipped by roadmap 5.7**,

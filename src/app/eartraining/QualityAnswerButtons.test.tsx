@@ -89,7 +89,7 @@ describe('QualityAnswerButtons — answered feedback (roadmap UI-13)', () => {
         groupLabel="Chord quality answer"
         options={['major', 'minor'] as const}
         onAnswer={vi.fn()}
-        answered={{ picked: 'major', correct: true }}
+        answered={{ picked: 'major', expected: 'major', correct: true }}
       />,
     )
 
@@ -105,14 +105,20 @@ describe('QualityAnswerButtons — answered feedback (roadmap UI-13)', () => {
         groupLabel="Chord quality answer"
         options={['major', 'minor'] as const}
         onAnswer={vi.fn()}
-        answered={{ picked: 'minor', correct: false }}
+        answered={{ picked: 'minor', expected: 'major', correct: false }}
       />,
     )
 
     const picked = screen.getByRole('button', { name: /Minor/ })
     expect(picked).toHaveAttribute('data-state', 'wrong')
     expect(picked.querySelector('svg')).not.toBeNull()
-    expect(screen.getByRole('button', { name: 'Major' })).not.toHaveAttribute('data-state')
+    // Roadmap UI-24: the correct option is marked too, with its own check
+    // glyph. It used to render plain — visually identical to an option nobody
+    // picked — so a wrong answer taught nothing about what the right one was
+    // (DESIGN.md rule 8: every feedback state keeps a glyph cue).
+    const answer = screen.getByRole('button', { name: 'Major' })
+    expect(answer).toHaveAttribute('data-state', 'correct')
+    expect(answer.querySelector('svg')).not.toBeNull()
   })
 
   it('locks every card once answered, so a second pick is impossible', async () => {
@@ -123,7 +129,7 @@ describe('QualityAnswerButtons — answered feedback (roadmap UI-13)', () => {
         groupLabel="Chord quality answer"
         options={['major', 'minor'] as const}
         onAnswer={onAnswer}
-        answered={{ picked: 'major', correct: true }}
+        answered={{ picked: 'major', expected: 'major', correct: true }}
       />,
     )
 

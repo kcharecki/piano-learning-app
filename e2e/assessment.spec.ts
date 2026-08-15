@@ -9,6 +9,7 @@ import {
   type RelativeFakeMidiEvent,
 } from './fake-midi.ts'
 import { seedPlayingLevel } from './seedLevel.ts'
+import { openPracticeSetup } from './practice-setup.ts'
 
 /**
  * E2E proof for roadmap 2.11 (REQ-3.3.4/3.3.5): an assessment run driven end
@@ -116,6 +117,7 @@ test('assessment run driven end to end: play it, review lists problem measures, 
   // has actually finished, not just that the store updated. A short
   // additional wait absorbs whatever main-thread work OSMD does right after
   // that value is set, before the anchor below is taken.
+  await openPracticeSetup(page)
   const loopRangeSettle = page.getByRole('group', { name: 'Loop range' })
   await expect(loopRangeSettle.getByLabel('to measure')).toHaveValue('6')
   await page.waitForTimeout(300)

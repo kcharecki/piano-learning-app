@@ -2,6 +2,7 @@ import { expect, test, type ConsoleMessage, type Page } from '@playwright/test'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { installFakeMidi, FAKE_MIDI_DEVICE_NAME } from './fake-midi.ts'
+import { openPracticeSetup } from './practice-setup.ts'
 
 /**
  * E2E proof for roadmap B.3 (REQ-3.2.4's optional half) — the falling-note
@@ -179,6 +180,7 @@ test('falling-note piano roll tracks the real transport position, lighting exact
   // Settle point (see e2e/read-ahead.spec.ts and e2e/note-colour.spec.ts):
   // only the newly-imported 12-measure piece clamps "to measure" to 12 — the
   // reliable proof the async ScoreViewer load for THIS score has finished.
+  await openPracticeSetup(page)
   const loopRange = page.getByRole('group', { name: 'Loop range' })
   await expect(loopRange.getByLabel('to measure')).toHaveValue('12')
   await page.waitForTimeout(300)
@@ -186,8 +188,9 @@ test('falling-note piano roll tracks the real transport position, lighting exact
   // ---- off by default (roadmap B.3's design constraint) ----
   await expect(page.getByTestId('piano-roll')).toHaveCount(0)
 
-  // "Practice setup" is open by default at every level (roadmap 5.18) — no
-  // extra click needed to reach the checkbox living inside it.
+  // The Piano roll checkbox lives inside the "Practice setup" disclosure,
+  // which defaults CLOSED (roadmap UI-24) — `openPracticeSetup` above is the
+  // expand step that makes it reachable.
   const pianoRollGroup = page.getByRole('group', { name: 'Piano roll' })
   await expect(pianoRollGroup.getByRole('checkbox')).toBeVisible()
   await pianoRollGroup.getByRole('checkbox').check()
@@ -347,6 +350,7 @@ test('the roll stays within a perf budget against a 102-measure, 1603-note score
   await page.getByLabel(/Import a score/i).setInputFiles(CANON_FIXTURE_PATH)
   await expect(page.getByRole('heading', { name: CANON_TITLE })).toBeVisible({ timeout: 60_000 })
   await page.getByRole('dialog', { name: 'Change piece' }).getByRole('button', { name: 'Close' }).click()
+  await openPracticeSetup(page)
   const loopRange = page.getByRole('group', { name: 'Loop range' })
   await expect(loopRange.getByLabel('to measure')).toHaveAttribute('max', '102', { timeout: 60_000 })
   await expect(page.locator('[data-testid="score-container"] svg')).toBeVisible()
