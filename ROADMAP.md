@@ -292,13 +292,42 @@ purpose is reading and playing.
 
 ### New work the overhaul surfaced — not in the plan, none of it done
 
-- [ ] U.1 `content/sightreading`: the trainer's levels have no human description. UI-11 could
+- [x] U.1 `content/sightreading`: the trainer's levels have no human description. UI-11 could
       not write the "Level 1 — notes around middle C" subtitle the plan specifies, because no
       such field exists in `core/generator` or `core/sightreading`, and borrowing the
       curriculum-track description would reintroduce the roadmap-5.57 collision (two different
-      numbers both called "level"). Author a short description per trainer level.
-      *Proof: the Sight reading header renders a real per-level description, and a content test
-      fails the build if a level has none.*
+      numbers both called "level"). Authored one description per trainer level in
+      `src/content/sightreading/levelDescriptions.ts`, derived from `LEVEL_ROWS`
+      (`core/generator/levelDefaults.ts`) fact by fact rather than guessed: range bounds are
+      stated only as the closed interval `melody.ts`'s own candidate search enforces (never as
+      where a run starts or clusters — `generateMelodicLine` starts at the range MIDPOINT, not
+      its floor, so "starts at middle C" would have been false on plenty of real runs), and the
+      hand-independence prose ("doubles... an octave below", "parallel thirds", "block chords")
+      matches `generateSecondHand`'s literal per-case behaviour. Exact leap sizes and levels
+      1-2's specific rhythm note-values are deliberately never named: 5.53 (leap column, levels
+      below 4) and 5.54 (levels 1-2 rhythm) are re-grading those same columns in sibling
+      worktrees concurrently with this task, so a sentence naming today's numbers would go stale
+      the moment either lands — a content test enforces the omission (`levelDescriptions.test.ts`
+      matches for banned note-value/interval wording on levels 1-2). Wired into
+      `SightReadingScreen`'s `.page-header` as `Level {trainer.level} — {description}`, next to
+      the existing "Sight reading" `<h1>`, per UI-11's own target layout. The trainer's level has
+      no on-screen manual control (by design — it only adapts from run accuracy), so "changes
+      when the level changes" is proven by a render test that moves the store's `level` directly
+      and asserts the subtitle text follows, rather than by clicking a level control that does
+      not exist.
+      *Proof: `src/content/sightreading/levelDescriptions.test.ts` (4 tests) fails the build if
+      a level is missing a description (array-length invariant at module load) or one is blank;
+      `SightReadingScreen.test.tsx`'s new case asserts the header renders level 1's real text and
+      follows the store to level 3's different text. `npx vitest run src/app/sightreading
+      src/content/sightreading` — 5 files, 63 tests, green. `npm run verify` green (docs budget,
+      typecheck, lint, 197 files / 4146 tests). Driven on port 5782: Sight reading now shows
+      "Level 1 — Right hand only, moving stepwise, from middle C to the G above the staff." in
+      the header, console clean (only the expected headless-sandbox
+      `requestMIDIAccess`/`NotAllowedError` warning, present on every screen, unrelated to this
+      change). Visual pass (`scripts/visual-pass.mjs "Sight reading" --url http://localhost:5782`)
+      at 1280/1024 × dark/light: subtitle sits cleanly under the `<h1>`, no overflow or wrap: at
+      either width, including a swapped-in check against level 6's longer description (89
+      characters, the longest of the six) at 1024px, which still holds one line.
 - [ ] U.2 `adapters/audio`: audio output is single-route in practice. `createDefaultAudioOutput`
       always builds Web Audio; `selectAudioOutput`'s MIDI-out path exists but is never called
       from Practice, so UI-05's Settings "Audio" section states a verified constant rather than

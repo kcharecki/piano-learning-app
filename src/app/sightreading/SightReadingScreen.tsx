@@ -11,6 +11,7 @@ import type { ConnectMidi } from '@app/practice/useMidiConnection.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import type { ScoreChrome } from '@app/score/engraver.ts'
 import { Icon } from '@app/ui/Icon.tsx'
+import { sightReadingLevelDescription } from '@content/sightreading/levelDescriptions.ts'
 import { useState } from 'react'
 import { ExerciseScore } from './ExerciseScore.tsx'
 import { SightReadingCustomizer } from './SightReadingCustomizer.tsx'
@@ -62,6 +63,9 @@ export function SightReadingScreen(props: SightReadingScreenProps) {
       <header className="page-header">
         <div>
           <h1>Sight reading</h1>
+          <p className="page-header-subtitle" data-testid="sight-reading-level-description">
+            Level {trainer.level} &mdash; {sightReadingLevelDescription(trainer.level)}
+          </p>
         </div>
       </header>
 

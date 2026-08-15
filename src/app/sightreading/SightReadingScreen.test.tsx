@@ -8,6 +8,7 @@
 import { useSightReadingStore } from '@app/state/sightReadingStore.ts'
 import { MIN_LEVEL } from '@core/sightreading/adaptive.ts'
 import { seededRng } from '@core/ports/rng.ts'
+import { sightReadingLevelDescription } from '@content/sightreading/levelDescriptions.ts'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FakeClock, FakeMidiInput, RecordingAudioOutput } from '@test/fakes.ts'
@@ -221,6 +222,32 @@ describe('SightReadingScreen', () => {
     })
 
     expect(audio.clicks.length).toBeGreaterThan(0)
+  })
+
+  // roadmap U.1: the trainer's level had no human description anywhere on
+  // screen (UI-11 wanted a "Level 1 — notes around middle C" subtitle and had
+  // nowhere to pull it from). This proves the header actually renders the
+  // real per-level text from `@content/sightreading/levelDescriptions.ts` —
+  // not a hardcoded string that happens to match level 1 — by asserting it
+  // follows the store's level.
+  it('the header subtitle names the trainer level and its real description, and follows the level (roadmap U.1)', () => {
+    const neverResolves = (): Promise<never> => new Promise(() => {})
+    render(<SightReadingScreen connectMidi={neverResolves} rng={seededRng(1)} />)
+
+    expect(screen.getByTestId('sight-reading-level-description')).toHaveTextContent(
+      `Level 1 — ${sightReadingLevelDescription(1)}`,
+    )
+
+    act(() => {
+      useSightReadingStore.setState({ level: 3, history: [] })
+    })
+
+    expect(screen.getByTestId('sight-reading-level-description')).toHaveTextContent(
+      `Level 3 — ${sightReadingLevelDescription(3)}`,
+    )
+    // Levels 1 and 3 must actually read differently, or this assertion would
+    // pass even if the subtitle were frozen on level 1's text.
+    expect(sightReadingLevelDescription(1)).not.toBe(sightReadingLevelDescription(3))
   })
 
   it('the customizer reaches the generator: picking a key changes the exercise actually drawn (roadmap 5.12)', async () => {
