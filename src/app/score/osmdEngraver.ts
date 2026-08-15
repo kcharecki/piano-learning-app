@@ -623,6 +623,21 @@ export function createOsmdEngraver(opts?: OsmdEngraverOptions): ScoreEngraverWit
       const originalRender = instance.render.bind(instance)
       installRenderHook(instance, container)
       instance.render = () => {
+        // `instance.render` is reachable by anyone holding `instance`, not
+        // only through this file's own `osmd?.render()` call sites (the ones
+        // `requestRender`'s `renderPending` flush and the `destroyed` bail
+        // below already guard). UI-37: a call landing here after `destroy()`
+        // has removed `host` from its container — this file's own detach, or
+        // the cache's idle-entry detach — used to run `originalRender()`
+        // anyway, which is VexFlow rebuilding its drawing backend against a
+        // torn-down host: the boundary the null `vexFlowCanvasContext` write
+        // escaped through. `host.parentNode` (not `host.isConnected` — a
+        // test's `container` is never inserted into `document`, only `host`
+        // into `container`, so `isConnected` would be false even for a
+        // legitimate first render) covers both `destroy()` paths and stays
+        // correct across a cache re-adopt, which reconnects this same host
+        // to a (possibly different) container (see `adoptCachedEngraving`).
+        if (host.parentNode === null) return
         originalRender()
         renderHooks.get(instance)?.()
       }

@@ -219,18 +219,23 @@ describe('createOsmdEngraver: engraving cache', () => {
 
   it('does not cache a score below the note threshold', async () => {
     const { score, measures } = smallScore()
-    const fakeOsmd = makeFakeOsmd(measures)
-    const createOsmd = () => fakeOsmd
+    // Two independent fakes, matching real OSMD: `createOsmd()` constructs a
+    // brand-new instance every call, so a second, uncached engraver's own
+    // `load()` never sees the first engraver's already-wrapped `render`.
+    const fakeA = makeFakeOsmd(measures)
+    const fakeB = makeFakeOsmd(measures)
 
-    const first = createOsmdEngraver({ createOsmd })
+    const first = createOsmdEngraver({ createOsmd: () => fakeA })
     await first.load(document.createElement('div'), '<score/>', score)
     first.destroy()
     // Not cached, so `destroy()` disposed of it properly.
-    expect(fakeOsmd.cleared).toBe(true)
+    expect(fakeA.cleared).toBe(true)
 
-    const second = createOsmdEngraver({ createOsmd })
+    // Nothing was kept to adopt, so a second, independently-constructed
+    // engraver still has to engrave for itself.
+    const second = createOsmdEngraver({ createOsmd: () => fakeB })
     await second.load(document.createElement('div'), '<score/>', score)
-    expect(fakeOsmd.renderCount).toBe(2)
+    expect(fakeB.renderCount).toBe(1)
     second.destroy()
   })
 
@@ -290,6 +295,67 @@ describe('createOsmdEngraver: engraving cache', () => {
     const second = createOsmdEngraver({ createOsmd })
     await second.load(document.createElement('div'), '<score/>', score)
     expect(calls.at(-1)?.color).toBe(DEFAULT_NOTE_COLOR)
+    second.destroy()
+  })
+})
+
+describe('createOsmdEngraver: render calls that arrive after destroy (UI-37)', () => {
+  /**
+   * `destroy()` only guards THIS file's own call sites — `requestRender`'s
+   * flush reads the `osmd` closure variable, and the `if (destroyed)` bail in
+   * `load()` covers an abandoned in-flight load. Neither guards a call that
+   * lands on `instance.render` directly, which is reachable by anyone
+   * holding the OSMD instance (OSMD's own internal machinery, in principle,
+   * or a stray reference kept elsewhere) — `fakeOsmd.render()` below models
+   * exactly that: a render request that never went through `osmd?.render()`
+   * at all. Before UI-37 this ran the real render unconditionally, which for
+   * real OSMD is VexFlow rebuilding its drawing backend against a host
+   * `destroy()` already removed from the DOM — the boundary the null
+   * `vexFlowCanvasContext` write escaped through.
+   */
+  it('ignores a render call that arrives after destroy, even one that bypasses osmd?.render()', async () => {
+    const { score, measures } = smallScore()
+    const fakeOsmd = makeFakeOsmd(measures)
+    const engraver = createOsmdEngraver({ createOsmd: () => fakeOsmd })
+    const container = document.createElement('div')
+    await engraver.load(container, '<score/>', score)
+    expect(fakeOsmd.renderCount).toBe(1)
+
+    engraver.destroy()
+    expect(fakeOsmd.cleared).toBe(true)
+
+    fakeOsmd.render()
+
+    expect(fakeOsmd.renderCount).toBe(1)
+  })
+
+  it('keeps a cached engraving’s render inert while it sits idle, and live again once re-adopted', async () => {
+    const { score, measures } = bigScore()
+    const fakeOsmd = makeFakeOsmd(measures)
+    const createOsmd = () => fakeOsmd
+
+    const first = createOsmdEngraver({ createOsmd })
+    const containerA = document.createElement('div')
+    await first.load(containerA, '<score/>', score)
+    expect(fakeOsmd.renderCount).toBe(1)
+    first.destroy()
+    // Cached, not cleared — the instance stays alive, only its host is
+    // detached (`containerA.children` is already asserted empty above).
+    expect(fakeOsmd.cleared).toBe(false)
+
+    // A render call reaching the cached-but-idle instance must stay inert:
+    // nothing is looking at it, and its host isn't attached to anything.
+    fakeOsmd.render()
+    expect(fakeOsmd.renderCount).toBe(1)
+
+    const second = createOsmdEngraver({ createOsmd })
+    const containerB = document.createElement('div')
+    await second.load(containerB, '<score/>', score)
+
+    // Re-adopted: `adoptCachedEngraving` reconnects the very same host, so
+    // render works again for its new owner.
+    fakeOsmd.render()
+    expect(fakeOsmd.renderCount).toBe(2)
     second.destroy()
   })
 })
