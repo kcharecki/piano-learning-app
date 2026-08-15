@@ -7,11 +7,13 @@
  * practice-plan editor, and that flipping a theme option touches the DOM
  * the way `themeStore.ts` promises.
  */
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { FakeMidiInput } from '@test/fakes.ts'
+import { FakeMidiInput, RecordingMidiOutput } from '@test/fakes.ts'
 import { initialLevelState } from '@core/progress/levels.ts'
+import { ok, err } from '@core/shared/result.ts'
+import type { ConnectMidiOutput } from '@adapters/audio/audioRoute.ts'
 import { useLevelStore } from '@app/state/levelStore.ts'
 import { useThemeStore } from '@app/state/themeStore.ts'
 import { SettingsScreen } from './SettingsScreen.tsx'
@@ -19,11 +21,15 @@ import { SettingsScreen } from './SettingsScreen.tsx'
 /** Never resolves — a deterministic "no MIDI keyboard connected" state, same pattern `InputCapabilityBanner.test.tsx` uses. */
 const neverConnects = (): Promise<never> => new Promise(() => {})
 
+/** Never resolves — the Audio section's own MIDI-out connect seam, deliberately never used unless a test asks for it. */
+const neverConnectsOutput: ConnectMidiOutput = () => new Promise(() => {})
+
 afterEach(() => {
   cleanup()
   useLevelStore.setState({ levelState: initialLevelState(), hydrated: false })
   useThemeStore.setState({ theme: 'system' })
   document.documentElement.removeAttribute('data-theme')
+  localStorage.clear()
 })
 
 describe('SettingsScreen', () => {
@@ -173,8 +179,87 @@ describe('SettingsScreen', () => {
   })
 
   describe('Audio', () => {
-    it('states the real current output in learner language', () => {
-      render(<SettingsScreen onGoToToday={vi.fn()} connectMidi={neverConnects} />)
+    it('states the real current output in learner language, Built-in selected by default', () => {
+      render(<SettingsScreen onGoToToday={vi.fn()} connectMidi={neverConnects} connectMidiOutput={neverConnectsOutput} />)
+
+      expect(screen.getByText('Sound: built-in piano sounds')).toBeInTheDocument()
+      const group = screen.getByRole('radiogroup', { name: 'Sound' })
+      expect(within(group).getByRole('radio', { name: 'Built-in piano sound' })).toHaveAttribute(
+        'aria-checked',
+        'true',
+      )
+    })
+
+    it('selecting My instrument connects MIDI-out, auto-selects a device, and the change is reflected in the status line', async () => {
+      const user = userEvent.setup()
+      const midiOut = new RecordingMidiOutput()
+      midiOut.selectDevice(null)
+      const connectMidiOutput: ConnectMidiOutput = () => Promise.resolve(ok({ output: midiOut }))
+      render(
+        <SettingsScreen onGoToToday={vi.fn()} connectMidi={neverConnects} connectMidiOutput={connectMidiOutput} />,
+      )
+
+      await user.click(screen.getByRole('radio', { name: 'My instrument' }))
+
+      expect(screen.getByRole('radio', { name: 'My instrument' })).toHaveAttribute('aria-checked', 'true')
+      await waitFor(() =>
+        expect(screen.getByText('Sound: routed to your connected instrument')).toBeInTheDocument(),
+      )
+      // the real call the adapter needs to route Practice's notes: a device selected on the MidiOutput itself
+      expect(midiOut.selectedDeviceId).not.toBeNull()
+    })
+
+    it('a connection failure falls back to the built-in sound and states why, in learner language', async () => {
+      const user = userEvent.setup()
+      const connectMidiOutput: ConnectMidiOutput = () =>
+        Promise.resolve(err('Web MIDI API is not available in this browser.'))
+      render(
+        <SettingsScreen onGoToToday={vi.fn()} connectMidi={neverConnects} connectMidiOutput={connectMidiOutput} />,
+      )
+
+      await user.click(screen.getByRole('radio', { name: 'My instrument' }))
+
+      expect(
+        await screen.findByText(/Sound: built-in piano sounds — couldn't reach your instrument/),
+      ).toBeInTheDocument()
+    })
+
+    it('persists the choice — a remount (e.g. after reload) reconnects and starts on My instrument, not Built-in', async () => {
+      const user = userEvent.setup()
+      const midiOut = new RecordingMidiOutput()
+      const connectMidiOutput: ConnectMidiOutput = () => Promise.resolve(ok({ output: midiOut }))
+      const { unmount } = render(
+        <SettingsScreen onGoToToday={vi.fn()} connectMidi={neverConnects} connectMidiOutput={connectMidiOutput} />,
+      )
+      await user.click(screen.getByRole('radio', { name: 'My instrument' }))
+      await waitFor(() =>
+        expect(screen.getByText('Sound: routed to your connected instrument')).toBeInTheDocument(),
+      )
+      unmount()
+
+      render(
+        <SettingsScreen onGoToToday={vi.fn()} connectMidi={neverConnects} connectMidiOutput={connectMidiOutput} />,
+      )
+
+      expect(screen.getByRole('radio', { name: 'My instrument' })).toHaveAttribute('aria-checked', 'true')
+      await waitFor(() =>
+        expect(screen.getByText('Sound: routed to your connected instrument')).toBeInTheDocument(),
+      )
+    })
+
+    it('switching back to Built-in stops offering the MIDI status and returns to idle', async () => {
+      const user = userEvent.setup()
+      const midiOut = new RecordingMidiOutput()
+      const connectMidiOutput: ConnectMidiOutput = () => Promise.resolve(ok({ output: midiOut }))
+      render(
+        <SettingsScreen onGoToToday={vi.fn()} connectMidi={neverConnects} connectMidiOutput={connectMidiOutput} />,
+      )
+      await user.click(screen.getByRole('radio', { name: 'My instrument' }))
+      await waitFor(() =>
+        expect(screen.getByText('Sound: routed to your connected instrument')).toBeInTheDocument(),
+      )
+
+      await user.click(screen.getByRole('radio', { name: 'Built-in piano sound' }))
 
       expect(screen.getByText('Sound: built-in piano sounds')).toBeInTheDocument()
     })

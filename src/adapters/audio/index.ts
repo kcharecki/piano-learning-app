@@ -9,11 +9,14 @@ import type { MidiOutput } from '@core/ports/midi.ts'
 import { createMidiAudioOutput } from './midiout.ts'
 import { createWebAudioOutput } from './webaudio.ts'
 
-export { createWebAudioOutput, type WebAudioOutputOptions } from './webaudio.ts'
-// roadmap B.5's `createAudioRecorder`/`createAudioPlayback` are deliberately NOT
-// re-exported here: `app/practice/useRecorder.ts` imports them from
-// `./audioRecorder.ts` directly, so a barrel re-export would be an export
-// nothing imports — which is exactly what `knip` fails the build over.
+// `createWebAudioOutput`/`WebAudioOutputOptions` (roadmap B.5's
+// `createAudioRecorder`/`createAudioPlayback` too) are deliberately NOT
+// re-exported here: every direct consumer (`webaudio.test.ts`,
+// `app/practice/useRecorder.ts`, `./audioRecorder.ts`) already imports them
+// from their own module. `app/practice/createDefaultAudioOutput.ts` was this
+// barrel's one re-export consumer, until roadmap U.2 moved it onto
+// `selectAudioOutput` below — a barrel re-export nothing imports is exactly
+// what `knip` fails the build over.
 
 export type SelectAudioOutputOptions = {
   /** The MIDI-out port, if Web MIDI access was granted. */
