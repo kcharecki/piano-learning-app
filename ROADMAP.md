@@ -1220,7 +1220,7 @@ next item, no completion state, no sense of being 3 of 5 through today.
       *Proof: an e2e reads a per-piece provenance line off the real Repertoire row for a
       research-verified piece AND for a flagged excerpt, and the two differ; a content test fails the
       build if a `GRADED_PIECES` entry has no provenance value.*
-- [ ] 5.53 `core/generator/levelDefaults`: level 1 is genuinely stepwise (measured max leap **2
+- [x] 5.53 `core/generator/levelDefaults`: level 1 is genuinely stepwise (measured max leap **2
       semitones**) and level 2 immediately permits **10** — a minor seventh — with levels 2/3/4 all
       sharing `maxLeap: 10`, because the column is sized for the cadence walk's reachability, not for
       pedagogy (the file's own comment says so). Faber Level 1 prepares reading "with intervals up
@@ -1231,6 +1231,12 @@ next item, no completion state, no sense of being 3 of 5 through today.
       *Proof: `node scripts/review-probe.mjs claims` re-run — measured max leap off the ENGRAVED
       output rises level by level and level 2 never exceeds 7 st over ≥ 50 sampled intervals; the
       existing `levelDefaults.test.ts` cadence-reachability property stays green.*
+      **Done:** leap column re-graded `2, 7, 7, 10, 11, 12` (was `2, 10, 10, 10, 11, 12`) — rises
+      monotonically, levels 1-3 all ≤ 7 st. Reachability at level 2's unchanged `maxLeap: 7` met by
+      tightening `melody.ts`'s `quarters` rhythm pool (dropped its half-note option, raising worst-case
+      notes-per-bar 2→4) instead of narrowing any range — avoids a seed-collision trap in
+      `useSightReadingTrainer.test.ts` that range-narrowing would have hit. Probe: level 1 max=2 (15
+      samples), level 2 max=7 (73), level 3 max=7 (148), rising to 10/11/11 at levels 4-6.
 - [ ] 5.54 `core/generator/levelDefaults`: level 1's rhythm is `'whole-half'` and level 2 is the first
       `'quarters'` — a level-1 exercise engraves four whole notes. Faber Piano Adventures Primer
       introduces **quarter → half → whole, all inside Unit 2** (official Teacher Guide, verified

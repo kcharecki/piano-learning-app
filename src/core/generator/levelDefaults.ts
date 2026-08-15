@@ -15,11 +15,35 @@
  * their first several grades; harder keys are a level-6 thing, not a
  * level-4 thing).
  *
- * `maxLeap` is chosen, not just guessed: each level's rhythm style bounds how
- * few notes its last bar can ever collapse to, and the cadence in
+ * `maxLeap` is graded for PEDAGOGY first (roadmap 5.53), not solved backward
+ * from reachability: it rises monotonically level to level and never exceeds
+ * a 5th (7 semitones) below level 4 — Faber Level 1 prepares reading "with
+ * intervals up through the 5th", and RCM/ABRSM agree a 6th or wider is a
+ * later-grade thing. An earlier draft of this table ran that backward —
+ * levels 2–4 all shared `maxLeap: 10` (a minor seventh, one level after a
+ * genuinely stepwise level 1) purely because 10 was the smallest leap that
+ * still cleared those rows' range width, so the column was sized for the
+ * cadence walk's own reachability need instead of for what a learner should
+ * be shown. The reachability need is still real — the cadence in
  * `generateMelodicLine` needs `notes-in-last-bar * maxLeap` to reach any
- * point in the range — sized per row below so that bound always clears the
- * row's own range width. Level 1's `maxLeap` is unused by its own
+ * point in the range — but for level 2 it is now met on the OTHER side of
+ * the inequality: `melody.ts`'s `quarters` rhythm pool no longer offers a
+ * half-note-long draw (its worst case used to be two half notes filling a
+ * 4/4 bar, `minNotes = 2`), so the worst case is now four quarter-note-or
+ * -shorter draws (`minNotes = 4`), which clears this row's UNCHANGED range
+ * width at `maxLeap: 7` (4×7=28 ≥ 19) with room to spare — no range had to
+ * shrink to fit. That also keeps this row's width from needing to move
+ * relative to level 1's, sidestepping a real trap: narrowing level 1's own
+ * range (it does not need to change for this row's sake — level 1's
+ * `stepwiseOneDirection` walk never reads `maxLeap` or cares how wide the
+ * range is beyond holding 4 scale tones) shrinks the pool of start
+ * positions `stepwiseLine.ts` draws from, and at every width from 5 to 15
+ * semitones tried, `useSightReadingTrainer.test.ts`'s two hardcoded seeds
+ * (42 and 7) collide onto the identical four-note run — a UI-level test this
+ * file may not edit. Level 3 needed no pool change or range change either —
+ * its `eighths`/¾ rhythm already guarantees enough notes in the last bar to
+ * cadence at `maxLeap: 7` across its existing range (`minNotes = 3`,
+ * 3×7=21 ≥ 19). Level 1's `maxLeap` is unused by its own
  * `stepwiseOneDirection` walk (`stepwiseLine.ts`), but it is NOT dead:
  * `core/eartraining/dictation.ts` reuses this row and can force
  * `stepwiseOneDirection: false` back on, at which point the cadence walk
@@ -69,8 +93,8 @@ const SIX_EIGHT: TimeSignature = { beats: 6, beatType: 8 }
 const LEVEL_ROWS: readonly LevelRow[] = [
   // fifths mode      bars ts         hands   rLo rHi lLo  lHi  rhythm        leap density indep             stepwise
   [0, 'major', 4, FOUR_FOUR, 'right', 60, 79, null, null, 'whole-half', 2, 0, 'unison', true],
-  [0, 'major', 4, FOUR_FOUR, 'both', 60, 79, 48, 67, 'quarters', 10, 0, 'unison', false],
-  [1, 'major', 8, THREE_FOUR, 'both', 60, 79, 48, 67, 'eighths', 10, 0.05, 'parallel', false],
+  [0, 'major', 4, FOUR_FOUR, 'both', 60, 79, 48, 67, 'quarters', 7, 0, 'unison', false],
+  [1, 'major', 8, THREE_FOUR, 'both', 60, 79, 48, 67, 'eighths', 7, 0.05, 'parallel', false],
   [2, 'major', 8, SIX_EIGHT, 'both', 60, 79, 48, 67, 'dotted', 10, 0.1, 'blocked-chords', false],
   [1, 'minor', 8, FOUR_FOUR, 'both', 60, 84, 36, 60, 'syncopated', 11, 0.15, 'independent', false],
   [4, 'major', 8, SIX_EIGHT, 'both', 55, 88, 31, 67, 'syncopated', 12, 0.2, 'independent', false],

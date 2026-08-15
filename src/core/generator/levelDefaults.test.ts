@@ -12,7 +12,9 @@ const LEVELS = Array.from({ length: MAX_GENERATOR_LEVEL }, (_, i) => i + 1)
  */
 const RHYTHM_MAX_UNIT: Record<string, number> = {
   'whole-half': 16,
-  quarters: 8,
+  // roadmap 5.53: dropped from 8 (a half note) — `melody.ts`'s own `quarters`
+  // pool no longer offers one, so 4 (a quarter note) is now the true worst case.
+  quarters: 4,
   eighths: 4,
   dotted: 6,
   syncopated: 4,
@@ -46,6 +48,26 @@ describe('LEVEL_ROWS — cadence reachability', () => {
         const leftWidth = p.leftRange.high - p.leftRange.low
         expect(minNotes * p.maxLeapSemitones).toBeGreaterThanOrEqual(leftWidth)
       }
+    }
+  })
+})
+
+describe('LEVEL_ROWS — leap ceiling is graded by pedagogy, not just reachability (roadmap 5.53)', () => {
+  it('maxLeapSemitones rises monotonically across all six levels', () => {
+    const leaps = LEVELS.map((level) => defaultParamsForLevel(level).maxLeapSemitones)
+    for (let i = 1; i < leaps.length; i++) {
+      expect(leaps[i]).toBeGreaterThanOrEqual(leaps[i - 1] as number)
+    }
+  })
+
+  it('no level below 4 ever permits a leap larger than a 5th (7 semitones)', () => {
+    // The regression this guards: levels 2-4 once all shared `maxLeap: 10` (a
+    // minor seventh) because the cadence walk's own reachability need had
+    // been allowed to set the pedagogical ceiling instead of the other way
+    // round. Faber Level 1 prepares reading "with intervals up through the
+    // 5th" — RCM/ABRSM agree larger leaps belong to later grades.
+    for (const level of [1, 2, 3]) {
+      expect(defaultParamsForLevel(level).maxLeapSemitones).toBeLessThanOrEqual(7)
     }
   })
 })

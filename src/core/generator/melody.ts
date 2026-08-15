@@ -83,11 +83,23 @@ const MAX_SEARCH_RADIUS = 96
  * Every pool carries a weight-1 single-sixteenth entry so
  * {@link buildBarDurations} can always finish a bar exactly, however the
  * larger values happen to divide it.
+ *
+ * `quarters`' own worst case (`levelDefaults.test.ts`'s cadence-reachability
+ * property) is the largest unit in its pool repeated for a whole bar — used
+ * to include an `8` (a half note), so a 4/4 bar's worst case was as few as
+ * two notes. Level 2 (`levelDefaults.ts`, roadmap 5.53) is the only row that
+ * uses this style, and needed its cadence reachable at `maxLeap: 7` (down
+ * from 10) without narrowing its range — dropping the `8` raises the worst
+ * case to four quarter-note-or-shorter notes, which the row's own range
+ * clears with room to spare (`4 × 7 = 28`, range width `19`). It also nudges
+ * the style itself closer to its own name — a "quarters" bar that could
+ * silently draw two half notes was always a slight mismatch with `whole-half`
+ * (level 1) one level below it.
  */
 type Pool = readonly number[]
 const RHYTHM_POOLS: Readonly<Record<RhythmStyle, Pool>> = {
   'whole-half': [16, 3, 12, 2, 8, 4, 4, 2, 1, 1],
-  quarters: [4, 6, 8, 2, 2, 2, 1, 1],
+  quarters: [4, 6, 2, 2, 1, 1],
   eighths: [2, 6, 4, 3, 1, 2],
   dotted: [6, 4, 3, 3, 4, 2, 2, 2, 1, 1],
   syncopated: [3, 4, 1, 3, 2, 3, 4, 1],
