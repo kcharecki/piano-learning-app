@@ -135,6 +135,24 @@ label:has(> input[type="checkbox"], > input[type="radio"]) {
   cursor: pointer;
 }
 
+/* ---------- Disclosure summary ----------
+   `--control-h` sizes every button/input on the primitive rules above, but
+   `<summary>` was never one of the selectors it landed on — measured
+   (2026-08 UI audit MAJOR) at 21-24px under touch emulation on 7 of 10
+   screens ("Show keys" 83x21, "Practice setup" 696x24, "Customize exercise"
+   696x40 — none clear the 44px minimum, rule 9). Fixed once, here, rather
+   than per screen: any `<details><summary>…` in the app gets it for free.
+   `display: flex` (native `<summary>` is `display: list-item`) is what lets
+   `align-items: center` actually center multi-line/wrapped summary content
+   vertically once the box grows past its text's own height — a block/
+   list-item summary would just top-align inside the taller box instead. */
+summary {
+  display: flex;
+  align-items: center;
+  min-height: var(--control-h);
+  cursor: pointer;
+}
+
 /* ---------- Text-ish inputs ---------- */
 input[type="text"], input[type="search"], input[type="number"],
 input[type="url"], input[type="email"], textarea, select {
@@ -287,6 +305,17 @@ select {
    via clipping, no per-segment outer border. */
 .seg-control {
   display: inline-flex;
+  /* `inline-flex` alone still stretches to the FULL width of a column-flex
+     parent (`.page`, base.css, `align-items: stretch` by default) — an
+     `inline-*` display only controls how the box lays out its OWN children,
+     it says nothing about how a flex/grid CONTAINER sizes it as an item.
+     Measured (2026-08 UI audit MAJOR): Metronome's Accents group rendered
+     720px wide for 150px of actual segments, a 570px empty bordered tail —
+     same bug on Theory's tabs, Settings' Theme picker, Rhythm's mode picker.
+     `align-self: start` opts this one item out of stretch so it hugs its
+     content in a flex column, matching how it already behaved as a grid/flex
+     item elsewhere (Today, Practice) where the parent never stretched it. */
+  align-self: start;
   border: var(--border-w) solid var(--border-2);
   border-radius: var(--radius-1);
   overflow: hidden;

@@ -11,6 +11,14 @@
    docs/ui-overhaul-brief.md) — this is the closest owned stylesheet, since
    the popover's main job is hosting exactly the Bluetooth control below. */
 .input-status { position: relative; }
+/* Kept above the light-dismiss scrim below (2026-08 UI audit BLOCKER) so the
+   chip stays clickable — toggling the popover closed — even while it covers
+   the rest of the viewport. Neither `.app-topbar` nor `.topbar-actions` is a
+   positioned ancestor above 1024px (only the <=1024px drawer breakpoint sets
+   that, responsive.css), so a plain z-index comparison at the root stacking
+   context is what decides this, not DOM nesting — the scrim would otherwise
+   paint over a perfectly ordinary static `<button>`. */
+.input-status-chip { position: relative; z-index: var(--z-dialog); }
 
 /* `.card` (primitives.css) already supplies background/radius/padding; this
    only adds what a FLOATING panel needs beyond a static in-flow card:
@@ -30,8 +38,43 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+  /* Own no pointer events except on the real controls inside it (below) —
+     the BLOCKER fix. `.card`'s background is opaque, so before this rule the
+     whole floating rectangle (padding, the `flex` gaps between its children)
+     absorbed every click, including ones that landed on it only because it
+     happened to be floating over unrelated page content. `pointer-events` is
+     inherited, so this cascades to every descendant that doesn't opt back in. */
+  pointer-events: none;
 }
 .input-status-popover p { margin: 0; }
+/* The opt-in: any real control anywhere inside the popover, regardless of
+   nesting depth (MidiDeviceStatus renders its own wrapper divs). Everything
+   else — text, padding, the gaps `display: flex` leaves between children —
+   stays pass-through, so a click that lands there now reaches the
+   `.input-status-scrim` layer beneath the popover and closes it, instead of
+   being swallowed by the popover's own opaque surface. */
+.input-status-popover button,
+.input-status-popover a,
+.input-status-popover input,
+.input-status-popover select {
+  pointer-events: auto;
+}
+
+/* Full-viewport light-dismiss layer (2026-08 UI audit BLOCKER), mounted only
+   while the popover is open (InputCapabilityBanner.tsx) — same tier as
+   `.reference-panel-scrim` / `.nav-scrim`'s own role, but transparent: this
+   one is never meant to be seen, only to make "click anywhere the popover
+   isn't actually holding a control" reliably close it. Below the popover's
+   own z-dialog tier and below the chip (`.input-status-chip` above), both of
+   which must stay on top of it. Dismiss only — see the onPointerDown handler
+   for why this doesn't try to pass the click through to whatever page
+   content it's covering. */
+.input-status-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  background: transparent;
+}
 
 .input-status-mic-hint {
   font-size: var(--text-sm);

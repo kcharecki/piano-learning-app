@@ -79,6 +79,25 @@ describe('MidiDeviceStatus', () => {
     )
   })
 
+  // UI audit finding: `createWebMidi` used to surface the browser's own
+  // exception text here (e.g. "MIDI access request failed: Permission to
+  // use Web MIDI API was not granted."). It now returns learner copy for
+  // that case — this component just has to keep passing it through as-is.
+  it('surfaces the learner-safe permission-refused copy exactly as given, never a raw browser exception', () => {
+    const { container } = render(
+      <MidiDeviceStatus
+        connected={false}
+        devices={[]}
+        selectedDeviceId={null}
+        connectionError="This browser blocked MIDI access. Allow it in the browser's site settings, then reload the page."
+      />,
+    )
+    expect(usbStatus(container)).toHaveTextContent(
+      "This browser blocked MIDI access. Allow it in the browser's site settings, then reload the page.",
+    )
+    expect(usbStatus(container)).not.toHaveTextContent(/permission to use web midi api was not granted/i)
+  })
+
   // Roadmap UI-04b: the shell's input-status popover already says "this
   // browser can't connect a MIDI keyboard" once, in its own words, before
   // rendering this component for the Bluetooth control underneath — this

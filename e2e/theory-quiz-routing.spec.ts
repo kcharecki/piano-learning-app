@@ -113,7 +113,13 @@ test('opening "The C Major Triad" lesson\'s quiz opens the build-chord theory dr
   // The real path a learner takes: Lessons, not the "Today" plan or the
   // Theory screen's own picker.
   await nav(page, 'Lessons').click()
-  await expect(page.getByRole('heading', { name: 'Lessons', level: 2 })).toBeVisible()
+  // Roadmap UI-20: every redesigned screen owns exactly one <h1>, in its
+  // .page-header — so the screen title moved from h2 to h1, and the selected
+  // lesson's own title from h3 to h2. The level is still asserted rather than
+  // dropped: heading RANK is the document outline a screen-reader user
+  // navigates by, and "there is some element with this text" would not catch a
+  // screen that lost its heading structure entirely.
+  await expect(page.getByRole('heading', { name: 'Lessons', level: 1 })).toBeVisible()
 
   await page
     .getByRole('group', { name: 'Level' })
@@ -122,7 +128,7 @@ test('opening "The C Major Triad" lesson\'s quiz opens the build-chord theory dr
   await page.getByTestId(`lessons-track-${lesson.track}`).click()
 
   await page.getByRole('button', { name: lesson.title, exact: true }).click()
-  await expect(page.getByRole('heading', { name: lesson.title, level: 3 })).toBeVisible()
+  await expect(page.getByRole('heading', { name: lesson.title, level: 2 })).toBeVisible()
 
   // Read the exercise's own "Open" control off the screen — the exercise
   // title comes from the content module, not restated by hand here.

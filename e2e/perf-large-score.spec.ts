@@ -124,6 +124,7 @@ test('a 102-measure, 1603-note score plays without blowing the frame budget, and
     .getByRole('navigation', { name: /main/i })
     .getByRole('button', { name: 'Progress', exact: true })
     .click()
+  await page.getByText('Adjust level…').click()
   await page.getByTestId('dashboard-level-select-theory').selectOption('4')
   await expect(page.getByTestId('dashboard-level-theory')).toContainText('level 4')
 

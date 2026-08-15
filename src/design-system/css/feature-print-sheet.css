@@ -103,6 +103,20 @@
   body :not(:has(.practice-sheet)):not(.practice-sheet):not(.practice-sheet *) {
     display: none !important;
   }
+  /* `.practice-sheet-panel` (the `<section>` this sheet lives in) is an
+     ancestor of `.practice-sheet`, so the `:has()` rule above keeps it on the
+     tree instead of collapsing it. On screen it also carries the `.card`
+     primitive (background, radius, shadow, `--space-5` padding on every
+     side) for the redesigned dashboard grid — print that padding/shadow on
+     top of `.practice-sheet`'s own paper margin and the sheet overflows onto
+     a second page. Neutralise the card here, print-only; the screen look is
+     untouched. */
+  .practice-sheet-panel {
+    background: none;
+    box-shadow: none;
+    padding: 0;
+    border-radius: 0;
+  }
   .practice-sheet {
     margin: 0;
     border: 0;

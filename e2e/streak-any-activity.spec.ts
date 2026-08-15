@@ -128,7 +128,7 @@ test('a day containing only an ear-training session extends the streak; a day wi
   await nav(page, 'Progress').click()
 
   const currentStreak = page.getByTestId('dashboard-streak-current')
-  await expect(currentStreak).toHaveText('2 day(s)')
+  await expect(currentStreak).toHaveText('2 days')
 
   const stored = await readPracticeEntries(page)
   expect(stored).toHaveLength(2)
@@ -141,7 +141,7 @@ test('a day containing only an ear-training session extends the streak; a day wi
   await setPracticeEntries(page, [entries[1]!])
   await page.reload()
   await nav(page, 'Progress').click()
-  await expect(currentStreak).toHaveText('1 day(s)')
+  await expect(currentStreak).toHaveText('1 day')
 
   expect(errors).toEqual([])
 })

@@ -312,4 +312,96 @@ describe('RepertoireScreen', () => {
 
     expect(screen.getByText('No catalogue pieces below level 1 yet.')).toBeInTheDocument()
   })
+
+  // ---------------------------------------------------------------------
+  // Roadmap UI-18 (2026-08-12 UI audit): "the worst screen in the app" —
+  // catalogue rows concatenated title + attribution + level with no
+  // separators, the two library sections had no visual distinction, and there
+  // was no search or level grouping. The tests below are the new acceptance
+  // criteria this redesign adds; every test above this comment still covers
+  // the pre-existing wiring (add/status/notes/due/provenance/filter), now
+  // driven against the redesigned markup.
+  // ---------------------------------------------------------------------
+
+  it('keeps a catalogue row\'s title, composer and level as separate DOM elements, not one concatenated text node (acceptance criterion 1)', () => {
+    renderScreen()
+    const catalogueRegion = screen.getByRole('region', { name: 'Graded library' })
+    const firstEntry = GRADED_PIECES[0]
+    if (firstEntry === undefined) throw new Error('expected a seeded catalogue entry')
+    const row = within(catalogueRegion).getByText(firstEntry.title).closest('li')
+    if (row === null) throw new Error('expected the catalogue row to render as a list item')
+
+    const titleEl = within(row as HTMLElement).getByText(firstEntry.title)
+    const composerEl = within(row as HTMLElement).getByText(firstEntry.composer)
+    const levelEl = within(row as HTMLElement).getByText(`Level ${firstEntry.level}`)
+
+    // Three distinct DOM nodes, not one merged string that CSS alone splits
+    // apart visually.
+    expect(titleEl).not.toBe(composerEl)
+    expect(composerEl).not.toBe(levelEl)
+    expect(titleEl.textContent).toBe(firstEntry.title)
+    expect(composerEl.textContent).toBe(firstEntry.composer)
+    expect(titleEl.textContent).not.toContain(firstEntry.composer)
+    expect(composerEl.textContent).not.toContain(firstEntry.title)
+  })
+
+  it('groups the catalogue by level, with a header per level read from the curriculum\'s own labels (acceptance criterion 3)', () => {
+    renderScreen()
+    const catalogueRegion = screen.getByRole('region', { name: 'Graded library' })
+
+    expect(within(catalogueRegion).getByText(/^Level 1 —/)).toBeInTheDocument()
+    expect(within(catalogueRegion).getByText(/^Level 5 —/)).toBeInTheDocument()
+  })
+
+  it('searching the Library narrows the catalogue to matching pieces live (acceptance criterion 3)', async () => {
+    renderScreen()
+    const user = userEvent.setup()
+    const catalogueRegion = screen.getByRole('region', { name: 'Graded library' })
+
+    await user.type(screen.getByLabelText('Search'), 'twinkle')
+
+    const rows = within(catalogueRegion)
+      .getAllByRole('listitem')
+      .filter((li) => !li.classList.contains('repertoire-level-header'))
+    expect(rows).toHaveLength(1)
+    expect(within(catalogueRegion).getByText('Twinkle, Twinkle, Little Star')).toBeInTheDocument()
+  })
+
+  it('an unmatched search shows an honest empty state naming the query', async () => {
+    renderScreen()
+    const user = userEvent.setup()
+
+    await user.type(screen.getByLabelText('Search'), 'not-a-real-piece-xyz')
+
+    expect(screen.getByText('No pieces match "not-a-real-piece-xyz".')).toBeInTheDocument()
+  })
+
+  it('the My pieces and Review due empty states each teach the next action (rule 6)', () => {
+    renderScreen()
+    const screenRegion = screen.getByRole('region', { name: 'Repertoire' })
+    expect(
+      within(screenRegion).getByText(/No pieces in your library yet — add the score you have loaded above\./),
+    ).toBeInTheDocument()
+
+    const dueRegion = screen.getByRole('region', { name: 'Review due' })
+    expect(within(dueRegion).getByText('Nothing due for review.')).toBeInTheDocument()
+    expect(within(dueRegion).getByText(/maintained/i)).toBeInTheDocument()
+  })
+
+  it('shows a review-due badge on the My pieces row for an overdue maintained piece, and not for a recently-practised one', () => {
+    useRepertoireStore.setState({
+      pieces: [maintainedPiece('overdue', 'Overdue Piece', 30), maintainedPiece('recent', 'Recent Piece', 3)],
+    })
+    renderScreen()
+    const library = screen.getByRole('list', { name: 'Repertoire pieces' })
+
+    const overdueRow = within(library).getByText('Overdue Piece').closest('li')
+    const recentRow = within(library).getByText('Recent Piece').closest('li')
+    if (overdueRow === null || recentRow === null) {
+      throw new Error('expected both piece rows to render as list items')
+    }
+
+    expect(within(overdueRow as HTMLElement).getByText('Review due')).toBeInTheDocument()
+    expect(within(recentRow as HTMLElement).queryByText('Review due')).not.toBeInTheDocument()
+  })
 })

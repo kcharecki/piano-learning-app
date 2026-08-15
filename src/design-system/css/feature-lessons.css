@@ -1,3 +1,227 @@
-/* Feature stub for the Lessons screen — empty on purpose, filled by that screen's
-   own later UI-overhaul task. Registered in styles.css now (roadmap UI-02) so
-   no parallel screen task has to touch the aggregator. */
+/* Feature stylesheet — Lessons. Redesign UI-20 (2026-08-12 UI audit,
+   docs/ui-audit/lessons--desktop--dark.png): master-detail — a persistent
+   left column (`.lessons-list-pane`: level `.seg-control` + track chips +
+   the lesson list) and a right column (`.lessons-body-pane`: the selected
+   lesson's title, duration, prose, diagrams and exercises on a `.card`) that
+   never scrolls out from under the reader when a different row is picked.
+   `.page`/`.page--wide`/`.page-header` (base.css), `.card`/`.card--sunken`/
+   `.seg-control`/`.badge`/`.list`/`.btn-primary`/`.btn-ghost` (primitives.css)
+   supply the surfaces; this file is the layout glue and the two custom
+   pieces primitives.css has no shape for: the highlighted list row (mirrors
+   `.app-nav`'s own rail treatment — feature-nav-groups.css — but scoped to
+   this screen's own class, never that file, which is out of this task's
+   boundary) and the track filter chips. */
+
+/* ---------- Layout: two columns >=1024px, one pane at a time below it ----------
+   `~20rem` per the brief; `minmax(0, 1fr)` on the body column so a long
+   lesson title or a wide diagram cannot force the grid wider than `.page`. */
+.lessons-layout {
+  display: grid;
+  grid-template-columns: 20rem minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-5);
+}
+
+/* The actual fix for the defect this task closes: a long lesson (prose +
+   diagrams + exercises) can scroll well past one screen, and before this the
+   catalogue lived ABOVE it in normal flow, so scrolling to read a lesson
+   scrolled the list away with it. `position: sticky` plus its own scroll
+   region keeps the catalogue reachable — pick a different lesson without
+   scrolling back up first — while the body scrolls under it independently.
+   `--topbar-h` falls back to 56px the same way base.css's own topbar
+   compensation does (that token is only ever SET inside its <=1024px media
+   query), so this sticks just below the topbar at every width above it. */
+.lessons-list-pane {
+  position: sticky;
+  top: calc(var(--topbar-h, 56px) + var(--space-4));
+  max-height: calc(100vh - var(--topbar-h, 56px) - var(--space-6));
+  overflow-y: auto;
+}
+
+.lessons-back { display: none; }
+
+@media (max-width: 1024px) {
+  .lessons-layout {
+    grid-template-columns: 1fr;
+  }
+  /* Exactly one pane visible at a time, switched by `LessonsScreen`'s
+     `mobileView` state (a data attribute on the page root, not a class per
+     pane — keeps the toggle to one DOM write). `.lessons-body-pane` is only
+     ever mounted once a lesson is selected, so its own default (hidden)
+     matters only while `data-mobile-view="list"`. */
+  [data-mobile-view="list"] .lessons-body-pane { display: none; }
+  [data-mobile-view="body"] .lessons-list-pane { display: none; }
+
+  .lessons-back {
+    display: inline-flex;
+    margin-bottom: var(--space-3);
+  }
+  /* Points left: the only chevron this icon set has is `chevron-right`
+     (see docs/ui-overhaul-brief.md's icon list) — flipping it is the
+     established trick rather than inventing a new glyph for one control. */
+  .lessons-back svg { transform: scaleX(-1); }
+}
+
+/* ---------- List pane ---------- */
+.lessons-filters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.lessons-level-control {
+  align-self: flex-start;
+}
+
+/* Track chips: a caller-owned "plain button group" per primitives.css's own
+   `.seg-control` doc comment — these are NOT a `.seg-control` (that's the
+   level picker above), just badge-shaped toggle buttons in a wrapping row,
+   since a track filter can legitimately wrap at narrow widths where a
+   segmented control's clipped single row would not. */
+.lessons-track-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.lessons-track-chips > button {
+  min-height: var(--control-h);
+  padding: 0 var(--space-3);
+  border: var(--border-w) solid var(--border-2);
+  border-radius: var(--radius-round);
+  background: var(--bg-1);
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+.lessons-track-chips > button svg { width: 1em; height: 1em; }
+.lessons-track-chips > button.selected,
+.lessons-track-chips > button[aria-pressed="true"] {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: var(--weight-semibold);
+}
+
+.lessons-list {
+  max-height: none;
+}
+.lessons-list > li { padding: 0; border-bottom: 0; }
+.lessons-list > li + li { margin-top: var(--space-1); }
+
+/* One row = one lesson. The WHOLE row is the click target, `aria-label`
+   names the destination (see `LessonsScreen.tsx`), so extra visible content
+   — the track badge, the minutes — never leaks into its accessible name. */
+.lessons-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  min-height: var(--touch-min);
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-1);
+  background: transparent;
+  text-align: left;
+  font: inherit;
+}
+.lessons-row:hover { background: var(--bg-2); }
+.lessons-row-title {
+  color: var(--text-1);
+  font-weight: var(--weight-medium);
+}
+.lessons-row-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-2);
+  font-size: var(--text-xs);
+}
+.lessons-row-track {
+  padding: 0 var(--space-1);
+  font-size: var(--text-xs);
+}
+
+/* Selected row: accent left rail + `--accent-dim` fill, the same visual
+   language as the nav rail's own active state (feature-nav-groups.css),
+   reproduced here rather than shared because that file is out of this
+   task's boundary. Rule 8: color is never the only signal — the rail is the
+   non-color cue alongside the fill. */
+.lessons-row[aria-current="true"] {
+  position: relative;
+  background: var(--accent-dim);
+}
+.lessons-row[aria-current="true"] .lessons-row-title { color: var(--text-1); }
+.lessons-row[aria-current="true"]::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  background: var(--accent);
+  border-radius: var(--radius-1) 0 0 var(--radius-1);
+}
+
+/* ---------- Body pane ---------- */
+.lessons-body-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.lessons-body-card h2 { margin: 0; }
+.lessons-body-duration {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+}
+
+.lessons-open-demo { align-self: flex-start; }
+.lessons-demo-note {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+}
+
+/* ---------- Exercise item cards ----------
+   Same pattern Today's plan cards use (feature-today.css's `.session-plan-item`):
+   icon + title + duration badge + a trailing `chevron-right` this screen adds
+   on top of that pattern, since every exercise here (unlike a warm-up
+   checklist item) always opens somewhere. `.card--sunken` rather than
+   `.card` deliberately — these sit INSIDE `.lessons-body-card`, itself a
+   `.card`; nesting the elevated surface inside itself would read as flat
+   (same background, redundant shadow), so the sunken surface is what
+   actually contrasts against its parent. */
+.lessons-exercises {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.lessons-exercises > li { padding: 0; border-bottom: 0; min-height: 0; }
+.lessons-exercise-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: var(--touch-min);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.lessons-exercise-item:hover { background: var(--bg-2); }
+.lessons-exercise-item > svg:first-child { flex: none; color: var(--text-2); }
+.lessons-exercise-item > svg:last-child { flex: none; color: var(--text-3); }
+.lessons-exercise-title {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-1);
+  font-weight: var(--weight-medium);
+}
+.lessons-exercise-duration { flex: none; }
+
+.lessons-next-footer {
+  align-self: stretch;
+  justify-content: center;
+  margin-top: var(--space-2);
+}

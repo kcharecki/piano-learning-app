@@ -42,6 +42,7 @@ test('the roman-numeral analysis of the bundled sample is shown under the score,
   // Now raise the level the way a real learner would — the dashboard's
   // manual override (roadmap 4.3), not a store poke from the test.
   await nav(page, 'Progress').click()
+  await page.getByText('Adjust level…').click()
   await page
     .getByTestId('dashboard-level-select-theory')
     .selectOption('4')
@@ -78,6 +79,7 @@ test('the roman numeral for a measure is drawn under THAT measure of the engravi
 
   // Same route a learner takes: the dashboard's own level override.
   await nav(page, 'Progress').click()
+  await page.getByText('Adjust level…').click()
   await page.getByTestId('dashboard-level-select-theory').selectOption('4')
   await nav(page, 'Practice').click()
 

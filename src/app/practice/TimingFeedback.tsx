@@ -15,6 +15,7 @@
  * dash for Accuracy until at least one note has been judged.
  */
 import type { MatchSummary } from '@core/practice/matcher.ts'
+import { midiToName } from '@core/theory/pitch.ts'
 import { useEffect, useRef, useState } from 'react'
 import type { Judgement } from './useNoteFeedback.ts'
 
@@ -31,7 +32,7 @@ const COUNT_STATS: ReadonlyArray<{
   { testId: 'feedback-correct', label: 'Correct', pick: (s) => s.correct },
   { testId: 'feedback-wrong-pitch', label: 'Wrong', pick: (s) => s.wrongPitch },
   { testId: 'feedback-missed', label: 'Missed', pick: (s) => s.missed },
-  { testId: 'feedback-extra', label: 'Extra', pick: (s) => s.extra },
+  { testId: 'feedback-extra', label: 'Extra notes', pick: (s) => s.extra },
 ]
 
 /** `+120 ms` / `-45 ms`, always signed, rounded for display only — never in the data. */
@@ -42,7 +43,7 @@ function formatSignedMs(deviationMs: number): string {
 }
 
 function describeJudgement(judgement: Judgement): string {
-  const pitchLabel = judgement.correct ? '' : ` (wrong pitch, played ${judgement.midi})`
+  const pitchLabel = judgement.correct ? '' : ` (wrong pitch, played ${midiToName(judgement.midi)})`
   if (judgement.timing === 'on-time') return `on time${pitchLabel}`
   return `${judgement.timing} (${formatSignedMs(judgement.deviationMs)})${pitchLabel}`
 }

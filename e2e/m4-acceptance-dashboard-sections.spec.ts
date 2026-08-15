@@ -353,10 +353,8 @@ test('REQ-2.2/REQ-3.10.2: the exit-criteria list and the Advance control are dri
   await expect(criterionStatus).toHaveText('Not met')
   // Nothing read yet, so the accuracy half of the check is at 0.
   await expect(criterion).toContainText('(0%)')
-  await expect(advance).toBeDisabled()
-  await expect(page.getByTestId('dashboard-advance-disabled-reason-sight-reading')).toHaveText(
-    'Not every exit criterion is met yet.',
-  )
+  await expect(advance).toHaveCount(0)
+  await expect(page.getByTestId('dashboard-advance-disabled-reason-sight-reading')).toHaveCount(0)
   await expect(page.getByTestId('dashboard-level-sight-reading')).toContainText('level 1')
 
   // Supply the evidence — three real-shaped sight-reading reads at 92% — and

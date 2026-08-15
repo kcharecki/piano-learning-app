@@ -191,7 +191,7 @@ test('the populated dashboard shows a non-zero streak, weekly minutes and sight-
   await expect(streakEl).toHaveText(/^[1-9]\d* day/, { timeout: 10_000 })
   // The synthetic entries span exactly today + yesterday, so the streak is
   // exactly 2 regardless of what the real cycle above additionally wrote.
-  await expect(streakEl).toHaveText('2 day(s)')
+  await expect(streakEl).toHaveText('2 days')
 
   // The weekly minutes: same positive-regex hydration wait, then cross-check
   // against the real total in IndexedDB (now dominated by the 20 synthetic
@@ -242,6 +242,7 @@ test('a manual level override moves the track and survives a reload (roadmap 4.3
   await nav(page, 'Progress').click()
   await expect(page.getByRole('heading', { name: 'Progress', exact: true })).toBeVisible()
 
+  await page.getByText('Adjust level…').click()
   const playingSelect = page.getByTestId('dashboard-level-select-playing')
   await playingSelect.selectOption('4')
   await expect(page.getByTestId('dashboard-level-playing')).toContainText('level 4')

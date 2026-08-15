@@ -1,3 +1,193 @@
-/* Feature stub for the Repertoire screen — empty on purpose, filled by that screen's
-   own later UI-overhaul task. Registered in styles.css now (roadmap UI-02) so
-   no parallel screen task has to touch the aggregator. */
+/* ============================================================
+   Repertoire screen (roadmap UI-18, 2026-08-12 UI audit).
+
+   The audit's finding: every catalogue row concatenated title +
+   attribution + level with no separators — "Au Clair de la
+   LuneTraditional (French folk melody, 18th c., composer
+   unknown)Level 1" — because three sibling inline `<span>`s had
+   no layout rule forcing them apart. This file is that layout
+   rule: title and composer stack onto their own lines
+   (`.repertoire-catalogue-info`), the level badge and Add button
+   sit in fixed-width trailing columns (`flex: 0 0 <width>`) so
+   every row's Add button lines up under the last regardless of
+   how long the title/composer text runs, and a level group
+   header (`.repertoire-level-header`) breaks the flat 40-item
+   list into graded sections.
+   ============================================================ */
+
+/* ---------- Add-loaded-score bar ---------- */
+.repertoire-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+}
+.repertoire-add-hint {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  flex-basis: 100%;
+}
+
+/* ---------- My pieces ---------- */
+.repertoire-my-pieces > h2 { margin-bottom: var(--space-3); }
+
+.repertoire-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.repertoire-piece {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4) 0;
+  border-bottom: var(--border-w) solid var(--border-1);
+}
+.repertoire-list > .repertoire-piece:last-child { border-bottom: 0; padding-bottom: 0; }
+.repertoire-list > .repertoire-piece:first-child { padding-top: 0; }
+
+.repertoire-piece-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.repertoire-piece-title {
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  color: var(--text-1);
+  margin-right: var(--space-1);
+}
+/* The review-due badge (REQ-3.8.4) — --warn, not the .badge.is-warn feedback
+   token, deliberately: this is a scheduling status, not a practice-grading
+   feedback state, so it borrows the same border/background pairing
+   `.input-capability-banner` (domain.css) already established for --warn
+   rather than the fb-late-keyed feedback badge variant. */
+.repertoire-piece-due-badge {
+  color: var(--warn);
+  border-color: var(--warn);
+  background: var(--fb-late-dim);
+}
+.repertoire-piece-practice {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+.repertoire-piece-controls { align-items: flex-end; }
+.repertoire-piece-notes { flex: 1 1 16rem; min-width: 12rem; }
+.repertoire-piece-notes textarea { min-height: var(--control-h); resize: vertical; }
+
+/* ---------- Review due (nested inside My pieces) ---------- */
+.repertoire-due {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: var(--border-w) solid var(--border-1);
+}
+.repertoire-due > h3 { margin-bottom: var(--space-2); }
+.repertoire-due-hint {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+.repertoire-due-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.repertoire-due-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-1);
+  color: var(--warn);
+  background: var(--fb-late-dim);
+  font-size: var(--text-sm);
+}
+.repertoire-due-item svg { flex-shrink: 0; }
+
+/* ---------- Library: filter row ---------- */
+.repertoire-catalogue-filters {
+  align-items: center;
+  justify-content: space-between;
+}
+.repertoire-catalogue-search-field input[type="search"] { min-width: 14rem; }
+
+/* ---------- Library: level-grouped catalogue ---------- */
+.repertoire-catalogue-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.repertoire-level-header {
+  margin-top: var(--space-5);
+  padding-bottom: var(--space-2);
+  border-bottom: var(--border-w) solid var(--border-1);
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+}
+.repertoire-catalogue-list > .repertoire-level-header:first-child { margin-top: var(--space-3); }
+
+.repertoire-catalogue-piece {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--control-h);
+  padding: var(--space-3) 0;
+  border-bottom: var(--border-w) solid var(--border-1);
+}
+.repertoire-catalogue-list > .repertoire-catalogue-piece:last-child { border-bottom: 0; }
+
+.repertoire-catalogue-info {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.repertoire-catalogue-title {
+  font-size: var(--text-md);
+  color: var(--text-1);
+  font-weight: var(--weight-medium);
+}
+.repertoire-catalogue-composer {
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+.repertoire-catalogue-provenance {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+}
+
+/* Fixed-width trailing columns — same width on every row regardless of the
+   sibling `.repertoire-catalogue-info`'s content, which is what makes every
+   row's Add button align in one column (acceptance criterion 2). */
+.repertoire-catalogue-level {
+  flex: 0 0 auto;
+  align-self: flex-start;
+}
+.repertoire-catalogue-action {
+  flex: 0 0 8rem;
+  display: flex;
+  justify-content: flex-end;
+}
+.repertoire-catalogue-added {
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  text-align: right;
+}
+
+@media (max-width: 640px) {
+  /* Narrow width: the fixed action column would crowd a wrapped title, so the
+     row stacks and the trailing columns return to their own line, still
+     right-aligned as a pair. */
+  .repertoire-catalogue-piece { flex-wrap: wrap; }
+  .repertoire-catalogue-action { flex-basis: 100%; }
+}

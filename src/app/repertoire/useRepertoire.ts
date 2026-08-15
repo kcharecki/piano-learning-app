@@ -52,6 +52,21 @@ export type UseRepertoireResult = {
   /** Catalogue ids already present in the learner's library. */
   readonly catalogueAddedIds: ReadonlySet<string>
   /**
+   * Roadmap UI-18: the Library's client-side search box, matched
+   * case-insensitively against a catalogue entry's title OR composer — a
+   * learner typing a composer's name is as valid a search as typing a title.
+   */
+  readonly catalogueQuery: string
+  setCatalogueQuery(query: string): void
+  /**
+   * `catalogue` narrowed by `catalogueQuery` (substring match on title or
+   * composer, case-insensitive; an empty/whitespace-only query returns the
+   * full catalogue unfiltered). This is the ONLY derived state this hook adds
+   * for the Library redesign — the "below my level" narrowing stays a plain
+   * screen-level filter over this result, same split as before.
+   */
+  readonly filteredCatalogue: readonly GradedPiece[]
+  /**
    * Adds one catalogue piece through the same `addPiece` path a manual add
    * uses. One-at-a-time by design (see the roadmap 4.9a task note): the
    * learner curates their own repertoire (REQ-3.8.x), so this never bulk-
@@ -140,6 +155,16 @@ export function useRepertoire(options: UseRepertoireOptions = {}): UseRepertoire
     return new Set(GRADED_PIECES.filter((p) => ids.has(p.id)).map((p) => p.id))
   }, [pieces])
 
+  const [catalogueQuery, setCatalogueQuery] = useState('')
+
+  const filteredCatalogue = useMemo(() => {
+    const q = catalogueQuery.trim().toLowerCase()
+    if (q === '') return GRADED_PIECES
+    return GRADED_PIECES.filter(
+      (p) => p.title.toLowerCase().includes(q) || p.composer.toLowerCase().includes(q),
+    )
+  }, [catalogueQuery])
+
   function addFromCatalogue(pieceId: string): void {
     const cataloguePiece = GRADED_PIECES.find((p) => p.id === pieceId)
     if (cataloguePiece === undefined) return
@@ -182,6 +207,9 @@ export function useRepertoire(options: UseRepertoireOptions = {}): UseRepertoire
     catalogue: GRADED_PIECES,
     playingLevel,
     catalogueAddedIds,
+    catalogueQuery,
+    setCatalogueQuery,
+    filteredCatalogue,
     addFromCatalogue,
     setStatus: setStatusInStore,
     setNotes: setNotesInStore,

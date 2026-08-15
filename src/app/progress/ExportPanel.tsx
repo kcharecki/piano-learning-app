@@ -130,7 +130,7 @@ export function ExportPanel(props: ExportPanelProps) {
   }
 
   return (
-    <div className="export-panel">
+    <div className="export-panel card">
       <h2>Export &amp; restore progress</h2>
 
       <section aria-label="Export progress" role="group">

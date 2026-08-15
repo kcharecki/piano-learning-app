@@ -5,11 +5,18 @@
 
 /* `.lesson-body .notation-frame` already gets vertical spacing from
    domain.css; this file only adds what is specific to a DIAGRAM (a short
-   reference figure, not a full playable score): a caption, and a width cap
+   reference figure, not a full playable score): a caption, a width cap
    so a one- or two-bar staff/rhythm diagram doesn't stretch to the full
-   44rem lesson-body column the way a real multi-bar demonstration should. */
+   44rem lesson-body column the way a real multi-bar demonstration should,
+   and centering (roadmap UI-20: the master-detail body reads top-down —
+   prose, then a centred figure the eye can settle on, not a figure jammed
+   against the left edge of a now-narrower column). */
 .lesson-body-diagram {
   margin: var(--space-4) 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
 }
 .lesson-body-diagram figcaption {
   margin-top: var(--space-2);
@@ -19,4 +26,30 @@
 .lesson-body-diagram-staff .notation-frame,
 .lesson-body-diagram-rhythm .notation-frame {
   max-width: 28rem;
+  /* Centering these two variants without a defined width, purely via the
+     parent's `align-items: center` (a shrink-to-fit cross size), is what
+     broke OSMD engraving here: `ScoreDiagramFigure`'s `role="img"` wrapper
+     div and this frame are both `width: auto`, so BEFORE the engraving
+     exists there is nothing for the browser to shrink-to-fit around except
+     an empty container — the whole chain collapses to padding-only width,
+     OSMD measures that at mount and permanently engraves at `width="0"`.
+     `margin-inline: auto` centers a block box from its OWN definite width
+     (computed from the parent's available space, capped by `max-width`
+     above) instead — no content involved, so it resolves before OSMD ever
+     asks. Paired with the `width: 100%` on the wrapper below, which removes
+     the same shrink-to-fit indirection one level up. Does not affect
+     `.lesson-body-diagram-keyboard`: `KeyboardDiagram` renders `width:
+     max-content` (domain.css), an explicit value `align-items: center`
+     already centers correctly without this problem. */
+  margin-inline: auto;
+}
+
+/* The `role="img"` wrapper `ScoreDiagramFigure` renders around `ExerciseScore`
+   — see the comment above. `width: 100%` gives it a definite size from its
+   own parent (the flex figure) regardless of its (pre-engraving empty)
+   content, so the `.notation-frame` inside always has real space to compute
+   its own `max-width`-capped, centered box from. */
+.lesson-body-diagram-staff [role="img"],
+.lesson-body-diagram-rhythm [role="img"] {
+  width: 100%;
 }

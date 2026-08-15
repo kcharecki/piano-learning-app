@@ -295,4 +295,48 @@ describe('useRepertoire', () => {
 
     expect(useScoreStore.getState().loaded).toBeUndefined()
   })
+
+  // ---------------------------------------------------------------------
+  // Roadmap UI-18: `catalogueQuery`/`setCatalogueQuery`/`filteredCatalogue` —
+  // the ONLY derived state this hook adds for the Library redesign's search
+  // box. Matches title OR composer, case-insensitively.
+  // ---------------------------------------------------------------------
+
+  it('filteredCatalogue is the full catalogue when the query is empty', () => {
+    const { result } = renderHook(() => useRepertoire())
+    expect(result.current.catalogueQuery).toBe('')
+    expect(result.current.filteredCatalogue).toEqual(GRADED_PIECES)
+  })
+
+  it('setCatalogueQuery narrows filteredCatalogue by a case-insensitive title match', () => {
+    const { result } = renderHook(() => useRepertoire())
+    act(() => result.current.setCatalogueQuery('TWINKLE'))
+
+    expect(result.current.filteredCatalogue.map((p) => p.id)).toEqual(['twinkle-twinkle-little-star'])
+  })
+
+  it('setCatalogueQuery also matches on composer, not just title', () => {
+    const { result } = renderHook(() => useRepertoire())
+    const beethovenPiece = GRADED_PIECES.find((p) => p.composer.includes('Beethoven'))
+    if (beethovenPiece === undefined) throw new Error('expected a seeded Beethoven piece')
+
+    act(() => result.current.setCatalogueQuery('beethoven'))
+
+    expect(result.current.filteredCatalogue.map((p) => p.id)).toContain(beethovenPiece.id)
+    expect(result.current.filteredCatalogue.every((p) => p.composer.toLowerCase().includes('beethoven'))).toBe(true)
+  })
+
+  it('a query matching nothing returns an empty filteredCatalogue, not the full list', () => {
+    const { result } = renderHook(() => useRepertoire())
+    act(() => result.current.setCatalogueQuery('not-a-real-piece-xyz'))
+
+    expect(result.current.filteredCatalogue).toEqual([])
+  })
+
+  it('a whitespace-only query behaves like an empty one', () => {
+    const { result } = renderHook(() => useRepertoire())
+    act(() => result.current.setCatalogueQuery('   '))
+
+    expect(result.current.filteredCatalogue).toEqual(GRADED_PIECES)
+  })
 })

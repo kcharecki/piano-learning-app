@@ -60,11 +60,12 @@ describe('DashboardScreen — empty state', () => {
     render(<DashboardScreen date={new FakeDateSource(NOW)} utcOffsetMinutes={0} />)
 
     expect(screen.getByRole('region', { name: 'Current level per track' })).toBeTruthy()
-    expect(screen.getByRole('region', { name: 'Practice streak and weekly time' })).toBeTruthy()
+    expect(screen.getByRole('region', { name: 'Streak' })).toBeTruthy()
+    expect(screen.getByRole('region', { name: 'This week' })).toBeTruthy()
     expect(screen.getByRole('region', { name: 'Sight-reading accuracy trend' })).toBeTruthy()
     expect(screen.getByRole('region', { name: 'Assessment accuracy' })).toBeTruthy()
     expect(screen.getByRole('region', { name: 'Technique tempo trends' })).toBeTruthy()
-    expect(screen.getByRole('region', { name: 'Theory retention stats' })).toBeTruthy()
+    expect(screen.getByRole('region', { name: 'Theory retention' })).toBeTruthy()
     expect(screen.getByRole('region', { name: 'Repertoire status' })).toBeTruthy()
 
     const initial = initialLevelState()
@@ -92,6 +93,12 @@ describe('DashboardScreen — empty state', () => {
     // below for the checklist/Advance-control assertions.
     expect(screen.queryByTestId('dashboard-criteria-empty-playing')).toBeNull()
     expect(screen.getByTestId('dashboard-criterion-status-playing-0').textContent).toBe('Not met')
+    // Not every criterion is met, so no Advance button renders at all (UI-19:
+    // the button renders ONLY when it would actually do something) and no
+    // explainer box either — the checklist above already says which
+    // criterion is unmet.
+    expect(screen.queryByTestId('dashboard-advance-playing')).toBeNull()
+    expect(screen.queryByTestId('dashboard-advance-disabled-reason-playing')).toBeNull()
     expect(screen.getByTestId('dashboard-weekly-empty')).toBeTruthy()
     expect(screen.getByTestId('dashboard-sightreading-empty')).toBeTruthy()
     expect(screen.getByTestId('dashboard-assessment-empty')).toBeTruthy()
@@ -99,7 +106,7 @@ describe('DashboardScreen — empty state', () => {
     expect(screen.getByTestId('dashboard-retention-empty')).toBeTruthy()
     expect(screen.getByTestId('dashboard-repertoire-empty')).toBeTruthy()
 
-    expect(screen.getByTestId('dashboard-streak-current').textContent).toBe('0 day(s)')
+    expect(screen.getByTestId('dashboard-streak-current').textContent).toBe('0 days')
     expect(screen.getByTestId('dashboard-retention-total').textContent).toBe('0')
 
     // Milestones (roadmap B.4): a fresh profile shows the honest "0 of 5"
@@ -158,8 +165,8 @@ describe('DashboardScreen — seeded data', () => {
     render(<DashboardScreen date={new FakeDateSource(NOW)} utcOffsetMinutes={0} />)
 
     // Two consecutive practiced days (today + yesterday), nothing further back.
-    expect(screen.getByTestId('dashboard-streak-current').textContent).toBe('2 day(s)')
-    expect(screen.getByTestId('dashboard-streak-longest').textContent).toBe('2 day(s)')
+    expect(screen.getByTestId('dashboard-streak-current').textContent).toBe('2 days')
+    expect(screen.getByTestId('dashboard-streak-longest').textContent).toBe('2 days')
     expect(screen.getByTestId('dashboard-weekly-minutes').textContent).toBe('45 min')
     expect(screen.getByTestId('dashboard-minutes-technique').textContent).toBe('Technique: 30 min')
     expect(screen.getByTestId('dashboard-minutes-sightreading').textContent).toBe(
@@ -361,6 +368,11 @@ describe('DashboardScreen — level per track (roadmap 2.36, REQ-2.1/REQ-2.3)', 
     const user = userEvent.setup()
     render(<DashboardScreen date={new FakeDateSource(NOW)} utcOffsetMinutes={0} />)
 
+    // The override select lives behind the "Adjust level…" disclosure now
+    // (UI-19: an escape hatch, not the primary UI) — open it before
+    // interacting with the select inside.
+    await user.click(screen.getByText('Adjust level…'))
+
     const playingSelect = screen.getByTestId('dashboard-level-select-playing') as HTMLSelectElement
     expect(screen.getByRole('combobox', { name: 'Playing level' })).toBe(playingSelect)
     expect([...playingSelect.options].map((o) => o.value)).toEqual(['1', '2', '3', '4', '5'])
@@ -401,11 +413,11 @@ describe('DashboardScreen — exit criteria checklist and Advance control (roadm
     expect(screen.getByTestId('dashboard-criterion-status-playing-0').textContent).toBe('Met')
     expect(screen.getByTestId('dashboard-criterion-status-playing-1').textContent).toBe('Not met')
 
-    const advanceButton = screen.getByTestId('dashboard-advance-playing') as HTMLButtonElement
-    expect(advanceButton.disabled).toBe(true)
-    expect(screen.getByTestId('dashboard-advance-disabled-reason-playing').textContent).toBe(
-      'Not every exit criterion is met yet.',
-    )
+    // UI-19: the Advance button renders ONLY when it is actually enabled —
+    // while a criterion is unmet, no button and no explainer box render at
+    // all; the checklist above already shows which criterion is unmet.
+    expect(screen.queryByTestId('dashboard-advance-playing')).toBeNull()
+    expect(screen.queryByTestId('dashboard-advance-disabled-reason-playing')).toBeNull()
   })
 
   it('shows a per-track honest empty state, with no Advance control, for a track whose level has no authored content', () => {
@@ -423,9 +435,12 @@ describe('DashboardScreen — exit criteria checklist and Advance control (roadm
 
     expect(screen.getByTestId('dashboard-criteria-empty-playing')).toBeTruthy()
     expect(screen.queryByTestId('dashboard-advance-playing')).toBeNull()
-    // The other tracks still get a real checklist.
+    // The other tracks still get a real checklist (whether or not any
+    // criterion happens to be met yet is a separate question from whether the
+    // curriculum covers this level at all — see the Advance-control describe
+    // block above for that).
     expect(screen.queryByTestId('dashboard-criteria-empty-theory')).toBeNull()
-    expect(screen.getByTestId('dashboard-advance-theory')).toBeTruthy()
+    expect(screen.getByTestId('dashboard-criterion-theory-0')).toBeTruthy()
   })
 
   it('disables Advance on an overridden track even when every criterion is met, and states why', () => {
@@ -452,10 +467,10 @@ describe('DashboardScreen — exit criteria checklist and Advance control (roadm
     expect(screen.getByTestId('dashboard-criterion-status-sight-reading-0').textContent).toBe(
       'Met',
     )
-    const advanceButton = screen.getByTestId(
-      'dashboard-advance-sight-reading',
-    ) as HTMLButtonElement
-    expect(advanceButton.disabled).toBe(true)
+    // UI-19: overridden means no Advance button renders at all (it would
+    // no-op), but the reason IS still shown — unlike the "criteria not met"
+    // case, nothing else on this card already says "manually placed".
+    expect(screen.queryByTestId('dashboard-advance-sight-reading')).toBeNull()
     expect(
       screen.getByTestId('dashboard-advance-disabled-reason-sight-reading').textContent,
     ).toBe('This track was placed manually and will not auto-advance.')

@@ -1,3 +1,183 @@
-/* Feature stub for the Progress screen — empty on purpose, filled by that screen's
-   own later UI-overhaul task. Registered in styles.css now (roadmap UI-02) so
-   no parallel screen task has to touch the aggregator. */
+/* Feature stylesheet — Progress dashboard (roadmap UI-19, 2026-08-12 UI audit).
+   Single-writer by construction: exactly one screen task owns this file, so a
+   round of concurrent worktrees never conflicts. Folded back into domain.css
+   by the integrator once the feature settles.
+
+   PROBLEM this replaces (docs/ui-audit/progress--desktop--dark.png): an empty
+   first column, levels rendering a big numeral plus a redundant select right
+   under it, exit criteria rendering as disabled-radio-shaped status text,
+   three grey empty boxes for the trend/assessment/tempo panels, and Export
+   stranded as a lone dark card bottom-left. This file turns the screen into a
+   real dashboard grid: a 12-column layout above 768px, stacking to one column
+   at and below it. */
+
+/* ---------- Grid scaffold ---------- */
+.dashboard-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.dashboard-row {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: var(--space-4);
+}
+.dashboard-row > * {
+  grid-column: span 12;
+  min-width: 0;
+}
+
+/* Row 1 (status) and Row 2 (advancement): three equal columns above 768px —
+   the audit's empty-first-column problem was a column that had nothing
+   routed into it, not a layout that can't hold three; every card here is
+   real content, not a spacer. */
+@media (min-width: 769px) {
+  .dashboard-row--status > *,
+  .dashboard-row--advance > * {
+    grid-column: span 4;
+  }
+  .dashboard-row--footer > * {
+    grid-column: span 6;
+  }
+}
+
+/* Row 3 (evidence): a variable number of cards (charts, retention, repertoire,
+   milestones) — auto-fit so it balances itself instead of hand-tuned spans
+   that would drift every time a card is added or removed. */
+.dashboard-row--evidence {
+  grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+}
+
+@media (max-width: 768px) {
+  .dashboard-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Card title row: every card heading pairs a decorative icon with its text —
+   `gap` here is what lets `<h2><Icon .../> Title</h2>` sit on one baseline
+   with no per-card CSS. */
+.dashboard-grid h2,
+.dashboard-grid h3 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.dashboard-grid h3 {
+  margin-top: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+}
+
+/* ---------- This week: the --text-glance number rule 6/UI-19 asks for ---------- */
+.dashboard-glance-value {
+  margin: var(--space-2) 0 var(--space-3);
+  font-size: var(--text-glance);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-1);
+}
+
+/* ---------- Levels card ---------- */
+.level-track-list {
+  margin-bottom: var(--space-3);
+}
+.level-track-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-1);
+  padding-block: var(--space-3);
+}
+.level-track-text {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  font-size: var(--text-md);
+}
+.level-track-progress-bar {
+  height: 6px;
+  border-radius: var(--radius-round);
+  background: var(--bg-3);
+  overflow: hidden;
+}
+.level-track-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: var(--radius-round);
+  transition: width var(--dur-2) var(--ease-out);
+}
+
+/* "Adjust level…" — an escape hatch, not the primary UI (UI-19): a closed-by-
+   default disclosure, the same convention `SrsSummary`/`MilestonePanel`/
+   `PracticeSheet` already use on this same screen, so the three level
+   selects never compete with the read-only rows above for attention. */
+.level-adjust > summary {
+  margin-top: var(--space-2);
+  width: fit-content;
+  list-style: none;
+}
+.level-adjust > summary::-webkit-details-marker {
+  display: none;
+}
+.level-adjust-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: var(--border-w) solid var(--border-1);
+}
+
+/* ---------- Advancement cards: checklist, never a disabled radio ---------- */
+.exit-criteria {
+  margin-bottom: var(--space-3);
+}
+.exit-criterion {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+.exit-criterion-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25em;
+  height: 1.25em;
+  flex: none;
+  margin-top: 2px;
+  color: var(--fb-correct);
+}
+/* The unmet state: a hollow ring, never a disabled radio input — same glyph
+   role, drawn with the design system's own border/radius tokens instead of a
+   form control. */
+.exit-criterion-circle {
+  display: block;
+  width: 0.85em;
+  height: 0.85em;
+  border-radius: var(--radius-round);
+  border: var(--border-w-strong) solid var(--border-2);
+}
+.exit-criterion-text {
+  font-size: var(--text-sm);
+  color: var(--text-1);
+}
+.exit-criterion[data-state='met'] .exit-criterion-text {
+  color: var(--text-2);
+}
+.exit-criterion-progress {
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.dashboard-advance-note {
+  margin-top: var(--space-2);
+}
+
+/* ---------- Row 4: Practice sheet + Export side by side (own card faces) ---------- */
+.dashboard-row--footer .practice-sheet-panel,
+.dashboard-row--footer .export-panel {
+  height: 100%;
+}

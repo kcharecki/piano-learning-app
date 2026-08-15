@@ -112,22 +112,43 @@ export function InputCapabilityBanner({
         {connected ? 'MIDI connected' : 'No MIDI — using on-screen keys'}
       </button>
       {open && (
-        <div id={POPOVER_ID} ref={popoverRef} className="card input-status-popover">
-          {!supported && (
-            <p role="status">
-              This browser can&apos;t connect a MIDI keyboard — you can still listen, read and
-              play with the on-screen keys.
-            </p>
-          )}
-          <MidiDeviceStatus
-            connected={midi.input !== undefined}
-            devices={midi.devices}
-            selectedDeviceId={midi.selectedDeviceId}
-            connectionError={midi.connectionError}
-            hideUsbStatus={!supported}
-          />
-          <p className="input-status-mic-hint">No keyboard? Try the microphone on Practice.</p>
-        </div>
+        <>
+          {/* Light-dismiss layer (2026-08 UI audit BLOCKER): the popover is a
+              floating `.card` — opaque background, padding, gaps between its
+              children — parked directly over page content on 5 of 10 screens
+              (Today's "Set up my practice" among them). Padding/gaps inside
+              the popover are NOT interactive, but the outside-click handler
+              below still treated any click landing on them as "inside" and
+              did nothing: the click neither closed the popover nor reached
+              the control it happened to be sitting over, so that control was
+              unreachable. This full-viewport layer sits BENEATH the popover
+              (z-index below it — feature-bluetooth-midi.css) and the popover
+              itself now lets pointer events pass through everywhere except
+              its real controls (same file), so a click on the popover's dead
+              space now falls through to this layer and closes it — reliably,
+              on the first click, everywhere the popover can float. Dismiss
+              only, no pass-through to whatever sat underneath: same contract
+              as the outside-click handler already had (no focus return
+              either) — a second click, now that the popover is gone, reaches
+              the control normally. */}
+          <div className="input-status-scrim" aria-hidden="true" onPointerDown={() => setOpen(false)} />
+          <div id={POPOVER_ID} ref={popoverRef} className="card input-status-popover">
+            {!supported && (
+              <p role="status">
+                This browser can&apos;t connect a MIDI keyboard — you can still listen, read and
+                play with the on-screen keys.
+              </p>
+            )}
+            <MidiDeviceStatus
+              connected={midi.input !== undefined}
+              devices={midi.devices}
+              selectedDeviceId={midi.selectedDeviceId}
+              connectionError={midi.connectionError}
+              hideUsbStatus={!supported}
+            />
+            <p className="input-status-mic-hint">No keyboard? Try the microphone on Practice.</p>
+          </div>
+        </>
       )}
     </div>
   )

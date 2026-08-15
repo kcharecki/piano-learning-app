@@ -89,13 +89,39 @@ describe('createWebMidi — availability', () => {
     if (!result.ok) expect(result.error).toMatch(/not available/i)
   })
 
-  it('returns Err, never throws, when the user rejects the permission prompt', async () => {
-    stubMidiAccess(() => Promise.reject(new Error('permission denied')))
+  it('returns Err with learner-safe copy, never the raw browser exception, when the user rejects the permission prompt', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    stubMidiAccess(() => Promise.reject(new Error('Permission to use Web MIDI API was not granted.')))
 
     const result = await createWebMidi()
 
     expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.error).toMatch(/permission denied/)
+    if (!result.ok) {
+      expect(result.error).toMatch(/blocked MIDI access/i)
+      expect(result.error).not.toMatch(/Permission to use Web MIDI API was not granted/)
+    }
+    // The raw browser exception still reaches a developer — just not the screen.
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('requestMIDIAccess failed'),
+      expect.any(Error),
+    )
+    warn.mockRestore()
+  })
+
+  it('keeps the two failure messages distinct: unsupported browser vs. refused permission', async () => {
+    vi.stubGlobal('navigator', {})
+    const unsupported = await createWebMidi()
+
+    vi.unstubAllGlobals()
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    stubMidiAccess(() => Promise.reject(new Error('denied')))
+    const refused = await createWebMidi()
+
+    expect(unsupported.ok).toBe(false)
+    expect(refused.ok).toBe(false)
+    if (!unsupported.ok && !refused.ok) {
+      expect(unsupported.error).not.toBe(refused.error)
+    }
   })
 
   it('subscribes to statechange as soon as access is granted', async () => {

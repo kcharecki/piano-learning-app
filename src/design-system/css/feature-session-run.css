@@ -7,10 +7,17 @@
    domain.css by the integrator. */
 
 /* ---------- Screen shell, shared with planning (SessionPlanScreen.tsx
-   applies `.session-plan-screen` in every state) ---------- */
-.session-plan-screen {
-  gap: var(--space-4);
-}
+   applies `.session-plan-screen` in every state) ----------
+   2026-08 UI audit MINOR: `.session-plan-screen` used to override `.page`'s
+   own `--space-5` rhythm down to `--space-4` — measured 16px vs 24px on
+   every other screen. DESIGN.md: a screen never hand-rolls its own spacing
+   between sections, and Today, the landing screen, was the one doing it.
+   Deleted outright — `.page`'s own gap (base.css) already applies once this
+   rule is gone, no replacement value needed. `.session-run-active` keeps its
+   own `--space-4` override: it is not `.page` itself, just a wrapper for the
+   in-session state INSIDE the page, and its tighter internal rhythm (current
+   item, queue) is a deliberate, different rhythm from the page's own section
+   spacing, not a copy of the same bug. */
 .session-run-active {
   gap: var(--space-4);
 }

@@ -42,7 +42,7 @@ export function MilestonePanel({ milestones, nearestCount = 3 }: MilestonePanelP
     .slice(0, nearestCount)
 
   return (
-    <section aria-label="Milestones" role="region" className="milestone-panel">
+    <section aria-label="Milestones" role="region" className="card milestone-panel">
       <details data-testid="milestone-panel-details">
         <summary>
           Milestones —{' '}

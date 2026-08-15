@@ -108,6 +108,24 @@
   .app-main { max-width: none; padding-top: var(--space-4); }
   /* transport sits below the topbar */
   .practice-controls { top: var(--topbar-h); }
+
+  /* 2026-08 UI audit MAJOR: `.page--wide`'s own max-width (`--content-max`,
+     72rem/1152px, base.css) only ever constrains it on viewports wide enough
+     to reach that cap. Below it — every tablet width, since the nav is
+     already off-canvas here and `.app-main` runs edge-to-edge — `.page--wide`
+     simply fills 100% of `.app-main`'s inner box, so its content sits flush
+     against `.app-main`'s own `--content-pad` with nothing else standing
+     between it and the window edge. Measured: `h1` at x16 on Theory/Practice,
+     while every `.page--focus` screen sits at x128 at the same 1024px width
+     — `.page--focus`'s FIXED 48rem cap leaves it narrower than the available
+     box here, so it centers with a real margin on top of `--content-pad`;
+     `.page--wide` never gets that margin because nothing narrower than the
+     available box ever bounds it at this breakpoint. Matching `.page--focus`'s
+     own cap here is the simplest way to guarantee the identical gutter (same
+     formula, same inputs) rather than approximating it with a second, harder
+     -to-justify padding value — Theory's tabs and Practice's transport both
+     already reflow to a single column well below this width. */
+  .page--wide { max-width: 48rem; }
 }
 
 @media (max-width: 640px) {

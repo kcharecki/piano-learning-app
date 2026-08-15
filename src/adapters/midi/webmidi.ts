@@ -45,8 +45,15 @@ export async function createWebMidi(opts?: { sysex?: boolean }): Promise<Result<
       ? await navigator.requestMIDIAccess({ sysex: true, software: false })
       : await navigator.requestMIDIAccess()
   } catch (cause) {
-    const message = cause instanceof Error ? cause.message : String(cause)
-    return err(`MIDI access request failed: ${message}`)
+    // The browser's own exception (e.g. "Permission to use Web MIDI API was
+    // not granted.") is a developer detail, never learner copy — log it for
+    // debugging and return the actionable, screen-safe message instead. This
+    // browser HAS Web MIDI (that was already checked above); the request
+    // itself was refused, which is the one case a learner can act on by
+    // re-granting the permission — see this function's module-level callers
+    // for the other, unsupported-browser case that must stay distinct from it.
+    console.warn('[createWebMidi] requestMIDIAccess failed:', cause)
+    return err("This browser blocked MIDI access. Allow it in the browser's site settings, then reload the page.")
   }
 
   const input = new WebMidiInputAdapter(access)

@@ -252,6 +252,12 @@ async function runDictationCase(
   await expect(
     page.getByText(new RegExp(`MIDI keyboard connected: ${FAKE_MIDI_DEVICE_NAME}`)),
   ).toBeVisible()
+  // Dismiss before touching the drill underneath: the popover is light-dismiss
+  // (a transparent scrim beneath it closes it on the first click, which is the
+  // fix for the dead region that used to swallow clicks entirely), so the
+  // scrim covers the page while it is open.
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.input-status-scrim')).toHaveCount(0)
 
   await page.getByLabel('Drill', { exact: true }).selectOption(kind)
 

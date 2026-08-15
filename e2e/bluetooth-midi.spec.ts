@@ -130,6 +130,21 @@ async function openInputChip(page: Page): Promise<void> {
   await page.getByRole('button', { name: /MIDI connected|No MIDI/ }).click()
 }
 
+/**
+ * Close it again before touching anything underneath.
+ *
+ * The popover is light-dismiss: a transparent full-viewport scrim sits beneath
+ * it so a click on the popover's own dead space falls through and closes it
+ * (the fix for the review's blocker, where that dead space swallowed clicks and
+ * left controls unreachable). The scrim therefore covers the page while the
+ * popover is open, and Playwright correctly refuses to click a control it
+ * intercepts. Escape is the documented dismissal and returns focus to the chip.
+ */
+async function closeInputChip(page: Page): Promise<void> {
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.input-status-scrim')).toHaveCount(0)
+}
+
 test('with navigator.bluetooth absent, the control states the limitation and does not crash', async ({ page }) => {
   const errors = collectErrors(page)
 
@@ -157,9 +172,12 @@ test('pairing a fake BLE MIDI device and playing a chord through it grades the n
   await expect(page.getByText(/bluetooth midi connected: e2e fake ble keyboard/i)).toBeVisible()
   await expect(page.getByRole('button', { name: /pair bluetooth midi/i })).toBeHidden()
 
-  // UI-09 (2026-08-12 UI audit): the feedback strip is absent entirely until
-  // a run has started, so Play is clicked (closing the popover, an outside
-  // click) before the "0 correct" baseline is asserted, not before it.
+  // The popover has done its job (pairing) — dismiss it before reaching the
+  // transport underneath. It is light-dismiss, not click-through: see
+  // closeInputChip. UI-09 (2026-08-12 UI audit): the feedback strip is absent
+  // entirely until a run has started, so Play is clicked before the "0
+  // correct" baseline is asserted, not before it.
+  await closeInputChip(page)
   const transport = page.getByRole('group', { name: 'Transport' })
   await transport.getByRole('button', { name: 'Play', exact: true }).click()
 

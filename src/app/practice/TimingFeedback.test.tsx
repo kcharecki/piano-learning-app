@@ -43,6 +43,16 @@ describe('TimingFeedback', () => {
     expect(screen.getByTestId('feedback-extra')).toHaveTextContent('0')
   })
 
+  // Learner-language fix: the raw stat label was "Extra" (shown as "EXTRA"
+  // via the `.stat-label` caps styling) — not a word a pianist would use for
+  // an unrequested press. "Extra notes" reads plainly at any case.
+  it('labels the extra-notes stat in plain language, not the bare internal "Extra"', () => {
+    render(<TimingFeedback summary={summary()} lastJudgement={undefined} />)
+    const stat = screen.getByTestId('feedback-extra').closest('.stat')
+    expect(stat).not.toBeNull()
+    expect(stat).toHaveTextContent('Extra notes')
+  })
+
   it('renders a placeholder and the mean deviation before any press is judged', () => {
     render(<TimingFeedback summary={summary()} lastJudgement={undefined} />)
 
@@ -72,7 +82,9 @@ describe('TimingFeedback', () => {
     expect(screen.getByTestId('timing-last')).toHaveTextContent('on time')
   })
 
-  it('marks a wrong-pitch judgement distinctly, even when its timing is on-time', () => {
+  // Learner-language fix: this used to print the raw MIDI integer
+  // ("played 61") — a pianist reads a pitch name, not a MIDI number.
+  it('marks a wrong-pitch judgement distinctly, naming the played pitch — never a raw MIDI number', () => {
     const wrongPitch: Judgement = {
       midi: midi(61),
       timing: 'on-time',
@@ -81,7 +93,10 @@ describe('TimingFeedback', () => {
     }
     render(<TimingFeedback summary={summary()} lastJudgement={wrongPitch} />)
 
-    expect(screen.getByTestId('timing-last')).toHaveTextContent(/wrong pitch/i)
+    const last = screen.getByTestId('timing-last')
+    expect(last).toHaveTextContent(/wrong pitch/i)
+    expect(last).toHaveTextContent('wrong pitch, played C#4')
+    expect(last).not.toHaveTextContent('61')
   })
 
   it('exposes the readout as an accessible, named status region whose content updates', () => {

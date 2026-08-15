@@ -187,4 +187,51 @@ describe('LessonsScreen', () => {
 
     expect(useScoreStore.getState().loaded).toBeUndefined()
   })
+
+  it('a technique exercise\'s item card forwards the exact exercise (kind \'technique\') to onOpen, so the shell routes it to Technique', async () => {
+    const user = userEvent.setup()
+    const onOpen = vi.fn<(exercise: Exercise) => void>()
+    render(<LessonsScreen onOpen={onOpen} onOpenDemo={vi.fn()} />)
+
+    const level1Lessons = lessonsForLevel(CURRICULUM, 1)
+    let target: { readonly lesson: (typeof level1Lessons)[number]; readonly exercise: Exercise } | undefined
+    for (const lesson of level1Lessons) {
+      const exercise = lesson.exercises.find((e) => e.kind === 'technique')
+      if (exercise !== undefined) {
+        target = { lesson, exercise }
+        break
+      }
+    }
+    if (target === undefined) throw new Error('expected a level-1 lesson with a technique exercise')
+
+    const list = screen.getByRole('list', { name: 'Lessons' })
+    await user.click(within(list).getByRole('button', { name: target.lesson.title }))
+    await user.click(screen.getByRole('button', { name: `Open ${target.exercise.title}` }))
+
+    expect(onOpen).toHaveBeenCalledTimes(1)
+    // Same object as the curriculum's own data, not a re-derived copy — proves
+    // the card forwards the real exercise (kind included), which is what lets
+    // the shell's router send it to the right destination.
+    expect(onOpen).toHaveBeenCalledWith(target.exercise)
+  })
+
+  it('an exercise item card is keyboard-activatable: focusing it and pressing Enter opens it, exactly like a click', async () => {
+    const user = userEvent.setup()
+    const onOpen = vi.fn<(exercise: Exercise) => void>()
+    render(<LessonsScreen onOpen={onOpen} onOpenDemo={vi.fn()} />)
+
+    const firstLesson = lessonsForLevel(CURRICULUM, 1)[0]
+    if (firstLesson === undefined) throw new Error('expected level 1 to have lessons')
+    const nonPlayExercise = firstLesson.exercises.find((e) => e.kind !== 'play' && e.kind !== 'repertoire')
+    if (nonPlayExercise === undefined) {
+      throw new Error(`expected lesson ${firstLesson.id} to have a non-play exercise`)
+    }
+
+    const card = screen.getByRole('button', { name: `Open ${nonPlayExercise.title}` })
+    card.focus()
+    await user.keyboard('{Enter}')
+
+    expect(onOpen).toHaveBeenCalledTimes(1)
+    expect(onOpen).toHaveBeenCalledWith(nonPlayExercise)
+  })
 })

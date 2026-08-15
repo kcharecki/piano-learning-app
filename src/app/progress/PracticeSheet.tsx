@@ -55,7 +55,7 @@ export function PracticeSheet(props: PracticeSheetProps) {
   const headingId = useId()
 
   return (
-    <section aria-label="Practice sheet" role="region" className="practice-sheet-panel">
+    <section aria-label="Practice sheet" role="region" className="practice-sheet-panel card">
       <h3>Practice sheet</h3>
       <p>
         A one-page summary of the last {data.totalDays} days &mdash; categories, minutes, what was
