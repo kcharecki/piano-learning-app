@@ -482,10 +482,14 @@ closed `<details>` still reports a non-zero rect, which inflated the first measu
       UI overhaul's browser passes, not caught by any spec because the e2e suite waits for the
       SVG before navigating. *Proof: a spec that routes away mid-render with a console-error
       assertion, red before and green after.*
-- [ ] UI-38 `app/practice`: `LoopRangeControl` takes no `disabled` prop, so the From/To measure
-      fields stay live with no score loaded, where the range they describe does not exist.
-      Every other transport control disables in that state. *Proof: the fields are disabled on
-      the no-score empty state, asserted in the screen's test.*
+- [-] UI-38 `app/practice`: dropped 2026-08-15 — the premise is false, verified in code and by
+      running the existing test. With no score loaded `PracticeScreen` early-returns a "Load a
+      score" paragraph (`PracticeScreen.tsx:603`) — the whole toolbar, `LoopRangeControl`
+      included, is unmounted, not live; `PracticeScreen.test.tsx` already asserts no controls
+      render in that state, and `ScoreScreen.tsx` auto-loads a sample score so the state is
+      unreachable in production anyway. The only disabled-gate any transport control uses is
+      `assessmentRunning`, which the loop fieldset already participates in. Entry appears to
+      have misread the comment at `PracticeScreen.tsx:667` (about the assessment case).
 
 ## Backlog / optional
 
