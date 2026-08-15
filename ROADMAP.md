@@ -651,6 +651,18 @@ closed `<details>` still reports a non-zero rect, which inflated the first measu
       *Proof: REQ-4.4.1 names the constraint with the measured table, and B.1/B.6 now reference it
       instead of restating it. Docs only — no code, no test, nothing deleted.*
 
+## Drums — a second instrument, planned 2026-08-15
+
+A complete drum-kit learning package (skills, reading, theory, kit practice; step 0 →
+mid-intermediate) behind a Piano/Drums instrument switcher — two apps in one shell. Its
+own roadmap, ordered and gated like this one: **[docs/drums/ROADMAP.md](docs/drums/ROADMAP.md)**
+— 28 features across 4 phases (foundation → trainers → learning system → intermediate
+package), each with a spec in `docs/drums/features/DR-xx-*.md`, research grounding in
+[docs/drums/research-2026-08-15.md](docs/drums/research-2026-08-15.md) (pedagogy verified
+against Drumeo/Rockschool/Trinity/PAS; tech against GM/e-kit behavior/MusicXML/OSMD;
+market against 13 products). Not started; pick up per that file's ordering notes (DR-01
+and DR-04 first). Drum work claims worktree branches as `task/DR-xx`.
+
 ---
 
 ## Session notes
