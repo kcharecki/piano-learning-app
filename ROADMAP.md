@@ -53,6 +53,35 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
       and — asserted, not assumed — that the unmount safety net does not reintroduce the React 18
       StrictMode near-zero-duration phantom into the repertoire store. `npm run typecheck` and
       `eslint` clean on owned files. Does not close 4.10 — that verdict needs a full M4 re-run.
+- [x] T.6 User-reported (2026-08-15): "navigating to Practice takes 2s to load" with Canon in D
+      loaded. Measured at **2667ms**, and it was not parsing — it was **four full OSMD engraves**
+      (~550ms each) where one was needed, and on a RETURN visit, zero were. Three causes, each
+      fixed and separately measured:
+      (a) `autoResize: true` makes OSMD's constructor call `handleResize`, whose last two lines are
+      an unconditional `setTimeout(renderAndScrollBack, 1)` — no resize involved, and it lands
+      inside `await osmd.load()`, so every load engraved twice. Turned off; `osmdEngraver.ts` now
+      watches the container's own WIDTH (200ms debounce) and re-engraves only when it really
+      changed, so a height-only resize is free where OSMD's version was not. → 1490ms.
+      (b) React StrictMode's double-invoked effect built a second engraver while the first's
+      `load()` was still awaiting; the orphan finished its engrave AND leaked, because `destroy()`
+      ran before `osmd` was assigned so its `osmd?.clear()` hit nothing. A `destroyed` flag now
+      aborts the load at the `await` boundary and clears the instance the aborted load made.
+      → 933ms.
+      (c) The remaining 933ms was re-doing work whose result was still correct. OSMD now draws into
+      a host `<div>` this app owns, so `destroy()` DETACHES a finished engraving into a 2-entry LRU
+      (`engravingCache.ts`) instead of discarding it, and the next mount re-attaches it: no parse,
+      no layout, no cursor walk. Only scores of ≥200 notes are cached, so drills and lesson
+      diagrams can never evict the piece being practised. → **107ms**.
+      Also removed a wasted `analyseScore` run: `ScoreScreen` passed the score to `useMeasureLabels`
+      unconditionally and threw the result away below theory level 4 (~6% of a visit).
+      Proof: new `e2e/perf-practice-nav.spec.ts` budgets the return visit at <800ms and asserts the
+      re-shown score has the same SVG group count and still plays (returnMs 101). Full e2e 150/150.
+      `npm run verify` green (196 files / 4141 tests, +11 in `osmdEngraverLifecycle.test.ts`).
+      Driven in the running app on the real 563KB `.mxl`: return visits 81/96/90ms, one `<svg>` and
+      one host child (no leak), console clean, re-importing a different piece and then Canon again
+      both engrave fresh (764ms) rather than reusing a wrong engraving. Screenshots at 1280 and 768
+      in both themes: identical engraving, tablet correctly re-laid-out to 2 measures per system,
+      no horizontal scroll.
 
 ## Phases 0-2 — Foundation, M1 playable core, M2 feedback & reading — all done
 

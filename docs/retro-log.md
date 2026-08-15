@@ -16,6 +16,48 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
+## 2026-08-15 — the 2s Practice navigation: a profiler round, T.6 closed
+
+- user-reported defects since last session: **1** — "Navigating to Practice takes 2s to load.
+  I'm using Canon in D file." Reproduced at 2667ms, fixed to 107ms, closed as T.6.
+- slices proven / started: 1/1 (T.6). Single-threaded; no agents. The work was one file's
+  lifecycle and needed the whole picture in one head.
+- gate catches before commit: **three.** (1) `e2e/read-ahead.spec.ts` scrapes
+  `HIDDEN_NOTE_COLOR` out of `osmdEngraver.ts` as TEXT, so splitting that file into
+  `osmdSvg.ts` broke it — invisible to typecheck, lint and the unit suite, caught only by
+  the full Playwright run. (2) eslint `max-lines` twice: the engraver hit 560/500 and its
+  test file 1402/1400, which is what forced the `engravingCache.ts` / `osmdSvg.ts` /
+  `osmdEngraverFakes.ts` split rather than a comment apologising for the size. (3) The first
+  caching gate was "the first engrave took ≥150ms", which is untestable by construction —
+  a fake OSMD renders instantly, so no unit test could ever exercise the cache. Replaced with
+  a note-count threshold: same protection, deterministic, and the same decision on a fast
+  machine, a slow one, and in a test.
+- docs budget (ROADMAP+CLAUDE+PROCESS lines): 658 + 101 + 130 = **889**.
+- cost note: **almost all of it went into attribution, not into the fix.** The fix is ~90 lines;
+  finding it took a CDP `Profiler` session driven from Playwright, because every plausible
+  hypothesis from reading the code was wrong. It was not MusicXML parsing, not the harmonic
+  analyser, not React re-renders: it was the same `render()` called four times, and the two
+  biggest callers were a library option (`autoResize`) and a dev-only React behaviour
+  (StrictMode's double effect) — neither of which appears anywhere in this app's own code.
+- hypothesis: **this codebase has no way to notice that work is being repeated.** Every
+  existing perf guard measures a rate (frame gaps, long tasks) during PLAYBACK; nothing
+  measures how many times an expensive one-shot operation runs per user action. Four full
+  engraves per navigation passed 150 e2e specs and a 4100-test suite without a murmur, and
+  the only reason it was ever found is that a human noticed a two-second pause.
+- change: **navigation cost gets a budgeted e2e spec, the same way playback already has one.**
+  `e2e/perf-practice-nav.spec.ts` now asserts a return visit to Practice under 800ms against
+  the real 102-measure import, and asserts the re-shown score is the SAME complete engraving
+  (identical SVG group count) and still plays — so the budget cannot be met by rendering less.
+  Review by 2026-09-15: extend the pattern to the other heavy destinations (Lessons, Theory
+  reference) if this one catches a regression; drop it if it proves machine-sensitive.
+- experiment verdicts due: "measure before you specify" (set 2026-08-15, review 2026-08-29) —
+  **early signal: keep.** This session's only authored number was the user's "2s"; measuring
+  first gave 2667ms and, more usefully, showed the cause was a count (4 engraves), not a
+  duration. Had the brief been "make the 2s faster", the obvious move was to optimise the
+  parse, which was never the problem.
+
+---
+
 ## 2026-08-15 — UI overhaul finished: UI-25…UI-35 shipped, three roadmap premises disproven
 
 - user-reported defects since last session: 0

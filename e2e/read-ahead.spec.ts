@@ -61,19 +61,19 @@ const NOTES_PER_MEASURE = 4
 const TOTAL_NOTES = 24 // 6 measures x 4 quarter notes each — see the fixture's own comment.
 
 /**
- * Reads `HIDDEN_NOTE_COLOR` straight out of `osmdEngraver.ts`'s source text,
- * the same way `note-colour.spec.ts` reads `WRONG_PITCH_COLOR` out of
- * `useNoteFeedback.ts` — a plain text scrape rather than an import, since
- * `osmdEngraver.ts` pulls in `opensheetmusicdisplay`, which has no reason to
+ * Reads `HIDDEN_NOTE_COLOR` straight out of `osmdSvg.ts`'s source text, the
+ * same way `note-colour.spec.ts` reads `WRONG_PITCH_COLOR` out of
+ * `useNoteFeedback.ts` — a plain text scrape rather than an import, since that
+ * module's neighbours pull in `opensheetmusicdisplay`, which has no reason to
  * load under Node here.
  */
 function readColorConstantFromSource(constantName: string): string {
-  const sourcePath = path.join(__dirname, '..', 'src', 'app', 'score', 'osmdEngraver.ts')
+  const sourcePath = path.join(__dirname, '..', 'src', 'app', 'score', 'osmdSvg.ts')
   const source = readFileSync(sourcePath, 'utf8')
   const pattern = new RegExp(`(?:const|export const) ${constantName} = '(#[0-9a-fA-F]{3,8})'`)
   const match = pattern.exec(source)
   if (match?.[1] === undefined) {
-    throw new Error(`could not find ${constantName} in osmdEngraver.ts's source`)
+    throw new Error(`could not find ${constantName} in osmdSvg.ts's source`)
   }
   return match[1]
 }

@@ -37,16 +37,24 @@ export function ScoreScreen() {
   const loadScore = useScoreStore((s) => s.loadScore)
   const theoryLevel = useLevelStore((s) => s.levelState.levels.theory)
   const levelsHydrated = useLevelStore((s) => s.hydrated)
+  // One gate for both halves of REQ-3.5.5 — the numerals on the engraving and
+  // the panel under it appear together or not at all. See the panel's comment
+  // below for why the level and the hydration flag are both part of it.
+  const showAnalysis = levelsHydrated && theoryLevel >= MIN_ANALYSIS_THEORY_LEVEL
   // REQ-3.5.5's second half (roadmap 3.18a): the SAME reading the panel below
   // prints, placed under the measure it describes on the engraving itself, so
   // the learner is not mapping "m.3" back to the third bar by eye. One
   // computation feeds both — memoised on the score, above the early return,
   // because `PracticeScreen` re-renders every animation frame while playing.
-  const measureLabels = useMeasureLabels(loaded?.score)
-  // One gate for both halves of REQ-3.5.5 — the numerals on the engraving and
-  // the panel under it appear together or not at all. See the panel's comment
-  // below for why the level and the hydration flag are both part of it.
-  const showAnalysis = levelsHydrated && theoryLevel >= MIN_ANALYSIS_THEORY_LEVEL
+  //
+  // Gated on `showAnalysis` too (2026-08-15 perf round), not only where the
+  // result is USED: `useMeasureLabels` runs the whole harmonic analyser, and
+  // passing the score unconditionally ran it on every Practice visit for every
+  // learner below theory level 4 — who never see a numeral — which cost 6% of
+  // the visit on the 102-measure Canon in D import. `undefined` in, no
+  // analysis run, and the hook already returns `undefined` for it, which is
+  // exactly what the `showAnalysis &&` guard below was going to discard.
+  const measureLabels = useMeasureLabels(showAnalysis ? loaded?.score : undefined)
 
   useEffect(() => {
     if (loaded !== undefined) return

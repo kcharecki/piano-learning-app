@@ -47,7 +47,7 @@
  * this with no props at all.
  */
 import { AnnotationPanel } from '@app/annotations/AnnotationPanel.tsx'
-import { DEFAULT_NOTE_COLOR } from '@app/score/osmdEngraver.ts'
+import { DEFAULT_NOTE_COLOR } from '@app/score/osmdSvg.ts'
 import { GRADED_PIECES, PROVENANCE_LABELS } from '@content/repertoire/gradedPieces.ts'
 import { ScoreViewer, type ScoreViewerHandle } from '@app/score/ScoreViewer.tsx'
 import { useLevelStore } from '@app/state/levelStore.ts'
