@@ -29,7 +29,7 @@
  * session's app. The main checkout keeps 5173.
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, symlinkSync } from 'node:fs'
+import { existsSync, lstatSync, rmdirSync, symlinkSync, unlinkSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 /**
@@ -143,6 +143,43 @@ if (command === 'claim') {
   }
   git(['update-ref', '-d', `refs/claims/${id}`])
   console.log(`released ${id}`)
+} else if (command === 'remove') {
+  // The ONLY safe way to remove a worktree here. `git worktree remove` on
+  // Windows descends into the worktree's node_modules JUNCTION and deletes
+  // THROUGH it into the main checkout's shared tree before dying with
+  // "Invalid argument" — 2026-08-15, it emptied node_modules/.bin for every
+  // parallel session, twice in one evening. Unlink the junction first, then
+  // let git remove what is actually the worktree's own.
+  if (!id) {
+    console.error('usage: worktrees.mjs remove <worktree-name | path>')
+    process.exit(2)
+  }
+  const path = existsSync(id) ? id : join('.claude', 'worktrees', id)
+  if (!existsSync(path)) {
+    console.error(`no such worktree path: ${path}`)
+    process.exit(1)
+  }
+  const link = join(path, 'node_modules')
+  let unlinked = false
+  try {
+    if (lstatSync(link).isSymbolicLink()) {
+      try {
+        unlinkSync(link)
+      } catch {
+        rmdirSync(link) // Windows directory junctions unlink via rmdir
+      }
+      unlinked = true
+    }
+  } catch {
+    // no node_modules entry at all — fine
+  }
+  try {
+    git(['worktree', 'remove', path, '--force'], { orThrow: true })
+    console.log(`removed ${path}${unlinked ? ' (junction unlinked first)' : ''}`)
+  } catch (err) {
+    console.error(`git worktree remove failed for ${path}: ${err?.message ?? err}`)
+    process.exit(1)
+  }
 } else {
   // Every worktree session runs `status` before it picks up work
   // (docs/WORKTREES.md), which makes it the one reliable place to repair the

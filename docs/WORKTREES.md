@@ -102,8 +102,14 @@ under the repo root, so Node's ancestor walk resolves the main checkout's `node_
    `git merge --no-ff task/<id>` → resolve conflicts (ROADMAP task-line conflicts are
    line-local and trivial) → `npm run verify` → if the merge touched the app spine or had
    conflicts, re-run the task's proof action → `git branch -d task/<id>` →
-   `git worktree remove .claude/worktrees/<name>` (add `--force` only for a worktree the
-   branch of which is fully merged). One branch at a time; verify between merges, never batch.
+   `node scripts/worktrees.mjs remove <name>`. One branch at a time; verify between merges,
+   never batch. **Never call `git worktree remove` directly**: on Windows it descends into
+   the worktree's `node_modules` junction and deletes THROUGH it into the main checkout's
+   shared tree before dying with "Invalid argument" (2026-08-15: emptied `node_modules/.bin`
+   for every parallel session, twice). The script unlinks the junction first. For the same
+   reason, **never run `npm install`/`ci`/`prune` inside a worktree** — it rewrites the
+   shared tree against the branch's stale package.json; master's `preinstall` guard
+   (`scripts/guard-worktree-install.mjs`) refuses it on branches that carry it.
 3. A `STALE` branch claim in `status` (no worktree, no commits) → delete the branch, freeing
    the task. A main-checkout ref claim (including `main-checkout` itself) that outlived its
    session → `worktrees.mjs release <id>`; the desktop sidebar shows whether that session is
