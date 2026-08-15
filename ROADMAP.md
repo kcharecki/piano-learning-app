@@ -233,6 +233,12 @@ system gained form and layout primitives, a page scaffold, 24 icons, a real shel
 working theme control; every one of the 13 screens was rebuilt on top of it; then four
 whole-app sweeps (states, motion, accessibility, final QA). Full history in git log.
 
+**UI-25…UI-35 — the follow-ups those sweeps found — are all shipped too (2026-08-15).**
+Three of the eleven had a premise that did not survive being measured: UI-29's duplicate
+buttons had already been removed by UI-08, UI-32 blamed a pill that is permanently mounted,
+and UI-30's control budget was counting content. Each entry below says so where it applies,
+rather than reading as though the original diagnosis had been right.
+
 **Two gates were added, both after a defect got through a green build**, per the standing
 "enforce hard rules in automation, not prose" rule:
 - `scripts/check-css.mjs` (in `verify`) — a stray `*/` left prose outside a comment, postcss

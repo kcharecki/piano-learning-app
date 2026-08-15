@@ -1,6 +1,7 @@
 # UI/UX overhaul plan
 
-> **STATUS: executed 2026-08-14/15. All 24 tasks shipped.** This document is kept as the
+> **STATUS: executed 2026-08-14/15. All 24 planned tasks shipped, plus the 11 follow-ups
+> (UI-25…UI-35) the plan's own visual passes turned up.** This document is kept as the
 > record of what was asked for and why — the audit evidence in it (measured control counts,
 > the concatenated Repertoire rows, the 5,400px Theory page) describes the app BEFORE the
 > overhaul and should be read as history, not as a description of the current app.
