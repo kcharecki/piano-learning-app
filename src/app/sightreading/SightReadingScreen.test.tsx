@@ -64,6 +64,37 @@ describe('SightReadingScreen', () => {
     expect(screen.getByRole('button', { name: 'Start exercise' })).toBeEnabled()
   })
 
+  // UI-21 (states sweep): before this, `useSightReadingTrainer` fed the
+  // engine/assessment straight off `midi.input`, so a learner with no Web
+  // MIDI device at all had a "Start exercise"/"Begin now" button but nothing
+  // to actually play a note WITH once the run began — the one note-answered
+  // screen with no on-screen fallback (`useSightReadingTrainer.test.ts` proves
+  // an on-screen press is graded like a MIDI one; this proves the keyboard
+  // actually reaches the screen once a run is playing).
+  it('renders the on-screen keyboard once a run is playing, with no MIDI keyboard connected', async () => {
+    const user = userEvent.setup()
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const manual = manualDriver()
+    const neverResolves = (): Promise<never> => new Promise(() => {})
+
+    render(
+      <SightReadingScreen
+        clock={clock}
+        date={clock}
+        audioOutput={audio}
+        connectMidi={neverResolves}
+        frameDriver={manual.driver}
+        rng={seededRng(42)}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Start exercise' }))
+    await user.click(screen.getByRole('button', { name: 'Begin now' }))
+
+    expect(screen.getByRole('group', { name: 'Play the score' })).toBeInTheDocument()
+  })
+
   it('walks through the full discipline: generate, preview, play, and grade', async () => {
     const user = userEvent.setup()
     const clock = new FakeClock()

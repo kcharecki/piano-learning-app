@@ -20,6 +20,25 @@
   cursor: pointer;
   font-weight: var(--weight-medium);
   color: var(--text-2);
+  gap: var(--space-1);
+  list-style: none;
+}
+.session-plan-mix-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+/* UI-21 (states sweep): same fix as `.record-audio-details` (feature-audio-
+   recording.css) — the global `summary { display: flex }` reset
+   (primitives.css) drops the native disclosure triangle, and this one had no
+   replacement, so a closed "Adjust mix" read as a plain caption rather than
+   something to open. */
+.session-plan-mix-disclosure > summary::before {
+  content: "\25b8"; /* ▸ */
+  display: inline-block;
+  color: var(--text-2);
+  transition: transform var(--dur-1) var(--ease-out);
+}
+.session-plan-mix-disclosure[open] > summary::before {
+  transform: rotate(90deg);
 }
 .session-plan-mix-disclosure[open] > summary {
   margin-bottom: var(--space-3);

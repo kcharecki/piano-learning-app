@@ -267,7 +267,15 @@ test('a denied microphone permission surfaces a real error, without crashing the
   // never settles "checked" for `.check()`'s own stability wait to observe.
   await recordPanel.getByRole('checkbox', { name: /record audio too/i }).click()
 
-  await expect(page.getByRole('alert')).toContainText(/permission denied/i)
+  // UI-21 (states sweep): the raw browser exception ("Permission denied") no
+  // longer reaches the screen — `describeMicError` (adapters/audio) keeps it
+  // in `console.warn` for a developer and shows learner-actionable copy
+  // instead, the same shape `webmidi.ts` already uses for MIDI permission
+  // denial. Pin both halves of that fix: the new copy is there, and the raw
+  // exception text is not.
+  const alert = page.getByRole('alert')
+  await expect(alert).toContainText(/blocked microphone access/i)
+  await expect(alert).not.toContainText(/permission denied/i)
   // Additive, not fatal — the rest of the panel (and the MIDI half) is
   // unaffected by the denial.
   await expect(recordPanel.getByRole('button', { name: 'Record', exact: true })).toBeVisible()

@@ -24,6 +24,22 @@
 .record-audio-details > summary::-webkit-details-marker {
   display: none;
 }
+/* UI-21 (states sweep): the global `summary { display: flex }` reset
+   (primitives.css) drops every browser's native disclosure triangle app-wide
+   — `.practice-setup`/`.practice-more-tools` (feature-practice-sections.css)
+   already replace it with this same glyph so a closed section still reads as
+   collapsible; this one had been left a plain "cursor: pointer" caption with
+   no visible open/closed cue of its own (docs/DESIGN.md rule 8: a state is
+   never colour/cursor-only). */
+.record-audio-details > summary::before {
+  content: "\25b8"; /* ▸ */
+  display: inline-block;
+  color: var(--text-2);
+  transition: transform var(--dur-1) var(--ease-out);
+}
+.record-audio-details[open] > summary::before {
+  transform: rotate(90deg);
+}
 
 /* The "Record audio too" opt-in checkbox inside `.record-panel` — sits with
    the buttons it modifies rather than in a separate settings area, per

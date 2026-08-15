@@ -156,6 +156,38 @@ picky stranger, then fix before ticking. A screen with touch input also gets the
 - [ ] Copy passes rule 7 (learner language) — read every visible string aloud.
 - [ ] Honest question: *would a stranger call this screen clean?* Hesitation = fail.
 
+## States matrix (roadmap UI-21)
+
+Every screen × {empty, loading, error, no-MIDI}, from a full states sweep (2026-08-15) —
+**shipped** = drives correctly in the running app; **n/a** = the state cannot occur here, with
+why. "No-MIDI" means the screen's own primary interaction still works with no MIDI keyboard
+(the shell's topbar chip + Settings' own Input card cover the connection status itself, on
+every screen, and are not re-listed per row).
+
+| Screen | Empty | Loading | Error | No-MIDI |
+|---|---|---|---|---|
+| Today | n/a — plan always has ≥1 item | shipped — "Loading today's session…" | shipped — session-length validation alert | n/a — no note input, links out |
+| Lessons | shipped — "No lessons for this level." | n/a — static bundled content | n/a — no failure mode | n/a — no note input |
+| Practice | n/a — auto-loads the bundled sample | shipped — "Loading the bundled sample score…" | shipped — corrupt-import alert, learner language | shipped — on-screen keyboard |
+| Sight reading | n/a — generated on demand | n/a — generation is synchronous | shipped — "Could not generate an exercise…" | shipped — on-screen keyboard (UI-21: was a dead end, now wired into the real matcher) |
+| Flashcards | shipped — "No cards at this level yet…" | n/a — deck build is synchronous | n/a — no error surface | shipped — on-screen keyboard / button pads |
+| Ear training | n/a — idle stage offers Play | n/a — generation is synchronous | n/a — no error surface | shipped — on-screen keyboard / button pads |
+| Rhythm | n/a — tap pad always available | n/a — synchronous | n/a — no error surface | n/a — taps a button/Space, no note input |
+| Technique | shipped — "your first is one Start away" | n/a — synchronous | n/a — no error surface | shipped — on-screen keyboard |
+| Metronome | n/a — always has bpm/meter state | n/a — synchronous audio engine | shipped — engine error alert | n/a — no note input |
+| Theory | n/a — a drill item is always seeded | shipped (defensive; seeding is synchronous so this cannot currently show) | n/a — no error surface | shipped — on-screen keyboard; drill counter now the `.stat` primitive (UI-21) |
+| Repertoire | shipped — library/review/catalogue all teach + link out | n/a — store hydrates silently | shipped — add-piece alert (duplicate/cap) | n/a — no note input |
+| Progress | shipped — every card branches to its own teach-copy | n/a — store hydrates silently | n/a — no error surface | n/a — no note input |
+| Settings | n/a — always has theme/plan/audio content | n/a — synchronous | n/a — no error surface | shipped — its own always-visible Input card |
+
+Fixed this pass: sight reading's missing no-MIDI fallback (the one screen with genuinely no
+way to answer without hardware); the microphone path leaking raw browser exceptions
+(`describeMicError`, mirroring `webmidi.ts`'s shape); Theory's bare `0 / N played` and the nav
+rail's bare `0-day streak` (both zero-rows, rule 6); the "Audio recording" and "Adjust mix"
+disclosures rendering as inert captions (missing chevron, global `summary` reset had dropped
+the native marker); Practice's bare `Tempo: 100%` string; "From measure" / "to measure"
+capitalisation.
+
 ## Known worst offenders (fix as slices, per ROADMAP Phase 5)
 
 - Practice screen density and flatness — roadmap 5.17 / 5.18 (progressive disclosure,

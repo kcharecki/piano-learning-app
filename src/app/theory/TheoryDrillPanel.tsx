@@ -422,9 +422,12 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
       ) : (
         <section aria-label="Theory quiz" className="theory-quiz">
           <p data-testid="theory-prompt">{item.prompt}</p>
-          <p data-testid="theory-progress">
-            {playedGroups.length} / {item.answer.length} played
-          </p>
+          <div className="stat" data-testid="theory-progress">
+            <span className="stat-value">
+              {playedGroups.length} / {item.answer.length}
+            </span>
+            <span className="stat-label">Played</span>
+          </div>
           <OnScreenKeyboard low={range.low} high={range.high} onPress={handleNote} />
           <QwertyHint />
           <AnswerFeedback result={lastResult} />

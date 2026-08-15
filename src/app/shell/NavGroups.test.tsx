@@ -156,4 +156,22 @@ describe('NavGroups', () => {
 
     expect(screen.getByText('Level 3 · 1-day streak')).toBeInTheDocument()
   })
+
+  // UI-21 (states sweep): a fresh profile's `streakDays: 0` used to render
+  // the zero-row "0-day streak" — DESIGN.md rule 6 forbids a raw zero, so it
+  // reads as "No streak yet" instead, until there is a real streak to name.
+  it('shows "No streak yet" rather than a "0-day streak" zero-row', () => {
+    render(
+      <NavGroups
+        primary={primary}
+        groups={groups}
+        activeScreen="today"
+        onNavigate={vi.fn()}
+        footer={{ level: 1, streakDays: 0 }}
+      />,
+    )
+
+    expect(screen.getByText('Level 1 · No streak yet')).toBeInTheDocument()
+    expect(screen.queryByText(/0-day streak/)).not.toBeInTheDocument()
+  })
 })

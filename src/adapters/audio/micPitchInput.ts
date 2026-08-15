@@ -25,6 +25,7 @@ import type { Clock, MidiDevice, MidiEvent, MidiInput, Unsubscribe } from '@core
 import type { OnsetConfig } from '@core/audio/noteOnsetDetector.ts'
 import { err, ok, type Result } from '@core/shared/result.ts'
 import { isValidMidi, midi, millis } from '@core/shared/units.ts'
+import { describeMicError } from './micErrorMessage.ts'
 
 const MIC_DEVICE: MidiDevice = { id: 'microphone', name: 'Microphone', manufacturer: 'Built-in' }
 
@@ -89,8 +90,7 @@ export async function createMicPitchInput(
       audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
     })
   } catch (cause) {
-    const message = cause instanceof Error ? cause.message : String(cause)
-    return err(`Microphone access failed: ${message}`)
+    return err(describeMicError('createMicPitchInput', cause))
   }
 
   const ctx = (options.createContext ?? (() => new AudioContext()))()

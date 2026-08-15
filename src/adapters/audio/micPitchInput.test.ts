@@ -139,14 +139,21 @@ describe('createMicPitchInput', () => {
     expect(result.ok).toBe(true)
   })
 
-  it('resolves err, never throws, when getUserMedia rejects (permission denied)', async () => {
+  it('resolves err with learner-safe copy, never throws or leaks the raw browser exception, when getUserMedia rejects (permission denied)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const denied = new DOMException('Permission denied by the user', 'NotAllowedError')
     const result = await createMicPitchInput({
-      getUserMedia: () => Promise.reject(new Error('Permission denied')),
+      getUserMedia: () => Promise.reject(denied),
       createContext: () => new FakeAudioContext() as unknown as AudioContext,
       scheduleTick: () => () => {},
     })
     expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.error).toContain('Permission denied')
+    if (!result.ok) {
+      expect(result.error).toMatch(/blocked microphone access/i)
+      expect(result.error).not.toMatch(/Permission denied by the user/)
+    }
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('getUserMedia failed'), denied)
+    warn.mockRestore()
   })
 
   it('lists exactly one synthetic "Microphone" device once connected', async () => {

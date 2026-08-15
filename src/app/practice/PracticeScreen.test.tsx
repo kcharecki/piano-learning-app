@@ -480,7 +480,7 @@ describe('PracticeScreen', () => {
     function assertNonTransportEnabled(): void {
       expect(screen.getByRole('slider')).toBeEnabled()
       expect(screen.getByLabelText('From measure')).toBeEnabled()
-      expect(screen.getByLabelText('to measure')).toBeEnabled()
+      expect(screen.getByLabelText('To measure')).toBeEnabled()
       expect(screen.getByRole('checkbox', { name: 'Loop' })).toBeEnabled()
       expect(screen.getByRole('radio', { name: 'Left hand only' })).toBeEnabled()
       expect(screen.getByRole('checkbox', { name: 'Wait for me' })).toBeEnabled()
@@ -490,7 +490,7 @@ describe('PracticeScreen', () => {
     function assertNonTransportDisabled(): void {
       expect(screen.getByRole('slider')).toBeDisabled()
       expect(screen.getByLabelText('From measure')).toBeDisabled()
-      expect(screen.getByLabelText('to measure')).toBeDisabled()
+      expect(screen.getByLabelText('To measure')).toBeDisabled()
       expect(screen.getByRole('checkbox', { name: 'Loop' })).toBeDisabled()
       expect(screen.getByRole('radio', { name: 'Left hand only' })).toBeDisabled()
       expect(screen.getByRole('checkbox', { name: 'Wait for me' })).toBeDisabled()

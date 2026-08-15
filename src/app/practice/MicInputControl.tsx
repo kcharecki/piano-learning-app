@@ -30,7 +30,7 @@ export function MicInputControl({ enabled, connected, error, onToggle }: MicInpu
           {connected
             ? 'Microphone listening — sing or play a note.'
             : error !== undefined
-              ? `Microphone unavailable (${error})`
+              ? error
               : 'Requesting microphone access…'}
         </p>
       )}

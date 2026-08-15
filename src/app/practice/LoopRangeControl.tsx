@@ -102,7 +102,7 @@ export function LoopRangeControl({ score, loop, onChange, tempoScale }: LoopRang
           />
         </div>
         <div className="field">
-          <label htmlFor={endId}>to measure</label>
+          <label htmlFor={endId}>To measure</label>
           <input
             id={endId}
             type="number"
@@ -121,9 +121,10 @@ export function LoopRangeControl({ score, loop, onChange, tempoScale }: LoopRang
           Loop
         </label>
       </div>
-      <span className="loop-tempo" data-testid="loop-tempo">
-        {enabled ? 'Loop tempo' : 'Tempo'}: {Math.round(tempoScale * 100)}%
-      </span>
+      <div className="stat loop-tempo" data-testid="loop-tempo">
+        <span className="stat-value">{Math.round(tempoScale * 100)}%</span>
+        <span className="stat-label">{enabled ? 'Loop tempo' : 'Tempo'}</span>
+      </div>
     </div>
   )
 }

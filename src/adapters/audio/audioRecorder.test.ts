@@ -85,24 +85,52 @@ describe('createAudioRecorder', () => {
     )
   })
 
-  it('returns err on permission denial, and never opens a recorder', async () => {
+  it('returns err with learner-safe copy, never the raw browser exception, on permission denial — and never opens a recorder', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const createRecorder = vi.fn()
+    const denied = new DOMException('Permission denied by the user', 'NotAllowedError')
     const result = await createAudioRecorder({
-      getUserMedia: () => Promise.reject(new Error('Permission denied')),
+      getUserMedia: () => Promise.reject(denied),
       createRecorder,
     })
 
     expect(isErr(result)).toBe(true)
-    if (isErr(result)) expect(result.error).toContain('Permission denied')
+    if (isErr(result)) {
+      expect(result.error).toMatch(/blocked microphone access/i)
+      expect(result.error).not.toMatch(/Permission denied by the user/)
+    }
     expect(createRecorder).not.toHaveBeenCalled()
+    // The raw browser exception still reaches a developer — just not the screen.
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('getUserMedia failed'), denied)
+    warn.mockRestore()
   })
 
-  it('returns err on no input device (getUserMedia rejects with NotFoundError)', async () => {
+  it('returns err on no input device (getUserMedia rejects with NotFoundError), with distinct learner copy', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
     const notFound = new DOMException('Requested device not found', 'NotFoundError')
     const result = await createAudioRecorder({ getUserMedia: () => Promise.reject(notFound) })
 
     expect(isErr(result)).toBe(true)
-    if (isErr(result)) expect(result.error).toContain('Requested device not found')
+    if (isErr(result)) {
+      expect(result.error).toMatch(/no microphone was found/i)
+      expect(result.error).not.toMatch(/Requested device not found/)
+    }
+  })
+
+  it('keeps the two failure messages distinct: no device found vs. refused permission', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const notFound = await createAudioRecorder({
+      getUserMedia: () => Promise.reject(new DOMException('none', 'NotFoundError')),
+    })
+    const refused = await createAudioRecorder({
+      getUserMedia: () => Promise.reject(new DOMException('no', 'NotAllowedError')),
+    })
+
+    expect(isErr(notFound)).toBe(true)
+    expect(isErr(refused)).toBe(true)
+    if (isErr(notFound) && isErr(refused)) {
+      expect(notFound.error).not.toBe(refused.error)
+    }
   })
 
   it('returns err when no candidate mime type is supported, and stops every track', async () => {

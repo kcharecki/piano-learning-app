@@ -101,6 +101,7 @@
  */
 import { scoreDurationTicks, type Hand, type Score } from '@core/notation/score.ts'
 import type { AudioOutput, Clock, DateSource, MidiInput, Rng } from '@core/ports/index.ts'
+import type { Midi } from '@core/shared/units.ts'
 import { assess, type AssessmentResult } from '@core/practice/assessment.ts'
 import { MATCHER_DEFAULTS, NoteMatcher } from '@core/practice/matcher.ts'
 import { bpmAtTick, makeTempoMap, tickToMs } from '@core/timing/tempo.ts'
@@ -126,6 +127,7 @@ import {
   type ConnectMidi,
   type MidiConnection,
 } from '@app/practice/useMidiConnection.ts'
+import { createPlayableInput, type PlayableMidiInput } from '@app/practice/playableInput.ts'
 import { usePracticeEngine, type PositionDisplay } from '@app/practice/usePracticeEngine.ts'
 import { useTransportLoop, type FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -179,6 +181,14 @@ export type UseSightReadingTrainer = {
   readonly previousLevel: number | undefined
   readonly error: string | undefined
   readonly midi: MidiConnection
+  /**
+   * UI-21: the on-screen-keyboard seam — see this hook's "playableInput"
+   * comment above. Always safe to call; a no-op before the wrapper has
+   * mounted (the one render between this hook mounting and its own effect
+   * running) or once this hook has unmounted.
+   */
+  readonly press: (note: Midi) => void
+  readonly release: (note: Midi) => void
   /** Generates a fresh exercise at the current level and begins the preview. */
   readonly start: () => void
   /** Ends the preview early — REQ-3.4.4 allows starting before the timer runs out. */
@@ -212,6 +222,24 @@ export function useSightReadingTrainer(
         ? { connect: options.connectMidi }
         : {},
   )
+
+  // UI-21 (states sweep): every OTHER note-answered screen has an on-screen
+  // fallback (`playableInput.ts`'s module comment lists Flashcards, Theory,
+  // Dictation — and Practice itself, once roadmap 5.4 closed the exact same
+  // hole this closes) — this screen alone graded exclusively off `midi.input`,
+  // so a learner with no Web MIDI (Safari, Firefox, iPadOS — see
+  // `docs/WORKTREES.md`'s B.7 note) had no way to answer at all. `createPlayableInput`
+  // always returns a present `MidiInput`: it forwards a real device's events
+  // when there is one, and lets `press`/`release` below emit through the same
+  // seam for a clicked/tapped note — so an on-screen note is timed and graded
+  // by the exact same live matcher and shadow matcher a MIDI keyboard drives,
+  // never a second parallel path.
+  const [playableInput, setPlayableInput] = useState<PlayableMidiInput | undefined>(undefined)
+  useEffect(() => {
+    const next = createPlayableInput(midi.input, clock)
+    setPlayableInput(next)
+    return () => next.dispose()
+  }, [midi.input, clock])
 
   const sessionRef = useRef<SightReadingSession | undefined>(undefined)
   // The content-keyed copy of whatever `score` state below holds — see the
@@ -249,14 +277,14 @@ export function useSightReadingTrainer(
     waitModeEnabled: false,
     clock,
     audioOutput: engineAudioOutput,
-    midiInput: midi.input,
+    midiInput: playableInput,
     ...(options.frameDriver === undefined ? {} : { frameDriver: options.frameDriver }),
   })
 
   const assessment = useAssessment({
     score,
     activeHands,
-    midiInput: midi.input,
+    midiInput: playableInput,
     clock,
     date,
     phase: engine.phase,
@@ -329,8 +357,8 @@ export function useSightReadingTrainer(
   // actually playing: `matcherAnchorRef.current` stays `undefined` through
   // `'idle'` and `'preview'`, exactly like `useAssessment`'s own `runRef`.
   useEffect(() => {
-    if (midi.input === undefined) return undefined
-    return midi.input.onEvent((event) => {
+    if (playableInput === undefined) return undefined
+    return playableInput.onEvent((event) => {
       const matcher = matcherRef.current
       const anchor = matcherAnchorRef.current
       if (matcher === undefined || anchor === undefined) return
@@ -338,7 +366,7 @@ export function useSightReadingTrainer(
       if (event.type === 'noteOn') matcher.noteOn(event.note, estimated)
       else if (event.type === 'noteOff') matcher.noteOff(event.note, estimated)
     })
-  }, [midi.input])
+  }, [playableInput])
 
   // The run just finished (the transport played off the end) — close out the
   // session, retire the piece, and adapt the level.
@@ -496,6 +524,8 @@ export function useSightReadingTrainer(
     previousLevel,
     error,
     midi,
+    press: (note: Midi) => playableInput?.press(note),
+    release: (note: Midi) => playableInput?.release(note),
     start,
     skipPreview,
   }

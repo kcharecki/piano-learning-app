@@ -173,6 +173,51 @@ describe('useSightReadingTrainer — playing the exercise (REQ-3.4.4)', () => {
     expect(history[0]?.pieceId).toBe(score?.id)
   })
 
+  // UI-21 (states sweep): before this, `midi.input` fed the engine/assessment
+  // directly, so a learner with no Web MIDI device at all (no `midiInput`
+  // option here, matching Safari/Firefox/iPadOS with nothing connected — see
+  // `docs/WORKTREES.md`'s B.7 note) had no way to answer a single note. This
+  // proves `press`/`release` — the same seam `PracticeKeyboard` calls — reach
+  // the exact same live matcher a MIDI keyboard would, with no `MidiInput`
+  // device present anywhere in this test.
+  it('an on-screen note is graded exactly like a MIDI one, with no MIDI device at all', () => {
+    // Not `setup()`: that helper always injects a `FakeMidiInput` — this test
+    // needs the `midiInput` option genuinely absent (`exactOptionalPropertyTypes`
+    // forbids passing it as explicit `undefined`), the real no-device shape. A
+    // fake, already-resolved `connectMidi` stands in for the browser's own
+    // `createWebMidi` so this never touches real `navigator.requestMIDIAccess`.
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const manual = manualDriver()
+    const { result } = renderHook(() =>
+      useSightReadingTrainer({
+        clock,
+        date: clock,
+        audioOutput: audio,
+        frameDriver: manual.driver,
+        rng: seededRng(42),
+        connectMidi: () => Promise.resolve({ ok: false, error: 'no MIDI device in this test' }),
+      }),
+    )
+    act(() => result.current.start())
+    act(() => result.current.skipPreview())
+    expect(result.current.phase).toBe('playing')
+
+    const firstNote = result.current.score?.notes[0]
+    expect(firstNote?.startTick).toBe(0)
+    act(() => result.current.press(midi(firstNote?.midi ?? 0)))
+    act(() => result.current.release(midi(firstNote?.midi ?? 0)))
+
+    act(() => {
+      clock.advance(SEEDED_SCORE_DURATION_MS + 500)
+      manual.pump()
+    })
+
+    expect(result.current.phase).toBe('finished')
+    expect(result.current.result).toBeDefined()
+    expect(result.current.result?.accuracy).toBeGreaterThan(0)
+  })
+
   it('does not move the level after a single run — adaptLevel needs a run of agreeing reads', () => {
     const { result, clock, manual } = setup()
     act(() => result.current.start())

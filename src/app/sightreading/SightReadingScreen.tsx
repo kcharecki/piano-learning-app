@@ -6,6 +6,7 @@
  * forwards the two user actions (`start`, `skipPreview`).
  */
 import type { Clock, DateSource, AudioOutput, MidiInput, Rng } from '@core/ports/index.ts'
+import { PracticeKeyboard } from '@app/practice/PracticeKeyboard.tsx'
 import type { ConnectMidi } from '@app/practice/useMidiConnection.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import type { ScoreChrome } from '@app/score/engraver.ts'
@@ -44,6 +45,17 @@ export function SightReadingScreen(props: SightReadingScreenProps) {
   const [metronomeEnabled, setMetronomeEnabled] = useState(true)
   const [customization, setCustomization] = useState<SightReadingCustomization>({})
   const trainer = useSightReadingTrainer({ ...props, metronomeEnabled, customization })
+
+  // UI-21 (states sweep): this screen used to have no no-MIDI fallback at
+  // all — see `useSightReadingTrainer.ts`'s "playableInput" comment. Same
+  // "is there a keyboard to play?" predicate `PracticeScreen`/`MidiDeviceStatus`
+  // already use, so this can never disagree with the shell's own input chip.
+  const deviceAttached =
+    trainer.midi.input !== undefined &&
+    trainer.midi.devices.some((device) => device.id === trainer.midi.selectedDeviceId)
+  const [showKeyboardChoice, setShowKeyboardChoice] = useState<boolean | undefined>(undefined)
+  const showKeyboard = showKeyboardChoice ?? !deviceAttached
+  const [latchKeys, setLatchKeys] = useState(false)
 
   return (
     <div className="page page--focus sight-reading-screen">
@@ -132,6 +144,16 @@ export function SightReadingScreen(props: SightReadingScreenProps) {
             </p>
           )}
           <ExerciseScore score={trainer.score} chrome={PAPER_CHROME} />
+          <PracticeKeyboard
+            score={trainer.score}
+            onPress={trainer.press}
+            onRelease={trainer.release}
+            deviceConnected={deviceAttached}
+            visible={showKeyboard}
+            onVisibleChange={setShowKeyboardChoice}
+            latch={latchKeys}
+            onLatchChange={setLatchKeys}
+          />
         </section>
       )}
 

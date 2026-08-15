@@ -19,7 +19,7 @@ describe('LoopRangeControl', () => {
     )
     expect(screen.getByRole('checkbox', { name: 'Loop' })).not.toBeChecked()
     expect(screen.getByLabelText('From measure')).toHaveValue(1)
-    expect(screen.getByLabelText('to measure')).toHaveValue(C_MAJOR_SCALE_RH.measures.length)
+    expect(screen.getByLabelText('To measure')).toHaveValue(C_MAJOR_SCALE_RH.measures.length)
   })
 
   it('checking the box turns the current measure range on', async () => {
@@ -89,7 +89,7 @@ describe('LoopRangeControl', () => {
       />,
     )
 
-    const endField = screen.getByLabelText('to measure')
+    const endField = screen.getByLabelText('To measure')
     await user.clear(endField)
     await user.type(endField, '1')
 
@@ -113,7 +113,7 @@ describe('LoopRangeControl', () => {
 
     expect(screen.getByRole('checkbox', { name: 'Loop' })).toBeChecked()
     expect(screen.getByLabelText('From measure')).toHaveValue(2)
-    expect(screen.getByLabelText('to measure')).toHaveValue(3)
+    expect(screen.getByLabelText('To measure')).toHaveValue(3)
   })
 
   it('loop going back to undefined leaves the numbers where they were', () => {
@@ -143,7 +143,7 @@ describe('LoopRangeControl', () => {
     // that arrived from outside the control.
     expect(screen.getByRole('checkbox', { name: 'Loop' })).not.toBeChecked()
     expect(screen.getByLabelText('From measure')).toHaveValue(2)
-    expect(screen.getByLabelText('to measure')).toHaveValue(3)
+    expect(screen.getByLabelText('To measure')).toHaveValue(3)
   })
 
   it('editing a number while an externally-set loop is active still emits the right tick range', async () => {
@@ -186,7 +186,7 @@ describe('LoopRangeControl', () => {
       />,
     )
     expect(screen.getByLabelText('From measure')).toHaveValue(1)
-    expect(screen.getByLabelText('to measure')).toHaveValue(4)
+    expect(screen.getByLabelText('To measure')).toHaveValue(4)
 
     const middleRange = measureRange(TWO_HAND_CHORDS, 1, 2)
     rerender(
@@ -198,7 +198,7 @@ describe('LoopRangeControl', () => {
       />,
     )
     expect(screen.getByLabelText('From measure')).toHaveValue(2)
-    expect(screen.getByLabelText('to measure')).toHaveValue(3)
+    expect(screen.getByLabelText('To measure')).toHaveValue(3)
 
     rerender(
       <LoopRangeControl
@@ -209,7 +209,7 @@ describe('LoopRangeControl', () => {
       />,
     )
     expect(screen.getByLabelText('From measure')).toHaveValue(1)
-    expect(screen.getByLabelText('to measure')).toHaveValue(4)
+    expect(screen.getByLabelText('To measure')).toHaveValue(4)
   })
 
   // Roadmap 2.29 (REQ-3.9.3): the tempo shown belongs to whatever `tempoScale`
@@ -225,7 +225,9 @@ describe('LoopRangeControl', () => {
           tempoScale={1}
         />,
       )
-      expect(screen.getByTestId('loop-tempo')).toHaveTextContent('Tempo: 100%')
+      const stat = screen.getByTestId('loop-tempo')
+      expect(stat).toHaveTextContent('100%')
+      expect(stat).toHaveTextContent('Tempo')
     })
 
     it('shows the active loop\'s own tempo, and updates when the caller passes a different one', () => {
@@ -238,7 +240,8 @@ describe('LoopRangeControl', () => {
           tempoScale={0.6}
         />,
       )
-      expect(screen.getByTestId('loop-tempo')).toHaveTextContent('Loop tempo: 60%')
+      expect(screen.getByTestId('loop-tempo')).toHaveTextContent('60%')
+      expect(screen.getByTestId('loop-tempo')).toHaveTextContent('Loop tempo')
 
       // Switching to a different loop's own remembered scale (simulating the
       // parent re-rendering after `scoreStore.setLoop` restored it) changes
@@ -251,7 +254,8 @@ describe('LoopRangeControl', () => {
           tempoScale={0.9}
         />,
       )
-      expect(screen.getByTestId('loop-tempo')).toHaveTextContent('Loop tempo: 90%')
+      expect(screen.getByTestId('loop-tempo')).toHaveTextContent('90%')
+      expect(screen.getByTestId('loop-tempo')).toHaveTextContent('Loop tempo')
     })
   })
 })

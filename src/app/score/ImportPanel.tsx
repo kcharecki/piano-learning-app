@@ -2,7 +2,18 @@
  * File import (REQ-3.2.5): MusicXML (plain or compressed `.mxl`) or Standard
  * MIDI File, parsed with the core parsers. A bad file is a normal case — the
  * user downloaded it off the internet — so the parser's (or unpacker's) `Err`
- * is shown as readable text, never a console log or a crash.
+ * is always surfaced, never a console log or a crash.
+ *
+ * UI-21 (states sweep): the parsers' own `Err` text is a developer-facing
+ * parse diagnostic (`"malformed MusicXML: no root element"`, `"<duration> is
+ * empty or not a number"`, raw XML tag names) — exactly the internal
+ * vocabulary DESIGN.md rule 7 forbids on screen, and the same defect class
+ * `webmidi.ts`'s `createWebMidi` and `micErrorMessage.ts` already closed for
+ * device permissions: `describeImportError` below keeps that detail in
+ * `console.warn` for a developer and shows one calm, learner-language message
+ * instead, naming the file so a learner picking among several downloads can
+ * tell which one failed. The file input stays live in the same dialog after
+ * an error, which is the recovery path — no extra "try again" control needed.
  */
 import { parseMidiFile } from '@core/notation/midifile.ts'
 import { parseMusicXml } from '@core/notation/musicxml.ts'
@@ -18,6 +29,11 @@ const MIDI_EXTENSIONS = new Set(['.mid', '.midi'])
 function extensionOf(fileName: string): string {
   const dot = fileName.lastIndexOf('.')
   return dot < 0 ? '' : fileName.slice(dot).toLowerCase()
+}
+
+function describeImportError(fileName: string, cause: string): string {
+  console.warn(`[ImportPanel] could not read "${fileName}":`, cause)
+  return `Could not read "${fileName}" — it doesn't look like a valid score file. Try a different file.`
 }
 
 export function ImportPanel() {
@@ -37,7 +53,7 @@ export function ImportPanel() {
         const text = await file.text()
         const result = parseMusicXml(text)
         if (!result.ok) {
-          setImportError(`Could not read "${file.name}": ${result.error}`)
+          setImportError(describeImportError(file.name, result.error))
           return
         }
         loadScore({ score: result.value, sourceName: file.name, musicXml: text })
@@ -45,12 +61,12 @@ export function ImportPanel() {
         const bytes = new Uint8Array(await file.arrayBuffer())
         const unpacked = unpackMxl(bytes)
         if (!unpacked.ok) {
-          setImportError(`Could not read "${file.name}": ${unpacked.error}`)
+          setImportError(describeImportError(file.name, unpacked.error))
           return
         }
         const result = parseMusicXml(unpacked.value)
         if (!result.ok) {
-          setImportError(`Could not read "${file.name}": ${result.error}`)
+          setImportError(describeImportError(file.name, result.error))
           return
         }
         loadScore({ score: result.value, sourceName: file.name, musicXml: unpacked.value })
@@ -58,7 +74,7 @@ export function ImportPanel() {
         const bytes = new Uint8Array(await file.arrayBuffer())
         const result = parseMidiFile(bytes)
         if (!result.ok) {
-          setImportError(`Could not read "${file.name}": ${result.error}`)
+          setImportError(describeImportError(file.name, result.error))
           return
         }
         // A MIDI file carries no notation, so the engraver is fed MusicXML
@@ -77,7 +93,7 @@ export function ImportPanel() {
       }
     } catch (reason) {
       const detail = reason instanceof Error ? reason.message : String(reason)
-      setImportError(`Could not read "${file.name}": ${detail}`)
+      setImportError(describeImportError(file.name, detail))
     } finally {
       setBusy(false)
     }

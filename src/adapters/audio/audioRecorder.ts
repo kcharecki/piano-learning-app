@@ -25,6 +25,7 @@
  * `MediaRecorder`) is supported does this come back `err(...)`.
  */
 import { err, ok, type Result } from '@core/shared/result.ts'
+import { describeMicError } from './micErrorMessage.ts'
 
 /**
  * Ordered by how broadly-compatible + efficient the encoding is: opus-in-webm
@@ -118,8 +119,7 @@ export async function createAudioRecorder(
       audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
     })
   } catch (cause) {
-    const message = cause instanceof Error ? cause.message : String(cause)
-    return err(`Microphone access failed: ${message}`)
+    return err(describeMicError('createAudioRecorder', cause))
   }
 
   const mimeType = candidates.find((type) => isTypeSupported(type))

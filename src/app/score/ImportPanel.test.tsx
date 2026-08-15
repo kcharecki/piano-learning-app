@@ -95,6 +95,27 @@ describe('ImportPanel', () => {
     expect(useScoreStore.getState().importError).toBeDefined()
   })
 
+  // UI-21 (states sweep): the parser's own `Err` text is a developer-facing
+  // parse diagnostic (raw XML tag names, "unterminated <unclosed> tag") — the
+  // learner-facing alert must say something a non-technical reader can act
+  // on instead, and the recovery path (the same file input, still enabled) is
+  // right there in the same dialog, not a dead end.
+  it('shows learner-language copy, not the raw parser diagnostic, and the file input stays usable to retry', async () => {
+    const user = userEvent.setup()
+    render(<ImportPanel />)
+    const file = new File(['this is not xml at all'], 'corrupt.musicxml', {
+      type: 'application/xml',
+    })
+
+    await user.upload(getFileInput(), file)
+
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toMatch(/corrupt\.musicxml/)
+    expect(alert.textContent).toMatch(/doesn't look like a valid score file/i)
+    expect(alert.textContent).not.toMatch(/root element|<unclosed>|malformed MusicXML/)
+    expect(getFileInput()).toBeEnabled()
+  })
+
   it('shows a readable error for a malformed MIDI file', async () => {
     const user = userEvent.setup()
     render(<ImportPanel />)

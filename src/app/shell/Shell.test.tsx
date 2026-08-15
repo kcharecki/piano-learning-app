@@ -266,11 +266,11 @@ describe('Shell', () => {
 
   // Roadmap UI-04a: the rail footer — current playing level + streak,
   // display only. A fresh app has no practice history and every track at
-  // level 1 (`initialLevelState`), so this also proves the "N-day streak"
-  // copy never falls back to a "0 day(s)" plural.
+  // level 1 (`initialLevelState`), so this also proves a zero streak reads
+  // as "No streak yet" (UI-21) rather than a "0-day streak" zero-row.
   it('shows the rail footer with the playing level and current streak', () => {
     render(<Shell />)
-    expect(screen.getByText('Level 1 · 0-day streak')).toBeInTheDocument()
+    expect(screen.getByText('Level 1 · No streak yet')).toBeInTheDocument()
   })
 
   // Roadmap UI-04a: the topbar's right-aligned action cluster is the slot

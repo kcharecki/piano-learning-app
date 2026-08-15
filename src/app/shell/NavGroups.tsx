@@ -107,11 +107,14 @@ export function NavGroups({ primary, groups, activeScreen, onNavigate, footer }:
           flex column (`feature-nav-groups.css`) — `margin-top: auto` on
           `.nav-footer` does the pinning, nothing here. `"N-day streak"` is
           the adjectival form (never "N day(s)") so it never needs a plural
-          branch — rule 7 (learner language) forbids "0 day(s)". */}
+          branch — rule 7 (learner language) forbids "0 day(s)". A fresh
+          profile has no streak at all yet, and "0-day streak" is itself a
+          zero-row (DESIGN.md rule 6) — "No streak yet" until `streakDays`
+          is actually positive. */}
       <div className="nav-footer">
         <Icon name="flame" size={16} />
         <span>
-          Level {footer.level} · {footer.streakDays}-day streak
+          Level {footer.level} · {footer.streakDays > 0 ? `${footer.streakDays}-day streak` : 'No streak yet'}
         </span>
       </div>
     </>
