@@ -31,7 +31,7 @@ import type { ConnectMidi } from '@app/practice/useMidiConnection.ts'
 import { SrsSummary } from '@app/srs/SrsSummary.tsx'
 import type { GradeResult } from '@core/drills/flashcards.ts'
 import type { Clock, DateSource, MidiInput, Rng } from '@core/ports/index.ts'
-import { useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { IntervalAnswerPad } from './IntervalAnswerPad.tsx'
 import { KeySignatureAnswerPad } from './KeySignatureAnswerPad.tsx'
 import { NoteNameAnswerPad } from './NoteNameAnswerPad.tsx'
@@ -87,11 +87,35 @@ function clampLevel(level: number): number {
  * its content and the `is-ok`/`is-error` primitive class toggle, faded via
  * `--dur-1` (`feature-flashcards.css`). See `FlashcardScreen.test.tsx`'s
  * "no layout shift" test for the structural proof.
+ *
+ * The pop (roadmap UI-22, motion pass) is the shared `.fb-pop` class
+ * (primitives.css's `fb-pop` keyframes) — but this pill is a single DOM node
+ * reused across every card in the deck (never remounted; see the "same DOM
+ * node" test), so two answers in a row that grade the same way (`is-ok`
+ * twice) leave the className unchanged and a plain class toggle would not
+ * replay the animation. `GradeResult` is a fresh object every answer
+ * (`useFlashcardDrill.commitAnswer`), so this effect's dependency is a
+ * reliable "a new answer landed" signal even when the visible state repeats:
+ * it removes `.fb-pop`, forces a reflow (`el.offsetWidth`, discarded via
+ * `void`) so the browser forgets the class was ever there, then re-adds it —
+ * the standard way to restart a CSS animation on an unchanging node.
  */
 function AnswerFeedback({ grade }: { readonly grade: GradeResult | undefined }) {
   const stateClass = grade === undefined ? '' : grade.correct ? ' is-ok' : ' is-error'
+  const pillRef = useRef<HTMLParagraphElement>(null)
+
+  useEffect(() => {
+    if (grade === undefined) return
+    const el = pillRef.current
+    if (el === null) return
+    el.classList.remove('fb-pop')
+    void el.offsetWidth
+    el.classList.add('fb-pop')
+  }, [grade])
+
   return (
     <p
+      ref={pillRef}
       role="status"
       data-testid="flashcard-feedback"
       className={`flashcard-feedback${stateClass}`}

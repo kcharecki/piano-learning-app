@@ -93,6 +93,40 @@ name — the adjacent text does, or, for an icon-only `.btn-icon`, an explicit `
 the button does. `button`/`.btn` already lay out `gap: --space-2` between children, so
 `<button><Icon name="play" /> Start</button>` composes with no per-call CSS.
 
+## Motion
+
+`--dur-1`(120ms)/`--dur-2`(200ms)/`--dur-3`(320ms) + `--ease-out`/`--ease-in-out`
+(`tokens/motion.css`). Global `prefers-reduced-motion: reduce` already collapses every rule
+below to 1ms — never fought with `!important`. Nothing animates inside the notation paper
+frame except the playback cursor.
+
+- **Press** (`--dur-1`) — every button, not just `.btn-primary`: a shade plus a 1px sink
+  (`primitives.css`, base `button:active`/`.btn:active`). Every variant inherits it; none
+  override `transform`.
+- **Disclosure reveal** (`--dur-2`) — `<details>` content fades + rises in on open
+  (`details[open] > :not(summary)`, `primitives.css`). One rule, every disclosure in the app.
+  No exit animation — content leaves the tree the instant `[open]` is removed.
+- **Overlay/popover enter** (`--dur-2`) — fade + rise, `dialog[open]` (`primitives.css`).
+  Covers every native `<dialog>` (Practice's Change-piece/accuracy-info popovers, the
+  Review/Assessment breakdown dialogs); a caller with its own `[open]` rule
+  (`.review-overlay-dialog`, `.assessment-breakdown-dialog`) overrides it on specificity, not
+  conflict. The Reference panel and the topbar input-status popover are their own
+  non-`<dialog>` components outside this task's file list — the Reference panel already
+  slide-ins (`feature-reference-panel.css`); the input-status popover has no entrance motion
+  yet, flagged for whichever task next owns `src/app/shell/**`.
+- **Answer-feedback pulse** (`--dur-2`) — `fb-pop` (`primitives.css`): scale 1 → 1.04 → 1 plus
+  a brightness lift, `transform`/`filter` only so it can never shift layout. One keyframe pair,
+  three callers: the Flashcards result pill, the Ear training answer cards
+  (`.answer-card[data-state]`), the Rhythm tap pad's per-tap flash
+  (`.rhythm-tap-pad-flash`). A caller whose graded state can repeat unchanged on the same DOM
+  node (the Flashcards pill, reused across a whole deck) retriggers it itself — remove class,
+  force reflow, re-add; callers that remount fresh per graded item/tap (Ear training, Rhythm)
+  get it for free from the class simply starting to match.
+- **Session-complete** (`--dur-3`, once) — a card raise plus a check-draw
+  (`stroke-dasharray`/`stroke-dashoffset` on the check glyph) on Today's final run state
+  (`feature-session-run.css`). Fires once because the whole card only mounts between "the run
+  just finished" and the next "Plan a new session" click. No confetti.
+
 ## Screen rules
 
 1. **One primary action per screen.** Exactly one `.btn-primary`, positioned where the eye

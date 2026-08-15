@@ -119,9 +119,17 @@
   cursor: default;
 }
 /* The picked card stays at full opacity even though it is `:disabled` —
-   every unpicked sibling keeps the base button rule's default .45 dimming. */
+   every unpicked sibling keeps the base button rule's default .45 dimming.
+   `fb-pop` (roadmap UI-22, motion pass; keyframes in primitives.css) plays
+   once here for free: `IntervalAnswerButtons`/`QualityAnswerButtons` are
+   both `key={drill.item.id}`-mounted fresh per item (EarTrainingScreen.tsx),
+   so `data-state` goes from absent to `"correct"`/`"wrong"` exactly once per
+   mounted instance — a genuine "starts matching" transition, no retrigger
+   plumbing needed the way the Flashcards pill (a node reused across many
+   answers) requires. */
 .eartraining-answer-grid .answer-card[data-state] {
   opacity: 1;
+  animation: fb-pop var(--dur-2) var(--ease-out);
 }
 .eartraining-answer-grid .answer-card[data-state="correct"] {
   background: var(--fb-correct-dim);

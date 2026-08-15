@@ -202,13 +202,27 @@ export function SessionPlanScreen({ onOpen, clock, date, openStore }: SessionPla
         <header className="page-header">
           <h1>Today&apos;s session</h1>
         </header>
-        <p role="status" className="is-ok" data-testid="session-run-complete">
-          Session complete — {totalItems} of {pluralize(totalItems, 'item')} done,{' '}
-          {pluralize(run.run.plan.totalMinutes, 'minute')} planned.
-        </p>
-        <button type="button" className="btn-primary" onClick={() => run.planNewSession()}>
-          Plan a new session
-        </button>
+        {/* Session-complete moment (roadmap UI-22, motion pass): this whole
+            block only exists in the DOM between "the run just finished" and
+            the next "Plan a new session" click, so its own mount IS the
+            one-time trigger — no key/JS retrigger needed, unlike the
+            Flashcards pill (a node reused across many answers). The card
+            raise (`--dur-3`) and the check-draw (a `stroke-dasharray`
+            reveal on the shared `<Icon name="check">` glyph, also `--dur-3`)
+            are the emotional peak DESIGN.md rule 5 asks feedback to have —
+            this screen previously ended a session on a plain status line. */}
+        <div className="card session-complete-card">
+          <span className="session-complete-check" aria-hidden="true">
+            <Icon name="check" />
+          </span>
+          <p role="status" className="is-ok" data-testid="session-run-complete">
+            Session complete — {totalItems} of {pluralize(totalItems, 'item')} done,{' '}
+            {pluralize(run.run.plan.totalMinutes, 'minute')} planned.
+          </p>
+          <button type="button" className="btn-primary" onClick={() => run.planNewSession()}>
+            Plan a new session
+          </button>
+        </div>
       </div>
     )
   }

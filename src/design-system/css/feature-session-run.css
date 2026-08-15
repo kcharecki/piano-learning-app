@@ -140,7 +140,48 @@
   font-size: var(--text-sm);
 }
 
-/* ---------- Complete state ---------- */
+/* ---------- Complete state (roadmap UI-22, motion pass) ----------
+   A one-time card raise + check-draw when a session finishes — the
+   emotional peak of a learning app, which used to be a plain status line.
+   Fires once: this whole `.session-complete-card` only mounts between "the
+   run just finished" and the next "Plan a new session" click (see
+   SessionPlanScreen.tsx's own comment at the call site), so a fresh mount IS
+   the one-time trigger, no confetti, no loop. */
+.session-complete-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  text-align: center;
+  animation: session-complete-raise var(--dur-3) var(--ease-out);
+}
+@keyframes session-complete-raise {
+  from { opacity: 0; transform: translateY(var(--space-3)); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.session-complete-check {
+  color: var(--fb-correct);
+}
+.session-complete-check svg {
+  width: var(--text-2xl);
+  height: var(--text-2xl);
+}
+/* The check glyph (`Icon name="check"`, a single stroked path — `path d="M5
+   13l4 4L19 7"`) draws itself in rather than just appearing: `20` is a close
+   approximation of that path's own length in its 24x24 viewBox user-space
+   (~19.8, two segments of a bent line) — near enough that the drawn stroke
+   reads as complete at 100%, and `Icon.tsx` (outside this task's file list)
+   is not touched to add an exact `pathLength` normalization. */
+.session-complete-check svg path {
+  stroke-dasharray: 20;
+  stroke-dashoffset: 0;
+  animation: session-complete-check-draw var(--dur-3) var(--ease-out);
+}
+@keyframes session-complete-check-draw {
+  from { stroke-dashoffset: 20; }
+  to { stroke-dashoffset: 0; }
+}
 .session-plan-screen [data-testid="session-run-complete"] {
+  margin: 0;
   font-size: var(--text-lg);
 }

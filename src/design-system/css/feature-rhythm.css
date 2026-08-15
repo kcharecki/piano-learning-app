@@ -79,7 +79,14 @@
    for taps that land faster than one animation duration apart. Fill +
    edge-glyph together, never color alone (rule 8) — the checkmark is the
    glyph cue, `--accent-dim`/`--fb-correct` the color cue. `prefers-reduced-
-   motion` is handled globally by `tokens/motion.css`; nothing here fights it. */
+   motion` is handled globally by `tokens/motion.css`; nothing here fights it.
+   `fb-pop` (roadmap UI-22, motion pass; keyframes in primitives.css) runs
+   alongside the pre-existing `rhythm-tap-flash` opacity fade — the two
+   animate different properties (transform/filter vs opacity), so they
+   compose with no conflict, and this element already remounts fresh per tap
+   (the `key={drill.tapCount}` above), the same "starts matching" guarantee
+   the Ear training answer cards rely on, so no extra retrigger plumbing is
+   needed here either. */
 .rhythm-tap-pad-flash {
   position: absolute;
   inset: 0;
@@ -87,7 +94,7 @@
   place-items: center;
   background: var(--accent-dim);
   color: var(--fb-correct);
-  animation: rhythm-tap-flash var(--dur-1) var(--ease-out);
+  animation: rhythm-tap-flash var(--dur-1) var(--ease-out), fb-pop var(--dur-2) var(--ease-out);
   pointer-events: none;
 }
 .rhythm-tap-pad-flash svg {

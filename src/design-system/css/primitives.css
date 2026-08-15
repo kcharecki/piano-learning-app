@@ -28,11 +28,23 @@ button, .btn {
   font-weight: var(--weight-medium);
   cursor: pointer;
   transition: background var(--dur-1) var(--ease-out),
-              border-color var(--dur-1) var(--ease-out);
+              border-color var(--dur-1) var(--ease-out),
+              transform var(--dur-1) var(--ease-out);
 }
 button:hover, .btn:hover { background: var(--bg-3); border-color: var(--border-2); }
-button:active, .btn:active { background: var(--bg-1); }
+/* Press state (roadmap UI-22, motion pass): every button acknowledges a
+   press within 100ms (DESIGN.md rule 5), not just `.btn-primary`. A shade
+   plus a 1px sink, `--dur-1`. Set once here so `.btn-ghost`/`.btn-danger`/
+   `.btn-icon`/`.stepper button`/`.seg-control > *` and every bare `<button>`
+   inherit it for free — none of those override `transform`, only the
+   properties (background, border) that make each variant look distinct, so
+   the cascade carries this rule's `transform` through untouched. */
+button:active, .btn:active { background: var(--bg-1); transform: translateY(1px); }
 button:disabled, .btn:disabled { opacity: .45; cursor: not-allowed; }
+/* A disabled control cannot register a press — undo the sink for the one
+   case a mouse can still trigger `:active` on a disabled native `<button>`
+   (Firefox). */
+button:disabled:active, .btn:disabled:active { transform: none; }
 
 /* Sharpened (roadmap UI-03, 2026-08-12 UI audit): the true primary action
    ("Start exercise" on Sight reading, "Start" on Metronome) was rendering
@@ -151,6 +163,29 @@ summary {
   align-items: center;
   min-height: var(--control-h);
   cursor: pointer;
+}
+
+/* ---------- Disclosure reveal (roadmap UI-22, motion pass) ----------
+   `<details>` content fades + rises in on open, `--dur-2` — cheap because it
+   only animates the content that just entered the render tree, never the
+   `<details>` box itself (animating height is the expensive, layout-thrashy
+   version this deliberately avoids). One rule covers every disclosure in the
+   app (QWERTY hints, "Why?" callouts, practice/session setup panels) with no
+   per-screen CSS. `:not(summary)` — the always-visible trigger never
+   animates, only what it reveals.
+   No exit animation: content leaves the render tree the instant `[open]` is
+   removed, the same boundary `#reference-panel`'s own slide-in documents
+   (feature-reference-panel.css) for the identical reason. A `<details open>`
+   that starts already open plays this once on mount too — accepted, not
+   fought: `.nav-scrim`'s fade-in (feature-nav-groups.css) already takes the
+   same trade-off for the same CSS-only reason (a `transition` cannot animate
+   from `display: none`, so `[open]`-matching is the only hook there is). */
+details[open] > :not(summary) {
+  animation: disclosure-in var(--dur-2) var(--ease-out);
+}
+@keyframes disclosure-in {
+  from { opacity: 0; transform: translateY(var(--space-1)); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 /* ---------- Text-ish inputs ---------- */
@@ -546,6 +581,26 @@ dialog {
   z-index: var(--z-dialog);
 }
 dialog::backdrop { background: rgba(0, 0, 0, .55); }
+/* Overlay/popover enter (roadmap UI-22, motion pass): fade + rise, `--dur-2`,
+   for every native `<dialog>` — the Practice "Change piece"/accuracy-info
+   popovers, the Review/Assessment breakdown dialogs. A caller with its own
+   `[open]` class rule (`.review-overlay-dialog`/`.assessment-breakdown-
+   dialog` in feature-practice-sections.css) already sets its own `animation`
+   there, which wins on specificity and simply replaces this one — not a
+   conflict, just a more specific override for a caller that customized it
+   first. Scoped to `[open]`, matching the CSS trap every dialog caller in
+   this codebase already documents: a bare `dialog { animation: … }` would
+   also compute (harmlessly) for the closed, `display: none` state, but
+   writing it unscoped here would invite a future author to add layout
+   properties to the same selector and reintroduce the always-rendered bug
+   feature-practice.css's own header warns about. */
+dialog[open] {
+  animation: overlay-in var(--dur-2) var(--ease-out);
+}
+@keyframes overlay-in {
+  from { opacity: 0; transform: translateY(var(--space-2)); }
+  to { opacity: 1; transform: translateY(0); }
+}
 
 /* ---------- Status message (role="status") ---------- */
 [role="status"] {
@@ -647,3 +702,36 @@ progress::-moz-progress-bar { background: var(--accent); border-radius: var(--ra
   text-align: center;
 }
 .empty-state > svg { width: 32px; height: 32px; stroke: var(--text-3); }
+
+/* ---------- Answer-feedback pulse (roadmap UI-22, motion pass) ----------
+   ONE shared keyframe pair for "you just got graded" — scale 1 -> 1.04 -> 1
+   plus a brief brightness lift, `--dur-2`. Three callers, one definition:
+   the Flashcards result pill (`.flashcard-feedback`, FlashcardScreen.tsx),
+   the Ear training answer cards (`.answer-card[data-state]`,
+   feature-eartraining.css) and the Rhythm tap pad's per-tap flash
+   (`.rhythm-tap-pad-flash`, feature-rhythm.css) all reference `fb-pop` by
+   name rather than each declaring their own version.
+   `transform`/`filter` only — never `width`/`height`/`margin` — so this can
+   never shift layout; that is what lets the Flashcards pill and the Ear
+   training grid reserve their geometry ahead of time and have this pulse
+   land inside it with zero jump (DESIGN.md rule 5, "no layout shift").
+   A caller whose graded state can repeat on the SAME DOM node without
+   otherwise changing (two correct Flashcard answers in a row: `data-visible`
+   stays `"true"`, the `is-ok` class does not change) cannot rely on this
+   class alone — a CSS animation only (re)plays when an element starts
+   matching a selector it didn't already match, not on every re-render where
+   it still does. FlashcardScreen.tsx's `AnswerFeedback` handles that case
+   itself (remove the class, force a reflow, re-add it) since `GradeResult`
+   is a fresh object every answer, giving it a reliable per-answer signal to
+   key the retrigger off; the Ear training answer cards and the Rhythm flash
+   both remount fresh per graded item/tap already (`key={item.id}` /
+   `key={tapCount}`), so `[data-state]`/`.rhythm-tap-pad-flash` matching for
+   the first time is enough there — no retrigger plumbing needed. */
+.fb-pop {
+  animation: fb-pop var(--dur-2) var(--ease-out);
+}
+@keyframes fb-pop {
+  0% { transform: scale(1); filter: brightness(1); }
+  40% { transform: scale(1.04); filter: brightness(1.15); }
+  100% { transform: scale(1); filter: brightness(1); }
+}
