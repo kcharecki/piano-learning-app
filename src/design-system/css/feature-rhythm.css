@@ -96,6 +96,9 @@
   color: var(--fb-correct);
   animation: rhythm-tap-flash var(--dur-1) var(--ease-out), fb-pop var(--dur-2) var(--ease-out);
   pointer-events: none;
+  font-size: 1.75em;
+  font-weight: var(--weight-bold);
+  line-height: 1;
 }
 .rhythm-tap-pad-flash svg {
   width: 2em;
@@ -104,4 +107,24 @@
 @keyframes rhythm-tap-flash {
   from { opacity: 1; }
   to { opacity: 0; }
+}
+
+/* Roadmap U.3: per-tap early/late/hit(/extra) feedback, live from
+   `core/rhythm/tapClassifier.ts` via `useRhythmDrill`/`useClapbackDrill`'s
+   `lastTapVerdict`. Reuses the SAME `--fb-*`/`--fb-*-dim` pairs the rest of
+   the app's timing feedback already uses for this exact vocabulary
+   (`--fb-correct` = hit, `--fb-early`/`--fb-late` = timing, `--fb-extra` = "a
+   tap landed where no onset was" — see `colors.css`'s own token comments) —
+   no new palette entries, per this task's own rule. Both classes always sit
+   on the element together (`.rhythm-tap-pad-flash.rhythm-tap-pad-flash--X`);
+   these come after the base rule above, so the modifier's `background`/
+   `color` win the (equal-specificity) cascade without needing `!important`. */
+.rhythm-tap-pad-flash--hit { background: var(--accent-dim); color: var(--fb-correct); }
+.rhythm-tap-pad-flash--early { background: var(--fb-early-dim); color: var(--fb-early); }
+.rhythm-tap-pad-flash--late { background: var(--fb-late-dim); color: var(--fb-late); }
+.rhythm-tap-pad-flash--extra { background: var(--fb-extra-dim); color: var(--fb-extra); }
+
+/* Roadmap U.3: the manual-Stop control, directly under the pad it interrupts. */
+.rhythm-stop-btn {
+  align-self: center;
 }

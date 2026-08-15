@@ -305,13 +305,40 @@ purpose is reading and playing.
       a live route. Either wire the MIDI-out route to a real control or delete the dead path.
       *Proof: either Settings offers a route the learner can change and the change is audible,
       or `knip:prod` stops reporting the unused export.*
-- [ ] U.3 `core/rhythm`: no per-tap early/late feedback, and no manual Stop. Neither
+- [x] U.3 `core/rhythm`: no per-tap early/late feedback, and no manual Stop. Neither
       `useRhythmDrill` nor `useClapbackDrill` classifies a tap in real time — both produce one
       batch grade at run end — so UI-14 shipped a generic hit flash and deliberately refused to
       add real-time onset matching to correctness-critical timing code. Wiring `engine.stop()`
       naively would fire the run-ended path mid-pattern and grade every unplayed onset as
       missed. This is a **core task with property tests**, not a UI task.
-      *Proof: property tests over the tap classifier, then the pad shows early/late/hit per tap.*
+      *Proof: new pure module `core/rhythm/tapClassifier.ts` — a FIFO-cursor live classifier
+      (deliberately not the batch graders' global-nearest matching; see the module doc for why
+      a live single-tap classifier needs strictly monotonic attribution) — 15 tests incl.
+      `fast-check` property tests: every tap classified against exactly one onset or rejected,
+      hit window symmetric, monotonic taps never reclaim an earlier onset, and classification
+      agrees with `gradeTapping` on a clean run. `closeExpiredOnsets(onsetTicks, state, atTick,
+      opts)` grades only onsets whose window has elapsed as of `atTick`, leaving future onsets
+      pending — property-tested: stop never marks a future onset missed, and stopping at/after
+      the last onset equals the run-ended grade. Wired into both drill hooks (`lastTapVerdict`,
+      `stop`) and both screens (`RhythmScreen.tsx`/`RhythmClapback.tsx`): a per-tap flash now
+      shows hit/early/late/extra using the app's existing `--fb-*` tokens and their own
+      documented glyphs (✓/‹/›/+ — no new vocabulary), and a Stop control next to the tap pad
+      calls the safe path. `npx vitest run src/core/rhythm src/app/rhythm` and `npm run verify`
+      both green (4156/4156). Driven via `e2e/rhythm-live-feedback.spec.ts` (2 new specs, run
+      3x clean against a real dev server): a tap exactly on onset 0 shows 'hit'; a tap shifted
+      +90/-130ms off whichever mark is structurally guaranteed to be onset 1 shows 'late'/
+      'early'; and, for both drills, a Stop at a controlled mid-pattern checkpoint leaves
+      `missed` far below what the identical run graded naturally end-to-end — proving Stop never
+      grades the unplayed remainder. Visual pass (both widths, both themes, dark+light) on the
+      idle, tapping (both drills) and completed states: console clean but for the pre-existing
+      headless-only `[createWebMidi] requestMIDIAccess` warning, unrelated to this change.
+      Ambiguities, not resolved silently: (1) the live classifier's FIFO matching is a
+      deliberate departure from the batch graders' global-nearest matching, justified in
+      `tapClassifier.ts`'s own module doc; (2) `useClapbackDrill.ts`'s manual Stop always
+      reports `tempoScale: 1` rather than running `fitTempoScale`, because that fit needs the
+      complete tap list a mid-run Stop does not have; (3) the clap-back Stop control is rendered
+      only during the `'tapping'` phase, not `'listening'` (nothing to grade yet) — a reasonable
+      scope boundary the brief did not specify explicitly.
 ### Proposed by UI-24's final pass — measured, none of it done
 
 Rule 2 (~6 visible controls before disclosure) is missed on three screens. UI-24 settled

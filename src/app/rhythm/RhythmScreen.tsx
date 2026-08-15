@@ -45,6 +45,7 @@ import { ExerciseScore } from '@app/sightreading/ExerciseScore.tsx'
 import { Icon } from '@app/ui/Icon.tsx'
 import type { ScoreChrome } from '@app/score/engraver.ts'
 import type { AudioOutput, Clock, MidiInput, Rng } from '@core/ports/index.ts'
+import type { TapVerdict } from '@core/rhythm/tapClassifier.ts'
 import { useId, useState } from 'react'
 import { RhythmClapback } from './RhythmClapback.tsx'
 import { useRhythmDrill } from './useRhythmDrill.ts'
@@ -84,6 +85,23 @@ function stepComplexity(current: Complexity, delta: 1 | -1): Complexity {
 
 function percent(fraction: number): string {
   return `${Math.round(fraction * 100)}%`
+}
+
+/**
+ * Roadmap U.3: the per-tap flash's glyph, always paired with a
+ * `--fb-*`-token color (never color alone, DESIGN.md rule 8). `undefined`
+ * means the tap matched no onset — `tapClassifier.ts`'s "extra" case — shown
+ * with the SAME '+' badge `colors.css` already documents for `--fb-extra`
+ * ("+ badge — note played, none expected"), not a new glyph. 'early'/'late'
+ * reuse the '‹'/'›' marks `colors.css`'s own token comments assign that exact
+ * meaning to for `--fb-early`/`--fb-late`, so this introduces no new visual
+ * vocabulary, only applies the vocabulary that already existed.
+ */
+function TapFlashGlyph({ verdict }: { readonly verdict: TapVerdict | undefined }) {
+  if (verdict === 'hit') return <Icon name="check" />
+  if (verdict === 'early') return <>‹</>
+  if (verdict === 'late') return <>›</>
+  return <>+</>
 }
 
 const MODE_SUBTITLE: Record<RhythmMode, string> = {
@@ -206,10 +224,21 @@ export function RhythmScreen(props: RhythmScreenProps) {
                   {drill.tapCount}
                 </span>
                 {drill.tapCount > 0 && (
-                  <span key={drill.tapCount} className="rhythm-tap-pad-flash" aria-hidden="true">
-                    <Icon name="check" />
+                  <span
+                    key={drill.tapCount}
+                    className={`rhythm-tap-pad-flash rhythm-tap-pad-flash--${drill.lastTapVerdict ?? 'extra'}`}
+                    aria-hidden="true"
+                    data-testid="rhythm-tap-verdict"
+                    data-verdict={drill.lastTapVerdict ?? 'extra'}
+                  >
+                    <TapFlashGlyph verdict={drill.lastTapVerdict} />
                   </span>
                 )}
+              </button>
+
+              <button type="button" className="btn-ghost rhythm-stop-btn" onClick={drill.stop}>
+                <Icon name="stop" />
+                Stop
               </button>
             </section>
           )}

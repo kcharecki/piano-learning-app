@@ -99,6 +99,18 @@ const BASE_TOLERANCE_TICKS: Record<ClapbackLevel, Ticks> = {
 }
 
 /**
+ * The level's own matching window, in ticks — the same table `gradeClapback`
+ * grades a finished run against. Exported (roadmap U.3) so the real-time
+ * `core/rhythm/tapClassifier.ts` wiring (`app/rhythm/useClapbackDrill.ts`)
+ * can classify each LIVE tap against the identical window the batch grader
+ * will eventually use, rather than inventing a second number that could
+ * silently drift from this one.
+ */
+export function toleranceTicksForLevel(level: ClapbackLevel): Ticks {
+  return BASE_TOLERANCE_TICKS[level]
+}
+
+/**
  * How far a uniform tempo difference is forgiven before it grades as wrong
  * rhythm (see the module doc's point 1). 1.15 mirrors
  * `core/eartraining/dictation.ts`'s own `DEFAULT_MAX_TEMPO_SCALE`, chosen

@@ -56,15 +56,26 @@ import {
   generateRhythm,
   gradeTapping,
   rhythmToScore,
+  TAPPING_DEFAULTS,
   type RhythmPattern,
   type TapGrade,
   type TimeSignature,
 } from '@core/generator/rhythm.ts'
 import type { Hand } from '@core/notation/score.ts'
 import type { AudioOutput, Clock, DateSource, MidiInput, Rng } from '@core/ports/index.ts'
-import { makeTempoMap, type TempoMap } from '@core/timing/tempo.ts'
-import { millis, type Millis } from '@core/shared/units.ts'
+import { makeTempoMap, msToTick, tickToMs, type TempoMap } from '@core/timing/tempo.ts'
+import { millis, ticks, type Millis, type Ticks } from '@core/shared/units.ts'
 import type { Score } from '@core/notation/score.ts'
+import {
+  classifyTap,
+  closeExpiredOnsets,
+  defaultHitWindowTicks,
+  initTapClassifierState,
+  snapshotGrade,
+  type TapClassifierOptions,
+  type TapClassifierState,
+  type TapVerdict,
+} from '@core/rhythm/tapClassifier.ts'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 export type RhythmUiPhase = 'idle' | 'tapping' | 'graded'
@@ -92,12 +103,22 @@ export type UseRhythmDrill = {
   readonly grade: TapGrade | undefined
   /** How many taps have been registered in the current run. */
   readonly tapCount: number
+  /** Roadmap U.3: the live verdict of the MOST RECENT tap ('hit'/'early'/'late'),
+   *  or `undefined` for a tap that matched no onset (an "extra" tap) or before
+   *  any tap has happened this run. Reset to `undefined` by `start()`. */
+  readonly lastTapVerdict: TapVerdict | undefined
   readonly position: PositionDisplay | undefined
   readonly midi: MidiConnection
   /** Generates a fresh pattern and starts the run. No-op while already tapping. */
   readonly start: () => void
   /** One tap, from any source. No-op unless phase is 'tapping'. */
   readonly tap: () => void
+  /** Roadmap U.3: end the run early. Grades only the elapsed prefix — every
+   *  onset whose matching window had not yet closed at the moment Stop was
+   *  pressed is left ungraded, never counted as missed (see
+   *  `core/rhythm/tapClassifier.ts`'s `closeExpiredOnsets`). No-op unless
+   *  phase is 'tapping'. */
+  readonly stop: () => void
 }
 
 /** REQ-3.9.1-adjacent fixes the metre; only `complexity`/`bars` are asked for. */
@@ -111,6 +132,19 @@ const TIME_SIGNATURE: TimeSignature = { beats: 4, beatType: 4 }
  * every render, and loop forever — see the roadmap-2.13 report.
  */
 const ACTIVE_HANDS: readonly Hand[] = ['right']
+
+/**
+ * `rhythmToScore` never passes `tempos` to `makeScore`, so every rhythm run
+ * plays against `ScoreInput.tempos`'s own documented default — "a single 120
+ * bpm mark at tick 0" — always, regardless of which pattern was drawn. That
+ * makes this a fixed, module-level map safe to convert the drill's ms-domain
+ * tolerance (`TAPPING_DEFAULTS.toleranceMs`) into the tick-domain window the
+ * live classifier (`core/rhythm/tapClassifier.ts`) needs, and to convert a
+ * live tap's `clock.now() - anchorMs` (ms) into the tick it lands on — without
+ * waiting on `tempoMapRef` (which only updates a render after `start()`, and
+ * exists for the batch `gradeTapping` path, not this one).
+ */
+const FIXED_TEMPO: TempoMap = makeTempoMap([])
 
 export function useRhythmDrill(options: UseRhythmDrillOptions): UseRhythmDrill {
   const [clock] = useState<Clock>(() => options.clock ?? createBrowserClock())
@@ -136,6 +170,16 @@ export function useRhythmDrill(options: UseRhythmDrillOptions): UseRhythmDrill {
   const [pattern, setPattern] = useState<RhythmPattern | undefined>(undefined)
   const [grade, setGrade] = useState<TapGrade | undefined>(undefined)
   const [tapCount, setTapCount] = useState(0)
+  const [lastTapVerdict, setLastTapVerdict] = useState<TapVerdict | undefined>(undefined)
+
+  /** `toleranceTicks`/`hitWindowTicks` for the live classifier — derived once
+   *  from `TAPPING_DEFAULTS.toleranceMs` via `FIXED_TEMPO` (see its comment),
+   *  never from a per-run tempo, so it never has to wait a render for
+   *  `start()` to catch up. */
+  const classifierOpts = useMemo<TapClassifierOptions>(() => {
+    const toleranceTicks = msToTick(FIXED_TEMPO, millis(TAPPING_DEFAULTS.toleranceMs))
+    return { toleranceTicks, hitWindowTicks: defaultHitWindowTicks(toleranceTicks) }
+  }, [])
 
   /** The pattern/tempo the CURRENT run is graded against, read by effects that
    * must not depend on the `pattern` state (they fire on `engine.phase`, not
@@ -150,6 +194,11 @@ export function useRhythmDrill(options: UseRhythmDrillOptions): UseRhythmDrill {
   const tempoMapRef = useRef<TempoMap | undefined>(undefined)
   const tapsRef = useRef<Millis[]>([])
   const anchorMsRef = useRef<Millis>(millis(0))
+  /** Roadmap U.3: the CURRENT run's onsets (rests excluded, ascending) and the
+   *  FIFO classifier cursor over them — read/written by `tap()` and `stop()`,
+   *  reset by `start()`. */
+  const onsetTicksRef = useRef<readonly Ticks[]>([])
+  const classifierStateRef = useRef<TapClassifierState>(initTapClassifierState(0))
   /** Set by `start()`, consumed by the deferred play effect below. */
   const pendingPlayRef = useRef(false)
   /** True once THIS run's `play()` has actually fired — gates the "run ended"
@@ -245,8 +294,12 @@ export function useRhythmDrill(options: UseRhythmDrillOptions): UseRhythmDrill {
     patternComplexityRef.current = options.complexity
     tapsRef.current = []
     hasPlayedRef.current = false
+    const onsetTicks = generated.onsets.filter((o) => !o.isRest).map((o) => o.tick)
+    onsetTicksRef.current = onsetTicks
+    classifierStateRef.current = initTapClassifierState(onsetTicks.length)
     setGrade(undefined)
     setTapCount(0)
+    setLastTapVerdict(undefined)
     practiceLogRef.current.start('technique', `Rhythm — complexity ${options.complexity}`)
 
     // Play whatever transport already exists BEFORE the score below changes:
@@ -280,6 +333,57 @@ export function useRhythmDrill(options: UseRhythmDrillOptions): UseRhythmDrill {
     const relative = millis(clock.now() - anchorMsRef.current)
     tapsRef.current = [...tapsRef.current, relative]
     setTapCount((count) => count + 1)
+
+    // Roadmap U.3: live per-tap verdict, on the SAME tick-domain classifier
+    // the batch grade at run-end never touches — `classifyTap` is a pure
+    // function of `onsetTicksRef`/`classifierStateRef`, so this never affects
+    // (and is never affected by) `gradeTapping`'s own read of `tapsRef` above.
+    const tapTick = msToTick(FIXED_TEMPO, relative)
+    const result = classifyTap(onsetTicksRef.current, classifierStateRef.current, tapTick, classifierOpts)
+    classifierStateRef.current = result.state
+    setLastTapVerdict(result.classification?.verdict)
+  }
+
+  /** Roadmap U.3: manual Stop. Grades only the elapsed prefix — see this
+   *  function's own use of `closeExpiredOnsets` and the `UseRhythmDrill.stop`
+   *  doc comment above. */
+  function stopRun(): void {
+    if (phase !== 'tapping') return
+
+    // MUST be read before `engine.stop()`: `PracticeEngine.stop()` calls
+    // `Transport.stop()`, which REWINDS the transport's position (to 0, or
+    // the loop start) before returning — so anything derived from
+    // `engine.position`/the returned `CursorTarget` AFTER that call describes
+    // where the transport landed, not where the learner actually stopped it.
+    // `clock.now() - anchorMsRef.current` is the same "elapsed since play()"
+    // arithmetic `tap()` already uses above, and is unaffected by the rewind.
+    const elapsedMs = millis(clock.now() - anchorMsRef.current)
+    const elapsedTick = msToTick(FIXED_TEMPO, elapsedMs)
+
+    // Gate the "run ended" effect BEFORE `engine.stop()`: that call is what
+    // drives `engine.phase` to 'stopped' on the next render, and the effect
+    // fires on every 'stopped' transition — this ref write is synchronous, so
+    // it is visible before that effect can ever run (React 18 batching).
+    hasPlayedRef.current = false
+    engine.stop()
+
+    const finalState = closeExpiredOnsets(onsetTicksRef.current, classifierStateRef.current, elapsedTick, classifierOpts)
+    classifierStateRef.current = finalState
+    const snapshot = snapshotGrade(finalState)
+    // `FIXED_TEMPO` is a single mark anchored at tick 0 (see its own comment),
+    // so `tickToMs` is a pure linear scale with no offset — applying it to a
+    // ticks MAGNITUDE (a mean deviation, not a position) is exactly as valid
+    // as applying it to a tick position, which is what makes this safe.
+    const result: TapGrade = {
+      matched: snapshot.matched,
+      missed: snapshot.missed,
+      extra: snapshot.extra,
+      accuracy: snapshot.accuracy,
+      meanAbsDeviationMs: Number(tickToMs(FIXED_TEMPO, ticks(snapshot.meanAbsDeviationTicks))),
+    }
+    setGrade(result)
+    setPhase('graded')
+    practiceLogRef.current.stop({ accuracy: result.accuracy })
   }
 
   const tapRef = useRef(tap)
@@ -319,9 +423,11 @@ export function useRhythmDrill(options: UseRhythmDrillOptions): UseRhythmDrill {
     score,
     grade,
     tapCount,
+    lastTapVerdict,
     position: engine.position,
     midi,
     start,
     tap,
+    stop: stopRun,
   }
 }

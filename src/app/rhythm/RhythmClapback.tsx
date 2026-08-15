@@ -29,6 +29,7 @@ import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { Icon } from '@app/ui/Icon.tsx'
 import type { ClapbackLevel } from '@core/rhythm/clapback.ts'
 import type { AudioOutput, Clock, MidiInput, Rng } from '@core/ports/index.ts'
+import type { TapVerdict } from '@core/rhythm/tapClassifier.ts'
 import { useId, useState } from 'react'
 import { useClapbackDrill } from './useClapbackDrill.ts'
 
@@ -54,6 +55,19 @@ function stepLevel(current: ClapbackLevel, delta: 1 | -1): ClapbackLevel {
 
 function percent(fraction: number): string {
   return `${Math.round(fraction * 100)}%`
+}
+
+/** Roadmap U.3: identical glyph vocabulary to `RhythmScreen.tsx`'s
+ *  `TapFlashGlyph` — deliberately re-declared, not shared, mirroring this
+ *  file's own "shared visual language... re-declared rather than shared as a
+ *  component" precedent (see the module doc). See that function's comment
+ *  for why each glyph is the one already documented for its `--fb-*` token,
+ *  not a new one. */
+function TapFlashGlyph({ verdict }: { readonly verdict: TapVerdict | undefined }) {
+  if (verdict === 'hit') return <Icon name="check" />
+  if (verdict === 'early') return <>‹</>
+  if (verdict === 'late') return <>›</>
+  return <>+</>
 }
 
 export function RhythmClapback(props: RhythmClapbackProps) {
@@ -154,11 +168,24 @@ export function RhythmClapback(props: RhythmClapbackProps) {
               </span>
             )}
             {drill.tapCount > 0 && (
-              <span key={drill.tapCount} className="rhythm-tap-pad-flash" aria-hidden="true">
-                <Icon name="check" />
+              <span
+                key={drill.tapCount}
+                className={`rhythm-tap-pad-flash rhythm-tap-pad-flash--${drill.lastTapVerdict ?? 'extra'}`}
+                aria-hidden="true"
+                data-testid="clapback-tap-verdict"
+                data-verdict={drill.lastTapVerdict ?? 'extra'}
+              >
+                <TapFlashGlyph verdict={drill.lastTapVerdict} />
               </span>
             )}
           </button>
+
+          {drill.phase === 'tapping' && (
+            <button type="button" className="btn-ghost rhythm-stop-btn" onClick={drill.stop}>
+              <Icon name="stop" />
+              Stop
+            </button>
+          )}
         </section>
       )}
 

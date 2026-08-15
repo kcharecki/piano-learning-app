@@ -98,13 +98,28 @@ import { createBrowserRng } from '@app/sightreading/rng.ts'
 import { silentAudioOutput } from '@app/sightreading/silentAudioOutput.ts'
 import { useEarTrainingStore } from '@app/state/earTrainingStore.ts'
 import { generateRhythm, rhythmToScore, type RhythmPattern, type TimeSignature } from '@core/generator/rhythm.ts'
-import { gradeClapback, type ClapbackGrade, type ClapbackLevel } from '@core/rhythm/clapback.ts'
+import {
+  gradeClapback,
+  toleranceTicksForLevel,
+  type ClapbackGrade,
+  type ClapbackLevel,
+} from '@core/rhythm/clapback.ts'
 import type { Hand } from '@core/notation/score.ts'
 import type { EarItemKind } from '@core/eartraining/item.ts'
 import { EAR_MAX_LEVEL, EAR_MIN_LEVEL, adaptEarLevel, type EarAttempt } from '@core/eartraining/session.ts'
 import type { AudioOutput, Clock, DateSource, MidiInput, Rng } from '@core/ports/index.ts'
-import { makeTempoMap, type TempoMap } from '@core/timing/tempo.ts'
-import { millis, type Millis } from '@core/shared/units.ts'
+import { makeTempoMap, msToTick, tickToMs, type TempoMap } from '@core/timing/tempo.ts'
+import { millis, ticks, type Millis, type Ticks } from '@core/shared/units.ts'
+import {
+  classifyTap,
+  closeExpiredOnsets,
+  defaultHitWindowTicks,
+  initTapClassifierState,
+  snapshotGrade,
+  type TapClassifierOptions,
+  type TapClassifierState,
+  type TapVerdict,
+} from '@core/rhythm/tapClassifier.ts'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 export type ClapbackUiPhase = 'idle' | 'listening' | 'tapping' | 'graded'
@@ -135,12 +150,23 @@ export type UseClapbackDrill = {
   readonly grade: ClapbackGrade | undefined
   /** How many taps have been registered in the current (tapping) run. */
   readonly tapCount: number
+  /** Roadmap U.3: the live verdict of the MOST RECENT tap ('hit'/'early'/'late'),
+   *  or `undefined` for a tap that matched no onset (an "extra" tap), or before
+   *  any tap has happened this run. Reset to `undefined` by `start()`. Only
+   *  ever set while 'tapping' — the 'listening' half never taps. */
+  readonly lastTapVerdict: TapVerdict | undefined
   readonly position: PositionDisplay | undefined
   readonly midi: MidiConnection
   /** Generates a fresh pattern and starts listening. No-op mid-run. */
   readonly start: () => void
   /** One tap, from any source. No-op unless phase is 'tapping'. */
   readonly tap: () => void
+  /** Roadmap U.3: end the tapping run early. Grades only the elapsed prefix —
+   *  every onset whose matching window had not yet closed at the moment Stop
+   *  was pressed is left ungraded, never counted as missed (see
+   *  `core/rhythm/tapClassifier.ts`'s `closeExpiredOnsets`). No-op unless
+   *  phase is 'tapping' (there is nothing to grade while only 'listening'). */
+  readonly stop: () => void
   /** A manual override (e.g. the level +/- buttons) — persists exactly like an adapted level. */
   readonly setLevel: (level: ClapbackLevel) => void
 }
@@ -192,6 +218,16 @@ function generateNonEmptyPattern(bars: number, level: ClapbackLevel, rng: Rng): 
 /** Stable reference across renders — see `useRhythmDrill.ts`'s identical comment on why this matters
  *  (a fresh `['right']` literal would defeat `usePracticeEngine`'s `activeHands` memo every render). */
 const ACTIVE_HANDS: readonly Hand[] = ['right']
+
+/**
+ * `rhythmToScore` never passes `tempos`, so — exactly as `useRhythmDrill.ts`'s
+ * identical `FIXED_TEMPO` documents — every clap-back run plays against a
+ * fixed single 120bpm mark at tick 0 regardless of level or pattern. Used
+ * only to convert ms-domain quantities (a live tap's `clock.now() -
+ * anchorMs`, a manual Stop's elapsed time) into ticks for the live
+ * classifier, and back.
+ */
+const FIXED_TEMPO: TempoMap = makeTempoMap([])
 
 export function useClapbackDrill(options: UseClapbackDrillOptions): UseClapbackDrill {
   const [clock] = useState<Clock>(() => options.clock ?? createBrowserClock())
@@ -255,6 +291,19 @@ export function useClapbackDrill(options: UseClapbackDrillOptions): UseClapbackD
   const tempoMapRef = useRef<TempoMap | undefined>(undefined)
   const tapsRef = useRef<Millis[]>([])
   const anchorMsRef = useRef<Millis>(millis(0))
+  /** Roadmap U.3: the CURRENT run's onsets (rests excluded, ascending), the
+   *  FIFO classifier cursor over them, and the level-scaled matching window
+   *  it was built with (`toleranceTicksForLevel`, the SAME table
+   *  `gradeClapback` grades a finished run against) — read/written by `tap()`
+   *  and `stop()`, reset by `start()`. */
+  const onsetTicksRef = useRef<readonly Ticks[]>([])
+  const classifierStateRef = useRef<TapClassifierState>(initTapClassifierState(0))
+  const initialToleranceTicks = toleranceTicksForLevel(patternLevelRef.current)
+  const classifierOptsRef = useRef<TapClassifierOptions>({
+    toleranceTicks: initialToleranceTicks,
+    hitWindowTicks: defaultHitWindowTicks(initialToleranceTicks),
+  })
+  const [lastTapVerdict, setLastTapVerdict] = useState<TapVerdict | undefined>(undefined)
   /** Set by `start()`, consumed by the deferred play effect below — only the
    *  very first run ever needs this (see `useRhythmDrill.ts`'s identical
    *  comment for why): every later phase transition replays an ALREADY-BUILT
@@ -322,6 +371,46 @@ export function useClapbackDrill(options: UseClapbackDrillOptions): UseClapbackD
     hasPlayedRef.current = true
   }, [engine, clock])
 
+  /**
+   * Apply a finished tapping grade — shared by the normal "run reached the
+   * end" path (below) and the manual `stopRun()` path (roadmap U.3), so a
+   * learner who presses Stop gets exactly the same practice-log entry and
+   * level re-adaptation as one who lets the pattern run out, from whichever
+   * grade the caller computed.
+   */
+  function finishTapping(result: ClapbackGrade): void {
+    setGrade(result)
+    setPhase('graded')
+    practiceLogRef.current.stop({ accuracy: result.accuracy })
+
+    // MAJOR-1 review fix: re-adapt the level from the graded accuracy — see the
+    // module doc's "Level" section. Skipped entirely when a caller pins the level
+    // (`options.level`, test-only), matching `setLevel`'s identical guard.
+    if (externalLevel === undefined) {
+      const attempt: EarAttempt = {
+        itemId: 'clapback',
+        kind: CLAPBACK_LEVEL_KIND,
+        accuracy: result.accuracy,
+        at: date.epochMillis(),
+        level,
+      }
+      // Only attempts at the level this WAS drawn from count as evidence for the
+      // next decision — mirrors `recordEarAttempt`'s own `kindAttempts` filter.
+      const relevant = [...levelAttemptsRef.current, attempt].filter((a) => a.level === level)
+      levelAttemptsRef.current = relevant
+      const nextLevel = toClapbackLevel(adaptEarLevel(level, relevant))
+      if (nextLevel !== level) {
+        levelAttemptsRef.current = []
+        setLevelState(nextLevel)
+      }
+      const store = useEarTrainingStore.getState()
+      store.setSession({
+        ...store.session,
+        levels: { ...store.session.levels, [CLAPBACK_LEVEL_KIND]: nextLevel },
+      })
+    }
+  }
+
   // The current run (listening OR tapping) just reached the end. Which one
   // decides what happens next: listening hands off to tapping on the SAME
   // transport instance; tapping grades the taps collected against it.
@@ -354,36 +443,7 @@ export function useClapbackDrill(options: UseClapbackDrillOptions): UseClapbackD
       if (currentPattern === undefined || tempoMap === undefined) return
       hasPlayedRef.current = false
       const result = gradeClapback(currentPattern, tapsRef.current, tempoMap, level)
-      setGrade(result)
-      setPhase('graded')
-      practiceLogRef.current.stop({ accuracy: result.accuracy })
-
-      // MAJOR-1 review fix: re-adapt the level from the graded accuracy — see the
-      // module doc's "Level" section. Skipped entirely when a caller pins the level
-      // (`options.level`, test-only), matching `setLevel`'s identical guard.
-      if (externalLevel === undefined) {
-        const attempt: EarAttempt = {
-          itemId: 'clapback',
-          kind: CLAPBACK_LEVEL_KIND,
-          accuracy: result.accuracy,
-          at: date.epochMillis(),
-          level,
-        }
-        // Only attempts at the level this WAS drawn from count as evidence for the
-        // next decision — mirrors `recordEarAttempt`'s own `kindAttempts` filter.
-        const relevant = [...levelAttemptsRef.current, attempt].filter((a) => a.level === level)
-        levelAttemptsRef.current = relevant
-        const nextLevel = toClapbackLevel(adaptEarLevel(level, relevant))
-        if (nextLevel !== level) {
-          levelAttemptsRef.current = []
-          setLevelState(nextLevel)
-        }
-        const store = useEarTrainingStore.getState()
-        store.setSession({
-          ...store.session,
-          levels: { ...store.session.levels, [CLAPBACK_LEVEL_KIND]: nextLevel },
-        })
-      }
+      finishTapping(result)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a transport-state transition should re-run this; level/date/externalLevel are read fresh each call
   }, [engine.phase])
@@ -401,8 +461,14 @@ export function useClapbackDrill(options: UseClapbackDrillOptions): UseClapbackD
     patternLevelRef.current = level
     tapsRef.current = []
     hasPlayedRef.current = false
+    const onsetTicks = generated.onsets.filter((o) => !o.isRest).map((o) => o.tick)
+    onsetTicksRef.current = onsetTicks
+    const toleranceTicks = toleranceTicksForLevel(level)
+    classifierOptsRef.current = { toleranceTicks, hitWindowTicks: defaultHitWindowTicks(toleranceTicks) }
+    classifierStateRef.current = initTapClassifierState(onsetTicks.length)
     setGrade(undefined)
     setTapCount(0)
+    setLastTapVerdict(undefined)
     practiceLogRef.current.start('eartraining', `Clap back — level ${level}`)
 
     // Same "play the OLD transport before the score changes" trick
@@ -428,6 +494,67 @@ export function useClapbackDrill(options: UseClapbackDrillOptions): UseClapbackD
     const relative = millis(clock.now() - anchorMsRef.current)
     tapsRef.current = [...tapsRef.current, relative]
     setTapCount((count) => count + 1)
+
+    // Roadmap U.3: live per-tap verdict — pure function of `onsetTicksRef`/
+    // `classifierStateRef`/`classifierOptsRef`, so this never affects (and is
+    // never affected by) `gradeClapback`'s own read of `tapsRef` above.
+    const tapTick = msToTick(FIXED_TEMPO, relative)
+    const result = classifyTap(onsetTicksRef.current, classifierStateRef.current, tapTick, classifierOptsRef.current)
+    classifierStateRef.current = result.state
+    setLastTapVerdict(result.classification?.verdict)
+  }
+
+  /**
+   * Roadmap U.3: manual Stop. Grades only the elapsed prefix — see this
+   * function's own use of `closeExpiredOnsets` and the `UseClapbackDrill.stop`
+   * doc comment above.
+   *
+   * Deliberately does NOT run `gradeClapback`'s tempo-scale fit
+   * (`fitTempoScale`/`DEFAULT_MAX_TEMPO_SCALE`, see `clapback.ts`'s module
+   * doc): that fit needs the FULL tap list to find a single scale factor that
+   * best explains every gap at once, which is exactly what a Stop mid-pattern
+   * does not have. Grading the elapsed prefix directly against the level's
+   * own (unscaled) tolerance window is the same trade `tapClassifier.ts`
+   * already makes for live per-tap feedback, just applied to the summary too.
+   */
+  function stopRun(): void {
+    if (phase !== 'tapping') return
+
+    // MUST be read before `engine.stop()` — see `useRhythmDrill.ts`'s
+    // identical comment on why: `PracticeEngine.stop()` rewinds the
+    // transport's position before returning, so anything derived from it
+    // AFTER that call describes where the transport landed, not where the
+    // learner actually stopped it.
+    const elapsedMs = millis(clock.now() - anchorMsRef.current)
+    const elapsedTick = msToTick(FIXED_TEMPO, elapsedMs)
+
+    // Gate the "run ended" effect BEFORE `engine.stop()` — see
+    // `useRhythmDrill.ts`'s identical comment.
+    hasPlayedRef.current = false
+    engine.stop()
+
+    const finalState = closeExpiredOnsets(
+      onsetTicksRef.current,
+      classifierStateRef.current,
+      elapsedTick,
+      classifierOptsRef.current,
+    )
+    classifierStateRef.current = finalState
+    const snapshot = snapshotGrade(finalState)
+    // `FIXED_TEMPO` is a single mark anchored at tick 0, so `tickToMs` is a
+    // pure linear scale with no offset — applying it to a ticks MAGNITUDE (a
+    // mean deviation, not a position) is exactly as valid as applying it to a
+    // tick position, which is what makes this safe (see `useRhythmDrill.ts`'s
+    // identical reasoning).
+    const result: ClapbackGrade = {
+      matched: snapshot.matched,
+      missed: snapshot.missed,
+      extra: snapshot.extra,
+      accuracy: snapshot.accuracy,
+      meanAbsDeviationMs: Number(tickToMs(FIXED_TEMPO, ticks(snapshot.meanAbsDeviationTicks))),
+      tempoScale: 1,
+    }
+    finishTapping(result)
   }
 
   const tapRef = useRef(tap)
@@ -463,10 +590,12 @@ export function useClapbackDrill(options: UseClapbackDrillOptions): UseClapbackD
     pattern,
     grade,
     tapCount,
+    lastTapVerdict,
     position: engine.position,
     midi,
     start,
     tap,
+    stop: stopRun,
     setLevel,
   }
 }
