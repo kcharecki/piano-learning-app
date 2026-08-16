@@ -474,11 +474,14 @@ describe('useEarTraining — dictation answers (roadmap 3.11, REQ-3.6.1/3.6.2)',
   // leaf can be a rest once rests are allowed (level >= 2) — measured over
   // 1500 generated items, 18.6% of rhythmic prompts started later than tick
   // 0. A note-perfect, rhythm-perfect playback of one of those graded
-  // `correct: false` every time against the old anchor. Level 2 / seed 3 is
+  // `correct: false` every time against the old anchor. Level 2 / seed 3 was
   // known (found by exhaustive search over seeds 0-500) to produce exactly
-  // such a prompt — its first onset is at tick 480, not 0.
+  // such a prompt — its first onset was at tick 480, not 0 — but roadmap
+  // 5.58 raised level 2's own note-count window (3-4 notes -> 5-6), which
+  // changes what seed 3 now draws; seed 1 was re-found (same search, new
+  // bounds) to still produce a first onset that isn't tick 0.
   it('a rhythmic prompt whose first onset is not tick 0, played back perfectly, still grades correct', () => {
-    const { result, clock } = setup({ rng: seededRng(3) })
+    const { result, clock } = setup({ rng: seededRng(1) })
     act(() =>
       useEarTrainingStore.setState((s) => ({
         session: { ...s.session, levels: { ...s.session.levels, 'rhythmic-dictation': 2 } },

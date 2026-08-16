@@ -258,13 +258,29 @@ fixes count only if the prose is on screen.
       `npx vitest run src/core/eartraining src/app/eartraining` — 257 tests green, incl. distribution
       properties (≥1000 seeds: ≥6 keys, both modes, P(major) ∈ [.42, .58]) and an every-event-≥-now
       property. `npm run typecheck` and `npx eslint src/core/eartraining src/app/eartraining` clean.
-- [ ] 5.58 `core/eartraining/dictation`: 5.34's per-level bounds are systematically shorter than the
+- [x] 5.58 `core/eartraining/dictation`: 5.34's per-level bounds are systematically shorter than the
       syllabus they cite — app level 1 is **2–3 notes**, RCM is **4 at Preparatory A and 5 at Level 1**
       (verified 2026-08-12); app level 5 is 7–8 against RCM's 8–10. Re-anchor the ladder on the quoted
       RCM figures, keeping REQ-3.6.1's outer 2–8 bracket or raising it deliberately and saying so.
       Contributes to **ear training** (smaller than 5.55).
       *Proof: `dictation.test.ts`'s property tests updated to the RCM-quoted per-level bounds, with the
       source figures recorded in the module doc.*
+      `noteBoundsForLevel` re-anchored: level 1 is now `{4,5}` (was `{2,3}`), level 5 is now `{8,10}`
+      (was `{7,8}`), levels 2–4 interpolate to `{5,6}`/`{6,8}`/`{7,9}` — both bounds non-decreasing
+      level over level. **Raised REQ-3.6.1's literal "2–8" ceiling to 10** (RCM's own top-of-ladder
+      figure is quoted as "8–10 notes") — a deliberate, documented deviation; the floor is untouched
+      since 4 is still inside the requirement's "at least 2". `requirements.md` not edited. RCM figures
+      + "verified 2026-08-12" recorded in `dictation.ts`'s own module doc next to the constants.
+      Two seeded tests (one in `dictation.test.ts`, one in `useEarTraining.test.ts`) hardcoded a seed
+      whose behaviour depended on the old, narrower window (a melody ending on tonic; a rhythmic
+      prompt with a nonzero first onset) — both re-seeded to a value that clears the same bar under
+      the new bounds, with a comment citing 5.58.
+      `npx vitest run src/core/eartraining src/app/eartraining` — 285 tests green. `npm run typecheck`
+      and `npx eslint src/core/eartraining --max-warnings 0` clean. Driven: fresh IndexedDB (level 1),
+      Ear training → Melodic dictation, Play item, pressed one note back, Submit — the note-by-note
+      breakdown showed 5 expected notes on the first draw and 4 on a second fresh draw ("The phrase:
+      C5, D5, D5, C5", `Note 1..4`), both inside the new `{4,5}` window and both outside the old
+      `{2,3}` one. Console clean throughout.
 
 ## UI/UX overhaul — [docs/ui-overhaul-plan.md](docs/ui-overhaul-plan.md), shipped 2026-08-14/15
 

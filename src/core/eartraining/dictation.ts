@@ -102,74 +102,89 @@ function clampComplexity(level: number): Complexity {
 }
 
 /**
- * REQ-3.6.1: "a 2-8 note phrase" — the OUTER bounds no generated phrase, at
- * any level, ever leaves. `defaultParamsForLevel`'s own `bars` is tuned for a
- * full sight-reading piece, not a dictation snippet — 4 bars of quarters at
- * level 2, 8 bars of eighths at levels 3-5, dozens of notes either way — so it
+ * REQ-3.6.1: "a 2-8 note phrase" — the requirement's own literal outer
+ * bracket. `defaultParamsForLevel`'s own `bars` is tuned for a full
+ * sight-reading piece, not a dictation snippet — 4 bars of quarters at level
+ * 2, 8 bars of eighths at levels 3-5, dozens of notes either way — so it
  * cannot be used unmodified here.
  *
- * roadmap 5.34: the 2-8 window itself is correct and worth keeping, but a
- * SINGLE window for every level was not — RCM's own dictation syllabus runs
- * roughly 3 notes at its Preparatory grade up to 9 at Level 6, so a level-1
- * learner and a level-5 learner drawing from the identical 2-8 window were
- * never actually being asked to hold more in their head as they progressed.
- * `noteBoundsForLevel` (below) scales the window itself by level instead;
- * these two constants now only mark its overall floor and ceiling — level 1
- * bottoms out at `MIN_DICTATION_NOTES` and level 5 tops out at
- * `MAX_DICTATION_NOTES`, exactly REQ-3.6.1's own numbers.
- */
-const MIN_DICTATION_NOTES = 2
-const MAX_DICTATION_NOTES = 8
-
-/**
- * The level-1 ceiling and level-5 floor `noteBoundsForLevel` interpolates
- * between, alongside `MIN_DICTATION_NOTES`/`MAX_DICTATION_NOTES` above (the
- * level-1 floor and level-5 ceiling). Named separately because the four
- * numbers are the two ENDPOINTS of the scaled window, not a single fixed
- * pair: level 1 is `MIN_DICTATION_NOTES..LEVEL_1_MAX_NOTES` (2-3 notes) and
- * level 5 is `LEVEL_5_MIN_NOTES..MAX_DICTATION_NOTES` (7-8 notes).
- */
-const LEVEL_1_MAX_NOTES = 3
-const LEVEL_5_MIN_NOTES = 7
-
-/**
- * The `{ min, max }` note-count window for a given level (roadmap 5.34) — see
- * `MIN_DICTATION_NOTES`'s own doc for why this replaced one fixed 2-8 window
- * for every level. Linear between level 1 (2-3 notes) and level 5 (7-8
- * notes): a defensible interpolation of RCM's own syllabus endpoints onto
- * this drill's 1-5 level ladder (RCM's own grades do not map 1:1 onto ours),
- * not the only one — a curve that widens the window itself as level rises
- * (rather than keeping a constant width-1 window that just slides up) is
- * equally defensible and would teach a different thing (more UNCERTAINTY
- * about the count, not just a longer one), which this drill does not
- * currently claim to teach. Levels outside 1-5 clamp to that range, mirroring
- * every other level-indexed lookup in this module.
+ * roadmap 5.34 scaled a single 2-8 window across levels 1-5 instead of using
+ * it unmodified for every level (see `noteBoundsForLevel` below). roadmap
+ * 5.58 review found that scaled window was ITSELF systematically shorter
+ * than the RCM syllabus it cited as its own source: this app's level 1 drew
+ * only 2-3 notes and its level 5 only 7-8, short of the cited syllabus at
+ * both ends. Verified 2026-08-12 against the RCM Celebration Series
+ * dictation syllabus:
  *
- * The per-level window is `{ min: 2,3,5,6,7 ; max: 3,4,6,7,8 }` for levels
- * 1-5 — NOT an evenly-stepped ladder: level 2->3 moves by 2 while every other
- * adjacent pair moves by 1 (review finding, roadmap 3.21 audit). This is a
- * quantization artefact, not a bug: `steps` is a genuinely linear real-valued
- * ramp (0, 0.25, 0.5, 0.75, 1), but `MIN_DICTATION_NOTES..LEVEL_5_MIN_NOTES`
- * and `LEVEL_1_MAX_NOTES..MAX_DICTATION_NOTES` both span a range of 5 over 4
+ *  - Preparatory A asks for a **4-note** phrase.
+ *  - Level 1 asks for a **5-note** phrase.
+ *  - the top of RCM's own ladder asks for an **"8-10 note"** phrase.
+ *
+ * `noteBoundsForLevel` now anchors app level 1 on RCM's Preparatory A/Level 1
+ * pair and app level 5 on RCM's own top-of-ladder figure, interpolating
+ * levels 2-4 linearly between them the same way 5.34 did. That RAISES this
+ * requirement's own literal "...8 note" ceiling to 10 — a deliberate,
+ * recorded deviation from REQ-3.6.1's literal text (`requirements.md` itself
+ * is out of this task's scope and is left unedited) made to match the cited
+ * syllabus rather than clip the syllabus down to fit the requirement's older,
+ * looser number. The floor needs no such deviation: app level 1's new 4-note
+ * minimum is still comfortably inside "a 2-... phrase" — REQ-3.6.1's literal
+ * floor of 2 was already looser than what any level actually draws, before
+ * or after this change.
+ */
+const RCM_PREP_A_NOTES = 4
+const RCM_LEVEL_1_NOTES = 5
+const RCM_TOP_LOW_NOTES = 8
+/**
+ * REQ-3.6.1 deviation (roadmap 5.58): RCM's own top-of-ladder figure is
+ * quoted as an "8-10 note" phrase (verified 2026-08-12), 2 higher than
+ * REQ-3.6.1's literal "...8 note" ceiling — see `RCM_PREP_A_NOTES`'s own doc
+ * for why this is raised deliberately rather than clipped to fit.
+ */
+const RCM_TOP_HIGH_NOTES = 10
+
+/**
+ * The `{ min, max }` note-count window for a given level (roadmap 5.34,
+ * re-anchored on the cited RCM figures by roadmap 5.58) — see
+ * `RCM_PREP_A_NOTES`'s own doc for those figures and for why a single fixed
+ * window for every level was replaced with one that scales with level in the
+ * first place. Linear between level 1 (RCM's Preparatory A/Level 1 pair, 4-5
+ * notes) and level 5 (RCM's own top-of-ladder figure, 8-10 notes): a
+ * defensible interpolation of RCM's own syllabus endpoints onto this drill's
+ * 1-5 level ladder (RCM's own grades do not map 1:1 onto ours), not the only
+ * one — a curve that widens the window itself as level rises (rather than
+ * keeping a constant width-1 window that just slides up) is equally
+ * defensible and would teach a different thing (more UNCERTAINTY about the
+ * count, not just a longer one), which this drill does not currently claim
+ * to teach. Levels outside 1-5 clamp to that range, mirroring every other
+ * level-indexed lookup in this module.
+ *
+ * The per-level window is `{ min: 4,5,6,7,8 ; max: 5,6,8,9,10 }` for levels
+ * 1-5. The MIN side is an evenly-stepped ladder — `RCM_TOP_LOW_NOTES -
+ * RCM_PREP_A_NOTES` is 4, which divides exactly into the 4 level-steps from
+ * level 1 to level 5 — but the MAX side is NOT: level 2->3 moves by 2 while
+ * every other adjacent pair moves by 1. This is a quantization artefact, not
+ * a bug: `steps` is a genuinely linear real-valued ramp (0, 0.25, 0.5, 0.75,
+ * 1), but `RCM_LEVEL_1_NOTES..RCM_TOP_HIGH_NOTES` spans a range of 5 over 4
  * level-steps — 5 does not divide evenly by 4, so rounding a linear ramp to
- * integers necessarily produces three steps of 1 and one step of 2 SOMEWHERE.
- * It lands at the same boundary (level 2->3) for both `min` and `max` because
- * both ranges happen to share the same width (5) and the same `steps`
- * sequence, so both cross a `Math.round` tie (`x.5`) at exactly `steps ===
- * 0.5` (level 3). Deliberately left as-is rather than "fixed" to force even
- * steps: any alternative placement of the doubled step is exactly as
- * arbitrary and exactly as undocumented as this one, and moving it would
- * abandon the straightforward linear-interpolation design roadmap 5.34's own
- * doc argues for, in favour of an ad-hoc redistribution with no better
- * rationale. Pinned by test at every level, including 2 and 4, precisely so a
- * change here is a deliberate, reviewed decision, not a silent drift.
+ * integers necessarily produces three steps of 1 and one step of 2
+ * SOMEWHERE. It lands at level 2->3 because that is exactly where the
+ * real-valued ramp (7.5) crosses a `Math.round` tie (`x.5`). Deliberately
+ * left as-is rather than "fixed" to force even steps, for the same reason
+ * 5.34's own doc gave for its own (differently-placed) doubled step: any
+ * alternative placement is exactly as arbitrary and exactly as undocumented
+ * as this one, and moving it would abandon the straightforward
+ * linear-interpolation design in favour of an ad-hoc redistribution with no
+ * better rationale. Pinned by test at every level, including 2 and 4,
+ * precisely so a change here is a deliberate, reviewed decision, not a
+ * silent drift.
  */
 function noteBoundsForLevel(level: number): { readonly min: number; readonly max: number } {
   invariant(Number.isFinite(level), `noteBoundsForLevel: level must be finite, got ${level}`)
   const clamped = Math.min(5, Math.max(1, Math.round(level)))
   const steps = (clamped - 1) / 4 // 0 at level 1, 1 at level 5
-  const min = Math.round(MIN_DICTATION_NOTES + steps * (LEVEL_5_MIN_NOTES - MIN_DICTATION_NOTES))
-  const max = Math.round(LEVEL_1_MAX_NOTES + steps * (MAX_DICTATION_NOTES - LEVEL_1_MAX_NOTES))
+  const min = Math.round(RCM_PREP_A_NOTES + steps * (RCM_TOP_LOW_NOTES - RCM_PREP_A_NOTES))
+  const max = Math.round(RCM_LEVEL_1_NOTES + steps * (RCM_TOP_HIGH_NOTES - RCM_LEVEL_1_NOTES))
   return { min, max }
 }
 
