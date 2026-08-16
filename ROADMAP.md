@@ -263,13 +263,20 @@ fixes count only if the prose is on screen.
       thirds-or-tenths and 0% sevenths/tritones — or the reworded description matches the measured
       distribution; the `levelDefaults.test.ts` description-congruency check extended beyond
       `'unison'` rows.*
-- [ ] 5.54 `core/generator/levelDefaults`: level 1's rhythm is `'whole-half'` and level 2 is the first
+- [x] 5.54 `core/generator/levelDefaults`: level 1's rhythm is `'whole-half'` and level 2 is the first
       `'quarters'` — a level-1 exercise engraves four whole notes. Faber Piano Adventures Primer
       introduces **quarter → half → whole, all inside Unit 2** (official Teacher Guide, verified
       2026-08-12). This is the identical inversion roadmap 5.20 fixed for the Rhythm drill on exactly
       this source and never applied here. Blocks **sight reading**.
       *Proof: a driven level-1 exercise engraves quarter and half notes and no whole notes; the
       monotonic-ladder property test in `levelDefaults.test.ts`/`melody.test.ts` extended to rhythm.*
+      **Done:** new `'quarter-half'` style (`rhythmPools.ts`, units `{4, 8}`) as level 1's default,
+      replacing `'whole-half'` there; `generateStepwiseOneDirectionLine` (`stepwiseLine.ts`) now
+      re-articulates each bar's stepped pitch through `style`'s own pool instead of one whole-bar
+      note — the actual bug, since level 1's rhythm column was already being ignored by that path.
+      Driven proof: fresh level-1 exercise engraved quarter (480 ticks) and half (960 ticks) notes
+      only, zero whole notes, over 13 notes / 4 bars. Property tests on ENGRAVED output (300+ seeds)
+      in `levelDefaults.test.ts` and `stepwiseLine.test.ts`.
 - [x] 5.55 `app/eartraining` + `core/eartraining`: 5.28's "tonal context" is documented in its own code
       as "a drone: tonic + fifth" — an **open fifth, with no third**, so it cannot establish major or
       minor. Both cited authorities specify something that can: RCM 2022 "identify the key, **play the
