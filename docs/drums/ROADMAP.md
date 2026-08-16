@@ -134,21 +134,6 @@ item lands inside a slice that drives something (specs state their proof surface
       `gridToScore` returns `Result`: a `cellsPerMeasure` inconsistent with the time
       signature returns `Ok` on the straight path. (c) `parse.ts` maps an unknown
       `<swing-type>` to `'eighth'` silently — foreign-file leniency, worth a doc line.
-=======
-- [x] DR-01 ‖ Instrument switcher — two apps in one shell, `/drums/*` URLs, per-instrument
-      nav, persisted choice → [spec](features/DR-01-instrument-switcher.md). Segmented
-      Piano/Drums control atop the nav rail; `AppRoute = {instrument, route}` with
-      `parseRoute` learning the `/drums` prefix (13 piano routes untouched, still resolve
-      — `e2e/routing.spec.ts` green); drums home `/drums/today` placeholder screen; last
-      instrument persisted via a Zustand slice + sync localStorage hint. Driven proof:
-      switcher visible/functional both widths (1280/1024) and themes, cold deep-link into
-      `/drums/today`, reload/bare-root persistence, console clean —
-      `e2e/instrument-switcher.spec.ts` (3 new specs). Full suite green: `npm run verify`
-      (202 files / 4208 tests) + Playwright (155/155, incl. 3 pre-existing specs updated
-      for the switcher's new nav-rail position).
-- [ ] DR-04 ‖ Drum domain model — pads, `GrooveScore`, grid projection, MusicXML bridge
-      → [spec](features/DR-04-drum-domain-model.md)
->>>>>>> task/DR-01
 - [ ] DR-02 E-drum MIDI input — kit maps, presets, MIDI-learn wizard, CC4 hi-hat state
       machine, chokes, debounce → [spec](features/DR-02-edrum-midi-input.md)
 - [ ] DR-03 ‖ Fallback inputs — keyboard map with dynamics modifiers, on-screen pads,
