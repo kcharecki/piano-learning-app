@@ -5,7 +5,8 @@ import { pitchClass, spelledPitchClass } from '@core/theory/pitch.ts'
 import { WHOLE, HALF, QUARTER } from '@core/shared/units.ts'
 import type { Score, ScoreNote } from '@core/notation/score.ts'
 import { defaultParamsForLevel, MAX_GENERATOR_LEVEL } from './levelDefaults.ts'
-import { generateMelody, RHYTHM_POOLS, type MidiRange, type RhythmStyle } from './melody.ts'
+import { generateMelody, type MidiRange, type RhythmStyle } from './melody.ts'
+import { RHYTHM_POOLS } from './rhythmPools.ts'
 
 const LEVELS = Array.from({ length: MAX_GENERATOR_LEVEL }, (_, i) => i + 1)
 

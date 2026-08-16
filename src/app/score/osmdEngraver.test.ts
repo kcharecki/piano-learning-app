@@ -48,7 +48,7 @@ import {
   type FakeGNote,
   type FakeNote,
   type FakeOsmd,
-} from './osmdEngraverFakes.ts'
+} from '@test/osmdEngraverFakes.ts'
 
 
 // ----------------------------------------------------------------------- tests

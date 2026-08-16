@@ -19,5 +19,9 @@
   // it landed. `core/curriculum/model.ts`, `content/curriculum/*` and `content/scores/demoScores.ts`
   // are now reachable from `src/main.tsx`, so knip's production mode guards them like everything
   // else. Do not add an entry here without a roadmap task id and a deletion condition.
-  "ignore": []
+  // drums DR-04 model: finished + tested core layer whose production consumers are the
+  // in-flight D0 slices (DR-02 kit-map engine emits its DrumHit, DR-05 engraves its
+  // GrooveScore, DR-06 plays it). DELETE this line when the first drums screen that
+  // renders or plays a groove merges (DR-05's gallery or DR-06's DrumsToday preview).
+  "ignore": ["src/core/drums/model/**"]
 }

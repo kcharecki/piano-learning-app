@@ -191,6 +191,8 @@ function disconnectBluetoothMidi(): void {
  * Test-only: resets the singleton between test cases, since module state
  * would otherwise persist across every test in a file. Never call this from
  * application code.
+ *
+ * @public knip: consumed only by tests, which production mode does not see.
  */
 export function resetBluetoothMidiForTests(): void {
   disposeConnection = undefined

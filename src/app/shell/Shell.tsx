@@ -36,6 +36,7 @@ import type {
 import { useRoute } from '@app/shell/routing.ts'
 import { useInstrumentStore } from '@app/state/instrumentStore.ts'
 import { DrumsTodayScreen } from '@app/drums/DrumsTodayScreen.tsx'
+import { NotationDevGallery } from '@app/drums/notation/NotationDevGallery.tsx'
 import { ReferencePanel } from '@app/reference/ReferencePanel.tsx'
 import { SettingsScreen } from '@app/onboarding/SettingsScreen.tsx'
 import { ScoreScreen } from '@app/score/ScoreScreen.tsx'
@@ -384,6 +385,8 @@ function renderDrumsScreen(screen: DrumsScreenId) {
   switch (screen) {
     case 'drums-today':
       return <DrumsTodayScreen />
+    case 'drums-notation-dev':
+      return <NotationDevGallery />
   }
 }
 

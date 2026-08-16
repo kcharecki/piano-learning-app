@@ -11,8 +11,8 @@
  * pulled in as an import of the specs that use it.
  */
 import { makeScore, type Score } from '@core/notation/score.ts'
-import { createOsmdEngraver, type ScoreEngraverWithMeasureLabels } from './osmdEngraver.ts'
-import { DEFAULT_NOTE_COLOR, type OsmdLike } from './osmdSvg.ts'
+import { createOsmdEngraver, type ScoreEngraverWithMeasureLabels } from '@app/score/osmdEngraver.ts'
+import { DEFAULT_NOTE_COLOR, type OsmdLike } from '@app/score/osmdSvg.ts'
 
 // ---------------------------------------------------------------- fake OSMD
 

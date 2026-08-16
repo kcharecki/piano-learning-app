@@ -123,6 +123,8 @@ export function putCachedEngraving(entry: EngravingCacheEntry): void {
  * Drops every cached engraving, clearing each OSMD instance. Exists for tests
  * — nothing in the app ever wants a cold cache mid-session — so that one
  * spec's engraving can never be handed to another's.
+ *
+ * @public knip: consumed only by tests, which production mode does not see.
  */
 export function clearEngravingCache(): void {
   for (const entry of engravingCache.values()) {

@@ -52,10 +52,10 @@ import {
   type TimeSignature,
 } from '@core/notation/score.ts'
 import { generateStepwiseOneDirectionLine } from './stepwiseLine.ts'
-import { buildBarDurations, GRID, RHYTHM_POOLS, type RhythmStyle } from './rhythmPools.ts'
+import { buildBarDurations, GRID, type RhythmStyle } from './rhythmPools.ts'
 
 /** Public re-exports — unchanged surface for every existing importer. */
-export { RHYTHM_POOLS, type RhythmStyle }
+export { type RhythmStyle }
 
 export type HandIndependence = 'unison' | 'parallel' | 'blocked-chords' | 'independent'
 export type MidiRange = { readonly low: Midi; readonly high: Midi }

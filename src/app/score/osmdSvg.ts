@@ -139,13 +139,16 @@ export type OsmdLike = {
  * src/design-system/tokens/colors.css; OSMD wants a concrete hex, so a CSS
  * variable cannot be handed to it directly.
  */
-export const SCORE_INK = '#191712'
+const PAPER_INK = '#191712'
+export const SCORE_INK = PAPER_INK
 /**
  * Exported for `osmdEngraver.test.ts` — the colour `clearNoteColors`
  * restores — and for `PracticeScreen.tsx`, which restores a deselected
- * notehead to it directly (roadmap 4.8a).
+ * notehead to it directly (roadmap 4.8a). Same ink as `SCORE_INK`, kept as
+ * its own binding because the two names answer different questions ("what
+ * colour is the score drawn in" vs "what colour does a reset notehead get").
  */
-export const DEFAULT_NOTE_COLOR = SCORE_INK
+export const DEFAULT_NOTE_COLOR = PAPER_INK
 /**
  * The read-ahead drill (roadmap 2.26, REQ-3.4.5) "hides" a note by painting it
  * the same colour as the page background rather than toggling engraving

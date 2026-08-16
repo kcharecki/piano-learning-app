@@ -29,7 +29,7 @@ import {
   singleNoteScore,
   type FakeMeasure,
   type FakeOsmd,
-} from './osmdEngraverFakes.ts'
+} from '@test/osmdEngraverFakes.ts'
 
 /** Notes per measure in the generated scores below — 4 quarter notes in 4/4. */
 const NOTES_PER_MEASURE = 4

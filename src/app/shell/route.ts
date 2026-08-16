@@ -34,7 +34,6 @@
  */
 
 export type Instrument = 'piano' | 'drums'
-export const INSTRUMENTS: readonly Instrument[] = ['piano', 'drums']
 
 export const PIANO_SCREEN_IDS = [
   'today',
@@ -62,7 +61,7 @@ const PIANO_SCREEN_ID_SET: ReadonlySet<string> = new Set<string>(PIANO_SCREEN_ID
  * later DR item that adds a drums screen adds its id here, exactly like
  * `PIANO_SCREEN_IDS` above.
  */
-export const DRUMS_SCREEN_IDS = ['drums-today'] as const
+export const DRUMS_SCREEN_IDS = ['drums-today', 'drums-notation-dev'] as const
 
 export type DrumsScreenId = (typeof DRUMS_SCREEN_IDS)[number]
 
@@ -77,6 +76,10 @@ export type DrumsScreenId = (typeof DRUMS_SCREEN_IDS)[number]
  */
 const DRUMS_SCREEN_SEGMENTS: Record<DrumsScreenId, string> = {
   'drums-today': 'today',
+  // DR-05's development gallery (`/drums/notation-dev`): URL-only, never a
+  // nav item — the proof surface for the groove renderer until DR-09 gives
+  // it a real trainer home.
+  'drums-notation-dev': 'notation-dev',
 }
 
 const DRUMS_SEGMENT_TO_SCREEN: ReadonlyMap<string, DrumsScreenId> = new Map(
@@ -117,8 +120,6 @@ export type AppRoute =
 export const PIANO_DEFAULT_ROUTE: PianoRoute = { screen: 'today' }
 export const DRUMS_DEFAULT_ROUTE: DrumsRoute = { screen: 'drums-today' }
 
-/** The app-wide fallback when nothing else applies (roadmap 5.39: piano, not drums, is the front door absent any other signal). */
-export const DEFAULT_APP_ROUTE: AppRoute = { instrument: 'piano', route: PIANO_DEFAULT_ROUTE }
 
 /**
  * `path/to/thing` -> `['path', 'to', 'thing']`, ignoring leading/trailing
