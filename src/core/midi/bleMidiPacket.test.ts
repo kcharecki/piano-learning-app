@@ -22,11 +22,20 @@ const SUSTAIN_CONTROLLER = 64
 
 type RawEvent = { readonly statusByte: number; readonly d1: number; readonly d2: number; readonly trueMs: number }
 
-/** Inverse of `bleMidiPacket.ts`'s `toDomainEvent`, for building test input. */
+/**
+ * Inverse of `bleMidiPacket.ts`'s `toDomainEvent`, for building test input.
+ * This suite only ever generates `noteOn`/`noteOff`/`sustain` fixtures (BLE
+ * decoding of DR-02's drum-only `controlChange`/`polyAftertouch` events is
+ * untouched by this task and out of scope here) — the throw below is an
+ * unreachable-by-construction guard, not a supported path.
+ */
 function toRaw(event: MidiEvent): { statusByte: number; d1: number; d2: number } {
   if (event.type === 'noteOn') return { statusByte: NOTE_ON_STATUS, d1: event.note, d2: event.velocity }
   if (event.type === 'noteOff') return { statusByte: NOTE_OFF_STATUS, d1: event.note, d2: 0 }
-  return { statusByte: CONTROL_CHANGE_STATUS, d1: SUSTAIN_CONTROLLER, d2: event.down ? 127 : 0 }
+  if (event.type === 'sustain') {
+    return { statusByte: CONTROL_CHANGE_STATUS, d1: SUSTAIN_CONTROLLER, d2: event.down ? 127 : 0 }
+  }
+  throw new Error(`toRaw: this suite never generates ${event.type} fixtures`)
 }
 
 /**

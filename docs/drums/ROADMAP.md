@@ -125,8 +125,11 @@ item lands inside a slice that drives something (specs state their proof surface
       `gridToScore` returns `Result`: a `cellsPerMeasure` inconsistent with the time
       signature returns `Ok` on the straight path. (c) `parse.ts` maps an unknown
       `<swing-type>` to `'eighth'` silently — foreign-file leniency, worth a doc line.
-- [ ] DR-02 E-drum MIDI input — kit maps, presets, MIDI-learn wizard, CC4 hi-hat state
-      machine, chokes, debounce → [spec](features/DR-02-edrum-midi-input.md)
+- [~] DR-02 E-drum MIDI input — CORE slice landed: `src/core/drums/kitmap/` (note→pad
+      table, CC4 hi-hat state machine, choke, debounce, velocity gate, unmapped bucket) +
+      GM/Roland TD/Alesis/Yamaha presets + `webmidi.ts` now passes through poly aftertouch
+      and CC. MIDI-learn wizard (app layer) still pending →
+      [spec](features/DR-02-edrum-midi-input.md)
 - [ ] DR-03 ‖ Fallback inputs — keyboard map with dynamics modifiers, on-screen pads,
       capability banner → [spec](features/DR-03-fallback-inputs.md)
 - [ ] DR-05 Notation rendering — own SVG groove renderer (trainer surfaces) + OSMD

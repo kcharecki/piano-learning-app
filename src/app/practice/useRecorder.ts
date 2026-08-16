@@ -168,7 +168,14 @@ class FanoutMidiInput implements MidiInput {
   }
 }
 
-/** `event.time` (ms since the recording's own `start()`) restamped onto `anchor`. */
+/**
+ * `event.time` (ms since the recording's own `start()`) restamped onto
+ * `anchor`. A `Recording` only ever contains `noteOn`/`noteOff`/`sustain`
+ * (`MidiRecorder`, `src/core/practice/recorder.ts`, never captures the
+ * drum-only `controlChange`/`polyAftertouch` events DR-02 added to the port);
+ * those two cases are handled here only so this switch stays exhaustive
+ * against the full `MidiEvent` union, mechanically, with no behaviour change.
+ */
 function restamp(event: MidiEvent, anchor: Millis): MidiEvent {
   const time = millis(anchor + event.time)
   switch (event.type) {
@@ -178,6 +185,10 @@ function restamp(event: MidiEvent, anchor: Millis): MidiEvent {
       return { type: 'noteOff', note: event.note, time }
     case 'sustain':
       return { type: 'sustain', down: event.down, time }
+    case 'controlChange':
+      return { type: 'controlChange', controller: event.controller, value: event.value, time }
+    case 'polyAftertouch':
+      return { type: 'polyAftertouch', note: event.note, pressure: event.pressure, time }
   }
 }
 
@@ -237,9 +248,12 @@ export function useRecorder(options: UseRecorderOptions): UseRecorder {
     }
     recorder.start(startOpts)
     recordUnsubscribeRef.current = options.source.onEvent((event) => {
+      // `MidiRecorder` only knows piano's three event kinds; DR-02's
+      // drum-only `controlChange`/`polyAftertouch` are not recordable here
+      // and are silently ignored, same as any input this hook doesn't wire up.
       if (event.type === 'noteOn') recorder.noteOn(event.note, event.velocity)
       else if (event.type === 'noteOff') recorder.noteOff(event.note)
-      else recorder.sustain(event.down)
+      else if (event.type === 'sustain') recorder.sustain(event.down)
     })
     setPhase('recording')
   }

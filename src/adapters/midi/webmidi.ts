@@ -25,6 +25,7 @@ export type WebMidi = { input: MidiInput; output: MidiOutput; dispose(): void }
 
 const NOTE_OFF_STATUS = 0x80
 const NOTE_ON_STATUS = 0x90
+const POLY_AFTERTOUCH_STATUS = 0xa0
 const CONTROL_CHANGE_STATUS = 0xb0
 const SUSTAIN_CONTROLLER = 64
 const SUSTAIN_THRESHOLD = 64
@@ -128,7 +129,15 @@ function parseChannelMessages(
   return messages
 }
 
-/** Map one normalised channel message to the domain event it represents, if any. */
+/**
+ * Map one normalised channel message to the domain event it represents, if
+ * any. Piano input never produces poly aftertouch or a non-sustain control
+ * change, so both were silently dropped here until DR-02 (e-drum input) gave
+ * them meaning: aftertouch is a cymbal choke gesture, and CC#4 is the hi-hat
+ * pedal's continuous position. Passing them through is additive — every
+ * previously-tested note-on/note-off/sustain/running-status/unknown-byte
+ * behaviour above is unchanged, so existing piano consumers see no difference.
+ */
 function toDomainEvent(msg: ChannelMessage, time: Millis): MidiEvent | undefined {
   const type = msg.statusByte & 0xf0
   if (type === NOTE_ON_STATUS) {
@@ -139,8 +148,14 @@ function toDomainEvent(msg: ChannelMessage, time: Millis): MidiEvent | undefined
   if (type === NOTE_OFF_STATUS) {
     return { type: 'noteOff', note: midi(msg.d1), time }
   }
-  if (type === CONTROL_CHANGE_STATUS && msg.d1 === SUSTAIN_CONTROLLER) {
-    return { type: 'sustain', down: msg.d2 >= SUSTAIN_THRESHOLD, time }
+  if (type === POLY_AFTERTOUCH_STATUS) {
+    return { type: 'polyAftertouch', note: midi(msg.d1), pressure: msg.d2, time }
+  }
+  if (type === CONTROL_CHANGE_STATUS) {
+    if (msg.d1 === SUSTAIN_CONTROLLER) {
+      return { type: 'sustain', down: msg.d2 >= SUSTAIN_THRESHOLD, time }
+    }
+    return { type: 'controlChange', controller: msg.d1, value: msg.d2, time }
   }
   return undefined
 }

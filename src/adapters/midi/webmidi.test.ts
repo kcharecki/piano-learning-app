@@ -219,12 +219,28 @@ describe('WebMidi input — message normalisation', () => {
     ])
   })
 
-  it('does not crash on, and does not emit for, unrelated control changes', async () => {
+  it('turns a non-sustain control change (e.g. mod wheel) into a domain controlChange event', async () => {
     const { port, events } = await setUp()
 
     port.fire([0xb0, 1, 127], 1) // mod wheel, not sustain
 
-    expect(events).toEqual([])
+    expect(events).toEqual([{ type: 'controlChange', controller: 1, value: 127, time: 1 }])
+  })
+
+  it('turns CC#4 (e-drum hi-hat pedal position) into a domain controlChange event, distinct from sustain', async () => {
+    const { port, events } = await setUp()
+
+    port.fire([0xb0, 4, 90], 1)
+
+    expect(events).toEqual([{ type: 'controlChange', controller: 4, value: 90, time: 1 }])
+  })
+
+  it('turns polyphonic aftertouch (e-drum choke gesture) into a domain polyAftertouch event', async () => {
+    const { port, events } = await setUp()
+
+    port.fire([0xa0, 49, 80], 1)
+
+    expect(events).toEqual([{ type: 'polyAftertouch', note: 49, pressure: 80, time: 1 }])
   })
 
   it('does not crash on program change, and keeps parsing correctly afterwards', async () => {
