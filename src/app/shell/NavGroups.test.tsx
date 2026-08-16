@@ -34,6 +34,10 @@ const groups: readonly NavGroup[] = [
   },
 ]
 const footer = { level: 1, streakDays: 0 }
+// Roadmap DR-01: `switcher` is a required, caller-supplied node — every test
+// below stands in a stub rather than the real Shell.tsx switcher, since this
+// file's job is NavGroups' own layout/wiring, not the switcher's contents.
+const switcherStub = <div data-testid="switcher-stub">switcher</div>
 
 describe('NavGroups', () => {
   it('renders each group with a group landmark labelled by its own visible title', () => {
@@ -44,6 +48,7 @@ describe('NavGroups', () => {
         activeScreen="today"
         onNavigate={vi.fn()}
         footer={footer}
+        switcher={switcherStub}
       />,
     )
 
@@ -69,6 +74,7 @@ describe('NavGroups', () => {
         activeScreen="flashcards"
         onNavigate={vi.fn()}
         footer={footer}
+        switcher={switcherStub}
       />,
     )
 
@@ -89,6 +95,7 @@ describe('NavGroups', () => {
         activeScreen="today"
         onNavigate={onNavigate}
         footer={footer}
+        switcher={switcherStub}
       />,
     )
 
@@ -107,6 +114,7 @@ describe('NavGroups', () => {
         activeScreen="today"
         onNavigate={vi.fn()}
         footer={footer}
+        switcher={switcherStub}
       />,
     )
 
@@ -129,6 +137,7 @@ describe('NavGroups', () => {
         activeScreen="today"
         onNavigate={vi.fn()}
         footer={footer}
+        switcher={switcherStub}
       />,
     )
 
@@ -151,6 +160,7 @@ describe('NavGroups', () => {
         activeScreen="today"
         onNavigate={vi.fn()}
         footer={{ level: 3, streakDays: 1 }}
+        switcher={switcherStub}
       />,
     )
 
@@ -168,11 +178,33 @@ describe('NavGroups', () => {
         activeScreen="today"
         onNavigate={vi.fn()}
         footer={{ level: 1, streakDays: 0 }}
+        switcher={switcherStub}
       />,
     )
 
     expect(screen.getByText('Level 1 · No streak yet')).toBeInTheDocument()
     expect(screen.queryByText(/0-day streak/)).not.toBeInTheDocument()
+  })
+
+  // Roadmap DR-01: `footer.level` is optional now — Drums has no level
+  // concept yet, so Shell.tsx omits the field entirely rather than passing a
+  // piano number across an instrument boundary it does not describe. The
+  // footer then shows only the streak, with no "Level undefined" leak and no
+  // stray "· " separator.
+  it('omits the level segment entirely when footer.level is undefined, showing only the streak', () => {
+    render(
+      <NavGroups
+        primary={primary}
+        groups={groups}
+        activeScreen="today"
+        onNavigate={vi.fn()}
+        footer={{ streakDays: 4 }}
+        switcher={switcherStub}
+      />,
+    )
+
+    expect(screen.getByText('4-day streak')).toBeInTheDocument()
+    expect(screen.queryByText(/Level/)).not.toBeInTheDocument()
   })
 
   // Roadmap UI-36: `.nav-scroll` (Today + every group) is the only part of
@@ -187,6 +219,7 @@ describe('NavGroups', () => {
         activeScreen="today"
         onNavigate={vi.fn()}
         footer={footer}
+        switcher={switcherStub}
       />,
     )
 
@@ -194,6 +227,32 @@ describe('NavGroups', () => {
     expect(scroll).not.toBeNull()
     expect(within(scroll as HTMLElement).getByRole('button', { name: 'Today' })).toBeInTheDocument()
     expect(scroll?.querySelector('.nav-footer')).toBeNull()
+  })
+
+  // Roadmap DR-01: the switcher scrolls away WITH the rest of the nav
+  // content (see NavGroupsProps.switcher's own doc for why it is not pinned
+  // like the rail footer) and comes first, ahead of even the primary button
+  // — it names which nav table is currently showing, so it has to be the
+  // very first thing a learner scanning the rail sees.
+  it('renders the supplied switcher first inside .nav-scroll, ahead of the primary button', () => {
+    const { container } = render(
+      <NavGroups
+        primary={primary}
+        groups={groups}
+        activeScreen="today"
+        onNavigate={vi.fn()}
+        footer={footer}
+        switcher={switcherStub}
+      />,
+    )
+
+    const scroll = container.querySelector('.nav-scroll')
+    expect(scroll).not.toBeNull()
+    const stub = within(scroll as HTMLElement).getByTestId('switcher-stub')
+    const primaryButton = within(scroll as HTMLElement).getByRole('button', { name: 'Today' })
+    expect(
+      stub.compareDocumentPosition(primaryButton) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
   })
 
   // Roadmap UI-36: `actions` is the shell's action cluster (input-status chip
@@ -209,6 +268,7 @@ describe('NavGroups', () => {
         activeScreen="today"
         onNavigate={vi.fn()}
         footer={{ level: 2, streakDays: 5 }}
+        switcher={switcherStub}
         actions={<button type="button">Reference</button>}
       />,
     )

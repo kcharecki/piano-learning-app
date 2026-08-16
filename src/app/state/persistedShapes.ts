@@ -30,6 +30,7 @@ import { EAR_MAX_LEVEL, EAR_MIN_LEVEL, type EarAttempt, type EarSessionState } f
 import type { PracticeSettings } from '@app/state/scoreStore.ts'
 import type { StoredAssessment } from '@app/state/progressStore.ts'
 import type { ThemePreference } from '@app/state/themeStore.ts'
+import type { Instrument } from '@app/shell/route.ts'
 
 export type PersistedRepertoire = {
   readonly pieces: readonly RepertoirePiece[]
@@ -78,6 +79,11 @@ export type PersistedLevelState = {
 /** The learner's theme choice (roadmap UI-05) — see `themeStore.ts`'s module comment. */
 export type PersistedTheme = {
   readonly theme: ThemePreference
+}
+
+/** The learner's last-used instrument (DR-01) — see `instrumentStore.ts`'s module comment. */
+export type PersistedInstrument = {
+  readonly lastInstrument: Instrument
 }
 
 /**
@@ -459,6 +465,13 @@ export function isValidTheme(value: unknown): value is PersistedTheme {
   if (typeof value !== 'object' || value === null) return false
   const v = value as Record<string, unknown>
   return v.theme === 'system' || v.theme === 'dark' || v.theme === 'light'
+}
+
+/** `lastInstrument` must be exactly one of the two instruments — no other string, no missing field. */
+export function isValidInstrument(value: unknown): value is PersistedInstrument {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return v.lastInstrument === 'piano' || v.lastInstrument === 'drums'
 }
 
 /**

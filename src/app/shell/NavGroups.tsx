@@ -29,39 +29,60 @@
  */
 import { Icon, type IconProps } from '@app/ui/Icon.tsx'
 import type { ReactNode } from 'react'
-import type { ScreenId } from './route.ts'
 
-export type NavItem = {
-  readonly id: ScreenId
+// Generic over the screen-id union (roadmap DR-01): Piano and Drums each have
+// their own disjoint `ScreenId` type (`PianoScreenId`/`DrumsScreenId` in
+// `route.ts`) — this component no longer imports either, so it stays
+// type-safe for whichever one `Shell.tsx` instantiates it with, with no
+// shared flat union to keep in sync between the two nav tables.
+export type NavItem<S extends string = string> = {
+  readonly id: S
   readonly label: string
   /** 16px in the rail (roadmap UI-04a) — see `Icon.tsx` for the full name list. */
   readonly icon: IconProps['name']
 }
 
-export type NavGroup = {
+export type NavGroup<S extends string = string> = {
   readonly label: string
-  readonly items: readonly NavItem[]
+  readonly items: readonly NavItem<S>[]
 }
 
 /**
- * The rail footer's two numbers (roadmap UI-04a) — display only. `Shell.tsx`
+ * The rail footer's numbers (roadmap UI-04a) — display only. `Shell.tsx`
  * reads `level` off `useLevelStore`'s `playing` track and `streakDays` via
  * `@core/progress/log.ts`'s `currentStreakDays` over `useProgressStore`'s
  * practice log, the same function `useDashboard.ts` already calls for the
  * dashboard's own streak line. Neither number is computed here.
+ *
+ * `level` is optional (roadmap DR-01): no per-instrument level concept exists
+ * for Drums yet, and showing PIANO's `playingLevel` while the learner is
+ * browsing Drums nav would be actively misleading, not merely absent — so
+ * `Shell.tsx` omits the field entirely for that instrument rather than
+ * passing a piano number across an instrument boundary it does not describe.
+ * Streak stays shared and always renders (see the module comment).
  */
 export type NavFooter = {
-  readonly level: number
+  readonly level?: number
   readonly streakDays: number
 }
 
-export type NavGroupsProps = {
+export type NavGroupsProps<S extends string = string> = {
   /** Today — rendered before every group, styled as the primary destination. */
-  readonly primary: NavItem
-  readonly groups: readonly NavGroup[]
-  readonly activeScreen: ScreenId
-  readonly onNavigate: (id: ScreenId) => void
+  readonly primary: NavItem<S>
+  readonly groups: readonly NavGroup<S>[]
+  readonly activeScreen: S
+  readonly onNavigate: (id: S) => void
   readonly footer: NavFooter
+  /**
+   * Roadmap DR-01: the Piano/Drums instrument switcher — shell chrome, not a
+   * nav item, so it is a caller-supplied node rather than something this
+   * component builds. Rendered first inside `.nav-scroll`, above the
+   * `primary` button, so it scrolls away with the rest of the nav content
+   * rather than pinning like `.nav-rail-footer` does — see this task's
+   * design notes for why (it names which nav table is showing, not
+   * page-independent chrome the footer's level/streak line is).
+   */
+  readonly switcher: ReactNode
   /**
    * Roadmap UI-36: the shell's action cluster (input-status chip +
    * Reference toggle) — `undefined` at <=1024px, where `Shell.tsx` renders
@@ -79,25 +100,27 @@ function slugOf(label: string): string {
   return label.toLowerCase().replace(/[^a-z0-9]+/g, '-')
 }
 
-export function NavGroups({
+export function NavGroups<S extends string = string>({
   primary,
   groups,
   activeScreen,
   onNavigate,
   footer,
+  switcher,
   actions,
-}: NavGroupsProps) {
+}: NavGroupsProps<S>) {
   return (
     <>
       {/* Roadmap UI-36: the rail's ONLY scroll box — everything that can grow
-          past the viewport's height (Today + every group) lives inside it;
-          `.nav-rail-footer` below is a flex sibling, never a scrolled child,
-          so the action cluster and the level/streak line stay reachable
-          without scrolling regardless of how many destinations are above
-          them (feature-nav-groups.css's `.nav-scroll`/`min-height: 0` pair
-          is what makes this box — not `.app-nav` itself — the one that
+          past the viewport's height (the switcher, Today, every group) lives
+          inside it; `.nav-rail-footer` below is a flex sibling, never a
+          scrolled child, so the action cluster and the level/streak line stay
+          reachable without scrolling regardless of how many destinations are
+          above them (feature-nav-groups.css's `.nav-scroll`/`min-height: 0`
+          pair is what makes this box — not `.app-nav` itself — the one that
           actually shrinks and scrolls). */}
       <div className="nav-scroll">
+        {switcher}
         <button
           type="button"
           className="nav-primary"
@@ -153,7 +176,8 @@ export function NavGroups({
         <div className="nav-footer">
           <Icon name="flame" size={16} />
           <span>
-            Level {footer.level} · {footer.streakDays > 0 ? `${footer.streakDays}-day streak` : 'No streak yet'}
+            {footer.level !== undefined ? `Level ${footer.level} · ` : ''}
+            {footer.streakDays > 0 ? `${footer.streakDays}-day streak` : 'No streak yet'}
           </span>
         </div>
       </div>

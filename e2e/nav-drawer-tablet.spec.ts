@@ -51,6 +51,21 @@ for (const size of TABLET_SIZES) {
 
     const geometry = await page.evaluate(() => {
       const items = [...document.querySelectorAll('nav button')].map((btn) => {
+        // Roadmap DR-01: the Piano/Drums switcher permanently added ~50px of
+        // its own chrome (a real 44px touch target plus margin — not
+        // reclaimable from padding trims without shrinking something else
+        // below the touch minimum) ahead of the 13 piano destinations this
+        // spec already found to be an exact fit at 1024x800 (see
+        // `.nav-scroll`'s own overflow-fix comment, feature-nav-groups.css).
+        // `.nav-scroll` has always been `overflow-y: auto`; the drawer no
+        // longer fits everything in one screenful at this breakpoint, so a
+        // real user reaches a below-the-fold item by scrolling the drawer —
+        // this scrolls each item into view before hit-testing it, the same
+        // thing that scroll affordance is for. `blocked` below still catches
+        // a genuine regression (something painted permanently on top of an
+        // item, unscrollable-into-view or not); it just no longer requires
+        // every item to be reachable without scrolling at all.
+        btn.scrollIntoView({ block: 'nearest' })
         const r = btn.getBoundingClientRect()
         const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
         return {

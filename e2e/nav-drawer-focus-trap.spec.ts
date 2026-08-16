@@ -36,17 +36,20 @@ test('at <=1024px, Tab from the drawer\'s last item wraps to its first, and Shif
     .poll(() => page.evaluate(() => getComputedStyle(document.querySelector('nav')!).transform))
     .toBe('none')
 
-  const today = page.locator('nav.app-nav .nav-primary')
+  // Roadmap DR-01: the drawer's first focusable control is now the Piano/
+  // Drums switcher, not Today — `NavGroups.tsx` renders it first inside
+  // `.nav-scroll`, ahead of even the primary button.
+  const first = page.locator('nav.app-nav').getByRole('radio', { name: 'Piano' })
   const settings = page.locator('nav.app-nav').getByRole('button', { name: 'Settings', exact: true })
-  await expect(today).toBeVisible()
+  await expect(first).toBeVisible()
   await expect(settings).toBeVisible()
 
   // Forward wrap: focus the drawer's last real control, Tab once, land back
-  // on its first (Today) — never escaping into the scrim-covered page behind
-  // it.
+  // on its first (the switcher's Piano segment) — never escaping into the
+  // scrim-covered page behind it.
   await settings.focus()
   await page.keyboard.press('Tab')
-  await expect(today).toBeFocused()
+  await expect(first).toBeFocused()
 
   // Backward wrap: from the first, Shift+Tab lands on the last.
   await page.keyboard.press('Shift+Tab')
