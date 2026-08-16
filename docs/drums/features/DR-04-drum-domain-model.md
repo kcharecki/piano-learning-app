@@ -21,13 +21,23 @@ Pure TypeScript in `src/core/drums/model/`:
 - **`DrumHit`** — a live input event: pad, velocity, time (ms at the edge, ticks once
   aligned), articulation flags.
 - **`GrooveScore`** — the notated thing trainers play: measures in ticks
-  (`TICKS_PER_QUARTER = 480`, shared constant), time signature, swing percentage, per-note:
-  pad, tick, duration (display only — drums are onset events), voice (hands/feet, the
-  stems-up/stems-down convention from research §2), dynamics class (`accent | normal |
-  ghost`), articulations (`flam, drag, buzz, open, choke`), optional sticking (`R | L`).
-- **Grid projection** — lossless mapping `GrooveScore` ⇄ subdivision grid (rows = pads,
-  columns = 8th/16th/triplet cells) for the editor (DR-13) and grid-style trainer displays.
-  Property: round-trip identity for any grid-representable score.
+  (`TICKS_PER_QUARTER = 480`, shared constant), time signature, swing (`swingPercent` 50..75
+  + `swingUnit` eighth/sixteenth) — performance metadata only, never baked into a note's
+  `tick`; a note's tick is always its nominal (straight) notated position, standard MusicXML
+  practice (written straight, a `<sound><swing>` directive tells the reader how to swing it
+  in performance) — per-note: pad, tick, duration (display only — drums are onset events),
+  voice (hands/feet, the stems-up/stems-down convention from research §2), dynamics class
+  (`accent | normal | ghost`), articulations (`flam, drag, buzz, open, choke`), optional
+  sticking (`R | L`).
+- **Grid projection** — `GrooveScore` ⇄ subdivision grid (rows = pads, columns = 8th/16th/
+  triplet cells) for the editor (DR-13) and grid-style trainer displays, both directions
+  returning a `Result` — a grid can carry an invalid swing/meter combination, and a score can
+  have notes that do not land on the grid. Grid cells always sit at NOMINAL (straight) tick
+  positions, matching `GrooveScore`'s own straight-tick convention above; swing is carried as
+  metadata alongside, never used to place a cell, so this is a straight-notation <-> grid
+  mapping, not a swung-position one (swung playback positions are `subdivisionCellTick`'s
+  job, kept for DR-06). Property: round-trip identity (grid -> score -> grid) for any
+  grid-representable score — not a claim that an arbitrary `GrooveScore` survives the trip.
 - **MusicXML bridge** — parse/serialize drum parts: `<unpitched>` + `<instrument>` +
   `<notehead>` + voice/stem per research §5, mapping to/from `DrumPad`. Extends
   `core/notation` alongside `parseMusicXml`, reusing its `Result` error style. Playback
@@ -42,9 +52,13 @@ Pure TypeScript in `src/core/drums/model/`:
 
 ## Testing
 
-Property tests (fast-check): grid round-trip; MusicXML round-trip on generated grooves;
-voice assignment invariant (feet never stems-up); swing application reversible. Example
-tests: the reference grooves from research §1 encode and re-serialize byte-stable.
+Property tests (fast-check): grid round-trip; MusicXML round-trip on generated grooves
+(including a randomised `swingUnit`); voice assignment invariant (feet never stems-up);
+swing tick sequence strictly increasing (reversible); swing pairing restarts at every
+measure boundary, proven across odd eighth-subdivision meters (3/8..9/8) and a 5/16
+sixteenth-subdivision meter, so a pair never straddles a barline. Example tests: the
+reference grooves from research §1 encode and re-serialize byte-stable, plus their own
+domain-level checks (`referenceGrooves.test.ts`).
 
 ## Experience-gate proof
 
