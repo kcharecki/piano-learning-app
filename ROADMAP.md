@@ -1229,8 +1229,8 @@ next item, no completion state, no sense of being 3 of 5 through today.
       no level below 4 exceeds a 5th (7 st), decoupling the cadence-reachability constraint from the
       pedagogical ceiling. Blocks **sight reading**.
       *Proof: `node scripts/review-probe.mjs claims` re-run — measured max leap off the ENGRAVED
-      output rises level by level and level 2 never exceeds 7 st over ≥ 50 sampled intervals; the
-      existing `levelDefaults.test.ts` cadence-reachability property stays green.*
+      output rises monotonically (non-strict) and level 2 never exceeds 7 st over ≥ 50 sampled
+      intervals; the existing `levelDefaults.test.ts` cadence-reachability property stays green.*
       **Done:** leap column re-graded `2, 7, 7, 10, 11, 12` (was `2, 10, 10, 10, 11, 12`) — rises
       monotonically, levels 1-3 all ≤ 7 st. An adversarial re-review of the first pass found it FIX
       FIRST: `doubleHand` (`melody.ts`) derived the second hand from a register-correct target with

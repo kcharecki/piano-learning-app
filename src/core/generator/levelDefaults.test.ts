@@ -136,7 +136,20 @@ describe('LEVEL_ROWS — leap ceiling is graded by pedagogy, not just reachabili
     }
   })
 
-  it('the per-level engraved max leap (both hands, sampled) is non-decreasing across levels, and level 2 never exceeds 7 semitones', () => {
+  /**
+   * The pedagogical ceiling this task exists to enforce (roadmap 5.53):
+   * level 1 is stepwise, levels 1-3 never exceed a 5th (7 semitones), and
+   * levels 4-6 grade upward from there. Hardcoded here — NOT read from
+   * `LEVEL_ROWS`/`defaultParamsForLevel` — because the generator now
+   * faithfully enforces whatever `maxLeapSemitones` a level declares (that
+   * is the F1/F2 fix): comparing engraved output back against the SAME
+   * (possibly wrong) declared value can never catch the declared value
+   * itself being too loose, e.g. level 3 regressing to 10. This is the
+   * independent reference the review's re-check exercises.
+   */
+  const EXPECTED_MAX_LEAP: readonly number[] = [2, 7, 7, 10, 11, 12]
+
+  it('the per-level engraved max leap (both hands, sampled) is non-decreasing across levels, and never exceeds its level’s pedagogical ceiling', () => {
     const maxByLevel = LEVELS.map((level) => {
       const params = defaultParamsForLevel(level)
       let max = 0
@@ -150,8 +163,9 @@ describe('LEVEL_ROWS — leap ceiling is graded by pedagogy, not just reachabili
     for (let i = 1; i < maxByLevel.length; i++) {
       expect(at(maxByLevel, i)).toBeGreaterThanOrEqual(at(maxByLevel, i - 1))
     }
-    // Level 2 is index 1.
-    expect(at(maxByLevel, 1)).toBeLessThanOrEqual(7)
+    for (const level of LEVELS) {
+      expect(at(maxByLevel, level - 1)).toBeLessThanOrEqual(at(EXPECTED_MAX_LEAP, level - 1))
+    }
   })
 })
 
