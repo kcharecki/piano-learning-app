@@ -317,9 +317,22 @@ purpose is reading and playing.
       `fast-check` property tests: every tap classified against exactly one onset or rejected,
       hit window symmetric, monotonic taps never reclaim an earlier onset, and classification
       agrees with `gradeTapping` on a clean run. `closeExpiredOnsets(onsetTicks, state, atTick,
-      opts)` grades only onsets whose window has elapsed as of `atTick`, leaving future onsets
-      pending — property-tested: stop never marks a future onset missed, and stopping at/after
-      the last onset equals the run-ended grade. Wired into both drill hooks (`lastTapVerdict`,
+      opts)` settles which onsets have a decided verdict as of `atTick`, leaving future onsets
+      pending — property-tested: stop never marks a future onset missed. Stop re-grades the
+      decided prefix with the *same* batch grader (`gradeTapping`/`gradeClapback`) the natural
+      end-of-run path uses, not the live classifier's own running tally, so a Stop and a natural
+      finish at the same point always agree; stopping at or after the last onset now produces
+      exactly the natural run-ended grade by construction, not by coincidence.
+      `effectiveToleranceTicks` clamps the live tolerance to at most half the pattern's own
+      minimum onset gap, so the live per-tap verdict and the end-of-run/Stop summary can never
+      disagree about which onset a tap belongs to. Stop has three outcomes: `aborted` (nothing
+      decided yet — no grade, nothing logged), `partial` (some onsets decided — graded and
+      shown, but purely informational), and `natural` (the run finished on its own). Only
+      `natural` ever logs accuracy to the practice log or adapts an ear-training level —
+      `aborted` and `partial` never do, closing the gap where a learner could game the adaptive
+      level or the practice log by stopping early on a run that was going badly. A stopped
+      clap-back run keeps the same tempo-scale fitting (`fitTempoScale`) the natural grade
+      uses; Stop never hardcodes `tempoScale: 1`. Wired into both drill hooks (`lastTapVerdict`,
       `stop`) and both screens (`RhythmScreen.tsx`/`RhythmClapback.tsx`): a per-tap flash now
       shows hit/early/late/extra using the app's existing `--fb-*` tokens and their own
       documented glyphs (✓/‹/›/+ — no new vocabulary), and a Stop control next to the tap pad

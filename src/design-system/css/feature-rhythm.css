@@ -128,3 +128,22 @@
 .rhythm-stop-btn {
   align-self: center;
 }
+
+/* Roadmap U.3 fix round (F6): the per-tap verdict badge above
+   (`.rhythm-tap-pad-flash--*`) is `aria-hidden` — colour/glyph only, nothing
+   a screen reader ever sees — so a learner using one gets no per-tap timing
+   feedback at all. This is the announced counterpart: visually invisible,
+   `role="status"` so assistive tech reads its text on every change, mirroring
+   `feature-metronome.css`'s identical `.metronome-status-sr[role="status"]`. */
+.rhythm-tap-verdict-sr[role="status"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+  background: transparent;
+}

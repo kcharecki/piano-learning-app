@@ -10,13 +10,14 @@
  */
 import { makeTempoMap, tickToMs } from '@core/timing/tempo.ts'
 import { seededRng } from '@core/ports/rng.ts'
-import { midi } from '@core/shared/units.ts'
+import { midi, ticks } from '@core/shared/units.ts'
 import { emptyEarSession } from '@core/eartraining/session.ts'
 import { act, cleanup, fireEvent, renderHook } from '@testing-library/react'
 import { FakeClock, FakeMidiInput, RecordingAudioOutput } from '@test/fakes.ts'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { useEarTrainingStore } from '@app/state/earTrainingStore.ts'
+import { useProgressStore } from '@app/state/progressStore.ts'
 import { useClapbackDrill, type UseClapbackDrillOptions } from './useClapbackDrill.ts'
 
 function manualDriver(): { driver: FrameDriver; pump: () => void } {
@@ -33,7 +34,10 @@ function manualDriver(): { driver: FrameDriver; pump: () => void } {
 /** A 4/4 bar with no written tempo mark defaults to 120bpm, i.e. 2000ms/bar. */
 const MS_PER_BAR = 2000
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  useProgressStore.setState({ assessments: [], recordings: [], practiceEntries: [] })
+})
 
 function setup(overrides: Partial<UseClapbackDrillOptions> = {}) {
   const clock = new FakeClock()
@@ -459,5 +463,197 @@ describe('useClapbackDrill — level (MAJOR-1 review fix): sourced from and pers
     const { result } = setupAdaptive({ level: 5 })
     expect(result.current.level).toBe(5)
     expect(useEarTrainingStore.getState().session).toEqual(emptyEarSession())
+  })
+})
+
+describe('useClapbackDrill — manual Stop (roadmap U.3 fix round)', () => {
+  // The store is reset before each test, exactly like the "level" describe
+  // above, and `level` is deliberately left OFF `setupForStop`'s options (the
+  // real, store-adaptive path) — an aborted/partial Stop that wrongly reached
+  // `finishTapping`'s adapt branch would move `useEarTrainingStore`'s
+  // `rhythmic-dictation` level, which these tests can observe directly.
+  beforeEach(() => {
+    useEarTrainingStore.setState({ session: emptyEarSession(), itemsById: {} })
+  })
+
+  function setupForStop(overrides: Partial<UseClapbackDrillOptions> = {}) {
+    const clock = new FakeClock()
+    const manual = manualDriver()
+    const options: UseClapbackDrillOptions = {
+      bars: 4,
+      clock,
+      midiInput: new FakeMidiInput(),
+      rng: seededRng(7),
+      audioOutput: new RecordingAudioOutput(clock),
+      frameDriver: manual.driver,
+      ...overrides,
+    }
+    const { result, unmount } = renderHook((p: UseClapbackDrillOptions) => useClapbackDrill(p), {
+      initialProps: options,
+    })
+    return { result, clock, manual, unmount }
+  }
+
+  /** Finishes the listening half and lands in 'tapping', returning the pattern both halves share. */
+  function reachTapping(
+    result: ReturnType<typeof setupForStop>['result'],
+    clock: FakeClock,
+    manual: ReturnType<typeof manualDriver>,
+  ) {
+    act(() => result.current.start())
+    const pattern = result.current.pattern
+    if (pattern === undefined) throw new Error('start() produced no pattern')
+    act(() => {
+      clock.advance(pattern.bars * MS_PER_BAR)
+      manual.pump()
+    })
+    expect(result.current.phase).toBe('tapping')
+    return pattern
+  }
+
+  it('stop() before anything is decided aborts: no grade, no accuracy logged, no level adapt', () => {
+    const { result, clock, manual } = setupForStop()
+    reachTapping(result, clock, manual)
+    expect(result.current.level).toBe(1)
+
+    // Stopped the instant tapping begins (no clock advance, no taps) —
+    // nothing could possibly have been decided yet.
+    act(() => result.current.stop())
+
+    expect(result.current.phase).toBe('graded')
+    expect(result.current.stopOutcome).toBe('aborted')
+    expect(result.current.grade).toBeUndefined()
+    expect(result.current.partial).toBeUndefined()
+    expect(result.current.level).toBe(1)
+    expect(useEarTrainingStore.getState().session.levels['rhythmic-dictation']).toBe(1)
+    const entries = useProgressStore.getState().practiceEntries
+    expect(entries[0]?.accuracy).toBeUndefined()
+  })
+
+  it('stop() mid-run grades only the decided prefix, reports "N of M", and does not adapt the level or log an accuracy', () => {
+    // seed 7 / bars 4 / level 1 deterministically draws the same 12 real
+    // onsets `useRhythmDrill.test.ts`'s identical Stop fixture measured
+    // (0,960,1920,2880,3360,3840,...) — `generateNonEmptyPattern` calls the
+    // same `generateRhythm` with `complexity: level`, so the draw is
+    // identical. Level 1's own tolerance (160 ticks, `BASE_TOLERANCE_TICKS`)
+    // is still comfortably under half the 480-tick floor, so it is never
+    // clamped either. Advancing tapping to tick 3840 (4000ms at 120bpm)
+    // closes exactly the first 5 onsets (each one's window ends before tick
+    // 3840) and leaves the rest pending — same arithmetic as the sight-tap
+    // drill's fixture, just against level 1's own (looser) window.
+    const { result, clock, manual } = setupForStop()
+    const pattern = reachTapping(result, clock, manual)
+    const onsetCount = pattern.onsets.filter((o) => !o.isRest).length
+    expect(onsetCount).toBe(12)
+
+    act(() => clock.advance(4000))
+    act(() => result.current.stop())
+
+    expect(result.current.phase).toBe('graded')
+    expect(result.current.stopOutcome).toBe('partial')
+    expect(result.current.partial).toEqual({ decided: 5, total: 12 })
+    const grade = result.current.grade
+    expect(grade).toBeDefined()
+    expect((grade?.matched ?? 0) + (grade?.missed ?? 0)).toBe(5)
+    // Deliberately NOT hardcoded to 1 any more (F2): `gradeClapback` ran its
+    // own tempo-scale fit over the decided prefix, exactly as it would over a
+    // complete run.
+    expect(typeof grade?.tempoScale).toBe('number')
+    expect(result.current.level).toBe(1)
+    expect(useEarTrainingStore.getState().session.levels['rhythmic-dictation']).toBe(1)
+    const entries = useProgressStore.getState().practiceEntries
+    expect(entries[0]?.accuracy).toBeUndefined()
+  })
+
+  it('a natural finish still grades with the batch grader, logs an accuracy, and reaches the adapt branch', () => {
+    const { result, clock, manual } = setupForStop({ bars: 1 })
+    act(() => result.current.start())
+    act(() => {
+      clock.advance(1 * MS_PER_BAR)
+      manual.pump()
+    })
+    const pattern = result.current.pattern
+    if (pattern === undefined) throw new Error('start() produced no pattern')
+    const tempo = makeTempoMap([])
+    const onsets = pattern.onsets
+      .filter((o) => !o.isRest)
+      .map((o) => Number(tickToMs(tempo, o.tick)))
+      .sort((a, b) => a - b)
+
+    let last = 0
+    for (const ms of onsets) {
+      act(() => clock.advance(ms - last))
+      act(() => result.current.tap())
+      last = ms
+    }
+    act(() => {
+      clock.advance(1 * MS_PER_BAR - last + MS_PER_BAR)
+      manual.pump()
+    })
+
+    expect(result.current.phase).toBe('graded')
+    expect(result.current.stopOutcome).toBe('natural')
+    expect(result.current.partial).toBeUndefined()
+    expect(result.current.grade?.accuracy).toBe(1)
+    // Natural completion logs the real accuracy to the practice log — unlike
+    // the aborted/partial Stop tests above, this is never omitted.
+    const entries = useProgressStore.getState().practiceEntries
+    expect(entries[0]?.accuracy).toBe(1)
+  })
+})
+
+describe('useClapbackDrill — live tap verdicts (roadmap U.3 fix round)', () => {
+  it('classifies a scripted tap series as hit/early/late/extra, through the ms -> ticks conversion', () => {
+    // Same seed-7/bars-4/level-1 fixture as the Stop describe above: real
+    // onsets at 0,960,1920,2880,... comfortably more than the 480-tick
+    // minimum apart, so level 1's 160-tick tolerance never gets clamped (F1)
+    // and every tap below lands unambiguously in one onset's window.
+    const { result, clock, manual } = setup({ bars: 4, level: 1, rng: seededRng(7) })
+    act(() => result.current.start())
+    const pattern = result.current.pattern
+    if (pattern === undefined) throw new Error('start() produced no pattern')
+    act(() => {
+      clock.advance(pattern.bars * MS_PER_BAR)
+      manual.pump()
+    })
+    expect(result.current.phase).toBe('tapping')
+
+    const onsets = pattern.onsets.filter((o) => !o.isRest)
+    const [onset0, onset1, onset2, onset3] = onsets
+    if (onset0 === undefined || onset1 === undefined || onset2 === undefined || onset3 === undefined) {
+      throw new Error('expected at least 4 real onsets')
+    }
+    const tempo = makeTempoMap([])
+    let elapsedMs = 0
+    function advanceTo(tick: number): void {
+      const targetMs = Number(tickToMs(tempo, ticks(tick)))
+      act(() => clock.advance(targetMs - elapsedMs))
+      elapsedMs = targetMs
+    }
+
+    // Tap 1: exactly on onset0 -> hit (delta 0, inside the ~53-tick hit window).
+    advanceTo(onset0.tick)
+    act(() => result.current.tap())
+    expect(result.current.lastTapVerdict).toBe('hit')
+
+    // Tap 2: 100 ticks before onset1 -> inside the 160-tick tolerance but
+    // outside the hit window -> early.
+    advanceTo(onset1.tick - 100)
+    act(() => result.current.tap())
+    expect(result.current.lastTapVerdict).toBe('early')
+
+    // Tap 3: 100 ticks after onset2 -> same magnitude, opposite sign -> late.
+    advanceTo(onset2.tick + 100)
+    act(() => result.current.tap())
+    expect(result.current.lastTapVerdict).toBe('late')
+
+    // Tap 4: 300 ticks before onset3 -> outside the 160-tick tolerance on
+    // either side (onset2 is already claimed, its cursor advanced past by
+    // tap 3) -> extra, reported as an undefined verdict.
+    advanceTo(onset3.tick - 300)
+    act(() => result.current.tap())
+    expect(result.current.lastTapVerdict).toBeUndefined()
+
+    expect(result.current.tapCount).toBe(4)
   })
 })

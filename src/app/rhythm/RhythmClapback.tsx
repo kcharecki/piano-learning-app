@@ -70,6 +70,16 @@ function TapFlashGlyph({ verdict }: { readonly verdict: TapVerdict | undefined }
   return <>+</>
 }
 
+/** Roadmap U.3 fix round (F6): identical to `RhythmScreen.tsx`'s own
+ *  `verdictStatusText` — deliberately re-declared, not shared, mirroring this
+ *  file's own "re-declared rather than shared" precedent (see the module
+ *  doc). See that function's comment for the tap-count prefix's purpose. */
+function verdictStatusText(tapCount: number, verdict: TapVerdict | undefined): string {
+  if (tapCount === 0) return ''
+  const label = verdict === 'hit' ? 'Hit' : verdict === 'early' ? 'Early' : verdict === 'late' ? 'Late' : 'Extra tap'
+  return `Tap ${tapCount}: ${label}`
+}
+
 export function RhythmClapback(props: RhythmClapbackProps) {
   const [metronomeEnabled, setMetronomeEnabled] = useState(true)
   // `level` is owned by the hook, not this view — sourced from and persisted to the
@@ -181,6 +191,12 @@ export function RhythmClapback(props: RhythmClapbackProps) {
           </button>
 
           {drill.phase === 'tapping' && (
+            <p role="status" className="rhythm-tap-verdict-sr" data-testid="clapback-tap-verdict-sr">
+              {verdictStatusText(drill.tapCount, drill.lastTapVerdict)}
+            </p>
+          )}
+
+          {drill.phase === 'tapping' && (
             <button type="button" className="btn-ghost rhythm-stop-btn" onClick={drill.stop}>
               <Icon name="stop" />
               Stop
@@ -189,8 +205,23 @@ export function RhythmClapback(props: RhythmClapbackProps) {
         </section>
       )}
 
-      {drill.phase === 'graded' && drill.grade !== undefined && (
+      {drill.phase === 'graded' && drill.stopOutcome === 'aborted' && (
         <section aria-label="Result">
+          <p data-testid="clapback-aborted">Stopped before any notes were graded.</p>
+          <button type="button" className="btn-primary" onClick={drill.start}>
+            <Icon name="play" />
+            Again
+          </button>
+        </section>
+      )}
+
+      {drill.phase === 'graded' && drill.grade !== undefined && drill.stopOutcome !== 'aborted' && (
+        <section aria-label="Result">
+          {drill.stopOutcome === 'partial' && drill.partial !== undefined && (
+            <p data-testid="clapback-partial-note">
+              Stopped early — graded {drill.partial.decided} of {drill.partial.total} notes.
+            </p>
+          )}
           <div className="stat-group">
             <div className="stat">
               <span className="stat-value" data-testid="clapback-matched">

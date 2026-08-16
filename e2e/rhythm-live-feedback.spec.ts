@@ -172,13 +172,35 @@ test('the sight-tap drill shows a live hit/early/late verdict per tap, and a man
   // still left to run — instead of letting it play to the end. Only the
   // onsets whose window closed by then may be graded missed; the whole
   // second half of the pattern must still be pending.
+  //
+  // Roadmap U.3 fix round (F2/F5): Stop no longer trusts the live
+  // classifier's own running tally — it re-grades the decided prefix with
+  // the SAME batch grader (`gradeTapping`) the natural end-of-run path uses.
+  // `rhythm-partial-note` ("Stopped early — graded N of M notes.") is the
+  // visible proof of that: N must be a real prefix (0 < N < M, i.e. neither
+  // "nothing decided" nor "the whole pattern"), and because the batch
+  // grader was handed exactly those N onsets, every one of them is either
+  // matched or missed — nothing outside the decided prefix can appear in
+  // either count.
   await page.getByRole('button', { name: 'Again' }).click()
   await expect(page.getByTestId('rhythm-tapping-status')).toBeVisible()
   await page.waitForTimeout(3_000)
   await page.getByRole('button', { name: 'Stop' }).click()
   await expect(page.getByTestId('rhythm-accuracy')).toBeVisible()
+  await expect(page.getByTestId('rhythm-aborted')).not.toBeAttached()
 
+  const partialNote = await page.getByTestId('rhythm-partial-note').textContent()
+  const partialMatch = partialNote?.match(/graded (\d+) of (\d+) notes/)
+  expect(partialMatch).not.toBeNull()
+  const [, decidedStr, totalStr] = partialMatch ?? []
+  const decided = Number(decidedStr)
+  const total = Number(totalStr)
+  expect(decided).toBeGreaterThan(0)
+  expect(decided).toBeLessThan(total)
+
+  const stoppedMatched = Number(await page.getByTestId('rhythm-matched').textContent())
   const stoppedMissed = Number(await page.getByTestId('rhythm-missed').textContent())
+  expect(stoppedMatched + stoppedMissed).toBe(decided)
   expect(stoppedMissed).toBeLessThan(naturalMissed)
 
   expect(errors).toEqual([])
@@ -212,13 +234,31 @@ test('the clap-back drill also grades a manual Stop against only the elapsed pre
   // instead of letting it play to the end. Also exercises
   // `useClapbackDrill.ts`'s own `stopRun()` → `finishTapping()` path (the
   // level-re-adaptation branch), not just the sight-tap hook's.
+  // Roadmap U.3 fix round (F2/F5): same same-grader-prefix proof as the
+  // sight-tap spec above — `clapback-partial-note` ("Stopped early — graded
+  // N of M notes.") must show a real prefix (0 < N < M), and matched+missed
+  // must equal exactly N, since the batch grader (`gradeClapback`, still
+  // tempo-fitted — Stop never hardcodes `tempoScale: 1`) only ever saw the
+  // decided onsets.
   await page.getByRole('button', { name: 'Again' }).click()
   await expect(page.getByTestId('clapback-tapping-status')).toBeVisible({ timeout: 15_000 })
   await page.waitForTimeout(1_500)
   await page.getByRole('button', { name: 'Stop' }).click()
   await expect(page.getByTestId('clapback-accuracy')).toBeVisible()
+  await expect(page.getByTestId('clapback-aborted')).not.toBeAttached()
 
+  const partialNote = await page.getByTestId('clapback-partial-note').textContent()
+  const partialMatch = partialNote?.match(/graded (\d+) of (\d+) notes/)
+  expect(partialMatch).not.toBeNull()
+  const [, decidedStr, totalStr] = partialMatch ?? []
+  const decided = Number(decidedStr)
+  const total = Number(totalStr)
+  expect(decided).toBeGreaterThan(0)
+  expect(decided).toBeLessThan(total)
+
+  const stoppedMatched = Number(await page.getByTestId('clapback-matched').textContent())
   const stoppedMissed = Number(await page.getByTestId('clapback-missed').textContent())
+  expect(stoppedMatched + stoppedMissed).toBe(decided)
   expect(stoppedMissed).toBeLessThan(naturalMissed)
 
   expect(errors).toEqual([])

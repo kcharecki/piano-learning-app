@@ -104,6 +104,22 @@ function TapFlashGlyph({ verdict }: { readonly verdict: TapVerdict | undefined }
   return <>+</>
 }
 
+/**
+ * Roadmap U.3 fix round (F6): the announced counterpart to `TapFlashGlyph`'s
+ * `aria-hidden` badge — see `feature-rhythm.css`'s `.rhythm-tap-verdict-sr`
+ * comment for why a SEPARATE region exists rather than un-hiding the badge
+ * itself. Prefixed with the tap count so two consecutive taps landing the
+ * same verdict (e.g. "Hit" twice in a row) still produce distinct text —
+ * `role="status"` regions are only guaranteed to be re-announced when their
+ * content actually changes. Empty before the first tap, so nothing is
+ * announced on mount.
+ */
+function verdictStatusText(tapCount: number, verdict: TapVerdict | undefined): string {
+  if (tapCount === 0) return ''
+  const label = verdict === 'hit' ? 'Hit' : verdict === 'early' ? 'Early' : verdict === 'late' ? 'Late' : 'Extra tap'
+  return `Tap ${tapCount}: ${label}`
+}
+
 const MODE_SUBTITLE: Record<RhythmMode, string> = {
   'sight-tap': 'Read the notation and tap the beat you see.',
   'clap-back': 'Listen to a phrase, then clap it back from memory.',
@@ -236,6 +252,10 @@ export function RhythmScreen(props: RhythmScreenProps) {
                 )}
               </button>
 
+              <p role="status" className="rhythm-tap-verdict-sr" data-testid="rhythm-tap-verdict-sr">
+                {verdictStatusText(drill.tapCount, drill.lastTapVerdict)}
+              </p>
+
               <button type="button" className="btn-ghost rhythm-stop-btn" onClick={drill.stop}>
                 <Icon name="stop" />
                 Stop
@@ -243,8 +263,23 @@ export function RhythmScreen(props: RhythmScreenProps) {
             </section>
           )}
 
-          {drill.phase === 'graded' && drill.grade !== undefined && (
+          {drill.phase === 'graded' && drill.stopOutcome === 'aborted' && (
             <section aria-label="Result">
+              <p data-testid="rhythm-aborted">Stopped before any notes were graded.</p>
+              <button type="button" className="btn-primary" onClick={drill.start}>
+                <Icon name="play" />
+                Again
+              </button>
+            </section>
+          )}
+
+          {drill.phase === 'graded' && drill.grade !== undefined && drill.stopOutcome !== 'aborted' && (
+            <section aria-label="Result">
+              {drill.stopOutcome === 'partial' && drill.partial !== undefined && (
+                <p data-testid="rhythm-partial-note">
+                  Stopped early — graded {drill.partial.decided} of {drill.partial.total} notes.
+                </p>
+              )}
               <div className="stat-group">
                 <div className="stat">
                   <span className="stat-value" data-testid="rhythm-matched">
