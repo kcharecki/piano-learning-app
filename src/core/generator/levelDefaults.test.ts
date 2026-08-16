@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { at } from '@core/shared/invariant.ts'
 import { seededRng } from '@core/ports/rng.ts'
 import { pitchClass, spelledPitchClass } from '@core/theory/pitch.ts'
+import { WHOLE, HALF, QUARTER } from '@core/shared/units.ts'
 import type { Score, ScoreNote } from '@core/notation/score.ts'
 import { defaultParamsForLevel, MAX_GENERATOR_LEVEL } from './levelDefaults.ts'
 import { generateMelody, RHYTHM_POOLS, type MidiRange, type RhythmStyle } from './melody.ts'
@@ -166,6 +167,54 @@ describe('LEVEL_ROWS — leap ceiling is graded by pedagogy, not just reachabili
     for (const level of LEVELS) {
       expect(at(maxByLevel, level - 1)).toBeLessThanOrEqual(at(EXPECTED_MAX_LEAP, level - 1))
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// rhythm ladder — engraved duration vocabulary (roadmap 5.54)
+// ---------------------------------------------------------------------------
+
+const RHYTHM_SAMPLE_SEEDS = 300
+
+/** The set of `durationTicks` values engraved for `hand`, over `seeds` seeds of `level`. */
+function engravedDurationVocabulary(level: number, hand: 'left' | 'right', seeds: number): Set<number> {
+  const params = defaultParamsForLevel(level)
+  const durations = new Set<number>()
+  for (let seed = 0; seed < seeds; seed++) {
+    const result = generateMelody(params, seededRng(seed))
+    if (!result.ok) continue
+    for (const n of handNotes(result.value, hand)) durations.add(n.durationTicks)
+  }
+  return durations
+}
+
+describe('LEVEL_ROWS — rhythm ladder engraves the right note values (roadmap 5.54)', () => {
+  it("level 1 ('quarter-half') never engraves a whole note, over 300 seeds — the exact defect this task fixes", () => {
+    const durations = engravedDurationVocabulary(1, 'right', RHYTHM_SAMPLE_SEEDS)
+    expect(durations.has(WHOLE)).toBe(false)
+  })
+
+  it("level 1 ('quarter-half') engraves BOTH quarter and half notes, over 300 seeds", () => {
+    const durations = engravedDurationVocabulary(1, 'right', RHYTHM_SAMPLE_SEEDS)
+    expect(durations.has(QUARTER)).toBe(true)
+    expect(durations.has(HALF)).toBe(true)
+  })
+
+  /**
+   * The frozen "ladder is monotonic in vocabulary" decision, scoped to the
+   * 1 -> 2 step this task actually changes (see `levelDefaults.ts`'s module
+   * doc for why 2 -> 3 .. 5 -> 6 are explicitly NOT asserted here yet —
+   * `eighths`/`dotted`/`syncopated` predate this task and `eighths` has no
+   * half note at all). Proven on ENGRAVED output, not the declared
+   * `RHYTHM_POOLS` table, so a bug in `buildBarDurations` or in
+   * `generateStepwiseOneDirectionLine`'s use of it would fail this test even
+   * if the table itself were correct.
+   */
+  it("level 1's engraved duration vocabulary is a subset of level 2's, over 300 seeds", () => {
+    const level1 = engravedDurationVocabulary(1, 'right', RHYTHM_SAMPLE_SEEDS)
+    const level2 = engravedDurationVocabulary(2, 'right', RHYTHM_SAMPLE_SEEDS)
+    expect(level1.size).toBeGreaterThan(0)
+    for (const d of level1) expect(level2.has(d)).toBe(true)
   })
 })
 

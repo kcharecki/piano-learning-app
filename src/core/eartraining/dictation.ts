@@ -292,11 +292,15 @@ export function generateMelodicDictation(level: number, opts: DictationOptions, 
       stepwiseOneDirection: false,
       // Level 1's own `maxLeapSemitones` is sized for that mode (a straight
       // run needs no leap budget at all) and is too small to cadence a
-      // single-bar 'whole-half' draw — that style can place just one note in
-      // the whole bar, which then has to reach the tonic in one leap that
-      // spans the caller's entire `range`. Dictation isn't teaching leap
-      // difficulty the way sight reading is, so give it exactly the headroom
-      // it needs rather than borrowing the ladder's pedagogical value.
+      // single-bar draw of `defaults.rhythm` in general — a sparse style can
+      // place as few as one or two notes in the whole bar (roadmap 5.54:
+      // level 1's own `'quarter-half'` pool floors at two half notes, and an
+      // earlier `'whole-half'` default could place just one), which then has
+      // to reach the tonic in one or two leaps that span the caller's entire
+      // `range`. Dictation isn't teaching leap difficulty the way sight
+      // reading is, so give it exactly the headroom it needs (the full range
+      // width, always enough regardless of how few notes the bar holds)
+      // rather than borrowing the ladder's pedagogical value.
       maxLeapSemitones: Math.max(defaults.maxLeapSemitones, range.high - range.low),
     }
     const result = generateMelody(params, rng)

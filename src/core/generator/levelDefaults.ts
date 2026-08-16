@@ -55,6 +55,20 @@
  * this value as-is via `defaultParamsForLevel`. Nothing about dictation's
  * own leap size should be inferred from this table.
  *
+ * The rhythm column (roadmap 5.54): level 1 is `'quarter-half'`
+ * (`rhythmPools.ts`) — units `{4, 8}` only, no whole notes — and level 2 is
+ * `'quarters'`, whose own pool (`{1, 2, 4, 8}`) is already a strict superset,
+ * so the level 1 -> 2 vocabulary step needed no change of its own. Faber
+ * Piano Adventures Primer introduces note values quarter -> half -> whole,
+ * ALL inside Unit 2 (official Teacher Guide, verified 2026-08-12); a level-1
+ * exercise engraving whole notes before quarter/half were secure inverted
+ * that order — the identical defect roadmap 5.20 fixed for the Rhythm drill
+ * on the same source. Levels 3-6's own pools (`eighths`/`dotted`/
+ * `syncopated`) predate this task and are NOT verified against level 2 the
+ * same way — `eighths` in particular has no half note at all — so the
+ * ladder's monotonic-vocabulary property in `levelDefaults.test.ts` only
+ * asserts the 1 -> 2 step this task is scoped to, not the full 1 -> 6 chain.
+ *
  * `handIndependence: 'unison'` (`doubleHand`, `melody.ts`) transposes the
  * primary hand by a fixed octave computed once from its first note, so it
  * only ever lands inside `leftRange` when `leftRange` is exactly `rightRange`
@@ -99,7 +113,7 @@ const SIX_EIGHT: TimeSignature = { beats: 6, beatType: 8 }
 
 const LEVEL_ROWS: readonly LevelRow[] = [
   // fifths mode      bars ts         hands   rLo rHi lLo  lHi  rhythm        leap density indep             stepwise
-  [0, 'major', 4, FOUR_FOUR, 'right', 60, 79, null, null, 'whole-half', 2, 0, 'unison', true],
+  [0, 'major', 4, FOUR_FOUR, 'right', 60, 79, null, null, 'quarter-half', 2, 0, 'unison', true],
   [0, 'major', 4, FOUR_FOUR, 'both', 60, 79, 48, 67, 'quarters', 7, 0, 'unison', false],
   [1, 'major', 8, THREE_FOUR, 'both', 60, 79, 48, 67, 'eighths', 7, 0.05, 'parallel', false],
   [2, 'major', 8, SIX_EIGHT, 'both', 60, 79, 48, 67, 'dotted', 10, 0.1, 'blocked-chords', false],

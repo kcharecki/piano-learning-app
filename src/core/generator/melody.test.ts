@@ -27,7 +27,12 @@ import {
 // helpers
 // ---------------------------------------------------------------------------
 
+// Easiest-to-hardest — see the "monotonically harder in rhythm" test below,
+// which uses each style's INDEX here as a difficulty stand-in. 'quarter-half'
+// (roadmap 5.54) is level 1's own default and strictly simpler than
+// 'whole-half' (units {4, 8} only, vs. {1, 4, 8, 12, 16}), so it leads.
 const RHYTHMS: readonly RhythmStyle[] = [
+  'quarter-half',
   'whole-half',
   'quarters',
   'eighths',
@@ -615,7 +620,7 @@ describe('defaultParamsForLevel', () => {
     ).toBeGreaterThan(2)
   })
 
-  it('level 1 generates only diatonic steps, all in one direction, over 500 seeds', () => {
+  it('level 1 generates only diatonic steps, all in one direction, one stepped pitch per bar, over 500 seeds', () => {
     const params = defaultParamsForLevel(1)
     expect(params.stepwiseOneDirection).toBe(true)
     const scalePcs = scalePitchClasses(params.key)
@@ -627,15 +632,32 @@ describe('defaultParamsForLevel', () => {
       const result = generateMelody(params, seededRng(seed))
       expect(result.ok).toBe(true)
       if (!result.ok) continue
-      const pitches = handNotes(result.value, 'right')
+      const notes = handNotes(result.value, 'right')
         .slice()
         .sort((a, b) => a.startTick - b.startTick)
-        .map((n) => n.midi)
-      // Exact length, not just "more than one" — a slice that's short by one
-      // note (an off-by-one in the picker) would otherwise pass silently: the
+      // roadmap 5.54: each bar's stepped pitch is now re-articulated across
+      // that bar's own quarter/half rhythm (`stepwiseLine.ts`), not one
+      // whole-bar note — so "four-note melody" means one stepped PITCH per
+      // bar, not one NOTE per bar. Group by measure and check every note
+      // inside a bar shares that bar's one pitch before comparing bars.
+      const byMeasure = new Map<number, ScoreNote[]>()
+      for (const n of notes) byMeasure.set(n.measureIndex, [...(byMeasure.get(n.measureIndex) ?? []), n])
+      // Exact bar count, not just "more than one" — a slice that's short a
+      // bar (an off-by-one in the picker) would otherwise pass silently: the
       // score still validates because `validateScore` doesn't require every
       // measure to carry a note.
-      expect(pitches.length).toBe(params.bars)
+      expect(byMeasure.size).toBe(params.bars)
+      const pitches: number[] = []
+      for (let m = 0; m < params.bars; m++) {
+        const bucket = byMeasure.get(m)
+        expect(bucket).toBeDefined()
+        expect(bucket?.length).toBeGreaterThan(0)
+        const first = bucket?.[0]
+        expect(first).toBeDefined()
+        if (bucket === undefined || first === undefined) continue
+        for (const n of bucket) expect(n.midi).toBe(first.midi)
+        pitches.push(first.midi)
+      }
       const diffs = pitches.slice(1).map((p, i) => p - (pitches[i] as number))
       const allAscending = diffs.every((d) => d > 0)
       const allDescending = diffs.every((d) => d < 0)

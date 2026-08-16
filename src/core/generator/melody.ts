@@ -15,23 +15,30 @@
  * tonic. A second hand, when requested, either gets its own independent line
  * or is derived from the first (doubled, parallel third, or block chords).
  *
- * `stepwiseOneDirection` (level 1 only, roadmap 5.11) replaces that walk
+ * `stepwiseOneDirection` (level 1 only, roadmap 5.11) replaces the PITCH walk
  * entirely: RCM Preparatory A's "four-note melody, moving by step in one
  * direction only" is not a constrained random walk, it is a contiguous run
- * of the key's own scale tones, read forward or backward. There is no
- * cadence back onto the tonic in this mode — a four-note run has no room for
- * one — so the "always ends on tonic" guarantee above applies only when
- * `stepwiseOneDirection` is unset.
+ * of the key's own scale tones, read forward or backward — see
+ * `stepwiseLine.ts`. There is no cadence back onto the tonic in this mode —
+ * a four-note run has no room for one — so the "always ends on tonic"
+ * guarantee above applies only when `stepwiseOneDirection` is unset. The
+ * RHYTHM within each of those four notes still comes from `style`'s pool,
+ * exactly like the walked modes (roadmap 5.54: this used to place a single
+ * note spanning the entire bar — a whole note in every time signature this
+ * table uses — regardless of `style`, which is how a level-1 exercise ended
+ * up engraving four whole notes despite Faber introducing quarter and half
+ * notes first).
  *
- * Every search in this file (`nearestValid`, `buildBarDurations`) is bounded
- * by construction, so `generateMelody` always terminates. When a parameter
- * combination cannot be satisfied — the range is too narrow to hold any note
- * of the key, say — the relevant search comes back empty and the function
- * returns an `Err` rather than spinning or producing an invalid Score.
+ * Every search in this file (`nearestValid`) and in `rhythmPools.ts`
+ * (`buildBarDurations`) is bounded by construction, so `generateMelody`
+ * always terminates. When a parameter combination cannot be satisfied — the
+ * range is too narrow to hold any note of the key, say — the relevant search
+ * comes back empty and the function returns an `Err` rather than spinning or
+ * producing an invalid Score.
  */
 import { at, assertNever, invariant } from '@core/shared/invariant.ts'
 import { err, ok, type Result } from '@core/shared/result.ts'
-import { TICKS_PER_QUARTER, type Midi } from '@core/shared/units.ts'
+import { type Midi } from '@core/shared/units.ts'
 import { pickWeighted, type Rng } from '@core/ports/rng.ts'
 import { spelledPitchClass, type SpelledPitch } from '@core/theory/pitch.ts'
 import { buildScale } from '@core/theory/scales.ts'
@@ -45,8 +52,11 @@ import {
   type TimeSignature,
 } from '@core/notation/score.ts'
 import { generateStepwiseOneDirectionLine } from './stepwiseLine.ts'
+import { buildBarDurations, GRID, RHYTHM_POOLS, type RhythmStyle } from './rhythmPools.ts'
 
-export type RhythmStyle = 'whole-half' | 'quarters' | 'eighths' | 'dotted' | 'syncopated'
+/** Public re-exports — unchanged surface for every existing importer. */
+export { RHYTHM_POOLS, type RhythmStyle }
+
 export type HandIndependence = 'unison' | 'parallel' | 'blocked-chords' | 'independent'
 export type MidiRange = { readonly low: Midi; readonly high: Midi }
 
@@ -72,39 +82,8 @@ export type PlacedNote = {
   readonly midi: number
 }
 
-/** One bar's worth of sixteenth-note units. `GRID` ticks per unit. */
-const GRID = TICKS_PER_QUARTER / 4
-
 /** Bounded octave search radius for `nearestValid` — 8 octaves either way is far past any piano range. */
 const MAX_SEARCH_RADIUS = 96
-
-/**
- * Flat `[units, weight, units, weight, ...]` pairs, in sixteenth-note units.
- * Every pool carries a weight-1 single-sixteenth entry so
- * {@link buildBarDurations} can always finish a bar exactly, however the
- * larger values happen to divide it.
- *
- * roadmap 5.53 review (F3/F6/F7): an earlier draft of this table dropped
- * `quarters`' `8` (a half note) to shrink the worst-case notes-per-bar for
- * cadence reachability. That was solving the wrong side of the inequality —
- * the real constraint in {@link generateMelodicLine} is `bestDist >
- * durations.length * maxLeap`, where `bestDist` is the distance from wherever
- * the melody enters the final bar to the NEAREST tonic occurrence in range
- * (at most a handful of semitones for any of this table's rows), not the
- * full range width. `levelDefaults.test.ts`'s reachability property models
- * that distance directly instead of over-approximating with range width, so
- * this pool is free to keep its half note: `quarters` is learner-pickable at
- * every level via `customization.ts`'s `RHYTHM_OPTIONS`, and a "quarters"
- * bar that can never draw a half note was a needless restriction on it.
- */
-type Pool = readonly number[]
-export const RHYTHM_POOLS: Readonly<Record<RhythmStyle, Pool>> = {
-  'whole-half': [16, 3, 12, 2, 8, 4, 4, 2, 1, 1],
-  quarters: [4, 6, 8, 2, 2, 2, 1, 1],
-  eighths: [2, 6, 4, 3, 1, 2],
-  dotted: [6, 4, 3, 3, 4, 2, 2, 2, 1, 1],
-  syncopated: [3, 4, 1, 3, 2, 3, 4, 1],
-}
 
 // ---------------------------------------------------------------------------
 // small pure helpers
@@ -147,33 +126,6 @@ function nearestValid(
     }
   }
   return undefined
-}
-
-/**
- * A bar's durations, in sixteenth-note units, drawn from `style`'s pool and
- * guaranteed to sum to exactly `barUnits`. Terminates in at most `barUnits`
- * iterations: every draw removes at least one unit, and the pool's weight-1
- * entry keeps at least one option available whenever `remaining >= 1`.
- */
-function buildBarDurations(barUnits: number, style: RhythmStyle, rng: Rng): readonly number[] {
-  const pool = RHYTHM_POOLS[style]
-  const out: number[] = []
-  let remaining = barUnits
-  while (remaining > 0) {
-    const options: (readonly [number, number])[] = []
-    for (let i = 0; i < pool.length; i += 2) {
-      const units = at(pool, i)
-      if (units <= remaining) options.push([units, at(pool, i + 1)])
-    }
-    invariant(
-      options.length > 0,
-      `buildBarDurations: nothing in the '${style}' pool fits a remainder of ${remaining}`,
-    )
-    const units = pickWeighted(rng, options)
-    out.push(units)
-    remaining -= units
-  }
-  return out
 }
 
 /** Weight of a melodic step of `d` semitones — favours steps, allows the occasional leap. */
@@ -289,7 +241,7 @@ function generateMelodicLine(
   stepwiseOneDirection = false,
 ): Result<readonly PlacedNote[], string> {
   if (stepwiseOneDirection) {
-    return generateStepwiseOneDirectionLine(rng, bars, ts, range, scalePcs)
+    return generateStepwiseOneDirectionLine(rng, bars, ts, range, scalePcs, style)
   }
   const barTicks = measureDurationTicks(ts)
   const barUnits = barTicks / GRID

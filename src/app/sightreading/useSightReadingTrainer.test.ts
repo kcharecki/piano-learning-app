@@ -55,7 +55,7 @@ afterEach(() => {
  * `startsWith` below, never an exact match, since the signature depends on
  * the exact notes the generator happens to draw.
  */
-const SEEDED_SCORE_ID = 'generated:C major:4b:4-4:whole-half:right:unison'
+const SEEDED_SCORE_ID = 'generated:C major:4b:4-4:quarter-half:right:unison'
 const SEEDED_SCORE_DURATION_MS = 8_000
 
 function setup(overrides: Partial<UseSightReadingTrainerOptions> = {}) {
