@@ -332,10 +332,17 @@ export function useClapbackDrill(options: UseClapbackDrillOptions): UseClapbackD
    *  and `stop()`, reset by `start()`. */
   const onsetTicksRef = useRef<readonly Ticks[]>([])
   const classifierStateRef = useRef<TapClassifierState>(initTapClassifierState(0))
-  const initialToleranceTicks = toleranceTicksForLevel(patternLevelRef.current)
+  /** Placeholder only — `classifierOptsRef.current` is never read before
+   *  `start()` overwrites it: both `tap()` and `stopRun()` bail out unless
+   *  `phase === 'tapping'`, which cannot be true before `start()` has run.
+   *  A `useRef` initializer is evaluated on every render regardless (unlike
+   *  `useState`, React does not lazy-init `useRef`), so this is a zero
+   *  literal rather than a real `toleranceTicksForLevel`/
+   *  `defaultHitWindowTicks` lookup repeated on every render for a value
+   *  that is always immediately discarded. */
   const classifierOptsRef = useRef<TapClassifierOptions>({
-    toleranceTicks: initialToleranceTicks,
-    hitWindowTicks: defaultHitWindowTicks(initialToleranceTicks),
+    toleranceTicks: ticks(0),
+    hitWindowTicks: ticks(0),
   })
   const [lastTapVerdict, setLastTapVerdict] = useState<TapVerdict | undefined>(undefined)
   /** Set by `start()`, consumed by the deferred play effect below — only the
@@ -512,12 +519,18 @@ export function useClapbackDrill(options: UseClapbackDrillOptions): UseClapbackD
     // (unclamped) table entry, exactly what `gradeClapback` would use by
     // default — clamping it, and passing the SAME clamped value back into
     // `gradeClapback` on both the natural-finish and Stop paths below, is
-    // what keeps the live classifier and the batch grader in agreement.
+    // what keeps the live classifier and the batch grader's WINDOW SIZE in
+    // agreement. It does NOT make them agree on which onset a tap belongs
+    // to whenever `gradeClapback` fits a non-1 tempo scale: the live
+    // classifier always matches against the raw onset grid, while a
+    // tempo-fitted batch grade matches against the SCALED grid, so live and
+    // final verdicts can diverge on the same run (known, accepted — see
+    // `tapClassifier.ts`'s module doc and ROADMAP.md's U.3 entry).
     const configToleranceTicks = toleranceTicksForLevel(level)
     const effTol = effectiveToleranceTicks(onsetTicks, configToleranceTicks)
     classifierOptsRef.current = {
       toleranceTicks: effTol,
-      hitWindowTicks: ticks(Math.min(Number(defaultHitWindowTicks(configToleranceTicks)), Number(effTol))),
+      hitWindowTicks: defaultHitWindowTicks(effTol),
     }
     classifierStateRef.current = initTapClassifierState(onsetTicks.length)
     setGrade(undefined)
@@ -624,8 +637,11 @@ export function useClapbackDrill(options: UseClapbackDrillOptions): UseClapbackD
     // PARTIAL: re-grade with `gradeClapback` — the SAME batch grader natural
     // finish uses, with the SAME clamped tolerance `start()` derived (F1) —
     // restricted to the decided prefix (`decided` onsets, in onset order)
-    // and the taps recorded so far (all of them, by construction: `tap()`
-    // can only ever run before this Stop call while 'tapping').
+    // and every tap recorded so far. No filter needed on `tapsRef` — see
+    // `useRhythmDrill.ts`'s identical comment: `tap()` only ever runs before
+    // this Stop call while 'tapping', using the same monotonic-clock
+    // arithmetic `elapsedMs` above was just computed with, so every recorded
+    // tap's timestamp is already `<= elapsedMs` by construction.
     const decidedOnsets = onsetTicksRef.current
       .slice(0, decided)
       .map((tick) => ({ tick, durationTicks: ticks(1), isRest: false }))
@@ -634,8 +650,7 @@ export function useClapbackDrill(options: UseClapbackDrillOptions): UseClapbackD
       bars: currentPattern.bars,
       onsets: decidedOnsets,
     }
-    const decidedTaps = tapsRef.current.filter((t) => Number(t) <= Number(elapsedMs))
-    const result = gradeClapback(partialPattern, decidedTaps, tempo, level, {
+    const result = gradeClapback(partialPattern, tapsRef.current, tempo, level, {
       toleranceTicks: classifierOptsRef.current.toleranceTicks,
     })
 

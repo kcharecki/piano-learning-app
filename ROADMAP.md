@@ -317,15 +317,33 @@ purpose is reading and playing.
       `fast-check` property tests: every tap classified against exactly one onset or rejected,
       hit window symmetric, monotonic taps never reclaim an earlier onset, and classification
       agrees with `gradeTapping` on a clean run. `closeExpiredOnsets(onsetTicks, state, atTick,
-      opts)` settles which onsets have a decided verdict as of `atTick`, leaving future onsets
-      pending — property-tested: stop never marks a future onset missed. Stop re-grades the
-      decided prefix with the *same* batch grader (`gradeTapping`/`gradeClapback`) the natural
-      end-of-run path uses, not the live classifier's own running tally, so a Stop and a natural
-      finish at the same point always agree; stopping at or after the last onset now produces
-      exactly the natural run-ended grade by construction, not by coincidence.
-      `effectiveToleranceTicks` clamps the live tolerance to at most half the pattern's own
-      minimum onset gap, so the live per-tap verdict and the end-of-run/Stop summary can never
-      disagree about which onset a tap belongs to. Stop has three outcomes: `aborted` (nothing
+      opts)` settles which onsets have a decided verdict as of `atTick` — an onset is decided
+      once `onsetTick + effectiveToleranceTicks < atTick` (strict: a tap arriving exactly on
+      that boundary tick is still claimable) — leaving future onsets pending — property-tested:
+      stop never marks a future onset missed. Stop re-grades the decided prefix with the *same*
+      batch grader (`gradeTapping`/`gradeClapback`) the natural end-of-run path uses, not the
+      live classifier's own running tally, so a Stop and a natural finish at the same point
+      always agree; stopping once every onset satisfies that same strict inequality now
+      produces exactly the natural run-ended grade by construction, not by coincidence.
+      `effectiveToleranceTicks` clamps the live tolerance (and, roadmap U.3 fix round 2, the
+      derived hit-window band, always exactly 1/3 of it — a prior bug left the hit window
+      keyed off the *unclamped* tolerance, so at complexity 5 the hit window was 81% of the
+      matching tolerance instead of the intended ~33%, making early/late verdicts nearly
+      unreachable) to at most half the pattern's own minimum onset gap. For `gradeTapping`
+      (the sight-tap drill), which always matches against the pattern's own raw onset grid
+      exactly like the live classifier does, this guarantees the live per-tap verdict and the
+      end-of-run/Stop summary can never disagree about which onset a tap belongs to. This does
+      **not** extend to `gradeClapback` (the clap-back drill) once it fits a non-1 tempo scale
+      (`fitTempoScale`): a tempo-fitted batch grade matches taps against a *scaled* onset grid
+      while the live classifier always matches against the raw one, so the two can legitimately
+      disagree on the same run (measured: live 43% vs. a tempo-fitted batch grade of 100% at
+      `tempoScale` 1.1199) — known and accepted for clap-back this round; the live verdict there
+      is a rehearsal-time hint, not a promise the summary will match it. The clamp also
+      tightens the sight-tap drill's own matching tolerance at higher complexities — 150ms
+      unclamped down to ~124ms at complexity 3-4 and ~61.5ms at complexity 5 — so practice-log
+      accuracies recorded before and after this fix round are not directly comparable at those
+      complexities.
+      Stop has three outcomes: `aborted` (nothing
       decided yet — no grade, nothing logged), `partial` (some onsets decided — graded and
       shown, but purely informational), and `natural` (the run finished on its own). Only
       `natural` ever logs accuracy to the practice log or adapts an ear-training level —

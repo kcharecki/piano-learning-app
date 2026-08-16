@@ -350,7 +350,7 @@ export function useRhythmDrill(options: UseRhythmDrillOptions): UseRhythmDrill {
     const effTol = effectiveToleranceTicks(onsetTicks, configToleranceTicks)
     classifierOptsRef.current = {
       toleranceTicks: effTol,
-      hitWindowTicks: ticks(Math.min(Number(defaultHitWindowTicks(configToleranceTicks)), Number(effTol))),
+      hitWindowTicks: defaultHitWindowTicks(effTol),
     }
     classifierStateRef.current = initTapClassifierState(onsetTicks.length)
     setGrade(undefined)
@@ -463,8 +463,12 @@ export function useRhythmDrill(options: UseRhythmDrillOptions): UseRhythmDrill {
     // PARTIAL: re-grade with `gradeTapping` — the SAME batch grader natural
     // finish uses — restricted to the decided prefix (`decided` onsets, in
     // onset order — `onsetTicksRef` is sorted ascending, same order `lo`
-    // walks) and the taps recorded so far (all of them, by construction:
-    // `tap()` can only ever run before this Stop call while 'tapping').
+    // walks) and every tap recorded so far. No filter needed on `tapsRef`:
+    // `tap()` only ever runs before this Stop call while `phase ===
+    // 'tapping'`, using the SAME `clock.now() - anchorMsRef.current`
+    // arithmetic `elapsedMs` above was just computed with, and `clock.now()`
+    // is monotonic — so every recorded tap's timestamp is already `<=
+    // elapsedMs` by construction; filtering again here can never drop one.
     const decidedOnsets = onsetTicksRef.current
       .slice(0, decided)
       .map((tick) => ({ tick, durationTicks: ticks(1), isRest: false }))
@@ -473,9 +477,8 @@ export function useRhythmDrill(options: UseRhythmDrillOptions): UseRhythmDrill {
       bars: currentPattern.bars,
       onsets: decidedOnsets,
     }
-    const decidedTaps = tapsRef.current.filter((t) => Number(t) <= Number(elapsedMs))
     const toleranceMs = Number(tickToMs(tempo, classifierOptsRef.current.toleranceTicks))
-    const result = gradeTapping(partialPattern, decidedTaps, tempo, { toleranceMs })
+    const result = gradeTapping(partialPattern, tapsRef.current, tempo, { toleranceMs })
 
     setGrade(result)
     setStopOutcome('partial')

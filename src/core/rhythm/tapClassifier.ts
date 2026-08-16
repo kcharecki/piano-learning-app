@@ -55,6 +55,20 @@
  * against `gradeTapping`, for every tap sequence, not only the well-separated
  * common case.
  *
+ * That proof is about MATCHING WINDOWS, not about which onset TICKS the two
+ * matchers compare a tap against — it holds unconditionally for
+ * `gradeTapping` (the sight-tap drill), which always matches against the
+ * pattern's own raw onset grid, exactly like this live classifier does. It
+ * does NOT extend to `gradeClapback` (the clap-back drill) once it fits a
+ * non-1 tempo scale (`fitTempoScale`): a tempo-fitted batch grade matches
+ * taps against a SCALED onset grid, while this live classifier always
+ * matches against the raw one, so the two can legitimately disagree on the
+ * same run (measured: live 43% vs. a tempo-fitted batch grade of 100% at
+ * `tempoScale` 1.1199). That divergence is real, known, and accepted for
+ * clap-back — the live per-tap verdict is a rehearsal-time hint, not a
+ * promise the end-of-run summary will match it; only `gradeTapping`/the
+ * sight-tap drill gets the "never disagree" guarantee.
+ *
  * ## Two windows, not one: `hit` vs `early`/`late`
  *
  * A tap inside `toleranceTicks` of the onset it claims is not automatically
@@ -74,14 +88,15 @@
  * actually been decided; anything still pending (its window has not closed
  * yet) is silently excluded, never counted as `missed`. That one property is
  * what makes a manual Stop safe: `closeExpiredOnsets(..., atTick, ...)`
- * closes out (as missed) only the onsets whose window had already elapsed by
- * `atTick` — the exact same expiry check `classifyTap` runs on every live tap
- * before it looks for a match. A future onset the run never reached is left
- * pending forever — `snapshotGrade` simply
- * never sees it — so stopping mid-pattern can never mark an unplayed onset
- * missed. Stopping at or after the last onset's own window has elapsed closes
- * everything there is to close, which is definitionally the same state the
- * run reaches on its own.
+ * closes out (as missed) exactly the onsets for which `onsetTick +
+ * toleranceTicks < atTick` — strictly less than, so a tap arriving exactly
+ * on that boundary tick is still claimable, not already expired — the exact
+ * same expiry check `classifyTap` runs on every live tap before it looks for
+ * a match. A future onset the run never reached is left pending forever —
+ * `snapshotGrade` simply never sees it — so stopping mid-pattern can never
+ * mark an unplayed onset missed. Stopping once every onset satisfies that
+ * same strict inequality closes everything there is to close, which is
+ * definitionally the same state the run reaches on its own.
  *
  * Roadmap U.3 fix round: a caller grading a manual Stop no longer reads that
  * final grade off `snapshotGrade` — it reads `TapClassifierState.lo` (the
@@ -236,11 +251,11 @@ export function initTapClassifierState(onsetCount: number): TapClassifierState {
 }
 
 /**
- * Close out (as missed) every onset whose window has already elapsed as of
- * `atTick`, without matching a tap. Shared by `classifyTap` (called with the
- * tap's own tick, before it looks for a match — see the module doc) and by a
- * manual Stop (called with the tick the run was stopped at). This is the
- * manual-Stop primitive: call it with the tick the run was stopped at, then
+ * Close out (as missed) every onset for which `onsetTick + toleranceTicks <
+ * atTick` (strict), without matching a tap. Shared by `classifyTap` (called
+ * with the tap's own tick, before it looks for a match — see the module doc)
+ * and by a manual Stop (called with the tick the run was stopped at). This
+ * is the manual-Stop primitive: call it with the tick the run was stopped at, then
  * read `snapshotGrade` — every onset still pending afterward (its window had
  * not yet elapsed) is simply excluded, never marked missed. Calling it again
  * with a later `atTick` (including well past the last onset) only ever
