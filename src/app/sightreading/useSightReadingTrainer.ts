@@ -427,6 +427,17 @@ export function useSightReadingTrainer(
       ? applyCustomization(defaultParamsForLevel(levelRef.current), customization)
       : nextExerciseParams(levelRef.current, rng, historyRef.current)
     let generated = generateMelody(params, rng)
+    // roadmap 5.53 review (F-RETRY): some customizer combinations (e.g. the
+    // 'whole-half' rhythm pool at a transposed key, levels 2-3) can leave a
+    // single seed unable to place a note, without the parameter combination
+    // itself being unsatisfiable — the very next draw usually succeeds. Retry
+    // a small bounded number of times against the SAME `Rng` (it advances its
+    // own state each call, so every attempt draws fresh notes) before
+    // dead-ending the screen into an error state, mirroring the
+    // retirement-avoidance loop just below.
+    for (let attempt = 1; attempt < 8 && !generated.ok; attempt++) {
+      generated = generateMelody(params, rng)
+    }
     if (!generated.ok) {
       setError(generated.error)
       return

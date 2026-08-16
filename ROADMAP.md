@@ -1232,11 +1232,27 @@ next item, no completion state, no sense of being 3 of 5 through today.
       output rises level by level and level 2 never exceeds 7 st over ≥ 50 sampled intervals; the
       existing `levelDefaults.test.ts` cadence-reachability property stays green.*
       **Done:** leap column re-graded `2, 7, 7, 10, 11, 12` (was `2, 10, 10, 10, 11, 12`) — rises
-      monotonically, levels 1-3 all ≤ 7 st. Reachability at level 2's unchanged `maxLeap: 7` met by
-      tightening `melody.ts`'s `quarters` rhythm pool (dropped its half-note option, raising worst-case
-      notes-per-bar 2→4) instead of narrowing any range — avoids a seed-collision trap in
-      `useSightReadingTrainer.test.ts` that range-narrowing would have hit. Probe: level 1 max=2 (15
-      samples), level 2 max=7 (73), level 3 max=7 (148), rising to 10/11/11 at levels 4-6.
+      monotonically, levels 1-3 all ≤ 7 st. An adversarial re-review of the first pass found it FIX
+      FIRST: `doubleHand` (`melody.ts`) derived the second hand from a register-correct target with
+      no leap bound of its own, so level 3's narrow `leftRange` (48..67) could not always hold a
+      diatonic third below `rightRange`'s top and octave-folded the left hand past the declared
+      column (measured 5.2% of engraved intervals over the column, left hand reaching 10 st at a
+      declared 7). Fixed by bounding `doubleHand`'s own placements to `maxLeapSemitones` of the
+      PREVIOUS derived note, cascading register → same pitch class → any scale tone → hold the note
+      if the exact interval can't be reached in range (mirrors the primary line's own chromatic →
+      diatonic → repeat fallback); also fixed a related bug in the same function where its octave
+      shift rounded to zero near the range's midpoint, playing the "one octave apart" `'unison'` rows
+      in true unison. Separately, the first pass had also narrowed `melody.ts`'s `quarters` rhythm
+      pool (dropped its half note) to satisfy level 2's cadence reachability against RANGE WIDTH —
+      unnecessary and reverted: the generator's real reachability test is distance to the NEAREST
+      TONIC in range, not range width, which is ~2.7x looser; `levelDefaults.test.ts` now models that
+      distance directly and every row clears it on its own unchanged range and rhythm pool.
+      `scripts/review-probe.mjs`'s `claims` mode measured the right hand only; extended to measure
+      both hands' own consecutive-note leaps separately (chord tones excluded). Re-run against the
+      fixed code, both hands, ≥ 50 sampled intervals per level except level 1 (right-hand-only) and
+      level 4 (blocked-chords left hand has no melodic leaps to sample): level 1 max=2 (15 samples),
+      level 2 max=7 (146), level 3 max=7 (438), level 4 max=10 (138, right hand), level 5 max=11
+      (588), level 6 max=12 (460) — matches the declared column exactly at every level, both hands.
 - [ ] 5.54 `core/generator/levelDefaults`: level 1's rhythm is `'whole-half'` and level 2 is the first
       `'quarters'` — a level-1 exercise engraves four whole notes. Faber Piano Adventures Primer
       introduces **quarter → half → whole, all inside Unit 2** (official Teacher Guide, verified

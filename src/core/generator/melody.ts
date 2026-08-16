@@ -84,22 +84,23 @@ const MAX_SEARCH_RADIUS = 96
  * {@link buildBarDurations} can always finish a bar exactly, however the
  * larger values happen to divide it.
  *
- * `quarters`' own worst case (`levelDefaults.test.ts`'s cadence-reachability
- * property) is the largest unit in its pool repeated for a whole bar — used
- * to include an `8` (a half note), so a 4/4 bar's worst case was as few as
- * two notes. Level 2 (`levelDefaults.ts`, roadmap 5.53) is the only row that
- * uses this style, and needed its cadence reachable at `maxLeap: 7` (down
- * from 10) without narrowing its range — dropping the `8` raises the worst
- * case to four quarter-note-or-shorter notes, which the row's own range
- * clears with room to spare (`4 × 7 = 28`, range width `19`). It also nudges
- * the style itself closer to its own name — a "quarters" bar that could
- * silently draw two half notes was always a slight mismatch with `whole-half`
- * (level 1) one level below it.
+ * roadmap 5.53 review (F3/F6/F7): an earlier draft of this table dropped
+ * `quarters`' `8` (a half note) to shrink the worst-case notes-per-bar for
+ * cadence reachability. That was solving the wrong side of the inequality —
+ * the real constraint in {@link generateMelodicLine} is `bestDist >
+ * durations.length * maxLeap`, where `bestDist` is the distance from wherever
+ * the melody enters the final bar to the NEAREST tonic occurrence in range
+ * (at most a handful of semitones for any of this table's rows), not the
+ * full range width. `levelDefaults.test.ts`'s reachability property models
+ * that distance directly instead of over-approximating with range width, so
+ * this pool is free to keep its half note: `quarters` is learner-pickable at
+ * every level via `customization.ts`'s `RHYTHM_OPTIONS`, and a "quarters"
+ * bar that can never draw a half note was a needless restriction on it.
  */
 type Pool = readonly number[]
-const RHYTHM_POOLS: Readonly<Record<RhythmStyle, Pool>> = {
+export const RHYTHM_POOLS: Readonly<Record<RhythmStyle, Pool>> = {
   'whole-half': [16, 3, 12, 2, 8, 4, 4, 2, 1, 1],
-  quarters: [4, 6, 2, 2, 1, 1],
+  quarters: [4, 6, 8, 2, 2, 2, 1, 1],
   eighths: [2, 6, 4, 3, 1, 2],
   dotted: [6, 4, 3, 3, 4, 2, 2, 2, 1, 1],
   syncopated: [3, 4, 1, 3, 2, 3, 4, 1],
@@ -386,18 +387,51 @@ function generateMelodicLine(
  * number of octaves so it sits in `range`) and `'parallel'` (a diatonic third
  * below when the source note is in the scale, a fixed chromatic echo when it
  * is not). Same rhythm as `source` either way.
+ *
+ * roadmap 5.53 review F1/F2/F14: this derived hand used to place each note by
+ * distance to its ideal register-correct `target` alone — no `prev`, no
+ * `maxLeap` — so the primary line's leap ceiling never bound the SECOND
+ * hand. Whenever the exact octave register (`target`) didn't fit `range`,
+ * `nearestValid` folded to whichever octave of the pitch class DID fit,
+ * however far that leapt from the previous derived note — level 3's narrow
+ * `leftRange` could not always hold a diatonic third below `rightRange`'s
+ * top, so a high right-hand note folded the left hand by a full octave or
+ * more, blowing past the declared column. Fixed here with a cascade, closest
+ * and strictest option first, mirroring {@link pickNextMelodic}'s own
+ * chromatic → diatonic → repeat fallback for the primary line — each step
+ * bounded by `maxLeap` from the previous DERIVED note:
+ *   1. the register-correct `target`, exact interval and pitch class;
+ *   2. any octave of the SAME exact pitch class (keeps the interval's
+ *      colour, gives up the register — the review's own preference);
+ *   3. any note of the key (keeps "in key", gives up the exact interval);
+ *   4. `prevDerived` itself, i.e. hold the note (always legal — a zero leap
+ *      from a position already known to be in range).
+ * Step 4 means this can only fail on the FIRST note of a line, exactly like
+ * before — every note after it always has somewhere legal to land.
  */
 function doubleHand(
   source: readonly PlacedNote[],
   range: MidiRange,
   diatonicParallel: boolean,
   degreePcs: readonly number[],
+  maxLeap: number,
 ): Result<readonly PlacedNote[], string> {
   const rangeMid = Math.round((range.low + range.high) / 2)
   const first = at(source, 0)
-  const octaveShift = Math.round((rangeMid - first.midi) / 12) * 12
+  let octaveShift = Math.round((rangeMid - first.midi) / 12) * 12
+  // F14: rounding to the NEAREST octave lands on a zero shift whenever the
+  // first source note is within 6 semitones of rangeMid — the derived hand
+  // then plays in true unison with the primary hand instead of "an octave
+  // apart", which is what every 'unison' row's own description promises.
+  // Round away from zero instead, in whichever direction keeps the derived
+  // hand inside `range`.
+  if (!diatonicParallel && octaveShift === 0) {
+    octaveShift = first.midi <= rangeMid ? 12 : -12
+  }
 
+  const scalePcs = new Set(degreePcs)
   const out: PlacedNote[] = []
+  let prevDerived: number | undefined
   for (const n of source) {
     let target: number
     let allowedPc: number
@@ -409,12 +443,25 @@ function doubleHand(
       target = n.midi + octaveShift
       allowedPc = pc(n.midi)
     }
-    const placed = nearestValid(target, range, { allowedPcs: new Set([allowedPc]) })
+    const exactPc = new Set([allowedPc])
+
+    let placed: number | undefined
+    if (prevDerived === undefined) {
+      placed = nearestValid(target, range, { allowedPcs: exactPc })
+    } else {
+      const prev = prevDerived
+      placed =
+        nearestValid(target, range, { prev, maxLeap, allowedPcs: exactPc }) ??
+        nearestValid(prev, range, { prev, maxLeap, allowedPcs: exactPc }) ??
+        nearestValid(prev, range, { prev, maxLeap, allowedPcs: scalePcs }) ??
+        nearestValid(prev, range, { prev, maxLeap })
+    }
     if (placed === undefined) {
       const kind = diatonicParallel ? 'parallel' : 'unison'
       return err(`generateMelody: no ${kind} note fits inside range ${range.low}..${range.high}`)
     }
     out.push({ startTick: n.startTick, durationTicks: n.durationTicks, midi: placed })
+    prevDerived = placed
   }
   return ok(out)
 }
@@ -538,9 +585,9 @@ function generateSecondHand(
         params.stepwiseOneDirection ?? false,
       )
     case 'unison':
-      return doubleHand(primary, range, false, degreePcs)
+      return doubleHand(primary, range, false, degreePcs, params.maxLeapSemitones)
     case 'parallel':
-      return doubleHand(primary, range, true, degreePcs)
+      return doubleHand(primary, range, true, degreePcs, params.maxLeapSemitones)
     case 'blocked-chords':
       return generateBlockChords(params.bars, params.timeSignature, range, scaleNotes)
     default:
