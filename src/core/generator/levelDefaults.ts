@@ -69,6 +69,25 @@
  * ladder's monotonic-vocabulary property in `levelDefaults.test.ts` only
  * asserts the 1 -> 2 step this task is scoped to, not the full 1 -> 6 chain.
  *
+ * Level 3's `leftRange` (roadmap 5.53b) is `57..76`, not `48..67` like levels
+ * 2 and 4's rows — deliberately incongruent with `rightRange` (`60..79`),
+ * unlike a `'unison'` row. `doubleHand`'s `'parallel'` path (this row's
+ * `handIndependence`) targets a diatonic third BELOW each right-hand note, so
+ * the range that needs to hold the left hand is `rightRange` shifted down by
+ * only 3-4 semitones, not by a full octave: `57..76` is `60..79` shifted down
+ * 3, and its top (`76`) is exactly `rightRange.high - 3`, the tightest bound
+ * that lets every right-hand note (up to `79`) reach an exact-register third
+ * below it. The old `48..67` (a full octave down, like the 'unison' rows)
+ * left `76` unreachable, so `doubleHand`'s cascade (see its own doc) gave up
+ * the exact interval and fell back to same-pitch-class-wrong-octave or
+ * any-scale-tone on measured 5.2% of engraved simultaneities — 62% true
+ * thirds, not the ~95%+ "parallel thirds" `levelDescriptions.ts` promises.
+ * Measured before (baseline `48..67`, 200 seeds, `scratchpad-vertical-probe.ts`,
+ * not committed): 94.7% thirds/tenths, 0.9% tritones. After (`57..76`, same
+ * 200 seeds): 99.8% thirds/tenths, 0% tritones, 0% sevenths — see
+ * `levelDefaults.test.ts`'s own congruency check, which pins this on ENGRAVED
+ * output rather than the table.
+ *
  * `handIndependence: 'unison'` (`doubleHand`, `melody.ts`) transposes the
  * primary hand by a fixed octave computed once from its first note, so it
  * only ever lands inside `leftRange` when `leftRange` is exactly `rightRange`
@@ -115,7 +134,7 @@ const LEVEL_ROWS: readonly LevelRow[] = [
   // fifths mode      bars ts         hands   rLo rHi lLo  lHi  rhythm        leap density indep             stepwise
   [0, 'major', 4, FOUR_FOUR, 'right', 60, 79, null, null, 'quarter-half', 2, 0, 'unison', true],
   [0, 'major', 4, FOUR_FOUR, 'both', 60, 79, 48, 67, 'quarters', 7, 0, 'unison', false],
-  [1, 'major', 8, THREE_FOUR, 'both', 60, 79, 48, 67, 'eighths', 7, 0.05, 'parallel', false],
+  [1, 'major', 8, THREE_FOUR, 'both', 60, 79, 57, 76, 'eighths', 7, 0.05, 'parallel', false],
   [2, 'major', 8, SIX_EIGHT, 'both', 60, 79, 48, 67, 'dotted', 10, 0.1, 'blocked-chords', false],
   [1, 'minor', 8, FOUR_FOUR, 'both', 60, 84, 36, 60, 'syncopated', 11, 0.15, 'independent', false],
   [4, 'major', 8, SIX_EIGHT, 'both', 55, 88, 31, 67, 'syncopated', 12, 0.2, 'independent', false],

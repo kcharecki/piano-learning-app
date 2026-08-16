@@ -250,7 +250,7 @@ fixes count only if the prose is on screen.
       level 4 (blocked-chords left hand has no melodic leaps to sample): level 1 max=2 (15 samples),
       level 2 max=7 (146), level 3 max=7 (438), level 4 max=10 (138, right hand), level 5 max=11
       (588), level 6 max=12 (460) — matches the declared column exactly at every level, both hands.
-- [ ] 5.53b `core/generator/levelDefaults`: level 3's `leftRange` (48..67, `levelDefaults.ts:97`)
+- [x] 5.53b `core/generator/levelDefaults`: level 3's `leftRange` (48..67, `levelDefaults.ts:97`)
       cannot hold a diatonic third below `rightRange`'s top (79−3 = 76 > 67), so `doubleHand`'s
       leap-bounded cascade gives up the exact interval on 5.2% of level-3 simultaneities (2.1% bare
       fifths, 1.6% sevenths, 0.9% tritones/6ths; true thirds 62%→52%, held notes 1.4%→7.7%) while
@@ -263,6 +263,33 @@ fixes count only if the prose is on screen.
       thirds-or-tenths and 0% sevenths/tritones — or the reworded description matches the measured
       distribution; the `levelDefaults.test.ts` description-congruency check extended beyond
       `'unison'` rows.*
+      **Done:** decision-ladder arm 1 (re-grade the range; no description rewording needed).
+      `leftRange` 48..67 → **57..76** (same 19-semitone width as the old range and as `rightRange`,
+      just shifted to sit a diatonic third under `rightRange` instead of a full octave under it —
+      `doubleHand`'s `'parallel'` path targets `n.midi - 3`, not `n.midi - 12`, so the range that
+      needs covering is `rightRange` shifted down 3-4 semitones, not 12; new top `76` is exactly
+      `rightRange.high - 3`). Measured on engraved output via a scratchpad `vite-node` probe
+      (`generateMelody` + `defaultParamsForLevel(3)`, vertical intervals = simultaneous right/left
+      pairs sharing a startTick, chord onsets excluded the same way `monophonicSequence` excludes
+      them for melodic leaps), 200 seeds (8907 simultaneities) then re-confirmed at 2000 seeds
+      (89126): before (48..67) 94.7%/94.6% thirds-or-tenths, 0.9% tritones, 1.7-1.8% bare fifths,
+      ~0.0% sevenths (a different measurement method upstream of this task reported 1.6% sevenths —
+      not reproduced by this probe, which sees fifths as the dominant non-third failure mode, not
+      sevenths); after (57..76) 99.7-99.8% thirds-or-tenths, 0% tritones, 0% sevenths at both sample
+      sizes (a 0.001% residual — 1-3 occurrences per ~89000 — showed up only at 2000 seeds, from
+      `doubleHand`'s own fallback cascade, which this task does not touch). `levelDefaults.test.ts`'s
+      hand-range-congruency block gained a `'parallel'`-rows check (mirroring the existing
+      `'unison'` one, since `levelDescriptions.ts`'s own doc says hand-independence prose describes
+      `generateSecondHand`'s per-case field, not free text) asserting on 200-seed engraved output:
+      thirds-or-tenths ratio ≥ 0.97 (pinned between the measured 94.7% before and 99.8% after) and
+      zero tritones/7ths. Hand-verified the `leftRange` 57..76 → 48..67 revert mutant: it fails the
+      new test (`0.9474570562478949` < `0.97`), passes every other test in the file. Scoped tests
+      (`npx vitest run src/core/generator src/content/sightreading src/app/sightreading`, 148
+      tests), `npm run typecheck`, and `npx eslint src/core/generator src/content --max-warnings 0`
+      all green; cadence-reachability and `EXPECTED_MAX_LEAP` properties untouched and still green.
+      Driven: level 3 exercise seeded via IndexedDB (`sightReadingHistory`, no in-app level
+      control) in the running app, both hands render in parallel thirds, plays and looks correct,
+      console clean. Deleted nothing (the measurement probe was a scratchpad file, never committed).
 - [x] 5.54 `core/generator/levelDefaults`: level 1's rhythm is `'whole-half'` and level 2 is the first
       `'quarters'` — a level-1 exercise engraves four whole notes. Faber Piano Adventures Primer
       introduces **quarter → half → whole, all inside Unit 2** (official Teacher Guide, verified
