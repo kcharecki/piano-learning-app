@@ -20,8 +20,11 @@
   box-shadow: var(--elev-1);
 }
 @media (max-width: 1024px) {
-  /* Below the topbar, which is sticky above it at this width (base.css). */
-  .practice-toolbar { top: var(--topbar-h, 56px); }
+  /* Below the topbar, which is sticky above it at this width (responsive.css)
+     — the topbar itself only exists at this width as of roadmap UI-36, and
+     `--topbar-h` is real and unconditional (tokens/spacing.css, roadmap
+     UI-34), so no `, 56px` fallback is needed here any more. */
+  .practice-toolbar { top: var(--topbar-h); }
 }
 
 /* Roadmap UI-27 (2026-08-15): promotes loop range + hands out of the

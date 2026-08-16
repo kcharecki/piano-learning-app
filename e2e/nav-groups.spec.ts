@@ -101,22 +101,20 @@ test('Tab order through the nav follows the visual order: Today, then each group
 }) => {
   await page.goto('/')
 
-  // Start from a known point: the nav-open toggle is hidden at desktop width,
-  // so focus the document body and Tab in.
+  // Start from a known point: focus the document body and Tab in.
   //
-  // The nav is no longer the FIRST focusable thing on the page. Roadmap UI-04a
-  // made the topbar a real citizen at every width (it used to render nothing
-  // above 1024px and float the Reference toggle over the content as a
-  // `position: fixed` chip), and the topbar precedes the nav in DOM order —
-  // which is also its visual order, so tab order still follows visual order,
-  // which is what this test is actually about. UI-04b adds a second topbar
-  // control, so rather than hardcode how many stops precede the nav, tab
-  // forward until focus lands inside `.app-nav` and assert the order from
-  // there. The bound stops a regression that never reaches the nav from
-  // hanging the run.
+  // Roadmap UI-36: `.app-nav` IS the first focusable landmark on the page at
+  // this (desktop) width again — the topbar (and the action cluster that
+  // used to precede the nav inside it, UI-04a/UI-04b) no longer renders here
+  // at all; that cluster now lives at the nav's own TRAILING edge instead
+  // (`.nav-rail-footer`), after every real destination, not before them. No
+  // skip link exists in this app, so the very first Tab from body should
+  // land directly on Today. The loop (rather than a hardcoded single Tab)
+  // stays as the honest bound: a regression that never reaches the nav at
+  // all fails with a clear assertion instead of hanging the run.
   await page.locator('body').click({ position: { x: 1, y: 1 } })
 
-  const MAX_STOPS_BEFORE_NAV = 8
+  const MAX_STOPS_BEFORE_NAV = 1
   let enteredNav = false
   for (let i = 0; i < MAX_STOPS_BEFORE_NAV; i++) {
     await page.keyboard.press('Tab')

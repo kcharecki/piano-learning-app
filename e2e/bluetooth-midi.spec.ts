@@ -133,16 +133,22 @@ async function openInputChip(page: Page): Promise<void> {
 /**
  * Close it again before touching anything underneath.
  *
- * The popover is light-dismiss: a transparent full-viewport scrim sits beneath
- * it so a click on the popover's own dead space falls through and closes it
- * (the fix for the review's blocker, where that dead space swallowed clicks and
- * left controls unreachable). The scrim therefore covers the page while the
- * popover is open, and Playwright correctly refuses to click a control it
- * intercepts. Escape is the documented dismissal and returns focus to the chip.
+ * The popover is light-dismiss, not a modal — roadmap UI-33 removed the scrim
+ * this used to wait on (`.input-status-scrim`): the popover's own dead space
+ * is `pointer-events: none` (see feature-bluetooth-midi.css's own comment),
+ * so a click anywhere outside its real controls falls straight through to
+ * whatever is underneath, and the document-level `pointerdown` listener
+ * (`InputCapabilityBanner.tsx`) sees that same click and closes the popover
+ * in response. Escape is the documented dismissal and returns focus to the
+ * chip; waited on here via the popover's own element (`#input-status-popover`
+ * — conditionally MOUNTED, not merely hidden, so a zero count actually
+ * synchronises with React having unmounted it). The old `.input-status-scrim`
+ * wait was a dead selector matching zero elements either way, so it passed
+ * instantly regardless of whether Escape had been processed yet.
  */
 async function closeInputChip(page: Page): Promise<void> {
   await page.keyboard.press('Escape')
-  await expect(page.locator('.input-status-scrim')).toHaveCount(0)
+  await expect(page.locator('#input-status-popover')).toHaveCount(0)
 }
 
 test('with navigator.bluetooth absent, the control states the limitation and does not crash', async ({ page }) => {
@@ -203,28 +209,23 @@ test('pairing a fake BLE MIDI device and playing a chord through it grades the n
   // keyboard feeds — a screen that merely displayed "connected" would leave
   // this at zero forever, which is the defect this proof exists to rule out.
   //
-  // GENUINE APP DEFECT (not a stale selector — left failing deliberately,
-  // per the repair rules): this now fails for real, and the repro is not
-  // this test's own fault. Roadmap UI-04b moved `MidiDeviceStatus` (which
-  // calls `useBluetoothMidi()`) out of the screen's permanent content and
-  // into the topbar chip's popover, rendered only while `open` is true
-  // (`InputCapabilityBanner.tsx`: `{open && (<div ...><MidiDeviceStatus />
-  // ...)}`). `useBluetoothMidi`'s only cleanup effect runs "unmount only"
-  // and both disposes the real GATT connection AND clears the shared
-  // `subscribeBluetoothMidiInput` registry (`useBluetoothMidi.ts` lines
-  // 101-108) — so the instant that popover closes, the live BLE pairing is
-  // torn down, not just hidden. The popover closes on ANY click outside it
-  // (`InputCapabilityBanner.tsx`'s `mousedown` listener), which includes
-  // clicking Play — there is no way to reach the transport without closing
-  // the chip first. Verified directly: reopening the chip right after
-  // clicking Play shows "Pair Bluetooth MIDI" again, not "connected". A
-  // learner who pairs a BLE keyboard from the chip and then does anything
-  // else on the page loses the connection immediately. This is a real
-  // regression introduced by UI-04b, not present before the redesign (the
-  // old in-flow `MidiDeviceStatus` stayed mounted for the life of the
-  // screen); it needs an app-side fix — most likely giving `useBluetoothMidi`
-  // a home that outlives the popover's own open/closed state — not a spec
-  // change.
+  // STALE ROOT CAUSE (roadmap UI-36 finding, 2026-08-15): the paragraph this
+  // replaces blamed `useBluetoothMidi`'s cleanup effect for disposing the
+  // GATT connection on the popover's unmount. That effect no longer exists —
+  // commit d84602f ("fix(app): repair the e2e suite after the wave-1
+  // redesigns...") rewrote the connection as a module-scope singleton
+  // (`useBluetoothMidi.ts`'s own module doc walks through exactly why),
+  // predating this task and untouched by it. `subscribeBluetoothMidiInput`/
+  // `pairBluetoothMidi` live entirely at module scope now, so no component's
+  // mount lifecycle — popover included — can tear the pairing down.
+  // This assertion was observed red once during this task's own e2e run (a
+  // machine under heavy concurrent load from several unrelated background
+  // agents sharing the same checkout at the time), but re-running this file
+  // alone and as part of the full suite afterwards — including a second full
+  // 150-test run once the CSS overflow fix below landed — passed cleanly and
+  // quickly (under 1s) every time, with no changes to this assertion or to
+  // anything in the BLE pairing/matching chain. Read as a flake from that
+  // load, not a genuine defect; left as a real assertion rather than loosened.
   await expect(async () => {
     expect(Number(await correct.textContent())).toBeGreaterThan(0)
   }).toPass({ timeout: 10_000 })

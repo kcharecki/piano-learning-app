@@ -32,7 +32,13 @@ test('the topbar chip names the input situation, and its popover explains why, w
 
   await page.goto('/')
 
-  // The chip is a topbar citizen: present without scrolling, on every screen.
+  // The chip is shell furniture, not page content: present without
+  // scrolling, on every screen, regardless of which of its two possible
+  // homes it currently renders in — the topbar at <=1024px, or the nav
+  // rail's own footer above that (roadmap UI-36). This spec runs at
+  // Playwright's default desktop viewport, so the rail-footer home is the
+  // one actually exercised here; the assertions below hold at either home,
+  // since they only ever address the chip by its accessible name/role.
   const chip = page.getByRole('button', { name: CHIP })
   await expect(chip).toBeVisible()
   await expect(chip).toHaveAttribute('aria-expanded', 'false')

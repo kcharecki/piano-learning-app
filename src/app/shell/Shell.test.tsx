@@ -56,9 +56,30 @@ function resetStores(): void {
   useProgressStore.setState({ practiceEntries: [], assessments: [] })
 }
 
+// Roadmap UI-36: `useCompactShell()` reads `window.matchMedia('(max-width:
+// 1024px)').matches` both synchronously (useState's lazy initializer) and
+// on the query's own 'change' event (useEffect) — happy-dom's default
+// 1024x768 viewport makes every OTHER test in this file exercise the
+// compact path for free (matches: true) without any stub, which is why
+// they're untouched by this task. Desktop coverage needs an explicit stub
+// installed BEFORE render, since useState's initializer runs on first render.
+function stubDesktopMatchMedia(): void {
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }))
+}
+
 afterEach(() => {
   cleanup()
   resetStores()
+  vi.unstubAllGlobals()
 })
 
 describe('Shell', () => {
@@ -273,29 +294,70 @@ describe('Shell', () => {
     expect(screen.getByText('Level 1 · No streak yet')).toBeInTheDocument()
   })
 
-  // Roadmap UI-04a: the topbar's right-aligned action cluster is the slot
-  // UI-04b mounts the input-status chip and the Reference button into — this
-  // proves the Reference button already lives there instead of floating
-  // detached over content.
-  it('mounts the Reference button inside the topbar action cluster', () => {
-    render(<Shell />)
-    const toggle = screen.getByRole('button', { name: 'Reference' })
-    expect(toggle.closest('.topbar-actions')).not.toBeNull()
-    expect(toggle.closest('.app-topbar')).not.toBeNull()
-    expect(toggle).not.toHaveClass('reference-toggle')
-  })
+  // Roadmap UI-36: the action cluster (input-status chip + Reference toggle)
+  // has exactly two possible homes — never both live at once — decided by
+  // `useCompactShell()`'s live `matchMedia` read. Compact cases rely on
+  // happy-dom's default 1024x768 viewport (no stub needed, matches every
+  // other test in this file); desktop cases install `stubDesktopMatchMedia`
+  // before render, since the compact/desktop decision is made on first
+  // render, not after.
+  describe('the action cluster', () => {
+    it('mounts inside .topbar-actions, itself inside .app-topbar, at compact widths', () => {
+      render(<Shell />)
+      const chip = screen.getByRole('button', { name: /MIDI/i })
+      const actions = chip.closest('.topbar-actions')
+      expect(actions).not.toBeNull()
+      expect(actions?.closest('.app-topbar')).not.toBeNull()
 
-  // Roadmap UI-04b: the input-status chip's one home, before the Reference
-  // button in the same cluster — replacing the in-flow "No MIDI keyboard
-  // connected" banner that used to render at the top of every screen.
-  it('mounts the input-status chip inside the topbar action cluster, before Reference', () => {
-    render(<Shell />)
-    const chip = screen.getByRole('button', { name: /MIDI/i })
-    const actions = chip.closest('.topbar-actions')
-    expect(actions).not.toBeNull()
-    const reference = screen.getByRole('button', { name: 'Reference' })
-    expect(actions).toContainElement(reference)
-    // The chip precedes Reference in DOM order within the cluster.
-    expect(chip.compareDocumentPosition(reference) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      const reference = screen.getByRole('button', { name: 'Reference' })
+      expect(actions).toContainElement(reference)
+      // The chip precedes Reference in DOM order within the cluster.
+      expect(chip.compareDocumentPosition(reference) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      expect(reference).not.toHaveClass('reference-toggle')
+    })
+
+    it('mounts inside .nav-actions, itself inside the rail footer, at desktop widths', () => {
+      stubDesktopMatchMedia()
+      render(<Shell />)
+
+      // No topbar at all above 1024px — this task's own DOM-level proof.
+      expect(document.querySelector('.app-topbar')).toBeNull()
+
+      const chip = screen.getByRole('button', { name: /MIDI/i })
+      const actions = chip.closest('.nav-actions')
+      expect(actions).not.toBeNull()
+      expect(actions?.closest('.nav-rail-footer')).not.toBeNull()
+
+      const reference = screen.getByRole('button', { name: 'Reference' })
+      expect(actions).toContainElement(reference)
+      expect(chip.compareDocumentPosition(reference) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    })
+
+    // The single-instance rule (Shell.tsx's own module doc): `actions` is
+    // built once and rendered from exactly one of two call sites, gated by
+    // `compact ? ... : undefined` — never both, at either width.
+    it.each([
+      ['compact', () => {}],
+      ['desktop', stubDesktopMatchMedia],
+    ])('renders exactly one Reference toggle at %s widths', (_label, stub) => {
+      stub()
+      render(<Shell />)
+      expect(screen.getAllByRole('button', { name: 'Reference' })).toHaveLength(1)
+    })
+
+    it('closes on Escape and returns focus to the visible Reference toggle at desktop widths too', async () => {
+      stubDesktopMatchMedia()
+      const user = userEvent.setup()
+      render(<Shell />)
+
+      const toggle = screen.getByRole('button', { name: 'Reference' })
+      await user.click(toggle)
+      expect(screen.getByRole('complementary', { name: /chord and scale reference/i })).toBeVisible()
+
+      await user.keyboard('{Escape}')
+
+      expect(toggle).toHaveAttribute('aria-expanded', 'false')
+      expect(toggle).toHaveFocus()
+    })
   })
 })

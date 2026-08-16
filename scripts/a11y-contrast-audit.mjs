@@ -143,7 +143,16 @@ async function destinationsOf(page) {
   return page.evaluate(() => {
     const nav = document.querySelector('nav[aria-label="Main"]')
     if (nav === null) return []
-    return Array.from(nav.querySelectorAll('button')).map((b) => b.textContent?.trim() ?? '')
+    // Roadmap UI-36: `nav` now also contains the shell's action cluster
+    // (input-status chip + Reference toggle) at desktop widths, inside
+    // `.nav-rail-footer`/`.nav-actions` — neither is a navigation
+    // destination, and clicking either (the chip opens a popover, Reference
+    // opens the reference panel) would corrupt this loop's "one screen per
+    // destination" assumption instead of navigating anywhere. `.nav-scroll`
+    // (NavGroups.tsx) is the part that holds only real destinations, at
+    // every width.
+    const scroll = nav.querySelector('.nav-scroll') ?? nav
+    return Array.from(scroll.querySelectorAll('button')).map((b) => b.textContent?.trim() ?? '')
   })
 }
 

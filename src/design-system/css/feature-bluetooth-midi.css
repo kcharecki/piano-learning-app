@@ -3,32 +3,45 @@
    control rendered as in-flow content at the TOP of seven different screens
    (Practice, Sight reading, Flashcards, Ear training, Rhythm, Technique,
    Theory), pushing the actual task below them on every one. This gives that
-   status one home instead: a small chip in the topbar's `.topbar-actions`
-   cluster (base.css, roadmap UI-04a), always present, with the detail
-   (device name, Bluetooth pairing, the mic fallback) tucked into a popover
-   that opens on demand — `InputCapabilityBanner.tsx`.
+   status one home instead: a small chip in the shell's action cluster,
+   always present, with the detail (device name, Bluetooth pairing, the mic
+   fallback) tucked into a popover that opens on demand —
+   `InputCapabilityBanner.tsx`. Roadmap UI-36: that cluster itself now has
+   two possible homes — `.topbar-actions` (<=1024px, responsive.css) and
+   `.nav-actions` (desktop, `feature-nav-groups.css`'s rail footer) — never
+   both at once, so this chip and its popover only ever render inside
+   whichever one is current.
    No dedicated feature-input-status.css exists (single-writer file list,
    docs/ui-overhaul-brief.md) — this is the closest owned stylesheet, since
    the popover's main job is hosting exactly the Bluetooth control below. */
 .input-status { position: relative; }
-/* Neither `.app-topbar` nor `.topbar-actions` is a positioned ancestor above
-   1024px (only the <=1024px drawer breakpoint sets that, responsive.css), so
-   this needs its own stacking context to stay reliably above ordinary page
-   content, matching the popover's own --z-dialog tier below. */
+/* Roadmap UI-36: this chip now has two possible homes — `.topbar-actions`
+   (<=1024px) and `.nav-actions` (desktop, inside `.app-nav`'s rail footer).
+   `.topbar-actions` is still never itself a positioned ancestor, so at that
+   width this chip's own stacking context is what keeps it reliably above
+   ordinary page content. At desktop `.app-nav` IS positioned (`position:
+   sticky`, domain.css) and carries its own `--z-dialog` tier (base.css,
+   roadmap UI-36) — this rule is redundant there rather than load-bearing,
+   but harmless to leave unconditional: one rule for both homes is simpler
+   than a home-scoped one, and matches the popover's own --z-dialog tier
+   below either way. */
 .input-status-chip { position: relative; z-index: var(--z-dialog); }
 
 /* `.card` (primitives.css) already supplies background/radius/padding; this
-   only adds what a FLOATING panel needs beyond a static in-flow card:
-   anchored under the chip, above the topbar (--z-dialog, the same tier
-   ReferencePanel and its scrim use), with --elev-3 instead of .card's
-   default --elev-1 (same override technique feature-reference-panel.css
-   uses for its own panel — this file loads after primitives.css in the
-   barrel, so the later, more specific-in-intent rule wins on source order
-   at equal specificity). */
+   only adds what a FLOATING panel needs beyond a static in-flow card: above
+   whatever it floats over (--z-dialog, the same tier ReferencePanel and its
+   scrim use), with --elev-3 instead of .card's default --elev-1 (same
+   override technique feature-reference-panel.css uses for its own panel —
+   this file loads after primitives.css in the barrel, so the later, more
+   specific-in-intent rule wins on source order at equal specificity).
+   Roadmap UI-36: `top`/`right` used to be set unconditionally here, anchoring
+   the popover below-and-flush-right of the chip — correct for the one home
+   this had (`.topbar-actions`), wrong for the second one UI-36 added
+   (`.nav-actions`, the rail footer): both anchor rules now live below,
+   keyed off which cluster class the popover's `.input-status` ancestor sits
+   inside. */
 .input-status-popover {
   position: absolute;
-  top: calc(100% + var(--space-2));
-  right: 0;
   z-index: var(--z-dialog);
   width: min(20rem, 90vw);
   box-shadow: var(--elev-3);
@@ -57,6 +70,19 @@
      the popover leaves the render tree the instant it is dismissed. */
   animation: disclosure-in var(--dur-2) var(--ease-out);
 }
+/* Two anchors, one per home (roadmap UI-36) — the popover's `.input-status`
+   ancestor decides which applies, never both at once (Shell.tsx renders
+   exactly one action cluster at a time). `.topbar-actions`: bar sits at the
+   viewport TOP, so the popover opens downward, flush right (unchanged from
+   before this task). `.nav-actions`: rail footer sits at the viewport
+   BOTTOM, so opening downward would run the popover off-screen — it opens
+   upward instead, and left-aligned rather than right: the rail itself is
+   only `--nav-w` wide, so right-aligning a 20rem panel inside it would hang
+   most of the panel off the rail's own left edge over nothing; left-aligned,
+   it extends inward over `.app-main` instead, which is real content but at
+   least on-screen. */
+.topbar-actions .input-status-popover { top: calc(100% + var(--space-2)); right: 0; }
+.nav-actions .input-status-popover { bottom: calc(100% + var(--space-2)); left: 0; }
 .input-status-popover p { margin: 0; }
 /* The opt-in: any real control anywhere inside the popover, regardless of
    nesting depth (MidiDeviceStatus renders its own wrapper divs). Everything
