@@ -6,7 +6,7 @@
  * `Store` port, so it is exercised in tests with an in-memory fake and the
  * real zustand stores, never a browser database.
  *
- * Twelve independent slices are persisted, each following the same shape
+ * Thirteen independent slices are persisted, each following the same shape
  * (validate → `restoreSlice` on the way in, `createWriteQueue` +  a
  * `subscribe` on the way out):
  *  - the score session (`useScoreStore`) — the original roadmap-1.23 slice.
@@ -47,13 +47,20 @@
  *    Reuses `COLLECTIONS.settings` under its own key, same as `levelState`/
  *    `earTraining` above. Restored FIRST, ahead of every other slice — see
  *    `restoreSession`'s own comment on why.
+ *  - the last-used instrument (`useInstrumentStore`, roadmap DR-01): which of
+ *    the two apps — Piano or Drums — the learner opens into. Reuses
+ *    `COLLECTIONS.settings` under its own key, same as `theme`/`levelState`/
+ *    `earTraining` above. See `instrumentStore.ts`'s own module comment for
+ *    why a synchronous localStorage hint ALSO exists alongside this slice —
+ *    this restore is the source of truth, the hint only covers the one
+ *    render before this async restore lands.
  *
  * Each slice's write queue is fully independent — its own (collection, key)
  * pair, its own in-flight `put` — so a slow write to one can never block or
  * reorder a write to another. Note that the score session and the level
  * state share `COLLECTIONS.settings` and are separated by key alone, so
  * those two keys must never converge. `startPersisting` just wires up all
- * ten and returns one combined unsubscribe.
+ * thirteen and returns one combined unsubscribe.
  *
  * CALL ORDER IS MANDATORY, for every slice: `await restoreSession(store)`
  * must resolve before `startPersisting(store)` is called. Subscribing first
@@ -165,11 +172,13 @@ import { useTechniqueStore, MAX_STORED_TECHNIQUE_ATTEMPTS } from '@app/state/tec
 import { useLevelStore } from '@app/state/levelStore.ts'
 import { useEarTrainingStore } from '@app/state/earTrainingStore.ts'
 import { useThemeStore } from '@app/state/themeStore.ts'
+import { useInstrumentStore } from '@app/state/instrumentStore.ts'
 import {
   isValidAnnotations,
   isValidAssessments,
   isValidEarTraining,
   isValidFlashcards,
+  isValidInstrument,
   isValidLevelState,
   isValidPracticeLog,
   isValidRecordings,
@@ -182,6 +191,7 @@ import {
   type PersistedAssessments,
   type PersistedEarTraining,
   type PersistedFlashcards,
+  type PersistedInstrument,
   type PersistedLevelState,
   type PersistedPracticeLog,
   type PersistedRecordings,
@@ -200,6 +210,7 @@ export type {
   PersistedAssessments,
   PersistedEarTraining,
   PersistedFlashcards,
+  PersistedInstrument,
   PersistedLevelState,
   PersistedPracticeLog,
   PersistedRecordings,
@@ -271,6 +282,10 @@ export const EAR_TRAINING_KEY = 'earTraining'
 export const THEME_COLLECTION = COLLECTIONS.settings
 export const THEME_KEY = 'theme'
 
+/** Collection + key the last-used instrument lives under (roadmap DR-01). Reuses `COLLECTIONS.settings`, same reasoning as `THEME_COLLECTION` above. */
+export const INSTRUMENT_COLLECTION = COLLECTIONS.settings
+export const INSTRUMENT_KEY = 'lastInstrument'
+
 // ----------------------------------------------------------------- restore
 
 /**
@@ -295,6 +310,7 @@ let applyingRestoredRepertoire = false
 let applyingRestoredLevels = false
 let applyingRestoredEarTraining = false
 let applyingRestoredTheme = false
+let applyingRestoredInstrument = false
 
 /**
  * Reads `key` from `collection`, validates it, and — only if valid — applies
@@ -333,7 +349,7 @@ async function restoreSlice<T>(
 }
 
 /**
- * Restores all twelve persisted slices (see the module comment for the full
+ * Restores all thirteen persisted slices (see the module comment for the full
  * list). Each is validated and applied independently, so a corrupt or
  * missing slice never prevents the others from restoring. Returns whether
  * the SCORE session specifically was restored, the original roadmap-1.23
@@ -516,6 +532,17 @@ export async function restoreSession(store: Store): Promise<boolean> {
       applyingRestoredEarTraining = guarding
     },
     (data) => useEarTrainingStore.getState().hydrate(data.session, data.itemsById),
+  )
+
+  await restoreSlice(
+    store,
+    INSTRUMENT_COLLECTION,
+    INSTRUMENT_KEY,
+    isValidInstrument,
+    (guarding) => {
+      applyingRestoredInstrument = guarding
+    },
+    (data) => useInstrumentStore.getState().hydrate(data.lastInstrument),
   )
 
   return scoreRestored
@@ -809,8 +836,18 @@ function persistTheme(store: Store): PersistedSlice {
   return { unsubscribe, flush: write.flush }
 }
 
+/** Subscribes to the instrument store and writes `lastInstrument` on every change (roadmap DR-01). */
+function persistInstrument(store: Store): PersistedSlice {
+  const write = createWriteQueue<PersistedInstrument>(store, INSTRUMENT_COLLECTION, INSTRUMENT_KEY)
+  const unsubscribe = useInstrumentStore.subscribe((state, prevState) => {
+    if (applyingRestoredInstrument || state.lastInstrument === prevState.lastInstrument) return
+    write({ lastInstrument: state.lastInstrument })
+  })
+  return { unsubscribe, flush: write.flush }
+}
+
 /**
- * Starts persisting all twelve slices, registers the page-hide flush
+ * Starts persisting all thirteen slices, registers the page-hide flush
  * listener pair (roadmap follow-up F.2 — see the module comment), and
  * returns one combined unsubscribe that tears both down. See the module
  * comment for the mandatory `restoreSession` → `startPersisting` call order.
@@ -829,6 +866,7 @@ export function startPersisting(store: Store): () => void {
     persistLevels(store),
     persistEarTraining(store),
     persistTheme(store),
+    persistInstrument(store),
   ]
 
   // Best-effort drain of every slice's write queue — see the module comment's

@@ -45,6 +45,52 @@
    this is purely additive, not a fight over the property. */
 .app-nav { display: flex; flex-direction: column; }
 
+/* Roadmap DR-01: the Piano/Drums instrument switcher — `NavGroups.tsx`'s
+   `switcher` prop, rendered FIRST inside `.nav-scroll` (ahead of even
+   `.nav-primary` below), so it scrolls away with the rest of the nav rather
+   than pinning like `.nav-rail-footer` does — see that prop's own doc for
+   why. Built on `.seg-control` (primitives.css, the same bordered-radiogroup
+   primitive `HandMuteControl.tsx` already uses) stretched to the rail's
+   full width with two equal-width segments, rather than that primitive's
+   default content-hugging pill — right for a handful of narrow options
+   elsewhere, wrong for the rail's own top-level control.
+
+   This is also the FIRST `.seg-control` to ever live inside `.app-nav
+   .nav-scroll`, and `.app-nav .nav-scroll button` (domain.css, two classes
+   PLUS the `button` element) already outranks `.seg-control > *` (one
+   class) on specificity — left unaddressed, it would flatten every segment
+   back to a plain full-width, square-cornered, left-aligned rail item and
+   drop the checked-state highlight entirely. Every selector below adds one
+   more class (`.instrument-switcher` itself, or the attribute selectors) to
+   deliberately outrank that domain.css rule property-by-property; this is
+   not decoration, a shorter selector here silently loses. */
+.app-nav .nav-scroll .instrument-switcher {
+  display: flex;
+  width: 100%;
+  /* `--space-2`, matching `.nav-primary`'s own margin-bottom immediately
+     below it (both separate the rail's leading chrome from the destination
+     list with the same rhythm) — not the group-to-group `--space-3`, which
+     is one step too generous for "chrome to its own first destination".
+     Also part of the 1024x800 drawer overflow budget (see
+     `nav-drawer-tablet.spec.ts`'s own comment on why that spec now scrolls
+     items into view rather than requiring everything to fit unscrolled —
+     this alone was nowhere near enough to close that gap on its own). */
+  margin-bottom: var(--space-2);
+}
+.app-nav .nav-scroll .instrument-switcher > * {
+  flex: 1 1 50%;
+  justify-content: center;
+  padding: 0 var(--control-pad-x);
+}
+.app-nav .nav-scroll .instrument-switcher > *:not(:first-child) {
+  border-left: var(--border-w) solid var(--border-2);
+}
+.app-nav .nav-scroll .instrument-switcher > [aria-checked="true"] {
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-weight: var(--weight-semibold);
+}
+
 /* Today: bigger, accent-washed, and set apart from the groups below it with
    its own bottom border — the one destination that isn't inside a group. */
 .app-nav .nav-scroll .nav-primary {

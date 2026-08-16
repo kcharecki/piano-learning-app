@@ -9,17 +9,33 @@
  * had been wrong for several sessions; a number that has to be maintained
  * by hand is not worth the sentence — it isn't written out at all now.)
  *
- * Every destination here renders a real screen; there are no placeholders
- * left. "Today" (roadmap 4.7a) is the planned practice session AND the
- * default landing destination (roadmap 5.39) — it is also the one
- * destination that navigates to others — `destinationFor` maps a planned
- * exercise to the screen that runs it, which is why the nav state lives here
- * rather than inside that screen.
+ * Every piano destination here renders a real screen; there are no
+ * placeholders left on that side. "Today" (roadmap 4.7a) is the planned
+ * practice session AND the default landing destination (roadmap 5.39) — it
+ * is also the one destination that navigates to others — `destinationFor`
+ * maps a planned exercise to the screen that runs it, which is why the nav
+ * state lives here rather than inside that screen.
+ *
+ * Roadmap DR-01 added a second, disjoint instrument: the shell now holds two
+ * independent nav tables (`PIANO_*`/`DRUMS_*`) and two independent screen
+ * renderers, selected by `AppRoute.instrument` — never a single flat
+ * `ScreenId` union across both, so a piano screen id can never leak into a
+ * drums route or vice versa (see `route.ts`'s own module comment for why
+ * that split lives at the type level, not just by convention). The switcher
+ * itself is shell chrome (`switcher` below), not a nav item — it is what
+ * decides which of the two nav tables `NavGroups` renders.
  */
 import { InputCapabilityBanner } from '@app/shell/InputCapabilityBanner.tsx'
 import { NavGroups, type NavGroup, type NavItem } from '@app/shell/NavGroups.tsx'
-import type { Route, ScreenId } from '@app/shell/route.ts'
+import type {
+  DrumsScreenId,
+  Instrument,
+  PianoRoute,
+  PianoScreenId,
+} from '@app/shell/route.ts'
 import { useRoute } from '@app/shell/routing.ts'
+import { useInstrumentStore } from '@app/state/instrumentStore.ts'
+import { DrumsTodayScreen } from '@app/drums/DrumsTodayScreen.tsx'
 import { ReferencePanel } from '@app/reference/ReferencePanel.tsx'
 import { SettingsScreen } from '@app/onboarding/SettingsScreen.tsx'
 import { ScoreScreen } from '@app/score/ScoreScreen.tsx'
@@ -43,18 +59,19 @@ import { ALL_THEORY_KINDS, type TheoryQuizKind } from '@core/drills/theory.ts'
 import { techniqueDrillById } from '@core/technique/library.ts'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-// Typed against `ScreenId` (imported from `route.ts`, the router's single
-// source of truth for what a "screen" is) rather than deriving it from this
-// array, as it used to — a typo'd id here is now a compile error instead of
-// silently widening the union. `icon` (roadmap UI-04a, 2026-08-12 UI audit)
-// is the nav rail's 16px glyph per item — chosen for what the destination
-// IS, not decoratively: sight-reading/theory/lessons all read music/learn
-// from a page, so all three share `book`; flashcards and repertoire both
-// share `cards` (repertoire's own choice per the task brief; flashcards is
-// this session's judgement call — `SrsSummary.tsx` already uses `cards` for
-// the same spaced-repetition/flip-card concept, so it is the closest
-// existing match in the 24-name set, not a fresh invention).
-const NAV_ITEMS: readonly NavItem[] = [
+// Typed against `PianoScreenId` (imported from `route.ts`, the router's
+// single source of truth for what a piano "screen" is) rather than deriving
+// it from this array, as it used to — a typo'd id here is now a compile
+// error instead of silently widening the union. `icon` (roadmap UI-04a,
+// 2026-08-12 UI audit) is the nav rail's 16px glyph per item — chosen for
+// what the destination IS, not decoratively: sight-reading/theory/lessons
+// all read music/learn from a page, so all three share `book`; flashcards
+// and repertoire both share `cards` (repertoire's own choice per the task
+// brief; flashcards is this session's judgement call — `SrsSummary.tsx`
+// already uses `cards` for the same spaced-repetition/flip-card concept, so
+// it is the closest existing match in the 24-name set, not a fresh
+// invention).
+const PIANO_NAV_ITEMS: readonly NavItem<PianoScreenId>[] = [
   { id: 'today', label: 'Today', icon: 'target' },
   { id: 'lessons', label: 'Lessons', icon: 'book' },
   { id: 'practice', label: 'Practice', icon: 'keyboard' },
@@ -70,56 +87,67 @@ const NAV_ITEMS: readonly NavItem[] = [
   { id: 'settings', label: 'Settings', icon: 'settings' },
 ]
 
-export type { ScreenId }
+export type { PianoScreenId, DrumsScreenId }
 
 /**
- * The grouped structure of `NAV_ITEMS` (roadmap 5.43): Today stands alone as
- * the entry point; everything else falls into Practice / Learn / Drills /
- * Progress — the structure the app already has but 12 flat buttons hid.
- * Built by id lookup against `NAV_ITEMS` rather than duplicating labels, so
- * the two can never disagree.
+ * The grouped structure of `PIANO_NAV_ITEMS` (roadmap 5.43): Today stands
+ * alone as the entry point; everything else falls into Practice / Learn /
+ * Drills / Progress — the structure the app already has but 12 flat buttons
+ * hid. Built by id lookup against `PIANO_NAV_ITEMS` rather than duplicating
+ * labels, so the two can never disagree.
  */
-function navItem(id: ScreenId): NavItem {
-  const item = NAV_ITEMS.find((n) => n.id === id)
+function pianoNavItem(id: PianoScreenId): NavItem<PianoScreenId> {
+  const item = PIANO_NAV_ITEMS.find((n) => n.id === id)
   // Programmer error only — every id passed here is a literal below, drawn
-  // from NAV_ITEMS itself.
-  if (item === undefined) throw new Error(`no NAV_ITEMS entry for "${id}"`)
+  // from PIANO_NAV_ITEMS itself.
+  if (item === undefined) throw new Error(`no PIANO_NAV_ITEMS entry for "${id}"`)
   return item
 }
 
-const NAV_PRIMARY: NavItem = navItem('today')
+const PIANO_NAV_PRIMARY: NavItem<PianoScreenId> = pianoNavItem('today')
 
-const NAV_GROUPS: readonly NavGroup[] = [
+const PIANO_NAV_GROUPS: readonly NavGroup<PianoScreenId>[] = [
   {
     label: 'Practice',
     items: [
-      navItem('practice'),
-      navItem('sight-reading'),
-      navItem('repertoire'),
-      navItem('metronome'),
+      pianoNavItem('practice'),
+      pianoNavItem('sight-reading'),
+      pianoNavItem('repertoire'),
+      pianoNavItem('metronome'),
     ],
   },
-  { label: 'Learn', items: [navItem('lessons')] },
+  { label: 'Learn', items: [pianoNavItem('lessons')] },
   {
     label: 'Drills',
     items: [
-      navItem('flashcards'),
-      navItem('ear-training'),
-      navItem('rhythm'),
-      navItem('technique'),
-      navItem('theory'),
+      pianoNavItem('flashcards'),
+      pianoNavItem('ear-training'),
+      pianoNavItem('rhythm'),
+      pianoNavItem('technique'),
+      pianoNavItem('theory'),
     ],
   },
-  { label: 'Progress', items: [navItem('progress'), navItem('settings')] },
+  { label: 'Progress', items: [pianoNavItem('progress'), pianoNavItem('settings')] },
 ]
+
+/**
+ * Drums' own nav table (roadmap DR-01) — one destination so far
+ * (`drums-today`, the placeholder home `DrumsTodayScreen` renders), no
+ * groups yet. Grows per phase as drum features land; the type-level split
+ * from `PIANO_NAV_ITEMS`/`PIANO_NAV_GROUPS` (see `route.ts`'s `DrumsScreenId`)
+ * means adding a Drums screen can never accidentally collide with a piano one.
+ */
+const DRUMS_NAV_PRIMARY: NavItem<DrumsScreenId> = { id: 'drums-today', label: 'Today', icon: 'target' }
+const DRUMS_NAV_GROUPS: readonly NavGroup<DrumsScreenId>[] = []
 
 /**
  * Where a planned session item sends the learner (roadmap 4.7a). The plan is
  * built from what the app can actually open — see `@app/session/candidates.ts`,
  * which deliberately emits no exercise for a screen that does not exist — so
- * every kind here has a real destination.
+ * every kind here has a real destination. Piano-only: `Today`'s session plan
+ * is a piano concept, so this always returns a `PianoScreenId`.
  */
-function destinationFor(exercise: Exercise): ScreenId {
+function destinationFor(exercise: Exercise): PianoScreenId {
   switch (exercise.kind) {
     case 'sight-read':
       return 'sight-reading'
@@ -214,14 +242,14 @@ function openedTheoryDrillOf(exercise: Exercise): OpenedTheoryDrill | undefined 
 }
 
 /**
- * `Route` -> the shell's opened-drill state (roadmap 5.42): the inverse of
- * `routeFor` below. Used both for the route the app boots/reloads on and for
- * a `popstate` (Back/Forward) — the id embedded in the URL is re-validated
- * against the same library lookups `openedTechniqueOf`/`DECK_KINDS`/
- * `THEORY_KINDS` already use, so a stale or hand-typed URL degrades to "no
- * deep-link param" instead of crashing.
+ * `PianoRoute` -> the shell's opened-drill state (roadmap 5.42): the inverse
+ * of `routeFor` below. Used both for the route the app boots/reloads on and
+ * for a `popstate` (Back/Forward) — the id embedded in the URL is
+ * re-validated against the same library lookups
+ * `openedTechniqueOf`/`DECK_KINDS`/`THEORY_KINDS` already use, so a stale or
+ * hand-typed URL degrades to "no deep-link param" instead of crashing.
  */
-function techniqueFromRoute(route: Route): OpenedTechnique | undefined {
+function techniqueFromRoute(route: PianoRoute): OpenedTechnique | undefined {
   const id = route.params?.id
   if (route.screen !== 'technique' || id === undefined) return undefined
   const drill = techniqueDrillById(id)
@@ -230,14 +258,14 @@ function techniqueFromRoute(route: Route): OpenedTechnique | undefined {
     : { drillId: drill.id, level: route.params?.level ?? drill.level }
 }
 
-function deckFromRoute(route: Route): OpenedDeck | undefined {
+function deckFromRoute(route: PianoRoute): OpenedDeck | undefined {
   const id = route.params?.id
   if (route.screen !== 'flashcards' || id === undefined || !DECK_KINDS.has(id)) return undefined
   const level = route.params?.level
   return level === undefined ? { kind: id as DrillKind } : { kind: id as DrillKind, level }
 }
 
-function theoryDrillFromRoute(route: Route): OpenedTheoryDrill | undefined {
+function theoryDrillFromRoute(route: PianoRoute): OpenedTheoryDrill | undefined {
   const id = route.params?.id
   if (route.screen !== 'theory' || id === undefined || !THEORY_KINDS.has(id)) return undefined
   const level = route.params?.level
@@ -247,18 +275,18 @@ function theoryDrillFromRoute(route: Route): OpenedTheoryDrill | undefined {
 }
 
 /**
- * A destination screen plus the shell's opened-drill state -> the `Route`
- * that reaches it (the inverse of the three functions above). Only the one
- * matching `screen` ever contributes params — `open()` below computes all
- * three from a single exercise, but only the one the exercise actually
- * routes to is relevant.
+ * A destination screen plus the shell's opened-drill state -> the
+ * `PianoRoute` that reaches it (the inverse of the three functions above).
+ * Only the one matching `screen` ever contributes params — `open()` below
+ * computes all three from a single exercise, but only the one the exercise
+ * actually routes to is relevant.
  */
 function routeFor(
-  screen: ScreenId,
+  screen: PianoScreenId,
   technique: OpenedTechnique | undefined,
   deck: OpenedDeck | undefined,
   theoryDrill: OpenedTheoryDrill | undefined,
-): Route {
+): PianoRoute {
   if (screen === 'technique' && technique !== undefined) {
     return { screen, params: { id: technique.drillId, level: technique.level } }
   }
@@ -275,8 +303,8 @@ function routeFor(
   return { screen }
 }
 
-function renderScreen(
-  screen: ScreenId,
+function renderPianoScreen(
+  screen: PianoScreenId,
   open: (exercise: Exercise) => void,
   goToPractice: () => void,
   goToToday: () => void,
@@ -351,6 +379,14 @@ function renderScreen(
   }
 }
 
+/** Drums' own screen renderer (roadmap DR-01) — one case so far, grows per phase. */
+function renderDrumsScreen(screen: DrumsScreenId) {
+  switch (screen) {
+    case 'drums-today':
+      return <DrumsTodayScreen />
+  }
+}
+
 const COMPACT_QUERY = '(max-width: 1024px)'
 
 /**
@@ -383,12 +419,13 @@ function useCompactShell(): boolean {
 }
 
 export function Shell() {
-  // The route is the single source of navigation truth (roadmap 5.42):
-  // `screen`/`technique`/`deck`/`theoryDrill` are all derived from it below,
-  // not separately tracked — so a direct reload, a deep link, or a browser
-  // Back/Forward (both drive `route` via `useRoute`'s popstate listener)
-  // reproduce exactly the same shell state a click would have.
-  const { route, navigate } = useRoute()
+  // The route is the single source of navigation truth (roadmap 5.42, DR-01):
+  // `instrument`/`screen`/`technique`/`deck`/`theoryDrill` are all derived
+  // from it below, not separately tracked — so a direct reload, a deep link,
+  // or a browser Back/Forward (both drive `appRoute` via `useRoute`'s
+  // popstate listener) reproduce exactly the same shell state a click would
+  // have, including which instrument's nav is showing.
+  const { route: appRoute, navigate } = useRoute()
   // Roadmap UI-36: which of the two homes (topbar vs. rail footer) the
   // action cluster below renders into. See `useCompactShell`'s own comment.
   const compact = useCompactShell()
@@ -401,10 +438,12 @@ export function Shell() {
   const navToggleRef = useRef<HTMLButtonElement>(null)
   const navRef = useRef<HTMLElement>(null)
 
-  const screen = route.screen
-  const technique = techniqueFromRoute(route)
-  const deck = deckFromRoute(route)
-  const theoryDrill = theoryDrillFromRoute(route)
+  const instrument = appRoute.instrument
+  const technique =
+    appRoute.instrument === 'piano' ? techniqueFromRoute(appRoute.route) : undefined
+  const deck = appRoute.instrument === 'piano' ? deckFromRoute(appRoute.route) : undefined
+  const theoryDrill =
+    appRoute.instrument === 'piano' ? theoryDrillFromRoute(appRoute.route) : undefined
 
   // Roadmap UI-04a: the rail footer's "current level · streak" line —
   // display only. `playingLevel` is `useLevelStore`'s `playing` track read
@@ -412,7 +451,10 @@ export function Shell() {
   // `currentStreakDays` over `useProgressStore`'s practice log, the exact
   // function `useDashboard.ts` already calls for the dashboard's own streak
   // line — not the whole (much heavier) dashboard hook, which also computes
-  // technique/assessment/milestone trends this footer never shows.
+  // technique/assessment/milestone trends this footer never shows. Streak
+  // is shared across instruments (roadmap DR-01's spec); level is piano-only
+  // — see `NavFooter.level`'s own doc for why Drums omits it rather than
+  // showing a piano number that describes nothing on that side.
   const playingLevel = useLevelStore((s) => s.levelState.levels.playing)
   const practiceEntries = useProgressStore((s) => s.practiceEntries)
   const streakDays = useMemo(
@@ -420,18 +462,54 @@ export function Shell() {
     [practiceEntries],
   )
 
+  // Roadmap DR-01: persist the learner's last-used instrument so a reload
+  // opens where they left off. Skips its own first invocation via
+  // `didMountRef` — writing on the very first render would race `App.tsx`'s
+  // async `restoreSession`, which has not yet applied IndexedDB's own
+  // restored value at that point (see `persistence.ts`'s mandatory
+  // "restore before persisting" ordering, and `instrumentStore.ts`'s module
+  // comment for the fuller reasoning). Every instrument transition AFTER
+  // mount is tracked — whether the switcher, a deep link, or a Back/Forward
+  // that lands in the other instrument's namespace — not only explicit
+  // switcher clicks, on the view that "where the URL took the learner" is
+  // what "last-used" means, same as every other route-driven persistence in
+  // this app.
+  const didMountRef = useRef(false)
+  useEffect(() => {
+    if (!didMountRef.current) {
+      didMountRef.current = true
+      return
+    }
+    useInstrumentStore.getState().setLastInstrument(instrument)
+  }, [instrument])
+
   function open(exercise: Exercise): void {
     const nextScreen = destinationFor(exercise)
     const nextTechnique = exercise.kind === 'technique' ? openedTechniqueOf(exercise) : undefined
     const nextDeck = exercise.kind === 'theory-quiz' ? openedDeckOf(exercise) : undefined
     const nextTheoryDrill =
       exercise.kind === 'theory-quiz' ? openedTheoryDrillOf(exercise) : undefined
-    navigate(routeFor(nextScreen, nextTechnique, nextDeck, nextTheoryDrill))
+    navigate({
+      instrument: 'piano',
+      route: routeFor(nextScreen, nextTechnique, nextDeck, nextTheoryDrill),
+    })
   }
 
-  function goTo(id: ScreenId): void {
-    navigate({ screen: id })
+  function goToPiano(id: PianoScreenId): void {
+    navigate({ instrument: 'piano', route: { screen: id } })
     setNavOpen(false)
+  }
+
+  function goToDrums(id: DrumsScreenId): void {
+    navigate({ instrument: 'drums', route: { screen: id } })
+    setNavOpen(false)
+  }
+
+  /** The switcher's own click handler (roadmap DR-01) — a no-op re-click of the already-active instrument never navigates. */
+  function switchInstrument(next: Instrument): void {
+    if (next === instrument) return
+    if (next === 'piano') goToPiano('today')
+    else goToDrums('drums-today')
   }
 
   // Roadmap 3.17: the nav drawer and the reference drawer are mutually
@@ -510,16 +588,16 @@ export function Shell() {
   // never both. This trap only ever runs at <=1024px (the live matchMedia
   // check below), and at that width the cluster lives in the topbar, not
   // the rail, so `nav.querySelectorAll(...)` below still only ever collects
-  // the rail's OWN focusable items (primary + groups), exactly as before —
-  // the one-instance rule (see `useCompactShell`) is what keeps that true
-  // without this query needing to exclude anything by hand. The topbar
-  // itself remains its own separately reachable, still-visible chrome (one
-  // tier above the drawer, see responsive.css) and stays outside the drawer
-  // this trap is about. The mechanism only engages once focus is actually
-  // somewhere inside the drawer (first/last-element wraparound) — it does not
-  // forcibly move focus into the drawer on open, matching Escape/close above,
-  // which returns focus to the hamburger rather than assuming the drawer
-  // was ever entered.
+  // the rail's OWN focusable items (the switcher, primary + groups), exactly
+  // as before — the one-instance rule (see `useCompactShell`) is what keeps
+  // that true without this query needing to exclude anything by hand. The
+  // topbar itself remains its own separately reachable, still-visible chrome
+  // (one tier above the drawer, see responsive.css) and stays outside the
+  // drawer this trap is about. The mechanism only engages once focus is
+  // actually somewhere inside the drawer (first/last-element wraparound) —
+  // it does not forcibly move focus into the drawer on open, matching
+  // Escape/close above, which returns focus to the hamburger rather than
+  // assuming the drawer was ever entered.
   useEffect(() => {
     if (!navOpen) return
     function onKeyDown(e: KeyboardEvent): void {
@@ -547,7 +625,35 @@ export function Shell() {
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [navOpen])
 
-  const activeLabel = NAV_ITEMS.find((item) => item.id === screen)?.label ?? ''
+  const activeLabel =
+    appRoute.instrument === 'piano'
+      ? (PIANO_NAV_ITEMS.find((item) => item.id === appRoute.route.screen)?.label ?? '')
+      : DRUMS_NAV_PRIMARY.label
+
+  // Roadmap DR-01: the Piano/Drums switcher — shell chrome, not a nav item
+  // (see the module comment). `.seg-control` (primitives.css) is the same
+  // bordered-radiogroup primitive `HandMuteControl.tsx` already uses; a
+  // re-click of the already-active option is a no-op via `switchInstrument`.
+  const switcher = (
+    <div className="seg-control instrument-switcher" role="radiogroup" aria-label="Instrument">
+      <button
+        type="button"
+        role="radio"
+        aria-checked={instrument === 'piano'}
+        onClick={() => switchInstrument('piano')}
+      >
+        Piano
+      </button>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={instrument === 'drums'}
+        onClick={() => switchInstrument('drums')}
+      >
+        Drums
+      </button>
+    </div>
+  )
 
   // Roadmap UI-36: the action cluster — input-status chip, then Reference —
   // is ONE JSX expression, rendered in exactly one of the two homes below,
@@ -615,14 +721,27 @@ export function Shell() {
       )}
       {navOpen && <div className="nav-scrim" aria-hidden="true" onClick={closeNav} />}
       <nav className="app-nav" aria-label="Main" data-open={navOpen} ref={navRef}>
-        <NavGroups
-          primary={NAV_PRIMARY}
-          groups={NAV_GROUPS}
-          activeScreen={screen}
-          onNavigate={goTo}
-          footer={{ level: playingLevel, streakDays }}
-          actions={compact ? undefined : actions}
-        />
+        {appRoute.instrument === 'piano' ? (
+          <NavGroups<PianoScreenId>
+            primary={PIANO_NAV_PRIMARY}
+            groups={PIANO_NAV_GROUPS}
+            activeScreen={appRoute.route.screen}
+            onNavigate={goToPiano}
+            footer={{ level: playingLevel, streakDays }}
+            switcher={switcher}
+            actions={compact ? undefined : actions}
+          />
+        ) : (
+          <NavGroups<DrumsScreenId>
+            primary={DRUMS_NAV_PRIMARY}
+            groups={DRUMS_NAV_GROUPS}
+            activeScreen={appRoute.route.screen}
+            onNavigate={goToDrums}
+            footer={{ streakDays }}
+            switcher={switcher}
+            actions={compact ? undefined : actions}
+          />
+        )}
       </nav>
       <main className="app-main">
         {/* Roadmap 5.40's OnboardingGateway used to render here, gated on
@@ -631,15 +750,17 @@ export function Shell() {
             knows whether one is — finding out here would mean calling
             useSessionRun a second time against the same persisted run. See
             that file for the full argument. */}
-        {renderScreen(
-          screen,
-          open,
-          () => goTo('practice'),
-          () => goTo('today'),
-          technique,
-          deck,
-          theoryDrill,
-        )}
+        {appRoute.instrument === 'piano'
+          ? renderPianoScreen(
+              appRoute.route.screen,
+              open,
+              () => goToPiano('practice'),
+              () => goToPiano('today'),
+              technique,
+              deck,
+              theoryDrill,
+            )
+          : renderDrumsScreen(appRoute.route.screen)}
       </main>
       {/* Sibling AFTER app-main, never a wrapper around it and never a layout
           column (module doc + parallel-round-10.md Q2) — position:fixed, so

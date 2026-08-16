@@ -18,9 +18,10 @@ import { useSightReadingStore } from '@app/state/sightReadingStore.ts'
 import { useFlashcardStore } from '@app/state/flashcardStore.ts'
 import { useLevelStore } from '@app/state/levelStore.ts'
 import { useProgressStore } from '@app/state/progressStore.ts'
+import { INSTRUMENT_HINT_KEY, useInstrumentStore } from '@app/state/instrumentStore.ts'
 import { MIN_LEVEL } from '@core/sightreading/adaptive.ts'
 import { initialLevelState } from '@core/progress/levels.ts'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -54,6 +55,15 @@ function resetStores(): void {
   // leak into a later one's render.
   useLevelStore.setState({ levelState: initialLevelState(), hydrated: false })
   useProgressStore.setState({ practiceEntries: [], assessments: [] })
+  // Roadmap DR-01: the switcher's own persistence effect writes here — both
+  // the zustand store AND, via `setLastInstrument`'s real `writeHint`, the
+  // synchronous localStorage hint `routing.ts` reads as `parseAppRoute`'s
+  // `defaultInstrument` on a bare-root mount. Both must be reset, or a
+  // switch driven by one test leaks into the next test's default-instrument
+  // assumption even after the URL itself is reset (see the top-level
+  // afterEach's own comment).
+  useInstrumentStore.setState({ lastInstrument: 'piano' })
+  localStorage.removeItem(INSTRUMENT_HINT_KEY)
 }
 
 // Roadmap UI-36: `useCompactShell()` reads `window.matchMedia('(max-width:
@@ -80,6 +90,15 @@ afterEach(() => {
   cleanup()
   resetStores()
   vi.unstubAllGlobals()
+  // Roadmap DR-01: `useRoute()` reads real `window.location.pathname` on
+  // mount, and happy-dom's `window` (and its History) persists across tests
+  // in this file — a test that navigates (Practice, Drums, ...) would
+  // otherwise leave the NEXT test's initial render booting on that same
+  // path instead of the default `/`. Every existing test happened to survive
+  // this by always driving its own navigation explicitly, but the switcher
+  // tests below assert on the INITIAL state, so this reset is no longer
+  // optional.
+  window.history.replaceState(null, '', '/')
 })
 
 describe('Shell', () => {
@@ -358,6 +377,95 @@ describe('Shell', () => {
 
       expect(toggle).toHaveAttribute('aria-expanded', 'false')
       expect(toggle).toHaveFocus()
+    })
+  })
+
+  // Roadmap DR-01: the instrument switcher — shell chrome above the nav
+  // proper, not a nav item itself. Full URL/deep-link/reload behaviour lives
+  // in `route.test.ts`/`routing.test.ts` (pure) and the new e2e spec (real
+  // browser); this only proves the wiring: the control renders, and clicking
+  // it swaps the WHOLE nav and the routed screen together.
+  describe('instrument switcher', () => {
+    it('renders a Piano/Drums radiogroup with Piano selected by default', () => {
+      render(<Shell />)
+      const group = screen.getByRole('radiogroup', { name: 'Instrument' })
+      expect(within(group).getByRole('radio', { name: 'Piano' })).toHaveAttribute(
+        'aria-checked',
+        'true',
+      )
+      expect(within(group).getByRole('radio', { name: 'Drums' })).toHaveAttribute(
+        'aria-checked',
+        'false',
+      )
+    })
+
+    it('clicking Drums swaps the entire nav to the drums table and renders the drums home screen', async () => {
+      const user = userEvent.setup()
+      render(<Shell />)
+
+      await user.click(screen.getByRole('radio', { name: 'Drums' }))
+
+      expect(screen.getByRole('radio', { name: 'Drums' })).toHaveAttribute('aria-checked', 'true')
+      // The whole piano nav table is gone, not merely unselected.
+      expect(screen.queryByRole('button', { name: 'Practice' })).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Flashcards' })).toBeNull()
+      expect(screen.getByRole('heading', { name: 'Drums — start here' })).toBeInTheDocument()
+    })
+
+    it('clicking Piano after Drums swaps back to the piano nav and Today', async () => {
+      const user = userEvent.setup()
+      render(<Shell />)
+
+      await user.click(screen.getByRole('radio', { name: 'Drums' }))
+      await user.click(screen.getByRole('radio', { name: 'Piano' }))
+
+      expect(screen.getByRole('radio', { name: 'Piano' })).toHaveAttribute('aria-checked', 'true')
+      expect(screen.getByRole('button', { name: 'Practice' })).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: "Today's session" })).toBeInTheDocument()
+    })
+
+    // Roadmap DR-01 design note: Drums has no per-instrument level concept
+    // yet, so the rail footer shows the shared streak alone rather than
+    // piano's `playingLevel` — a piano number would describe nothing here.
+    it('omits the level from the rail footer while on Drums, keeping only the shared streak', async () => {
+      const user = userEvent.setup()
+      render(<Shell />)
+
+      await user.click(screen.getByRole('radio', { name: 'Drums' }))
+
+      expect(screen.getByText('No streak yet')).toBeInTheDocument()
+      expect(screen.queryByText(/Level/)).not.toBeInTheDocument()
+    })
+
+    // Roadmap DR-01: the learner's last-used instrument persists (via
+    // `useInstrumentStore`, wired through `persistence.ts` — see that
+    // module's own round-trip tests) so a reload opens where they left off.
+    // This only proves Shell.tsx's OWN half: a post-mount switch reaches the
+    // store. The very first (mount-time) call is deliberately skipped — see
+    // Shell.tsx's `didMountRef` comment — which this test also guards by
+    // asserting the store is untouched immediately after the initial render.
+    it('records the switch in useInstrumentStore, but not on initial mount', () => {
+      render(<Shell />)
+      expect(useInstrumentStore.getState().lastInstrument).toBe('piano')
+    })
+
+    it('records a Drums switch in useInstrumentStore', async () => {
+      const user = userEvent.setup()
+      render(<Shell />)
+
+      await user.click(screen.getByRole('radio', { name: 'Drums' }))
+
+      expect(useInstrumentStore.getState().lastInstrument).toBe('drums')
+    })
+
+    it('re-clicking the already-active instrument is a no-op (no navigation, no store write)', async () => {
+      const user = userEvent.setup()
+      render(<Shell />)
+
+      await user.click(screen.getByRole('radio', { name: 'Piano' }))
+
+      expect(useInstrumentStore.getState().lastInstrument).toBe('piano')
+      expect(screen.getByRole('heading', { name: "Today's session" })).toBeInTheDocument()
     })
   })
 })

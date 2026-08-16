@@ -109,9 +109,14 @@ test('Tab order through the nav follows the visual order: Today, then each group
   // at all; that cluster now lives at the nav's own TRAILING edge instead
   // (`.nav-rail-footer`), after every real destination, not before them. No
   // skip link exists in this app, so the very first Tab from body should
-  // land directly on Today. The loop (rather than a hardcoded single Tab)
-  // stays as the honest bound: a regression that never reaches the nav at
-  // all fails with a clear assertion instead of hanging the run.
+  // land directly inside the nav. The loop (rather than a hardcoded single
+  // Tab) stays as the honest bound: a regression that never reaches the nav
+  // at all fails with a clear assertion instead of hanging the run.
+  //
+  // Roadmap DR-01: that first stop is now the Piano/Drums switcher, not
+  // Today — `NavGroups.tsx` renders it FIRST inside `.nav-scroll`, ahead of
+  // even the primary button (it names which nav table is showing, so it has
+  // to be the first thing a learner tabbing into the rail reaches).
   await page.locator('body').click({ position: { x: 1, y: 1 } })
 
   const MAX_STOPS_BEFORE_NAV = 1
@@ -124,6 +129,8 @@ test('Tab order through the nav follows the visual order: Today, then each group
   expect(enteredNav, 'tabbing from the top of the page reaches the nav').toBe(true)
 
   const expectedOrder = [
+    'Piano',
+    'Drums',
     'Today',
     'Practice',
     'Sight reading',

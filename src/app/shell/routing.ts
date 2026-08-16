@@ -1,45 +1,54 @@
 /**
- * The impure half of the shell's router (roadmap 5.42): wires `route.ts`'s
- * pure `parseRoute`/`serializeRoute` to the browser's History API. This is
- * the whole router — a hand-rolled one, preferred over adding a routing
- * library for a dozen destinations with no nesting.
+ * The impure half of the shell's router (roadmap 5.42, extended DR-01): wires
+ * `route.ts`'s pure `parseAppRoute`/`serializeAppRoute` to the browser's
+ * History API. This is the whole router — a hand-rolled one, preferred over
+ * adding a routing library for a couple dozen destinations with no nesting.
  *
- * `useRoute()` is the only export a screen ever needs: the current `Route`
+ * `useRoute()` is the only export a screen ever needs: the current `AppRoute`
  * (read from `location.pathname`, kept in sync with `popstate`) and a
  * `navigate` function that pushes (or replaces) a new entry. `Shell.tsx`
  * uses it as its single source of navigation truth — see that file for how
- * a `Route`'s generic `params.id`/`level` round-trips through the specific
+ * a route's generic `params.id`/`level` round-trips through the specific
  * `OpenedTechnique`/`OpenedDeck`/`OpenedTheoryDrill` shapes.
+ *
+ * DR-01: a bare `/` no longer has a fixed instrument — `parseAppRoute` needs
+ * a `defaultInstrument` for that one ambiguous case, and `readInstrumentHint`
+ * (the synchronous localStorage hint `instrumentStore.ts` writes on every
+ * instrument change) supplies it here, so the FIRST render — before
+ * `App.tsx`'s async `restoreSession` ever runs — already lands on whichever
+ * instrument the learner left off in. See `instrumentStore.ts`'s module
+ * comment for the full reasoning and its honest limit.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { parseRoute, serializeRoute, type Route } from './route.ts'
+import { parseAppRoute, serializeAppRoute, type AppRoute } from './route.ts'
+import { readInstrumentHint } from '@app/state/instrumentStore.ts'
 
 export type NavigateOptions = {
   /** Replace the current history entry instead of pushing a new one — used
-   * for the initial normalization of a path `parseRoute` had to fall back
+   * for the initial normalization of a path `parseAppRoute` had to fall back
    * on (`/`, an unknown path), so that URL never becomes a Back-button stop
    * of its own. */
   readonly replace?: boolean
 }
 
 export type UseRouteResult = {
-  readonly route: Route
-  navigate(route: Route, options?: NavigateOptions): void
+  readonly route: AppRoute
+  navigate(route: AppRoute, options?: NavigateOptions): void
 }
 
-function currentRoute(): Route {
-  return parseRoute(window.location.pathname)
+function currentAppRoute(): AppRoute {
+  return parseAppRoute(window.location.pathname, readInstrumentHint())
 }
 
 export function useRoute(): UseRouteResult {
-  const [route, setRoute] = useState<Route>(currentRoute)
+  const [route, setRoute] = useState<AppRoute>(currentAppRoute)
 
   useEffect(() => {
     // The path the app booted on may not be the canonical serialization of
     // the route it fell back to (an unknown path, or a bare `/`) — replace
     // it so the address bar shows the real destination without adding a
     // Back-button stop for a URL the learner never actually chose.
-    const canonical = serializeRoute(route)
+    const canonical = serializeAppRoute(route)
     if (window.location.pathname !== canonical) {
       window.history.replaceState(null, '', canonical)
     }
@@ -50,14 +59,14 @@ export function useRoute(): UseRouteResult {
 
   useEffect(() => {
     function onPopState(): void {
-      setRoute(currentRoute())
+      setRoute(currentAppRoute())
     }
     window.addEventListener('popstate', onPopState)
     return () => window.removeEventListener('popstate', onPopState)
   }, [])
 
-  const navigate = useCallback((next: Route, options?: NavigateOptions): void => {
-    const path = serializeRoute(next)
+  const navigate = useCallback((next: AppRoute, options?: NavigateOptions): void => {
+    const path = serializeAppRoute(next)
     if (options?.replace === true) {
       window.history.replaceState(null, '', path)
     } else {
