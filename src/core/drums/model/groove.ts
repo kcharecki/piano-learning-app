@@ -20,11 +20,25 @@ import { err, ok, type Result } from '@core/shared/result.ts'
 import { ticks, type Ticks } from '@core/shared/units.ts'
 import { measureDurationTicks, type TimeSignature } from '@core/notation/score.ts'
 import { isArticulation, isSticking, type Articulation, type Sticking } from './articulation.ts'
-import { type MappedDrumPad, padOrderIndex, voiceOf, type Voice } from './pad.ts'
+import { isMappedDrumPad, type MappedDrumPad, padOrderIndex, voiceOf, type Voice } from './pad.ts'
 import type { VelocityClass } from './velocity.ts'
 
 /** The notated dynamics class — the same three-way vocabulary `velocityClassOf` classifies live hits into. */
 export type DynamicsClass = VelocityClass
+
+/**
+ * The written subdivision swing bends, for the MusicXML `<swing-type>`
+ * (`./musicxml/write.ts`/`./musicxml/parse.ts`). Meaningless when
+ * `swingPercent` is 50 (straight) — `makeGrooveScore`/`validateGrooveScore`
+ * canonicalise it to `'eighth'` in that case, so two scores that differ only
+ * in `swingUnit` while both straight are never treated as different, and the
+ * MusicXML bridge never has to invent a `<swing-type>` for straight time.
+ */
+export type SwingUnit = 'eighth' | 'sixteenth'
+
+export function isSwingUnit(value: string): value is SwingUnit {
+  return value === 'eighth' || value === 'sixteenth'
+}
 
 export type GrooveNote = {
   /** Stable, derived from position: `g3.snare.960` (measureIndex.pad.tick). */
@@ -56,10 +70,18 @@ export type GrooveScore = {
    * straight, 75 is a heavy shuffle; nothing outside that band is a
    * meaningful "swing" reading). Integer, not just for musical sense but so
    * the MusicXML bridge can round-trip it exactly as a `<first>/<second>`
-   * integer ratio summing to 100 — see `./musicxml/write.ts`. See `./grid.ts`
-   * for how this bends subdivision ticks.
+   * integer ratio summing to 100 — see `./musicxml/write.ts`.
+   *
+   * This is PERFORMANCE metadata, never baked into `notes[].tick` — standard
+   * MusicXML practice (and this model's own): notation is written straight,
+   * a `<sound><swing>` directive tells the reader how to swing it in
+   * performance. `./grid.ts`'s `gridToScore` always emits nominal (straight)
+   * ticks for exactly this reason; `subdivisionCellTicks` there computes the
+   * swung PLAYBACK positions on demand (DR-06), never the notated ones.
    */
   readonly swingPercent: number
+  /** The subdivision `swingPercent` bends, for `<swing-type>`. See the type doc. */
+  readonly swingUnit: SwingUnit
   readonly measures: readonly GrooveMeasure[]
   /** ALWAYS sorted by `tick`, then by `padOrderIndex(pad)`. */
   readonly notes: readonly GrooveNote[]
@@ -84,6 +106,8 @@ export type GrooveScoreInput = {
   readonly timeSignature?: TimeSignature
   /** Defaults to 50 (straight). Whole percent, 50..75 — see `GrooveScore.swingPercent`. */
   readonly swingPercent?: number
+  /** Defaults to `'eighth'`. Ignored (canonicalised to `'eighth'`) when `swingPercent` is 50. */
+  readonly swingUnit?: SwingUnit
   /** Every measure is a full bar of `timeSignature` — grooves do not carry pickups. */
   readonly measureCount: number
   readonly notes: readonly GrooveNoteInput[]
@@ -91,6 +115,7 @@ export type GrooveScoreInput = {
 
 const DEFAULT_TIME_SIGNATURE: TimeSignature = { beats: 4, beatType: 4 }
 const DEFAULT_SWING_PERCENT = 50
+const DEFAULT_SWING_UNIT: SwingUnit = 'eighth'
 const DEFAULT_DYNAMICS: DynamicsClass = 'normal'
 
 function buildMeasures(count: number, timeSignature: TimeSignature): readonly GrooveMeasure[] {
@@ -158,14 +183,17 @@ function noteId(note: { readonly measureIndex: number; readonly pad: string; rea
   return `g${note.measureIndex}.${note.pad}.${note.tick}`
 }
 
+/**
+ * One id per note, `measureIndex.pad.tick`. This USED to suffix a repeat with
+ * `#2`, `#3`, ... — that only existed to let two same-pad notes at the same
+ * tick slip past the id-uniqueness check with distinct ids. `validateGrooveScore`
+ * now rejects that input directly (a duplicate/overlapping hit on one pad is
+ * never a real groove), so a collision here can no longer happen for
+ * `makeGrooveScore`-built input; `validateGrooveScore`'s "duplicate note id"
+ * check stays as the backstop for a `GrooveScore` assembled by hand.
+ */
 function assignIds(notes: readonly Omit<GrooveNote, 'id'>[]): readonly GrooveNote[] {
-  const seen = new Map<string, number>()
-  return notes.map((n) => {
-    const base = noteId(n)
-    const count = (seen.get(base) ?? 0) + 1
-    seen.set(base, count)
-    return { ...n, id: count === 1 ? base : `${base}#${count}` }
-  })
+  return notes.map((n) => ({ ...n, id: noteId(n) }))
 }
 
 /**
@@ -181,6 +209,12 @@ export function makeGrooveScore(input: GrooveScoreInput): GrooveScore {
     Number.isInteger(swingPercent) && swingPercent >= 50 && swingPercent <= 75,
     `swingPercent must be a whole percent 50..75, got ${swingPercent}`,
   )
+  const rawSwingUnit = input.swingUnit ?? DEFAULT_SWING_UNIT
+  invariant(isSwingUnit(rawSwingUnit), `swingUnit must be 'eighth' or 'sixteenth', got ${String(rawSwingUnit)}`)
+  // Meaningless when straight — canonicalise so two inputs differing only in
+  // swingUnit-while-straight always build the identical GrooveScore (see the
+  // type doc on `SwingUnit`).
+  const swingUnit: SwingUnit = swingPercent === 50 ? 'eighth' : rawSwingUnit
   const measures = buildMeasures(input.measureCount, timeSignature)
   const notes = buildNotes(input.notes, measures)
   const score: GrooveScore = {
@@ -188,6 +222,7 @@ export function makeGrooveScore(input: GrooveScoreInput): GrooveScore {
     title: input.title ?? '',
     timeSignature,
     swingPercent,
+    swingUnit,
     measures,
     notes,
   }
@@ -224,6 +259,14 @@ export function validateGrooveScore(score: GrooveScore): Result<GrooveScore, str
   ) {
     return err(`groove score swingPercent must be a whole percent 50..75, got ${score.swingPercent}`)
   }
+  if (!isSwingUnit(score.swingUnit)) {
+    return err(`groove score has an invalid swingUnit: ${String(score.swingUnit)}`)
+  }
+  if (score.swingPercent === 50 && score.swingUnit !== 'eighth') {
+    return err(
+      `groove score is straight (swingPercent 50) but swingUnit is ${score.swingUnit} — straight time must canonicalise to 'eighth'`,
+    )
+  }
 
   let expectedStart = 0
   const barTicks = measureDurationTicks(score.timeSignature)
@@ -242,8 +285,14 @@ export function validateGrooveScore(score: GrooveScore): Result<GrooveScore, str
   }
 
   const ids = new Set<string>()
+  /** Last note seen on each pad, in scan order — valid because notes are (or will be checked to
+   * be) sorted by tick, so this is always the immediately-preceding note on that pad. */
+  const lastByPad = new Map<string, { readonly tick: number; readonly end: number }>()
   for (let i = 0; i < score.notes.length; i++) {
     const n = at(score.notes, i)
+    if (!isMappedDrumPad(n.pad)) {
+      return err(`note ${n.id} uses pad "${n.pad}", which is not a mapped drum pad`)
+    }
     for (const a of n.articulations) {
       if (!isArticulation(a)) return err(`note ${n.id} has an unknown articulation: ${String(a)}`)
     }
@@ -258,6 +307,18 @@ export function validateGrooveScore(score: GrooveScore): Result<GrooveScore, str
     if (expectedVoice === undefined || n.voice !== expectedVoice) {
       return err(`note ${n.id} has voice ${n.voice}, but pad ${n.pad} must be ${String(expectedVoice)}`)
     }
+    const lastOnPad = lastByPad.get(n.pad)
+    if (lastOnPad !== undefined) {
+      if (lastOnPad.tick === n.tick) {
+        return err(`two notes for pad ${n.pad} land on the same tick ${n.tick}`)
+      }
+      if (n.tick < lastOnPad.end) {
+        return err(
+          `note ${n.id} for pad ${n.pad} starts at tick ${n.tick}, before the previous note on that pad ends at ${lastOnPad.end}`,
+        )
+      }
+    }
+    lastByPad.set(n.pad, { tick: n.tick, end: n.tick + n.durationTicks })
     if (ids.has(n.id)) return err(`duplicate note id: ${n.id}`)
     ids.add(n.id)
     if (i > 0) {

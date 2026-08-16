@@ -4,6 +4,7 @@ import {
   gmNoteOf,
   instrumentNameOf,
   isDrumPad,
+  isMappedDrumPad,
   limbOf,
   MAPPED_PADS,
   padByInstrumentName,
@@ -11,6 +12,8 @@ import {
   PADS,
   staffPositionOf,
   voiceOf,
+  type DrumPad,
+  type MappedDrumPad,
 } from './pad.ts'
 
 const mappedPad = fc.constantFrom(...MAPPED_PADS)
@@ -37,6 +40,18 @@ describe('PADS/MAPPED_PADS', () => {
   })
 })
 
+describe('isMappedDrumPad', () => {
+  it('is true for exactly the 16 mapped pads', () => {
+    for (const pad of MAPPED_PADS) expect(isMappedDrumPad(pad)).toBe(true)
+  })
+
+  it('is false for unmapped and for any unrecognised string', () => {
+    expect(isMappedDrumPad('unmapped')).toBe(false)
+    expect(isMappedDrumPad('cowbell')).toBe(false)
+    expect(isMappedDrumPad('')).toBe(false)
+  })
+})
+
 describe('limbOf/voiceOf', () => {
   it('unmapped has no limb or voice', () => {
     expect(limbOf('unmapped')).toBeUndefined()
@@ -49,6 +64,12 @@ describe('limbOf/voiceOf', () => {
       expect(limbOf(pad)).toBe(expectedFoot ? 'foot' : 'hand')
       expect(voiceOf(pad)).toBe(expectedFoot ? 'feet' : 'hands')
     }
+  })
+
+  it('fails closed for a pad string that is not a real mapped pad — must not default to "hand" (regression: a bogus pad used to sail through the voice check to an "unreachable" throw in the writer)', () => {
+    const bogus = 'cowbell' as DrumPad
+    expect(limbOf(bogus)).toBeUndefined()
+    expect(voiceOf(bogus)).toBeUndefined()
   })
 
   it('property: voiceOf is derived from limbOf for every mapped pad', () => {
@@ -84,6 +105,33 @@ describe('gmNoteOf', () => {
       expect(Number.isInteger(note)).toBe(true)
       expect(note).toBeGreaterThanOrEqual(0)
       expect(note).toBeLessThanOrEqual(127)
+    }
+  })
+
+  // A range check alone lets two pads' GM numbers swap without failing — this
+  // pins the exact table (research §3), so a swap mutant (e.g. kick <-> tomHigh)
+  // is caught.
+  it('matches the exact General MIDI percussion map, pad by pad', () => {
+    const expected: Readonly<Record<MappedDrumPad, number>> = {
+      kick: 36,
+      hhPedal: 44,
+      tomFloor: 43,
+      tomMid: 47,
+      snare: 38,
+      snareRim: 38,
+      crossStick: 37,
+      tomHigh: 50,
+      hhClosed: 42,
+      hhOpen: 46,
+      rideBow: 51,
+      rideBell: 53,
+      rideEdge: 59,
+      crash1: 49,
+      crash2: 57,
+      splash: 55,
+    }
+    for (const pad of MAPPED_PADS) {
+      expect(gmNoteOf(pad)).toBe(expected[pad])
     }
   })
 })

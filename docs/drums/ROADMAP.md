@@ -90,13 +90,32 @@ item lands inside a slice that drives something (specs state their proof surface
       nav, persisted choice → [spec](features/DR-01-instrument-switcher.md)
 - [x] DR-04 ‖ Drum domain model — pads, `GrooveScore`, grid projection, MusicXML bridge
       → [spec](features/DR-04-drum-domain-model.md). Core-only slice, no screen of its own
-      (gate is its consumers'): `src/core/drums/model/**`, 21 files (11 source/10 test),
-      102 tests incl. fast-check properties for grid round-trip, MusicXML round-trip on
-      generated grooves, the voice invariant (feet never stems-up), and swing-application
-      reversibility. The three reference grooves (money beat, open-hat variant, ghosted
-      funk bar) parse from MusicXML to the exact `GrooveScore` and re-serialize
-      byte-stable. `npm test` 2.1s (75 files/2442 tests); `npm run verify` green (207
-      files/4243 tests).
+      (gate is its consumers'): `src/core/drums/model/**`, 23 files (11 source/12 test),
+      134 tests incl. fast-check properties for grid round-trip, MusicXML round-trip on
+      generated grooves (incl. randomised `swingUnit`), the voice invariant (feet never
+      stems-up), swing tick-sequence reversibility, and swing pairing restarting at every
+      measure boundary (odd eighth meters 3/8..9/8, a 5/16 sixteenth meter). The three
+      reference grooves (money beat, open-hat variant, ghosted funk bar) parse from
+      MusicXML to the exact `GrooveScore` and re-serialize byte-stable. `npm test` ~2.0s
+      (76 files/2474 tests); `npm run verify` green (208 files/4275 tests).
+      Went through one fix round after adversarial review (FIX FIRST): swing is now
+      strictly performance metadata (`swingPercent` + `swingUnit`), never baked into a
+      note's `tick` — `GrooveScore`/`gridToScore` always place notes at nominal straight
+      positions; `subdivisionCellTick`'s swung positions are kept only for DR-06 playback.
+      Also fixed: swing pairing now restarts every measure (was a global cell index, so a
+      pair could straddle a barline); a bogus pad string now fails closed through
+      `limbOf`/`voiceOf` instead of silently defaulting to `'hand'`; overlapping/duplicate
+      hits on one pad are now rejected by `validateGrooveScore` instead of silently
+      surviving via an id-suffix hack; `choke` now encodes as the schema-legal
+      `<other-technical>choke</other-technical>` instead of the illegal `<damp/>`;
+      `<attributes>` children now follow the MusicXML xs:sequence order. Deleted the
+      duplicate-id `#2`/`#3` suffixing mechanism in `groove.ts` (superseded by the
+      overlap rejection above) and four dead exports from `musicxml/shared.ts`
+      (`QUARTERS_BY_TYPE`, `ORNAMENT_ARTICULATIONS`, `TECHNICAL_ARTICULATIONS`,
+      `isDynamicsClass` — all zero-usage). Follow-ups for later slices: DR-06 (playback)
+      is where `subdivisionCellTick`'s swung positions get an actual caller; DR-13 (grid
+      editor) needs to decide how it surfaces `scoreToGrid`'s "note not grid-aligned" /
+      "two notes share a cell" `Err` cases in the UI.
 - [ ] DR-02 E-drum MIDI input — kit maps, presets, MIDI-learn wizard, CC4 hi-hat state
       machine, chokes, debounce → [spec](features/DR-02-edrum-midi-input.md)
 - [ ] DR-03 ‖ Fallback inputs — keyboard map with dynamics modifiers, on-screen pads,

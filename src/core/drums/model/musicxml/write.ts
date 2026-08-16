@@ -16,9 +16,22 @@
  */
 import { TICKS_PER_QUARTER } from '@core/shared/units.ts'
 import { gmNoteOf, staffPositionOf, type Notehead, type Voice } from '../pad.ts'
-import { notesInMeasure, type GrooveMeasure, type GrooveNote, type GrooveScore } from '../groove.ts'
+import {
+  notesInMeasure,
+  type GrooveMeasure,
+  type GrooveNote,
+  type GrooveScore,
+  type SwingUnit,
+} from '../groove.ts'
 import { instrumentIdFor, padInstrumentName, usedPads, type InstrumentId } from './instrument.ts'
-import { escapeXml, MIDI_PERCUSSION_CHANNEL, typeAndDots } from './shared.ts'
+import {
+  CHOKE_ARTICULATION,
+  escapeXml,
+  MIDI_PERCUSSION_CHANNEL,
+  OPEN_ARTICULATION,
+  SWING_TYPE_XML,
+  typeAndDots,
+} from './shared.ts'
 
 const NOTEHEAD_XML: Readonly<Record<Notehead, string>> = {
   normal: 'normal',
@@ -51,8 +64,13 @@ function notationsXml(note: GrooveNote): string {
   if (note.articulations.includes('buzz')) ornaments.push('<tremolo type="single">3</tremolo>')
 
   const technical: string[] = []
-  if (note.articulations.includes('open')) technical.push('<open/>')
-  if (note.articulations.includes('choke')) technical.push('<damp/>')
+  if (note.articulations.includes(OPEN_ARTICULATION)) technical.push('<open/>')
+  // `<damp/>` is a `<direction-type>` element, not a `<technical>` child — not
+  // schema-legal here. `<other-technical>` is `<technical>`'s escape hatch
+  // for exactly this case; see the module doc in `./shared.ts`.
+  if (note.articulations.includes(CHOKE_ARTICULATION)) {
+    technical.push(`<other-technical>${CHOKE_ARTICULATION}</other-technical>`)
+  }
   if (note.sticking !== undefined) technical.push(`<other-technical>${note.sticking}</other-technical>`)
 
   const articulations: string[] = []
@@ -173,13 +191,13 @@ function partListXml(score: GrooveScore): string {
   return lines.join('')
 }
 
-function swingSoundXml(swingPercent: number): string {
+function swingSoundXml(swingPercent: number, swingUnit: SwingUnit): string {
   if (swingPercent === 50) return '<sound><swing><straight/></swing></sound>'
   const second = 100 - swingPercent
   return (
     '<sound><swing>' +
     `<first>${swingPercent}</first><second>${second}</second>` +
-    '<swing-type>eighth</swing-type>' +
+    `<swing-type>${SWING_TYPE_XML[swingUnit]}</swing-type>` +
     '</swing></sound>'
   )
 }
@@ -204,14 +222,18 @@ export function writeDrumMusicXml(score: GrooveScore): string {
   score.measures.forEach((measure, i) => {
     lines.push(`<measure number="${i + 1}">`)
     if (i === 0) {
+      // <attributes> child order follows the xs:sequence (divisions, key?,
+      // time, staves?, ..., clef*, ...) — same relative order
+      // `core/notation/musicxmlwriter.ts`'s `attributesXml` uses. Drums have
+      // no `<key>`, so this is divisions, time, clef.
       lines.push(
         '<attributes>' +
           `<divisions>${TICKS_PER_QUARTER}</divisions>` +
-          '<clef><sign>percussion</sign></clef>' +
           `<time><beats>${score.timeSignature.beats}</beats><beat-type>${score.timeSignature.beatType}</beat-type></time>` +
+          '<clef><sign>percussion</sign></clef>' +
           '</attributes>',
       )
-      lines.push(swingSoundXml(score.swingPercent))
+      lines.push(swingSoundXml(score.swingPercent, score.swingUnit))
     }
     lines.push(...measureNotesXml(score, measure, instrumentIdOf))
     lines.push('</measure>')

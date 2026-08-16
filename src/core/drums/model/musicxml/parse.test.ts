@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { unwrap } from '@core/shared/result.ts'
+import { makeGrooveScore } from '../groove.ts'
 import { moneyBeat } from '../referenceGrooves.ts'
 import { parseDrumMusicXml } from './parse.ts'
 import { writeDrumMusicXml } from './write.ts'
@@ -112,6 +113,61 @@ describe('parseDrumMusicXml: the foreign-file GM-note fallback', () => {
     const result = parseDrumMusicXml(xml, { id: 'foreign' })
     expect(result.ok).toBe(true)
     if (result.ok) expect(result.value.notes[0]?.pad).toBe('snare')
+  })
+})
+
+describe('parseDrumMusicXml: choke round-trips through <other-technical>choke</other-technical> (G4)', () => {
+  it('choke alone parses back to articulations: ["choke"]', () => {
+    const score = makeGrooveScore({
+      id: 'g',
+      measureCount: 1,
+      notes: [{ pad: 'crash1', tick: 0, durationTicks: 240, articulations: ['choke'] }],
+    })
+    const xml = writeDrumMusicXml(score)
+    const parsed = parseDrumMusicXml(xml, { id: score.id })
+    expect(parsed.ok).toBe(true)
+    if (parsed.ok) expect(parsed.value.notes[0]?.articulations).toEqual(['choke'])
+  })
+
+  it('choke and sticking on the same note (two <other-technical> children) both round-trip, disambiguated by text not position', () => {
+    const score = makeGrooveScore({
+      id: 'g',
+      measureCount: 1,
+      notes: [{ pad: 'crash1', tick: 0, durationTicks: 240, articulations: ['choke'], sticking: 'R' }],
+    })
+    const xml = writeDrumMusicXml(score)
+    const parsed = parseDrumMusicXml(xml, { id: score.id })
+    expect(parsed.ok).toBe(true)
+    if (parsed.ok) {
+      expect(parsed.value.notes[0]?.articulations).toEqual(['choke'])
+      expect(parsed.value.notes[0]?.sticking).toBe('R')
+    }
+  })
+})
+
+describe('parseDrumMusicXml: swingUnit (G2)', () => {
+  it('parses <swing-type>16th</swing-type> to swingUnit "sixteenth"', () => {
+    const score = makeGrooveScore({ id: 'g', measureCount: 1, swingPercent: 62, swingUnit: 'sixteenth', notes: [] })
+    const xml = writeDrumMusicXml(score)
+    expect(xml).toContain('<swing-type>16th</swing-type>')
+    const parsed = parseDrumMusicXml(xml, { id: score.id })
+    expect(parsed.ok).toBe(true)
+    if (parsed.ok) expect(parsed.value.swingUnit).toBe('sixteenth')
+  })
+
+  it('defaults swingUnit to eighth when <swing-type> is absent, e.g. straight <sound><swing><straight/></swing></sound>', () => {
+    const xml =
+      '<score-partwise>' +
+      '<part-list><score-part id="P1"><part-name>Drums</part-name>' +
+      '<score-instrument id="P1-I1"><instrument-name>Kick</instrument-name></score-instrument>' +
+      '</score-part></part-list>' +
+      '<part id="P1"><measure number="1">' +
+      '<attributes><divisions>480</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>' +
+      '<sound><swing><straight/></swing></sound>' +
+      '</measure></part></score-partwise>'
+    const result = parseDrumMusicXml(xml, { id: 'g' })
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.value.swingUnit).toBe('eighth')
   })
 })
 

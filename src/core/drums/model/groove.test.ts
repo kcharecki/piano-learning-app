@@ -8,6 +8,7 @@ import {
   validateGrooveScore,
   type DynamicsClass,
   type GrooveScoreInput,
+  type SwingUnit,
 } from './groove.ts'
 import { MAPPED_PADS, voiceOf } from './pad.ts'
 
@@ -37,17 +38,43 @@ describe('makeGrooveScore', () => {
     expect(new Set(score.notes.map((n) => n.id)).size).toBe(3)
   })
 
-  it('suffixes duplicate ids with #2, #3, ...', () => {
+  it('rejects two notes for the same pad landing on the same tick (a duplicate/overlapping hit is never a real groove)', () => {
+    expect(() =>
+      makeGrooveScore({
+        id: 'g',
+        measureCount: 1,
+        notes: [
+          { pad: 'kick', tick: 0, durationTicks: 240 },
+          { pad: 'kick', tick: 0, durationTicks: 240 },
+          { pad: 'kick', tick: 0, durationTicks: 240 },
+        ],
+      }),
+    ).toThrow(InvariantError)
+  })
+
+  it('rejects two notes for the same pad that overlap without sharing a tick', () => {
+    expect(() =>
+      makeGrooveScore({
+        id: 'g',
+        measureCount: 1,
+        notes: [
+          { pad: 'kick', tick: 0, durationTicks: 480 },
+          { pad: 'kick', tick: 240, durationTicks: 240 },
+        ],
+      }),
+    ).toThrow(InvariantError)
+  })
+
+  it('accepts two notes for the same pad that are back-to-back with no overlap', () => {
     const score = makeGrooveScore({
       id: 'g',
       measureCount: 1,
       notes: [
         { pad: 'kick', tick: 0, durationTicks: 240 },
-        { pad: 'kick', tick: 0, durationTicks: 240 },
-        { pad: 'kick', tick: 0, durationTicks: 240 },
+        { pad: 'kick', tick: 240, durationTicks: 240 },
       ],
     })
-    expect(score.notes.map((n) => n.id)).toEqual(['g0.kick.0', 'g0.kick.0#2', 'g0.kick.0#3'])
+    expect(score.notes.map((n) => n.tick)).toEqual([0, 240])
   })
 
   it('derives voice from pad, never accepting it as input', () => {
@@ -91,6 +118,83 @@ describe('makeGrooveScore', () => {
   })
 })
 
+describe('swingUnit', () => {
+  it('defaults to eighth', () => {
+    const score = makeGrooveScore({ id: 'g', measureCount: 1, notes: [] })
+    expect(score.swingUnit).toBe('eighth')
+  })
+
+  it('canonicalises to eighth whenever swingPercent is straight (50), regardless of the input swingUnit', () => {
+    const score = makeGrooveScore({
+      id: 'g',
+      measureCount: 1,
+      notes: [],
+      swingPercent: 50,
+      swingUnit: 'sixteenth',
+    })
+    expect(score.swingUnit).toBe('eighth')
+  })
+
+  it('keeps sixteenth when the groove actually swings', () => {
+    const score = makeGrooveScore({
+      id: 'g',
+      measureCount: 1,
+      notes: [],
+      swingPercent: 62,
+      swingUnit: 'sixteenth',
+    })
+    expect(score.swingUnit).toBe('sixteenth')
+  })
+
+  it('rejects an invalid swingUnit', () => {
+    expect(() =>
+      makeGrooveScore({ id: 'g', measureCount: 1, notes: [], swingPercent: 62, swingUnit: 'quarter' as SwingUnit }),
+    ).toThrow(InvariantError)
+  })
+})
+
+describe('validateGrooveScore: backstops for a hand-built (not makeGrooveScore-built) score', () => {
+  it('rejects a straight score that claims a non-eighth swingUnit', () => {
+    const score = makeGrooveScore({ id: 'g', measureCount: 1, notes: [] })
+    const bad = { ...score, swingUnit: 'sixteenth' as SwingUnit }
+    const result = validateGrooveScore(bad)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toContain('swingUnit')
+  })
+
+  it('rejects a note that references a pad that is not one of the 16 mapped pads', () => {
+    const score = makeGrooveScore({
+      id: 'g',
+      measureCount: 1,
+      notes: [{ pad: 'kick', tick: 0, durationTicks: 240 }],
+    })
+    const firstNote = score.notes[0]
+    expect(firstNote).toBeDefined()
+    if (firstNote === undefined) return
+    const badNote = { ...firstNote, pad: 'cowbell' } as unknown as (typeof score.notes)[number]
+    const bad = { ...score, notes: [badNote] }
+    const result = validateGrooveScore(bad)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toContain('mapped drum pad')
+  })
+
+  it('rejects two notes for the same pad at the same tick', () => {
+    const score = makeGrooveScore({
+      id: 'g',
+      measureCount: 1,
+      notes: [{ pad: 'kick', tick: 0, durationTicks: 240 }],
+    })
+    const firstNote = score.notes[0]
+    expect(firstNote).toBeDefined()
+    if (firstNote === undefined) return
+    const duplicate = { ...firstNote, id: 'g0.kick.0-dup' }
+    const bad = { ...score, notes: [firstNote, duplicate] }
+    const result = validateGrooveScore(bad)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toContain('same tick')
+  })
+})
+
 describe('notesInMeasure', () => {
   it('returns only the notes in that measure, empty for an out-of-range index', () => {
     const score = makeGrooveScore({
@@ -127,9 +231,30 @@ const noteInputArb = fc
     }),
   )
 
+/**
+ * Drops any note that starts before the previous kept note on the same pad
+ * ends. `validateGrooveScore` now rejects a duplicate/overlapping hit on one
+ * pad (see the "rejects two notes for the same pad..." tests above), so the
+ * arbitrary must not hand `makeGrooveScore` input that can no longer occur.
+ */
+function dedupeOverlaps<T extends { readonly pad: string; readonly tick: number; readonly durationTicks: number }>(
+  notes: readonly T[],
+): T[] {
+  const sorted = [...notes].sort((a, b) => a.tick - b.tick)
+  const lastEndByPad = new Map<string, number>()
+  const out: T[] = []
+  for (const n of sorted) {
+    const lastEnd = lastEndByPad.get(n.pad) ?? -1
+    if (n.tick < lastEnd) continue
+    lastEndByPad.set(n.pad, n.tick + n.durationTicks)
+    out.push(n)
+  }
+  return out
+}
+
 const grooveInputArb: fc.Arbitrary<GrooveScoreInput> = fc
   .array(noteInputArb, { maxLength: 15 })
-  .map((notes) => ({ id: 'g', measureCount: 1, notes }))
+  .map((notes) => ({ id: 'g', measureCount: 1, notes: dedupeOverlaps(notes) }))
 
 describe('property: any well-formed input builds a self-consistent GrooveScore', () => {
   it('makeGrooveScore(input) always passes validateGrooveScore', () => {

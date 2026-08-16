@@ -29,10 +29,18 @@
 import { err, ok, type Result } from '@core/shared/result.ts'
 import { parseXml, type XmlNode } from '@core/notation/musicxml.ts'
 import { measureDurationTicks, type TimeSignature } from '@core/notation/score.ts'
+import { TICKS_PER_QUARTER } from '@core/shared/units.ts'
 import { isArticulation, isSticking, type Articulation, type Sticking } from '../articulation.ts'
-import { makeGrooveScore, type DynamicsClass, type GrooveScore, type GrooveScoreInput } from '../groove.ts'
+import {
+  makeGrooveScore,
+  type DynamicsClass,
+  type GrooveScore,
+  type GrooveScoreInput,
+  type SwingUnit,
+} from '../groove.ts'
 import type { MappedDrumPad } from '../pad.ts'
 import { padByGmNote, padByInstrumentName } from './instrument.ts'
+import { CHOKE_ARTICULATION, swingUnitOfXml } from './shared.ts'
 
 // ------------------------------------------------------------------ tree helpers
 
@@ -110,6 +118,14 @@ function swingPercentOf(node: XmlNode): number | undefined {
   return Math.round((first / (first + second)) * 100)
 }
 
+/** `<sound><swing><swing-type>`: absent (incl. `<straight/>`) means the writer's default, `'eighth'`. */
+function swingUnitOf(node: XmlNode): SwingUnit | undefined {
+  const swing = findDeep(node, 'swing')
+  if (swing === undefined) return undefined
+  const swingType = childOf(swing, 'swing-type')?.text
+  return swingType === undefined ? undefined : swingUnitOfXml(swingType)
+}
+
 // --------------------------------------------------------------- note content
 
 type NoteMarks = {
@@ -136,13 +152,16 @@ function marksOf(note: XmlNode): NoteMarks {
     }
     if (has(ornaments, 'tremolo')) articulations.push('buzz')
   }
+  let sticking: Sticking | undefined
   if (technical !== undefined) {
     if (has(technical, 'open')) articulations.push('open')
-    if (has(technical, 'damp')) articulations.push('choke')
+    // `<technical>` can carry two `<other-technical>` children at once (choke
+    // + sticking) — disambiguated by TEXT, not position; see `./shared.ts`.
+    for (const other of childrenOf(technical, 'other-technical')) {
+      if (other.text === CHOKE_ARTICULATION) articulations.push('choke')
+      else if (isSticking(other.text)) sticking = other.text
+    }
   }
-
-  const stickingText = technical === undefined ? undefined : childOf(technical, 'other-technical')?.text
-  const sticking = stickingText !== undefined && isSticking(stickingText) ? stickingText : undefined
 
   return { dynamics, articulations, ...(sticking === undefined ? {} : { sticking }) }
 }
@@ -161,6 +180,7 @@ type Scan = {
   divisions: number
   timeSignature: TimeSignature | undefined
   swingPercent: number | undefined
+  swingUnit: SwingUnit | undefined
 }
 
 /** `<duration>` scaled from `divisions` to `TICKS_PER_QUARTER` ticks. `Err` if absent or divisions is unset. */
@@ -169,8 +189,7 @@ function durationTicksOf(el: XmlNode, divisions: number, where: string): Result<
   if (duration === undefined) return err(`${where}: <${el.tag}> has no <duration>`)
   if (duration < 0) return err(`${where}: <duration> must not be negative, got ${duration}`)
   if (divisions <= 0) return err(`${where}: no <divisions> was declared before the first timed element`)
-  // 480 ticks/quarter is this bridge's fixed resolution, same as the piano writer's.
-  return ok(Math.round((duration * 480) / divisions))
+  return ok(Math.round((duration * TICKS_PER_QUARTER) / divisions))
 }
 
 function scanMeasure(
@@ -200,6 +219,7 @@ function scanMeasure(
       }
     } else if (el.tag === 'sound') {
       if (scan.swingPercent === undefined) scan.swingPercent = swingPercentOf(el)
+      if (scan.swingUnit === undefined) scan.swingUnit = swingUnitOf(el)
     } else if (el.tag === 'note') {
       if (has(el, 'grace')) continue // dropped — see the module doc
       const rest = has(el, 'rest')
@@ -258,7 +278,13 @@ export function parseDrumMusicXml(source: string, opts?: { readonly id?: string 
   const measures = childrenOf(part, 'measure')
   if (measures.length === 0) return err('part has no <measure> elements')
 
-  const scan: Scan = { notes: [], divisions: 0, timeSignature: undefined, swingPercent: undefined }
+  const scan: Scan = {
+    notes: [],
+    divisions: 0,
+    timeSignature: undefined,
+    swingPercent: undefined,
+    swingUnit: undefined,
+  }
   for (const [m, measure] of measures.entries()) {
     const problem = scanMeasure(measure, m, instruments, scan)
     if (problem !== undefined) return err(problem)
@@ -293,6 +319,7 @@ export function parseDrumMusicXml(source: string, opts?: { readonly id?: string 
         title: resolvedTitle,
         timeSignature,
         swingPercent: scan.swingPercent ?? 50,
+        swingUnit: scan.swingUnit ?? 'eighth',
         measureCount: measures.length,
         notes,
       }),

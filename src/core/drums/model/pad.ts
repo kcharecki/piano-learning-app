@@ -61,6 +61,13 @@ export function isDrumPad(value: string): value is DrumPad {
   return PAD_ORDER.has(value as DrumPad)
 }
 
+const MAPPED_PAD_SET: ReadonlySet<string> = new Set(MAPPED_PADS)
+
+/** True for exactly the 16 real pads — `false` for `unmapped` and for any unrecognised string. */
+export function isMappedDrumPad(value: string): value is MappedDrumPad {
+  return MAPPED_PAD_SET.has(value)
+}
+
 // ------------------------------------------------------------------- limb/voice
 
 export type Limb = 'hand' | 'foot'
@@ -69,9 +76,16 @@ export type Voice = 'hands' | 'feet'
 
 const FOOT_PADS: ReadonlySet<DrumPad> = new Set<DrumPad>(['kick', 'hhPedal'])
 
-/** `undefined` only for `unmapped` — a hit with no known pad has no known limb. */
+/**
+ * `undefined` for `unmapped` AND for any string that is not a real mapped pad
+ * — this must fail closed: it used to default anything non-`'unmapped'` to
+ * `'hand'`, which meant a bogus pad (e.g. a stray `'cowbell'`) silently got a
+ * voice and sailed through `validateGrooveScore`'s voice check all the way to
+ * `writeDrumMusicXml`'s "unreachable" throw. Checking real membership first
+ * closes that hole at the source, rather than patching every caller.
+ */
 export function limbOf(pad: DrumPad): Limb | undefined {
-  if (pad === 'unmapped') return undefined
+  if (!isMappedDrumPad(pad)) return undefined
   return FOOT_PADS.has(pad) ? 'foot' : 'hand'
 }
 

@@ -8,7 +8,13 @@ import { describe, expect, it } from 'vitest'
 import { unwrap } from '@core/shared/result.ts'
 import { measureDurationTicks, type TimeSignature } from '@core/notation/score.ts'
 import { ARTICULATIONS, STICKINGS, type Articulation, type Sticking } from '../articulation.ts'
-import { makeGrooveScore, type DynamicsClass, type GrooveScore, type GrooveScoreInput } from '../groove.ts'
+import {
+  makeGrooveScore,
+  type DynamicsClass,
+  type GrooveScore,
+  type GrooveScoreInput,
+  type SwingUnit,
+} from '../groove.ts'
 import { MAPPED_PADS } from '../pad.ts'
 import { ghostFunkBar, moneyBeat, moneyBeatOpenHat, referenceGrooves } from '../referenceGrooves.ts'
 import { parseDrumMusicXml } from './parse.ts'
@@ -76,17 +82,41 @@ function noteInputArb(barTicks: number) {
   )
 }
 
+/**
+ * Drops any note that starts before the previous kept note on the same pad
+ * ends — `validateGrooveScore` now rejects a duplicate/overlapping hit on one
+ * pad (see `../groove.test.ts`), so this arbitrary must not generate input
+ * that can no longer occur.
+ */
+function dedupeOverlaps<T extends { readonly pad: string; readonly tick: number; readonly durationTicks: number }>(
+  notes: readonly T[],
+): T[] {
+  const sorted = [...notes].sort((a, b) => a.tick - b.tick)
+  const lastEndByPad = new Map<string, number>()
+  const out: T[] = []
+  for (const n of sorted) {
+    const lastEnd = lastEndByPad.get(n.pad) ?? -1
+    if (n.tick < lastEnd) continue
+    lastEndByPad.set(n.pad, n.tick + n.durationTicks)
+    out.push(n)
+  }
+  return out
+}
+
+const swingUnitArb: fc.Arbitrary<SwingUnit> = fc.constantFrom('eighth', 'sixteenth')
+
 const grooveArb: fc.Arbitrary<GrooveScore> = fc
-  .tuple(fc.uuid(), titleArb, timeSignatureArb, fc.integer({ min: 50, max: 75 }))
-  .chain(([id, title, timeSignature, swingPercent]) => {
+  .tuple(fc.uuid(), titleArb, timeSignatureArb, fc.integer({ min: 50, max: 75 }), swingUnitArb)
+  .chain(([id, title, timeSignature, swingPercent, swingUnit]) => {
     const barTicks = measureDurationTicks(timeSignature)
     return fc.array(noteInputArb(barTicks), { maxLength: 12 }).map((notes): GrooveScoreInput => ({
       id,
       title,
       timeSignature,
       swingPercent,
+      swingUnit,
       measureCount: 1,
-      notes,
+      notes: dedupeOverlaps(notes),
     }))
   })
   .map((input) => makeGrooveScore(input))

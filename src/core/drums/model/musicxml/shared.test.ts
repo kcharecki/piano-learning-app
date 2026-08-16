@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dotFactor, escapeXml, isDynamicsClass, MIDI_PERCUSSION_CHANNEL, typeAndDots } from './shared.ts'
+import { dotFactor, escapeXml, MIDI_PERCUSSION_CHANNEL, SWING_TYPE_XML, swingUnitOfXml, typeAndDots } from './shared.ts'
 
 describe('escapeXml', () => {
   it('escapes the five XML-special characters', () => {
@@ -33,12 +33,21 @@ describe('typeAndDots', () => {
   })
 })
 
-describe('isDynamicsClass', () => {
-  it('accepts exactly accent/normal/ghost', () => {
-    expect(isDynamicsClass('accent')).toBe(true)
-    expect(isDynamicsClass('normal')).toBe(true)
-    expect(isDynamicsClass('ghost')).toBe(true)
-    expect(isDynamicsClass('forte')).toBe(false)
+describe('SWING_TYPE_XML / swingUnitOfXml', () => {
+  it('maps eighth <-> "eighth" and sixteenth <-> "16th" (note-type-value spelling, not "sixteenth")', () => {
+    expect(SWING_TYPE_XML.eighth).toBe('eighth')
+    expect(SWING_TYPE_XML.sixteenth).toBe('16th')
+  })
+
+  it('swingUnitOfXml is the exact inverse of SWING_TYPE_XML for every SwingUnit', () => {
+    expect(swingUnitOfXml(SWING_TYPE_XML.eighth)).toBe('eighth')
+    expect(swingUnitOfXml(SWING_TYPE_XML.sixteenth)).toBe('sixteenth')
+  })
+
+  it('rejects any value that is not one of the two known <swing-type> spellings', () => {
+    expect(swingUnitOfXml('sixteenth')).toBeUndefined()
+    expect(swingUnitOfXml('quarter')).toBeUndefined()
+    expect(swingUnitOfXml('')).toBeUndefined()
   })
 })
 
