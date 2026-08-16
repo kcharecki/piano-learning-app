@@ -15,6 +15,7 @@ import { act, cleanup, renderHook } from '@testing-library/react'
 import { FakeClock, FakeMidiInput, RecordingAudioOutput } from '@test/fakes.ts'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
+import { MINOR_KEYS } from './customization.ts'
 import {
   useSightReadingTrainer,
   type UseSightReadingTrainerOptions,
@@ -93,6 +94,30 @@ describe('useSightReadingTrainer — generating an exercise', () => {
     expect(result.current.activeHands).toEqual(['right'])
     expect(result.current.previewRemainingMs).toBe(30_000)
     expect(result.current.error).toBeUndefined()
+  })
+})
+
+describe('useSightReadingTrainer — a bad draw retries before giving up (roadmap 5.53 review F-RETRY)', () => {
+  it('recovers from a single unsatisfiable seed by redrawing off the same Rng, instead of dead-ending into an error', () => {
+    useSightReadingStore.setState({ level: 3, history: [] })
+    // Level 3, Ab minor, 'whole-half' rhythm, seed 283: verified directly
+    // against `generateMelody` that the FIRST draw cannot cadence onto the
+    // tonic within the level's leap bound, but the very next draw off the
+    // same (stateful, auto-advancing) `Rng` succeeds — exactly the class of
+    // single-unlucky-seed failure F-RETRY describes, without the parameter
+    // combination itself being unsatisfiable.
+    const abMinor = MINOR_KEYS.find((k) => k.tonic.letter === 'A' && k.tonic.alter === -1)
+    if (abMinor === undefined) throw new Error('fixture key (Ab minor) not found in MINOR_KEYS')
+    const { result } = setup({
+      rng: seededRng(283),
+      customization: { key: abMinor, rhythm: 'whole-half' },
+    })
+
+    act(() => result.current.start())
+
+    expect(result.current.error).toBeUndefined()
+    expect(result.current.phase).toBe('preview')
+    expect(result.current.score).toBeDefined()
   })
 })
 

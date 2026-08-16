@@ -235,7 +235,40 @@ if (mode === 'claims') {
   // ceiling is documented as sized for the generator's own cadence
   // reachability, not for pedagogy. What matters to a learner is the interval
   // actually printed, so read it off the engraving rather than the table.
-  const midiOf = (id) => Number(String(id).split('#')[0].split('.').pop())
+  //
+  // roadmap 5.53 review F4/F12: this used to measure the RIGHT HAND ONLY —
+  // its own comment said so — which missed `doubleHand`'s leap-bound bug
+  // (F1) entirely, since that only ever showed up on the SECOND hand. A
+  // note's id is `m{measure}.{r|l}.{startTick}.{midi}` (`score.ts`'s
+  // `noteId`, `#2`/`#3`… suffixed on a collision); parse hand and startTick
+  // out of it and measure both hands' own consecutive-note sequences
+  // separately — a leap is between consecutive notes of ONE hand's line,
+  // never across hands, and never between simultaneous notes of the same
+  // hand (`'blocked-chords'` stacks 3 notes on one onset — a chord tone, not
+  // a melodic step; `maxLeapSemitones` never governs those in `melody.ts`).
+  const parts = (id) => String(id).split('#')[0].split('.')
+  const handOf = (id) => parts(id)[1]
+  const tickOf = (id) => Number(parts(id)[2])
+  const midiOf = (id) => Number(parts(id).pop())
+  /** `hand`'s melodic pitch sequence, onset order, simultaneities dropped. */
+  const monophonicSequence = (ids, hand) => {
+    const byTick = new Map()
+    for (const id of ids) {
+      if (handOf(id) !== hand) continue
+      const t = tickOf(id)
+      const pitches = byTick.get(t) ?? []
+      pitches.push(midiOf(id))
+      byTick.set(t, pitches)
+    }
+    const ticks = [...byTick.keys()].sort((a, b) => a - b)
+    return ticks.filter((t) => byTick.get(t).length === 1).map((t) => byTick.get(t)[0])
+  }
+  const consecutiveIntervals = (ids, hand) => {
+    const seq = monophonicSequence(ids, hand)
+    const out = []
+    for (let i = 1; i < seq.length; i += 1) out.push(Math.abs(seq[i] - seq[i - 1]))
+    return out
+  }
   // The screen has NO level control — the ladder is adaptive only
   // (`SightReadingScreen.tsx:47` renders `Level {n}` as a <p>). The level it
   // draws at is NOT the `sight-reading` TRACK level in `settings/levelState`
@@ -265,10 +298,19 @@ if (mode === 'claims') {
   }
 
   for (const level of [1, 2, 3, 4, 5, 6]) {
-    await seedLevel(level)
-    const leaps = []
+    const leapsByHand = { r: [], l: [] }
     let reported = null
     for (let draw = 0; draw < 5; draw += 1) {
+      // Re-seed before EVERY draw, not once per level: navigating away to
+      // grade the previous draw (below) retires it with whatever accuracy
+      // the probe's non-playing walk produced — near 0% — and the trainer's
+      // own `adaptLevel` (`useSightReadingTrainer.ts`) can demote the level
+      // in response. Seeding once per level let that demotion silently drift
+      // later draws in a level-4 (`'blocked-chords'`) batch down onto level
+      // 3 material, which is how a supposedly chords-only left hand produced
+      // non-zero monophonic left-hand intervals in an earlier run of this
+      // probe. Re-seeding pins every draw to the level under test.
+      await seedLevel(level)
       // Bounce off another destination first: `Start exercise` only renders in
       // the `idle` phase, and a drawn exercise sits in a 30-second preview.
       // Navigating away grades and retires it (the screen's own rule), which
@@ -279,13 +321,24 @@ if (mode === 'claims') {
       await page.getByRole('button', { name: 'Start exercise', exact: true }).click()
       await page.waitForTimeout(2200)
       const ids = await page.locator('[data-note-id]').evaluateAll((els) => els.map((e) => e.getAttribute('data-note-id') ?? ''))
-      // Right hand only, in engraved order — a leap is between consecutive
-      // notes of ONE line, never across hands.
-      const right = ids.filter((id) => id.split('.')[1] === 'r').map(midiOf)
-      for (let i = 1; i < right.length; i += 1) leaps.push(Math.abs(right[i] - right[i - 1]))
+      leapsByHand.r.push(...consecutiveIntervals(ids, 'r'))
+      leapsByHand.l.push(...consecutiveIntervals(ids, 'l'))
     }
-    const max = leaps.length === 0 ? null : Math.max(...leaps)
-    console.log(`SIGHTREAD seeded level ${level} (screen reads "${reported}"): ${leaps.length} intervals sampled, max leap = ${max} semitones, distribution ${JSON.stringify(leaps.reduce((a, l) => ({ ...a, [l]: (a[l] ?? 0) + 1 }), {}))}`)
+    const summarize = (leaps) => ({
+      n: leaps.length,
+      max: leaps.length === 0 ? null : Math.max(...leaps),
+      distribution: leaps.reduce((a, l) => ({ ...a, [l]: (a[l] ?? 0) + 1 }), {}),
+    })
+    const right = summarize(leapsByHand.r)
+    const left = summarize(leapsByHand.l)
+    const both = [...leapsByHand.r, ...leapsByHand.l]
+    const combinedMax = both.length === 0 ? null : Math.max(...both)
+    console.log(
+      `SIGHTREAD seeded level ${level} (screen reads "${reported}"): ` +
+        `right hand ${right.n} intervals max=${right.max} ${JSON.stringify(right.distribution)}; ` +
+        `left hand ${left.n} intervals max=${left.max} ${JSON.stringify(left.distribution)}; ` +
+        `both-hands max = ${combinedMax} semitones over ${both.length} sampled intervals`,
+    )
   }
 
   // --- Repertoire: is the score's provenance disclosed to the learner? -----

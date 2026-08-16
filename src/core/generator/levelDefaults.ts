@@ -15,18 +15,45 @@
  * their first several grades; harder keys are a level-6 thing, not a
  * level-4 thing).
  *
- * `maxLeap` is chosen, not just guessed: each level's rhythm style bounds how
- * few notes its last bar can ever collapse to, and the cadence in
- * `generateMelodicLine` needs `notes-in-last-bar * maxLeap` to reach any
- * point in the range — sized per row below so that bound always clears the
- * row's own range width. Level 1's `maxLeap` is unused by its own
- * `stepwiseOneDirection` walk (`stepwiseLine.ts`), but it is NOT dead:
- * `core/eartraining/dictation.ts` reuses this row and can force
- * `stepwiseOneDirection: false` back on, at which point the cadence walk
- * runs for real — so it still has to be a real per-level step, not a
- * placeholder (this is exactly the mistake an earlier draft of this file
- * made, caught by `dictation.test.ts`'s property tests, not by anything
- * here).
+ * `maxLeap` is graded for PEDAGOGY first (roadmap 5.53), not solved backward
+ * from reachability: it rises monotonically level to level and never exceeds
+ * a 5th (7 semitones) below level 4 — Faber Level 1 prepares reading "with
+ * intervals up through the 5th", and RCM/ABRSM agree a 6th or wider is a
+ * later-grade thing. An earlier draft of this table ran that backward —
+ * levels 2–4 all shared `maxLeap: 10` (a minor seventh, one level after a
+ * genuinely stepwise level 1) purely because 10 was the smallest leap that
+ * still cleared those rows' range WIDTH, so the column was sized for the
+ * cadence walk's own reachability need instead of for what a learner should
+ * be shown.
+ *
+ * The reachability need is real, but "clears the range width" was itself
+ * ~2.7× too conservative (roadmap 5.53 review, F3/F6/F7): `generateMelodicLine`'s
+ * actual cadence-closing test is `bestDist > durations.length * maxLeap`,
+ * where `bestDist` is the distance from wherever the melody enters the final
+ * bar to the NEAREST tonic occurrence already inside the range — not the
+ * full range width, which only binds if the walk could enter the final bar
+ * at the range's extreme edge with the nearest tonic sitting at the opposite
+ * edge. `levelDefaults.test.ts` now models that distance directly (worst
+ * case over every position in the range, not just the edges), and every row
+ * here clears it with room to spare at its own graded `maxLeap` — level 2's
+ * `maxLeap: 7`, its unchanged range, and `melody.ts`'s unchanged `quarters`
+ * pool (half note included: `RHYTHM_MAX_UNIT` never needed to drop it) needs
+ * `minNotes(2) * 7 = 14` against a worst-case nearest-tonic distance of `7` —
+ * no range or rhythm pool had to move for level 2's or level 3's sake.
+ *
+ * Level 1's `maxLeap` is unused by its own `stepwiseOneDirection` walk
+ * (`stepwiseLine.ts`) — and, unlike an earlier draft of this comment
+ * claimed, it is currently DEAD for every level's row here, not just level
+ * 1's: `core/eartraining/dictation.ts:285` always computes
+ * `Math.max(defaults.maxLeapSemitones, range.high - range.low)` before
+ * generating, and the range-width term is the larger of the two for every
+ * row in this table, so whatever pedagogical ceiling this column sets is
+ * discarded there every time. The column stays a real per-level value
+ * anyway, for two reasons that don't depend on dictation: table coherence
+ * with the other monotonically-graded columns, and `generateMelody`'s
+ * sight-reading callers (`useSightReadingTrainer`, not dictation) DO read
+ * this value as-is via `defaultParamsForLevel`. Nothing about dictation's
+ * own leap size should be inferred from this table.
  *
  * `handIndependence: 'unison'` (`doubleHand`, `melody.ts`) transposes the
  * primary hand by a fixed octave computed once from its first note, so it
@@ -36,6 +63,10 @@
  * but silently folds the left hand into whatever octave overlaps, producing
  * contrary motion in a level whose whole point is hands moving together.
  * `'parallel'` degrades the same way, more mildly, for the same reason.
+ * `doubleHand` bounds that fold to `maxLeapSemitones` of the previous
+ * derived note (roadmap 5.53 review F1), so an incongruent range no longer
+ * risks a leap wider than the row's own declared column — only the
+ * contrary-motion drift described above.
  */
 import { at } from '@core/shared/invariant.ts'
 import { midi as asMidi } from '@core/shared/units.ts'
@@ -69,8 +100,8 @@ const SIX_EIGHT: TimeSignature = { beats: 6, beatType: 8 }
 const LEVEL_ROWS: readonly LevelRow[] = [
   // fifths mode      bars ts         hands   rLo rHi lLo  lHi  rhythm        leap density indep             stepwise
   [0, 'major', 4, FOUR_FOUR, 'right', 60, 79, null, null, 'whole-half', 2, 0, 'unison', true],
-  [0, 'major', 4, FOUR_FOUR, 'both', 60, 79, 48, 67, 'quarters', 10, 0, 'unison', false],
-  [1, 'major', 8, THREE_FOUR, 'both', 60, 79, 48, 67, 'eighths', 10, 0.05, 'parallel', false],
+  [0, 'major', 4, FOUR_FOUR, 'both', 60, 79, 48, 67, 'quarters', 7, 0, 'unison', false],
+  [1, 'major', 8, THREE_FOUR, 'both', 60, 79, 48, 67, 'eighths', 7, 0.05, 'parallel', false],
   [2, 'major', 8, SIX_EIGHT, 'both', 60, 79, 48, 67, 'dotted', 10, 0.1, 'blocked-chords', false],
   [1, 'minor', 8, FOUR_FOUR, 'both', 60, 84, 36, 60, 'syncopated', 11, 0.15, 'independent', false],
   [4, 'major', 8, SIX_EIGHT, 'both', 55, 88, 31, 67, 'syncopated', 12, 0.2, 'independent', false],
