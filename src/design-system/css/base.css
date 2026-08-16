@@ -145,108 +145,40 @@ svg.icon, .icon > svg {
 }
 
 /* ============================================================
-   Shell topbar action cluster (roadmap UI-04a, 2026-08-12 UI audit): before
-   this, `.app-topbar` (domain.css/responsive.css) rendered nothing above
-   1024px, and the Reference toggle floated as a bare `position: fixed`
-   button with no surrounding chrome — colliding with the Progress screen's
-   own heading (docs/ui-audit/progress--desktop--dark.png) and reading as
-   "over" the page rather than part of it on every desktop screen.
+   Shell topbar (roadmap UI-36 verdict, 2026-08-15): roadmap UI-04a used to
+   give `.app-topbar` a full set of desktop rules right here — `.app-layout`
+   `flex-wrap`, a compensating `top`/`height` override on `.app-nav`, and the
+   `.nav-toggle`/`.screen-title` display pair — to make the SAME bar Shell.tsx
+   rendered at every width also read as a normal, non-floating, non-sticky
+   citizen above 1024px, rather than the `display: none` (domain.css) it
+   started as. That override's own comment measured its cost: because the
+   bar scrolled away while the rail pinned at `top: var(--topbar-h)`, a
+   scrolled desktop page carried a permanent 56px strip of bare rail
+   background above the rail, with no fix that did not amount to relocating
+   the wasted height rather than removing it.
 
-   domain.css/responsive.css are out of this task's file list (single-writer
-   boundary — see CLAUDE.md), so every rule below beats their `.app-topbar`/
-   `.app-nav`/`.nav-toggle`/`.screen-title` rules on SPECIFICITY (a compound
-   selector, e.g. `.app-layout > .app-topbar`, always outranks their plain
-   single-class ones) rather than import order, and holds regardless of
-   which file loads last. Nothing here touches `position`/`z-index` at
-   <=1024px: responsive.css still owns the drawer-width sticky/z-index
-   behaviour untouched; this only adds the properties needed to make the
-   SAME bar a normal, always-visible, non-sticky, non-floating citizen at
-   every width above that.
+   UI-36 is that removal: `Shell.tsx` now renders `.app-topbar` at all only
+   at <=1024px (a live `matchMedia` check, not CSS), and its two controls —
+   the input-status chip and the Reference toggle — move into the rail's own
+   footer at every wider width instead (`feature-nav-groups.css`'s
+   `.nav-rail-footer`/`.nav-actions`, `NavGroups.tsx`'s `actions` prop). The
+   topbar's remaining <=1024px shape (hamburger, screen title, right-aligned
+   `.topbar-actions`) lives entirely in responsive.css now — its one home,
+   since domain.css already declares `.app-topbar { display: none }` as the
+   correct default above that width and nothing here needs to contest it.
 
-   `.app-topbar` stays `.app-layout`'s first DOM child (Shell.tsx, unchanged
-   from before this task) — `.app-layout` is `display: flex` at desktop
-   (domain.css, a ROW: nav column + main), so a bar that has to span the
-   FULL width above both can't just join that row as a third item; it needs
-   the row to WRAP, itself pinned to a full-width line above the other two.
-   `flex-wrap` is a property domain.css never declares on `.app-layout`, so
-   adding it here is additive, not an override — no specificity fight on
-   that one. Below <=1024px `.app-layout` is `display: block` (responsive.css),
-   where `flex-wrap` is simply inert.
-
-   That wrap changes where `.app-nav`'s sticky box starts in normal flow (56px
-   lower than before, below the new topbar row) without shrinking its 100vh
-   height — left alone, the nav's bottom 56px (where the roadmap UI-04a rail
-   footer now lives) would sit below the viewport at rest, only scrolling
-   into view once the page had scrolled far enough for `position: sticky` to
-   engage. The `top`/`height` override below is what keeps it exactly
-   viewport-sized and footer-visible from the first paint, the same way
-   responsive.css already compensates the drawer for this element at
-   <=1024px (`inset: var(--topbar-h) ...`) — this is that same compensation,
-   generalized to desktop now that the topbar renders there too.
-   `--topbar-h` is a real token at every width as of roadmap UI-34
-   (tokens/spacing.css); the `var(--topbar-h, 56px)` fallbacks that used to
-   stand in for it here are gone, because a fallback that hardcodes the same
-   number the token holds is not a fallback, it is a second source of truth.
-
-   UI-34 also re-opened the question UI-31 deferred — should this topbar be
-   STICKY at desktop? No. It carries a MIDI-status chip and one Reference
-   button here (the screen title lives in each screen's own `.page-header`),
-   and Practice already spends a sticky transport bar's worth of height at the
-   top of the viewport: sticking this one too would stack ~112px of permanent
-   chrome above the score on the screen that most needs vertical room, which
-   is rule 4 (content dominates, chrome does not) failing by construction.
-   DESIGN.md's "non-floating, non-sticky-at-desktop bar" stands, now on
-   measured grounds rather than by default.
-
-   The cost of that answer, stated plainly: because the bar scrolls away while
-   the rail below pins at `top: var(--topbar-h)`, a scrolled desktop page has
-   a 56px strip of bare rail background above the rail. Pinning the rail at 0
-   instead does not fix it, it relocates it — the rail's box starts below the
-   topbar in flow, so a full-height rail would hang its level/streak footer
-   below the fold at rest, the exact bug this override exists to prevent. The
-   only resolution that removes the wasted height rather than moving it is to
-   delete the desktop topbar outright and rehome its two controls into the
-   rail footer; that is a shell change with its own hazards (the status
-   popover would be clipped by the rail's `overflow-y: auto`, and the cluster
-   would need one home per breakpoint without breaking the Reference toggle's
-   focus-return ref), so it is roadmap UI-36, not a quiet edit here. */
-.app-layout { flex-wrap: wrap; }
-.app-layout > .app-topbar {
-  flex-basis: 100%;
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  min-height: var(--topbar-h);
-  padding: 0 var(--space-3);
-  background: var(--bg-1);
-  border-bottom: var(--border-w) solid var(--border-1);
-}
-.app-layout > .app-nav {
-  top: var(--topbar-h);
-  height: calc(100vh - var(--topbar-h));
-}
-/* The hamburger only ever opens something at <=1024px — above that, `.app-nav`
-   is a static sidebar, not a drawer, so a visible toggle with nothing to
-   toggle would be a dead control. */
-.nav-toggle { display: none; }
-/* The screen title appears exactly once (rule 4 of the nine screen rules):
-   every screen already owns its own `<h1>` in `.page-header`, so the topbar
-   only ever needs to show one at <=1024px, where the rail (and that
-   heading, scrolled off-screen behind the drawer) is hidden — unchanged
-   from the cutoff responsive.css already used for this element. */
-.app-topbar .screen-title { display: none; }
-@media (max-width: 1024px) {
-  .nav-toggle { display: inline-flex; }
-  .app-topbar .screen-title { display: block; }
-}
-/* Right-aligned action cluster (roadmap UI-04a): the slot this task builds
-   for UI-04b to mount the input-status chip and the Reference button into.
-   `margin-left: auto` pushes it to the far edge whether or not the
-   hamburger/title are present — at desktop, neither renders, so this is the
-   only content in an otherwise-empty bar, still flush right. */
-.topbar-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin-left: auto;
-}
+   The one rule the removal still needs here: `.app-nav`'s `position: sticky`
+   (domain.css) makes it a stacking context UNCONDITIONALLY, regardless of
+   its own `z-index` — so raising that z-index is necessary, not decorative,
+   for the input-status popover (now anchored inside the rail footer,
+   `feature-bluetooth-midi.css`) to ever be able to paint over the rail it
+   lives inside. `--z-dialog` (the same tier `ReferencePanel` and this same
+   popover already use elsewhere) is safe here because nothing else at
+   desktop needs to paint over the rail: no scrim renders here (the nav
+   drawer is a <=1024px-only concept), `#reference-panel` sits at the same
+   `--z-dialog` tier later in DOM (source order settles any tie), and a
+   native `<dialog>` always promotes to the top layer regardless of z-index
+   however high this climbs. responsive.css puts this back to `--z-nav` at
+   <=1024px, where the topbar itself needs to paint one tier above the drawer
+   instead (its own rule, unchanged by this task). */
+.app-layout > .app-nav { z-index: var(--z-dialog); }

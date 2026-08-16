@@ -351,6 +351,37 @@ function renderScreen(
   }
 }
 
+const COMPACT_QUERY = '(max-width: 1024px)'
+
+/**
+ * Roadmap UI-36: whether the shell is currently in its ≤1024px "compact"
+ * configuration — the one live signal that decides where the action cluster
+ * (input-status chip + Reference toggle) mounts. Below this, `.app-nav` is a
+ * drawer and the rail footer is off-canvas along with everything else in it,
+ * so the cluster needs its own always-visible home: the topbar. Above it,
+ * the rail is a static, always-visible sidebar, so the cluster rides in the
+ * rail's own footer instead and the topbar does not render at all.
+ *
+ * `useState`'s initializer reads `matchMedia` synchronously so the FIRST
+ * render already has the right answer (no flash of the wrong cluster home
+ * before the effect below runs). happy-dom's default viewport is 1024x768,
+ * so `window.matchMedia('(max-width: 1024px)').matches` is `true` by
+ * default in every test that never stubs `matchMedia` — every existing unit
+ * test keeps rendering the compact shell unchanged; desktop coverage has to
+ * stub `matchMedia` explicitly (see Shell.test.tsx).
+ */
+function useCompactShell(): boolean {
+  const [compact, setCompact] = useState(() => window.matchMedia(COMPACT_QUERY).matches)
+  useEffect(() => {
+    const query = window.matchMedia(COMPACT_QUERY)
+    setCompact(query.matches)
+    const onChange = (e: MediaQueryListEvent): void => setCompact(e.matches)
+    query.addEventListener('change', onChange)
+    return () => query.removeEventListener('change', onChange)
+  }, [])
+  return compact
+}
+
 export function Shell() {
   // The route is the single source of navigation truth (roadmap 5.42):
   // `screen`/`technique`/`deck`/`theoryDrill` are all derived from it below,
@@ -358,6 +389,9 @@ export function Shell() {
   // Back/Forward (both drive `route` via `useRoute`'s popstate listener)
   // reproduce exactly the same shell state a click would have.
   const { route, navigate } = useRoute()
+  // Roadmap UI-36: which of the two homes (topbar vs. rail footer) the
+  // action cluster below renders into. See `useCompactShell`'s own comment.
+  const compact = useCompactShell()
   const [navOpen, setNavOpen] = useState(false)
   // Roadmap 3.17: the reference panel's own open/closed flag — ephemeral
   // chrome, deliberately not derived from `route` (see ReferencePanel.tsx's
@@ -468,11 +502,20 @@ export function Shell() {
   // instead of leaving it wired to whatever width was current when the
   // drawer opened.
   //
-  // Scoped to `.app-nav`'s own focusable elements only (not the hamburger,
-  // not the topbar-actions cluster) — those remain their own separately
-  // reachable, still-visible chrome (the topbar deliberately paints one tier
-  // above the drawer, see responsive.css) and are outside the drawer this
-  // trap is about. The mechanism only engages once focus is actually
+  // Scoped to `.app-nav`'s own focusable elements only (not the hamburger).
+  // Roadmap UI-36: the action cluster (input-status chip + Reference toggle)
+  // used to be a permanent sibling of this query's target regardless of
+  // width; now it is rendered EITHER inside `.app-topbar` (compact) OR
+  // inside `.app-nav` itself (desktop, `.nav-actions` in the rail footer) —
+  // never both. This trap only ever runs at <=1024px (the live matchMedia
+  // check below), and at that width the cluster lives in the topbar, not
+  // the rail, so `nav.querySelectorAll(...)` below still only ever collects
+  // the rail's OWN focusable items (primary + groups), exactly as before —
+  // the one-instance rule (see `useCompactShell`) is what keeps that true
+  // without this query needing to exclude anything by hand. The topbar
+  // itself remains its own separately reachable, still-visible chrome (one
+  // tier above the drawer, see responsive.css) and stays outside the drawer
+  // this trap is about. The mechanism only engages once focus is actually
   // somewhere inside the drawer (first/last-element wraparound) — it does not
   // forcibly move focus into the drawer on open, matching Escape/close above,
   // which returns focus to the hamburger rather than assuming the drawer
@@ -506,48 +549,70 @@ export function Shell() {
 
   const activeLabel = NAV_ITEMS.find((item) => item.id === screen)?.label ?? ''
 
+  // Roadmap UI-36: the action cluster — input-status chip, then Reference —
+  // is ONE JSX expression, rendered in exactly one of the two homes below,
+  // never both. That single-instance rule is what lets `referenceToggleRef`
+  // keep pointing at a real, visible button at every width: two separately
+  // rendered copies would leave the ref attached to whichever button mounted
+  // last, silently pointing at a hidden element the other half of the time.
+  // Its own class name switches with `compact` (`.topbar-actions` vs.
+  // `.nav-actions`) since the two homes lay it out differently — a row
+  // flush right in the topbar, a column of full-width rows in the rail
+  // footer (feature-nav-groups.css).
+  //
+  // Crossing the breakpoint unmounts and remounts `InputCapabilityBanner`
+  // along with the rest of this cluster (React tears down the whole subtree
+  // when it moves from the topbar branch to the `NavGroups` `actions` prop,
+  // even though both renders come from this same expression) — its own
+  // `open` popover state is lost, so a popover left open mid-resize closes.
+  // Nothing about an in-progress Bluetooth MIDI pairing is lost with it: the
+  // GATT connection and its device state live in `useBluetoothMidi.ts`'s
+  // module-scope singleton, not in this subtree, so a remount here just
+  // resubscribes to whatever that singleton already holds.
+  const actions = (
+    <div className={compact ? 'topbar-actions' : 'nav-actions'}>
+      <InputCapabilityBanner />
+      <button
+        type="button"
+        ref={referenceToggleRef}
+        className="btn-ghost"
+        aria-expanded={referenceOpen}
+        aria-controls="reference-panel"
+        onClick={toggleReference}
+      >
+        Reference
+      </button>
+    </div>
+  )
+
   return (
     <div className="app-layout">
-      {/* Roadmap UI-04a: still `.app-layout`'s first child (unchanged DOM
-          position), but no longer `display: none` above 1024px — base.css
-          gives `.app-layout` `flex-wrap: wrap` and this element `flex-basis:
-          100%`, so it now always occupies a full-width row of its own above
-          nav+main (which still fit together on the row below, exactly as
-          before) instead of either being hidden or squeezed in sideways next
-          to the nav column. See base.css's own comment for the full "why"
-          and for the `.app-nav` top/height compensation this displaces. */}
-      <div className="app-topbar">
-        <button
-          type="button"
-          ref={navToggleRef}
-          className="nav-toggle btn-icon"
-          aria-label="Open navigation"
-          aria-expanded={navOpen}
-          onClick={toggleNav}
-        >
-          ☰
-        </button>
-        <p className="screen-title">{activeLabel}</p>
-        {/* Roadmap UI-04a: the right-aligned action cluster — a normal
-            topbar citizen now, never `position: fixed`. Roadmap UI-04b: the
-            input-status chip mounts here, before the Reference button — its
-            one home now, replacing the in-flow banner that used to render at
-            the top of `<main>` (and, before that, at the top of seven
-            separate screens). */}
-        <div className="topbar-actions">
-          <InputCapabilityBanner />
+      {/* Roadmap UI-36: `.app-topbar` only exists in the DOM at all at
+          <=1024px now — desktop's version of this bar (roadmap UI-04a) was
+          deleted outright once its one real cost (a permanent 56px band of
+          nothing between the topbar and the sticky rail on any scrolled
+          desktop page — see base.css's UI-04a comment for the measured
+          argument) turned out to have no fix that did not also delete it.
+          The hamburger and screen title are still ≤1024px-only content; the
+          action cluster used to render unconditionally in this same slot —
+          it now renders here ONLY while compact, and inside the rail footer
+          otherwise (below). */}
+      {compact && (
+        <div className="app-topbar">
           <button
             type="button"
-            ref={referenceToggleRef}
-            className="btn-ghost"
-            aria-expanded={referenceOpen}
-            aria-controls="reference-panel"
-            onClick={toggleReference}
+            ref={navToggleRef}
+            className="nav-toggle btn-icon"
+            aria-label="Open navigation"
+            aria-expanded={navOpen}
+            onClick={toggleNav}
           >
-            Reference
+            ☰
           </button>
+          <p className="screen-title">{activeLabel}</p>
+          {actions}
         </div>
-      </div>
+      )}
       {navOpen && <div className="nav-scrim" aria-hidden="true" onClick={closeNav} />}
       <nav className="app-nav" aria-label="Main" data-open={navOpen} ref={navRef}>
         <NavGroups
@@ -556,6 +621,7 @@ export function Shell() {
           activeScreen={screen}
           onNavigate={goTo}
           footer={{ level: playingLevel, streakDays }}
+          actions={compact ? undefined : actions}
         />
       </nav>
       <main className="app-main">

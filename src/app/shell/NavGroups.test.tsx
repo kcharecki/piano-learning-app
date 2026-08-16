@@ -174,4 +174,52 @@ describe('NavGroups', () => {
     expect(screen.getByText('Level 1 · No streak yet')).toBeInTheDocument()
     expect(screen.queryByText(/0-day streak/)).not.toBeInTheDocument()
   })
+
+  // Roadmap UI-36: `.nav-scroll` (Today + every group) is the only part of
+  // the rail that scrolls; `.nav-rail-footer` (the caller's `actions`, then
+  // the level/streak line) never does, so it must sit outside `.nav-scroll`
+  // entirely rather than merely after the groups within it.
+  it('puts Today and every group inside .nav-scroll, never .nav-rail-footer', () => {
+    const { container } = render(
+      <NavGroups
+        primary={primary}
+        groups={groups}
+        activeScreen="today"
+        onNavigate={vi.fn()}
+        footer={footer}
+      />,
+    )
+
+    const scroll = container.querySelector('.nav-scroll')
+    expect(scroll).not.toBeNull()
+    expect(within(scroll as HTMLElement).getByRole('button', { name: 'Today' })).toBeInTheDocument()
+    expect(scroll?.querySelector('.nav-footer')).toBeNull()
+  })
+
+  // Roadmap UI-36: `actions` is the shell's action cluster (input-status chip
+  // + Reference toggle), passed only at desktop widths (Shell.tsx). It must
+  // land inside `.nav-rail-footer`, ahead of the level/streak line — the
+  // footer's own DOM order is what visually reads as "cluster, then rail
+  // furniture" rather than the reverse.
+  it('renders a supplied actions node inside .nav-rail-footer, before the level/streak line', () => {
+    const { container } = render(
+      <NavGroups
+        primary={primary}
+        groups={groups}
+        activeScreen="today"
+        onNavigate={vi.fn()}
+        footer={{ level: 2, streakDays: 5 }}
+        actions={<button type="button">Reference</button>}
+      />,
+    )
+
+    const railFooter = container.querySelector('.nav-rail-footer')
+    expect(railFooter).not.toBeNull()
+    const actionsButton = within(railFooter as HTMLElement).getByRole('button', { name: 'Reference' })
+    const streakLine = within(railFooter as HTMLElement).getByText('Level 2 · 5-day streak')
+    expect(
+      actionsButton.compareDocumentPosition(streakLine) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(container.querySelector('.nav-scroll')?.contains(actionsButton)).toBe(false)
+  })
 })

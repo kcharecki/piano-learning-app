@@ -6,11 +6,12 @@
    Roadmap 5.43: groups the shell's 12 nav buttons into Practice / Learn /
    Drills / Progress, with Today standing alone as the visually primary entry
    point. Markup is `NavGroups.tsx`: a `.nav-primary` button, then a
-   `.nav-group` per group holding a `.nav-group-title` and its `<ul>` — all
-   still inside `domain.css`'s `.app-nav`, so its base button styling
-   (`.app-nav button`), the list-style reset (`.app-nav ul`), and the mobile
-   drawer transform in `responsive.css` (keyed off `.app-nav` itself, never
-   touched here) keep working unchanged.
+   `.nav-group` per group holding a `.nav-group-title` and its `<ul>`, all
+   inside `NavGroups.tsx`'s own `.nav-scroll` (roadmap UI-36) — itself inside
+   `domain.css`'s `.app-nav`, so its base button styling (`.app-nav
+   .nav-scroll button`, narrowed same task), the list-style reset (`.app-nav
+   ul`), and the mobile drawer transform in `responsive.css` (keyed off
+   `.app-nav` itself, never touched here) keep working unchanged.
 
    Roadmap UI-04a (2026-08-12 UI audit) added: a 16px `<Icon>` per item (the
    rail carried plain text only, no glyph to scan by), a calmer active state
@@ -20,32 +21,50 @@
    so every override below beats them on SPECIFICITY, not just import
    order — see each rule's own comment for the exact reasoning, since
    getting this wrong silently loses to whichever file happens to load
-   later. */
+   later.
+
+   Roadmap UI-36 split the rail into two flex children of `.app-nav`:
+   `.nav-scroll` (`NavGroups.tsx`'s own scroll box — Today + every group,
+   the only part of the rail that scrolls) and `.nav-rail-footer` (the
+   shell's action cluster, desktop-only, then the level/streak line — never
+   scrolled, always reachable). Every selector below that used to read
+   `.app-nav .nav-primary`/`.app-nav button[...]` now reads `.app-nav
+   .nav-scroll .nav-primary`/`.app-nav .nav-scroll button[...]` instead —
+   both for correctness (the rail footer's action cluster renders its OWN
+   `<button>`s, e.g. the input-status chip and Reference, which must never
+   pick up rail-item styling) and to keep outranking domain.css's own
+   `.app-nav .nav-scroll button[aria-current="page"]` (also narrowed, same
+   task) on specificity rather than source order. */
 
 /* `.app-nav` never declared its own `display` before this (domain.css) —
-   block-flow was fine for a flat stack of buttons. The footer below needs
-   `margin-top: auto` to pin to the bottom, which only works inside a flex
-   column; nothing else sets `display` on this selector, so this is purely
-   additive, not a fight over the property. */
+   block-flow was fine for a flat stack of buttons. Roadmap UI-36: this flex
+   column now has exactly two children, `.nav-scroll` and `.nav-rail-footer`
+   (below) — `.nav-scroll`'s own `flex: 1 1 auto` is what pins the footer to
+   the bottom now (it, not `margin-top: auto` on the footer itself, claims
+   all the leftover space). Nothing else sets `display` on this selector, so
+   this is purely additive, not a fight over the property. */
 .app-nav { display: flex; flex-direction: column; }
 
 /* Today: bigger, accent-washed, and set apart from the groups below it with
    its own bottom border — the one destination that isn't inside a group. */
-.app-nav .nav-primary {
-  margin-bottom: var(--space-3);
-  padding-bottom: var(--space-3);
+.app-nav .nav-scroll .nav-primary {
+  margin-bottom: var(--space-2);
+  padding-bottom: var(--space-2);
   border-bottom: var(--border-w) solid var(--border-1);
   font-size: var(--text-lg);
   font-weight: var(--weight-semibold);
   color: var(--accent);
 }
-.app-nav .nav-primary:hover { background: var(--accent-dim); }
-.app-nav .nav-primary[aria-current='page'] { background: var(--accent-dim); }
+.app-nav .nav-scroll .nav-primary:hover { background: var(--accent-dim); }
+.app-nav .nav-scroll .nav-primary[aria-current='page'] { background: var(--accent-dim); }
 
 /* Groups: a quiet, uppercase label above each cluster of destinations —
    never itself a button or a landmark on its own (the group's accessible
-   name comes from `aria-labelledby`, this is only the visible echo of it). */
-.nav-group + .nav-group { margin-top: var(--space-4); }
+   name comes from `aria-labelledby`, this is only the visible echo of it).
+   `margin-top` tightened from `--space-4` to `--space-3` as part of the
+   UI-36 overflow fix below `.nav-rail-footer`'s own comment — three gaps
+   times the 4px difference is part of the budget that fix reclaims. */
+.nav-group + .nav-group { margin-top: var(--space-3); }
 .nav-group-title {
   margin: 0 0 var(--space-1);
   padding: 0 var(--space-3);
@@ -61,25 +80,27 @@
    is the one change from domain.css's original rule: an item that is
    already selected doesn't need its TEXT to shout for attention, only its
    position, which the rail + fill already carry (rule 8: color is never the
-   only signal — the rail is the non-color cue here). `.app-nav
-   button[aria-current="page"]` (one class + one type + one attribute) is
-   the exact same specificity as domain.css's own rule for this selector;
-   this file importing AFTER domain.css (styles.css's barrel order) is what
-   makes this win, the same mechanism the rest of this stylesheet already
-   relies on for `.nav-primary`/`.nav-group-title` above.
+   only signal — the rail is the non-color cue here). `.app-nav .nav-scroll
+   button[aria-current="page"]` (roadmap UI-36 narrowed both this rule and
+   domain.css's own to add `.nav-scroll` — see this file's module doc) is the
+   exact same specificity as domain.css's rule for this selector; this file
+   importing AFTER domain.css (styles.css's barrel order) is what makes this
+   win, the same mechanism the rest of this stylesheet already relies on for
+   `.nav-primary`/`.nav-group-title` above.
 
    `.nav-primary` (Today) keeps `--accent` TEXT at rest from its own
-   unconditional rule further up (`.app-nav .nav-primary`, two classes) and
-   only drops to this calmer active treatment once Today is ALSO the
-   selected screen — `.app-nav button[aria-current="page"]` (0,2,1)
-   outranks `.app-nav .nav-primary` (0,2,0) on specificity regardless of
-   source order, so that fold-in is automatic, not a separate rule. */
-.app-nav button[aria-current="page"] {
+   unconditional rule further up (`.app-nav .nav-scroll .nav-primary`, three
+   classes) and only drops to this calmer active treatment once Today is ALSO
+   the selected screen — `.app-nav .nav-scroll button[aria-current="page"]`
+   (0,3,1) outranks `.app-nav .nav-scroll .nav-primary` (0,3,0) on
+   specificity regardless of source order, so that fold-in is automatic, not
+   a separate rule. */
+.app-nav .nav-scroll button[aria-current="page"] {
   position: relative;
   color: var(--text-1);
   background: var(--accent-dim);
 }
-.app-nav button[aria-current="page"]::before {
+.app-nav .nav-scroll button[aria-current="page"]::before {
   content: "";
   position: absolute;
   inset: 0 auto 0 0;
@@ -88,20 +109,85 @@
   border-radius: var(--radius-1) 0 0 var(--radius-1);
 }
 
-/* Rail footer (roadmap UI-04a): current playing level + streak, pinned to
-   the bottom of the rail by `margin-top: auto` inside `.app-nav`'s flex
-   column above. Display only — `NavGroups.tsx` renders whatever numbers
+/* Roadmap UI-36: the rail's scroll box (`NavGroups.tsx`) — Today + every
+   group, the only thing inside `.app-nav` that ever scrolls. `flex: 1 1
+   auto` claims all the space `.nav-rail-footer` below doesn't need, which is
+   also what PINS the footer to the bottom now (see `.app-nav`'s own comment
+   above) — `min-height: 0` is the mandatory partner to that: a flex item's
+   default `min-height: auto` refuses to shrink below its content's natural
+   height, so without this a rail holding all thirteen destinations would
+   push `.nav-rail-footer` (and the footer's own level/streak line) below the
+   fold instead of scrolling internally, at any viewport short enough for
+   that content to exceed `.app-nav`'s own `100vh` box (domain.css). */
+.nav-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+
+/* Roadmap UI-36: pinned to the bottom of the rail as `.nav-scroll`'s flex
+   sibling (`flex: none` — it must never be asked to shrink or grow) — the
+   one part of `.app-nav` that is NEVER inside the scroll box, so the action
+   cluster (interactive: input-status chip + Reference toggle) and the
+   level/streak line beneath it stay reachable without scrolling regardless
+   of how far down the destination list runs. `border-top` + the vertical
+   gap used to sit on `.nav-footer` itself (roadmap UI-04a); both moved up to
+   this wrapper once IT, not `.nav-footer`, became the rail's true last
+   child.
+
+   Overflow fix (roadmap UI-36, `nav-drawer-tablet.spec.ts` at 1024x800):
+   pinning this footer OUTSIDE `.nav-scroll`'s flex allocation is correct
+   (that is the whole point — always reachable, never scrolled away), but it
+   also means `.nav-scroll` no longer gets to borrow this footer's own
+   vertical space the way the old single-scroll-region design implicitly did.
+   At exactly 1024x800 that shrank `.nav-scroll`'s box below its 13-item
+   content height, and the overflow landed Settings' (the last item) centre
+   underneath this footer's own painted box — `elementFromPoint` returned the
+   footer's `<span>`, not the button geometrically "behind" it. `padding-top`
+   here (space-2 → space-1) and `.nav-primary`'s margin/padding (space-3 →
+   space-2, above) each give a few px back to `.nav-scroll`; combined they
+   close the gap at this breakpoint without touching the 44px touch minimum
+   (`--control-h`) anywhere. */
+.nav-rail-footer {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-1);
+  border-top: var(--border-w) solid var(--border-1);
+}
+
+/* Roadmap UI-36: the shell's action cluster at desktop — `Shell.tsx` passes
+   this same JSX (input-status chip, then Reference) as `NavGroups`'
+   `actions` prop only when NOT compact (`undefined`, i.e. nothing rendered
+   here, at <=1024px, where the identical cluster lives in the topbar
+   instead as `.topbar-actions`). A column, not the topbar's row: the rail is
+   narrow (`--nav-w`, 12rem) and vertical by nature, so its furniture reads
+   as more rail items, not a squeezed-in horizontal toolbar. Direct children
+   ONLY (`>`) on the width rule below — a descendant selector would also
+   stretch the popover's own "Pair Bluetooth MIDI"/"Disconnect" buttons
+   (nested several levels deeper inside `.input-status-popover`) to full
+   width, which is not this rule's business. */
+.nav-actions { display: flex; flex-direction: column; gap: var(--space-1); }
+.nav-actions > button, .nav-actions > .input-status > .input-status-chip {
+  width: 100%;
+  justify-content: flex-start;
+  text-align: left;
+}
+.nav-actions > .input-status { width: 100%; }
+
+/* Rail footer's own text line (roadmap UI-04a): current playing level +
+   streak. Display only — `NavGroups.tsx` renders whatever numbers
    `Shell.tsx` passes it (from `useLevelStore`/`useProgressStore`); this file
    only lays them out. Copy is the adjectival "N-day streak" (never "N
    day(s)"), so it never needs a plural branch — rule 7 (learner language)
-   forbids "0 day(s)". */
+   forbids "0 day(s)". Roadmap UI-36: `margin-top: auto`/`border-top`, which
+   used to do the bottom-pinning here directly, moved up to `.nav-rail-footer`
+   (its own comment above) once this stopped being that wrapper's only child;
+   `padding` narrowed to horizontal-only since the wrapper now supplies the
+   vertical rhythm (its own `gap`) between itself, `.nav-actions`, and this
+   line. */
 .nav-footer {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  margin-top: auto;
-  padding: var(--space-3);
-  border-top: var(--border-w) solid var(--border-1);
+  padding: 0 var(--space-3);
   color: var(--text-2);
   font-size: var(--text-sm);
 }

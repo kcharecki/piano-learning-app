@@ -86,6 +86,15 @@
     box-shadow: var(--elev-3);
   }
   .app-nav button { min-height: var(--touch-min); }
+  /* Roadmap UI-36: base.css raises this to `--z-dialog` at desktop, so the
+     rail footer's own input-status popover can paint over the (there,
+     always-visible) rail — see that rule's own comment. At <=1024px `.app-nav`
+     is the drawer, and it must go back to sitting one tier BELOW the topbar
+     (`--z-nav`, its original value): the topbar deliberately paints one tier
+     above the drawer here (its own comment below), and an un-reset
+     `--z-dialog` would outrank that, reintroducing the exact "hamburger
+     can't close its own drawer" bug roadmap 5.27 fixed. */
+  .app-layout > .app-nav { z-index: var(--z-nav); }
   .app-topbar {
     display: flex;
     align-items: center;
@@ -107,6 +116,21 @@
     z-index: calc(var(--z-nav) + 1);
   }
   .app-topbar .screen-title { font-size: var(--text-lg); font-weight: var(--weight-semibold); margin: 0; }
+  /* Roadmap UI-36: `.topbar-actions`'s home moves here from base.css — the
+     bar it lays out inside now only ever renders at this width (Shell.tsx's
+     `compact` gate), so its one CSS rule belongs in the file that already
+     owns everything else about the <=1024px topbar, not in a desktop-authored
+     file reaching down into a width it no longer touches. `margin-left: auto`
+     pushes the cluster to the bar's far edge regardless of whether the
+     hamburger/title are also present (they always are here, unlike at
+     desktop, where this class never mounts at all — see NavGroups.tsx's
+     `.nav-actions`, this cluster's OTHER possible class name, for that home). */
+  .topbar-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-left: auto;
+  }
   .nav-scrim {
     display: block;
     position: fixed;

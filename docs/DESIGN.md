@@ -68,22 +68,38 @@ small clump of controls in ~80% void at 1280px).
 The shell (`Shell.tsx`) is chrome, built like a screen: rail, topbar, main — never ad hoc.
 
 - **Nav rail (`.app-nav`, `NavGroups.tsx`)** — Today stands alone at the top, visually
-  primary; everything else groups into Practice / Learn / Drills / Progress. Every item is a
-  16px `<Icon>` + left-aligned label. The active item gets a 2px `--accent` rail on its left
-  edge plus `--accent-dim` fill — never accent-colored TEXT, which reads as "needs attention"
-  on an item already selected; the rail is the non-color cue rule 8 requires. A footer pins to
-  the bottom of the rail via its own flex column: current playing level and streak, display
-  only, copy in the adjectival "N-day streak" form so it never needs a plural branch.
-- **Topbar (`.app-topbar`)** — a normal, non-floating, non-sticky-at-desktop bar: a hamburger
-  + screen title at ≤1024px only (the rail is a drawer there; a screen's own `.page-header`
-  already carries the title everywhere else, so it is never duplicated), and a right-aligned
-  `.topbar-actions` cluster at every width — the slot the Reference button now mounts into,
-  with the input-status chip to follow. Nothing in this cluster ever uses `position: fixed`.
-  "Non-sticky at desktop" is now a measured position, not a default (roadmap UI-34): the bar
-  carries a status chip and one button there, and Practice already spends a sticky transport
-  bar at the top of the viewport, so sticking this one too would put ~112px of permanent
-  chrome above the score. Anything that offsets itself by `--topbar-h` must therefore do so
-  only at ≤1024px, where the bar really is overhead.
+  primary; everything else groups into Practice / Learn / Drills / Progress, inside
+  `.nav-scroll`, the rail's own scroll box (`flex: 1 1 auto; min-height: 0; overflow-y: auto`)
+  — the only part of the rail that ever scrolls. Every item is a 16px `<Icon>` + left-aligned
+  label. The active item gets a 2px `--accent` rail on its left edge plus `--accent-dim` fill —
+  never accent-colored TEXT, which reads as "needs attention" on an item already selected; the
+  rail is the non-color cue rule 8 requires.
+- **Rail footer (`.nav-rail-footer`)** — a `flex: none` sibling of `.nav-scroll`, pinned to the
+  bottom of the rail and never scrolled away regardless of how far the destination list runs.
+  Holds two tiers, in order: at >1024px only, the shell's action cluster (`.nav-actions` — the
+  input-status chip, then the Reference toggle); then, unconditionally, the current playing
+  level and streak, display only, copy in the adjectival "N-day streak" form so it never needs
+  a plural branch.
+- **Topbar (`.app-topbar`, roadmap UI-36) — ≤1024px only, not in the DOM above that.** It used
+  to render unconditionally (a hamburger + screen title + the action cluster, every width) but
+  its one real desktop cost — a permanent 56px band of nothing between the topbar and the
+  sticky rail on any scrolled desktop page (roadmap UI-34's own measured argument) — turned out
+  to have no fix that did not also delete it. Above 1024px the identical hamburger+title content
+  has nothing to do (the rail is a static sidebar, not a drawer, and every screen's own
+  `.page-header` already carries the title), so the whole element is gone, not just hidden.
+  What remains at ≤1024px: a hamburger + screen title, and the SAME action-cluster JSX the rail
+  footer holds above 1024px, right-aligned in `.topbar-actions`.
+- **One action-cluster instance, ever** — `Shell.tsx` renders the input-status chip + Reference
+  toggle as a single JSX expression, mounted into exactly one of `.topbar-actions` (≤1024px) or
+  the rail footer's `.nav-actions` (>1024px), never both. This is what lets a single ref
+  (`referenceToggleRef`) always point at a real, visible button: two independently rendered
+  copies would leave it pointing at whichever mounted last, silently wrong the other half of
+  the time. Crossing the breakpoint unmounts and remounts the cluster (its own popover-open
+  state resets; nothing about a live Bluetooth MIDI pairing does — that lives in
+  `useBluetoothMidi.ts`'s module-scope singleton, untouched by this remount) and costs two Tab
+  stops: at >1024px, Tab from the rail's last destination lands on the chip, then Reference,
+  before reaching `<main>` — `.app-nav` no longer ends at the last nav item, it ends at the
+  action cluster.
 - **Drawer (≤1024px only)** — `.app-nav` becomes an off-canvas panel; `.nav-scrim` dims the
   page behind it with the `--scrim` token, fading in over `--dur-2` on open (it unmounts
   instantly on close — no fade out — because the drawer's own e2e proof asserts the scrim is

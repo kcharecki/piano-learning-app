@@ -458,24 +458,38 @@ closed `<details>` still reports a non-zero rect, which inflated the first measu
       the other connected — the module-scope registry shares a single connection rather than the
       old single-slot clobber, which was asserted rather than assumed.
       *Proof: `npx vitest run src/app/practice` green, including the new two-consumer cases.*
-- [ ] UI-36 `app/shell`: delete the desktop topbar and rehome its two controls into the nav
-      rail's footer. UI-34 settled that the bar must NOT be sticky at desktop (it holds a
-      MIDI chip and one Reference button; sticking it would stack ~112px of permanent chrome
-      above Practice's score, on top of the transport bar). The cost of that answer is a 56px
-      strip of bare rail background above the rail once the page scrolls, and pinning the rail
-      at 0 only relocates the waste — the rail's level/streak footer then hangs below the fold
-      at rest. Removing the bar is the only move that reclaims the height instead of moving it.
-      Hazards, none of them optional: `.app-nav` is `overflow-y: auto`, so the absolutely
-      positioned input-status popover would be clipped by the rail's scroll box (needs an inner
-      scroll wrapper with the footer as a non-scrolling sibling, and the popover flipped to open
-      upward); the popover's `--z-dialog` is currently resolved against the root stacking
-      context and would become relative to `.app-nav`'s own; and the cluster still needs a home
-      at ≤1024px, so rendering it twice behind a breakpoint gate would leave
-      `referenceToggleRef` pointing at the hidden instance and silently break the Reference
-      panel's focus return. Shell.tsx is main-thread-only — this cannot be farmed out alongside
-      other shell work. *Proof: no `.app-topbar` in the DOM above 1024px; rail spans the full
-      viewport; the status popover opens unclipped from the footer; Escape still returns focus
-      to the visible Reference toggle at both widths.*
+- [x] UI-36 `app/shell`: deleted the desktop topbar and rehomed its two controls into the nav
+      rail's footer. `.app-topbar` no longer mounts at all above 1024px (`Shell.tsx`'s
+      `useCompactShell()`, a `matchMedia('(max-width: 1024px)')` hook); `.app-nav` split into
+      `.nav-scroll` (the only part that scrolls) and a pinned `.nav-rail-footer` sibling holding,
+      in order, the action cluster (desktop only) and the level/streak line. The action cluster
+      (input-status chip + Reference toggle) is one JSX expression mounted into exactly one of
+      `.topbar-actions` or `.nav-actions`, never both, so `referenceToggleRef` always points at a
+      real, visible button. The popover flips upward from the rail footer
+      (`bottom: calc(100% + var(--space-2))`) instead of the topbar's downward anchor, and
+      `.app-nav`'s z-index resolves to `--z-dialog` at desktop (back to `--z-nav` at ≤1024px,
+      where the topbar must still outrank the drawer) so the popover clears the rail rather than
+      being clipped by it. Deleted base.css's ~106-line desktop topbar block outright — UI-34's
+      own verdict (a permanent 56px band of nothing above a scrolled desktop page, with no fix
+      that didn't also delete the bar) left nothing at desktop to keep.
+      Two regressions surfaced by the full e2e run and fixed in the same slice, both downstream
+      of the rail footer becoming a fixed, non-scrolling sibling rather than sharing one scroll
+      region with the destination list: reclaiming that footer's height took the drawer's
+      scrollable content budget below its 13-item content height at exactly 1024×800, and the
+      last item's clipped-but-still-computed geometry landed on the footer's own painted box
+      (`elementFromPoint` returned the footer's `<span>`, not the button "behind" it) — closed by
+      trimming ~24px of token-scale spacing (`.nav-primary`'s margin/padding, the inter-group gap,
+      the footer's own padding-top) rather than touching the 44px touch minimum anywhere. The
+      other was the focus-trap spec's own stale assumption about where Tab exits the rail at
+      desktop, corrected once real Playwright (not `matchMedia`-unreliable browser-pane resizes)
+      showed the actual order: chip, then Reference, then `<main>`.
+      *Proof: `e2e/shell-desktop-chrome.spec.ts` (new) asserts zero `.app-topbar` above 1024px,
+      `.app-nav`'s box at y=0/height=viewport, the popover fully inside the viewport and flipped
+      above the chip, and Escape returning focus to the visible Reference toggle at both 1280 and
+      1025px; full Playwright suite 151 passed (150 + this file) after both CSS/test fixes;
+      `npm run verify` green; visual pass (Practice, Progress; 1280/1024 × dark/light) confirms no
+      bar above the score at 1280, the rail spanning the full viewport, and the 1024px topbar
+      unchanged; `npm run audit:a11y` 0 contrast failures across both themes.*
 - [ ] UI-37 `adapters/osmd`: navigating away from Practice while a score is still engraving
       throws `Cannot set properties of null (setting 'vexFlowCanvasContext')` — OSMD's async
       render resolves after the container has been torn down. Seen in the console during the

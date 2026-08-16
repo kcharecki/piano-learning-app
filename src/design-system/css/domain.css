@@ -38,7 +38,6 @@
   top: 0;
   align-self: flex-start;
   height: 100vh;
-  overflow-y: auto;
   background: var(--bg-1);
   border-right: var(--border-w) solid var(--border-1);
   padding: var(--space-3) var(--space-2);
@@ -74,7 +73,17 @@
    without this the twelve destinations render with disc markers down the
    sidebar. Scoped to .app-nav so prose lists in lesson bodies keep theirs. */
 .app-nav ul { list-style: none; margin: 0; padding: 0; }
-.app-nav button {
+/* Roadmap UI-36: scoped to `.nav-scroll` (`NavGroups.tsx`'s rail scroll box,
+   `feature-nav-groups.css`), not bare `.app-nav`, ever since the rail footer
+   gained a SECOND source of `<button>`s: the action cluster's input-status
+   chip and Reference toggle, rendered inside `.app-nav .nav-rail-footer
+   .nav-actions` at desktop (`NavGroups.tsx`'s `actions` prop). An unscoped
+   `.app-nav button` here would restyle those two as rail-item buttons —
+   full-width, transparent, `--text-2` — fighting `.btn-ghost`/`.input-status-
+   chip`'s own look and, worse, reaching into the input-status POPOVER's own
+   "Pair Bluetooth MIDI"/"Disconnect" buttons the instant it opens (the
+   popover is a DOM descendant of `.app-nav` at desktop, not a portal). */
+.app-nav .nav-scroll button {
   display: flex;
   align-items: center;
   /* The base `button` primitive centres its content, and `text-align: left`
@@ -99,8 +108,8 @@
   text-align: left;
   cursor: pointer;
 }
-.app-nav button:hover { color: var(--text-1); background: var(--bg-2); }
-.app-nav button[aria-current="page"] {
+.app-nav .nav-scroll button:hover { color: var(--text-1); background: var(--bg-2); }
+.app-nav .nav-scroll button[aria-current="page"] {
   color: var(--accent);
   background: var(--accent-dim);
 }

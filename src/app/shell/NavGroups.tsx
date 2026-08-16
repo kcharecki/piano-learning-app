@@ -22,10 +22,13 @@
  * ="Main">` (the actual landmark) stays in `Shell.tsx`, wrapping this.
  *
  * Tab order follows visual order because it IS DOM order — Today's button,
- * then each group in the order it's declared, then the footer (not
- * focusable — plain text), with no CSS `order` involved.
+ * then each group in the order it's declared, then the rail footer: the
+ * level/streak line is not focusable (plain text), but the `actions` prop
+ * (roadmap UI-36 — the shell's action cluster, desktop only) that precedes
+ * it in `.nav-rail-footer` is. No CSS `order` is involved anywhere in this.
  */
 import { Icon, type IconProps } from '@app/ui/Icon.tsx'
+import type { ReactNode } from 'react'
 import type { ScreenId } from './route.ts'
 
 export type NavItem = {
@@ -59,63 +62,100 @@ export type NavGroupsProps = {
   readonly activeScreen: ScreenId
   readonly onNavigate: (id: ScreenId) => void
   readonly footer: NavFooter
+  /**
+   * Roadmap UI-36: the shell's action cluster (input-status chip +
+   * Reference toggle) — `undefined` at <=1024px, where `Shell.tsx` renders
+   * that same cluster in the topbar instead. Rendered above the level/streak
+   * line inside `.nav-rail-footer`, never inside `.nav-scroll` — the footer
+   * is deliberately the ONE part of the rail that never scrolls out of
+   * reach, which the action cluster (an interactive control, unlike the
+   * scroll box's nav buttons) needs just as much as the footer's own
+   * display-only text does.
+   */
+  readonly actions?: ReactNode | undefined
 }
 
 function slugOf(label: string): string {
   return label.toLowerCase().replace(/[^a-z0-9]+/g, '-')
 }
 
-export function NavGroups({ primary, groups, activeScreen, onNavigate, footer }: NavGroupsProps) {
+export function NavGroups({
+  primary,
+  groups,
+  activeScreen,
+  onNavigate,
+  footer,
+  actions,
+}: NavGroupsProps) {
   return (
     <>
-      <button
-        type="button"
-        className="nav-primary"
-        aria-current={activeScreen === primary.id ? 'page' : undefined}
-        onClick={() => onNavigate(primary.id)}
-      >
-        <Icon name={primary.icon} size={16} />
-        {primary.label}
-      </button>
+      {/* Roadmap UI-36: the rail's ONLY scroll box — everything that can grow
+          past the viewport's height (Today + every group) lives inside it;
+          `.nav-rail-footer` below is a flex sibling, never a scrolled child,
+          so the action cluster and the level/streak line stay reachable
+          without scrolling regardless of how many destinations are above
+          them (feature-nav-groups.css's `.nav-scroll`/`min-height: 0` pair
+          is what makes this box — not `.app-nav` itself — the one that
+          actually shrinks and scrolls). */}
+      <div className="nav-scroll">
+        <button
+          type="button"
+          className="nav-primary"
+          aria-current={activeScreen === primary.id ? 'page' : undefined}
+          onClick={() => onNavigate(primary.id)}
+        >
+          <Icon name={primary.icon} size={16} />
+          {primary.label}
+        </button>
 
-      {groups.map((group) => {
-        const titleId = `nav-group-${slugOf(group.label)}`
-        return (
-          <div key={group.label} role="group" aria-labelledby={titleId} className="nav-group">
-            <p id={titleId} className="nav-group-title">
-              {group.label}
-            </p>
-            <ul>
-              {group.items.map((item) => (
-                <li key={item.id}>
-                  <button
-                    type="button"
-                    aria-current={activeScreen === item.id ? 'page' : undefined}
-                    onClick={() => onNavigate(item.id)}
-                  >
-                    <Icon name={item.icon} size={16} />
-                    {item.label}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )
-      })}
+        {groups.map((group) => {
+          const titleId = `nav-group-${slugOf(group.label)}`
+          return (
+            <div key={group.label} role="group" aria-labelledby={titleId} className="nav-group">
+              <p id={titleId} className="nav-group-title">
+                {group.label}
+              </p>
+              <ul>
+                {group.items.map((item) => (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      aria-current={activeScreen === item.id ? 'page' : undefined}
+                      onClick={() => onNavigate(item.id)}
+                    >
+                      <Icon name={item.icon} size={16} />
+                      {item.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )
+        })}
+      </div>
 
-      {/* Roadmap UI-04a: pinned to the bottom of the rail via `.app-nav`'s
-          flex column (`feature-nav-groups.css`) — `margin-top: auto` on
-          `.nav-footer` does the pinning, nothing here. `"N-day streak"` is
-          the adjectival form (never "N day(s)") so it never needs a plural
+      {/* Roadmap UI-36: pinned to the bottom of the rail by `.nav-rail-footer`
+          itself now (`flex: none` as a sibling of `.nav-scroll`'s `flex: 1 1
+          auto`, feature-nav-groups.css) — UI-04a's `margin-top: auto` and
+          `border-top` used to live on `.nav-footer` directly, doing that same
+          pinning inside `.app-nav`'s own flex column; both moved up to this
+          wrapper once it, not `.nav-footer`, became the last child of that
+          column. `actions` is `undefined` at <=1024px (see this prop's own
+          doc), so nothing renders above `.nav-footer` at that width; the line
+          below is unconditional at every width. `"N-day streak"` is the
+          adjectival form (never "N day(s)") so it never needs a plural
           branch — rule 7 (learner language) forbids "0 day(s)". A fresh
           profile has no streak at all yet, and "0-day streak" is itself a
           zero-row (DESIGN.md rule 6) — "No streak yet" until `streakDays`
           is actually positive. */}
-      <div className="nav-footer">
-        <Icon name="flame" size={16} />
-        <span>
-          Level {footer.level} · {footer.streakDays > 0 ? `${footer.streakDays}-day streak` : 'No streak yet'}
-        </span>
+      <div className="nav-rail-footer">
+        {actions}
+        <div className="nav-footer">
+          <Icon name="flame" size={16} />
+          <span>
+            Level {footer.level} · {footer.streakDays > 0 ? `${footer.streakDays}-day streak` : 'No streak yet'}
+          </span>
+        </div>
       </div>
     </>
   )

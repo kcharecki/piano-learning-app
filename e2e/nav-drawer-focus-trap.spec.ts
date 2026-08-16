@@ -82,11 +82,23 @@ test('at desktop width, the SAME navOpen state does not trap Tab — it leaves t
   await expect(settings).toBeFocused()
 
   // At this width `.app-nav` is a static sidebar and `<main>` sits right
-  // after it in DOM order — Tab must leave the drawer into the page, not
-  // wrap back to Today.
+  // after it in DOM order — Tab must eventually leave the drawer into the
+  // page, not wrap back to Today. Roadmap UI-36: Settings is no longer the
+  // LAST focusable control inside `.app-nav` at this width — the rail
+  // footer's action cluster (input-status chip, then Reference) sits after
+  // `.nav-scroll` as `.app-nav`'s own trailing content, so two more Tab
+  // stops land inside the nav before focus actually reaches `<main>`.
   await page.keyboard.press('Tab')
   const today = page.locator('nav.app-nav .nav-primary')
   await expect(today).not.toBeFocused()
+  const chip = page.locator('nav.app-nav .nav-actions .input-status-chip')
+  await expect(chip).toBeFocused()
+
+  await page.keyboard.press('Tab')
+  const reference = page.locator('nav.app-nav').getByRole('button', { name: 'Reference' })
+  await expect(reference).toBeFocused()
+
+  await page.keyboard.press('Tab')
   const focusedInMain = await page.evaluate(() => {
     const el = document.activeElement
     return el !== null && document.querySelector('main')?.contains(el) === true

@@ -32,9 +32,13 @@
   --content-pad: var(--space-5);
   /* The topbar's height. Defined HERE, unconditionally, as of roadmap UI-34:
      it used to be set only inside responsive.css's <=1024px block, so every
-     desktop rule that depended on it (the nav rail's sticky offset, the
-     lessons catalogue pane) had to carry a `var(--topbar-h, 56px)` fallback
-     and silently hardcode the number a second time. Four fallbacks, one real
-     value, and no way for the token to ever change without them drifting. */
+     rule that depended on it had to carry a `var(--topbar-h, 56px)` fallback
+     and silently hardcode the number a second time — one real value now, no
+     way for the token to ever change without a fallback drifting from it.
+     Roadmap UI-36 removed the topbar itself above 1024px (Shell.tsx now
+     gates it behind a live `matchMedia` check, not CSS), so this token's
+     only remaining reader is `.practice-toolbar`'s own <=1024px rule
+     (feature-practice.css) — still real, since that rule only ever applies
+     at the one width where the topbar still exists. */
   --topbar-h: 56px;
 }
