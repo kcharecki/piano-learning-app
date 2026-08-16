@@ -55,6 +55,9 @@ import {
   makeInterval,
   parseInterval,
 } from '@core/theory/intervals.ts'
+import { keyFromFifths, type Key, type Mode } from '@core/theory/keys.ts'
+import { spelledPitchClass } from '@core/theory/pitch.ts'
+import { SCALE_INTERVALS } from '@core/theory/scales.ts'
 import { HALF, type Midi, midi, QUARTER } from '@core/shared/units.ts'
 
 const MIDDLE_C = 60
@@ -150,6 +153,61 @@ function pickDirection(level: number, opts: IntervalItemOptions, rng: Rng): 1 | 
   return randomInt(rng, 0, 1) === 0 ? 1 : -1
 }
 
+/**
+ * Fifths this drill's tonal-context key is drawn from. Matches
+ * `levelDefaults.ts`'s own rule for the sight-reading generator ("never more
+ * than 2 sharps/flats below level 6") rather than a flat +-4 at every level —
+ * review finding F5(a): the old +-4 bound applied uniformly contradicted that
+ * rule, offering a level-1 learner a 4-flat/4-sharp context key no syllabus
+ * this app cites would use that early. This drill's own level ladder caps at
+ * 5 (`intervalsForLevel`), so in practice this always returns 2 today; the
+ * >=6 branch exists so the rule stays correct if the ladder is ever extended.
+ */
+function contextFifthsBound(level: number): number {
+  return level >= 6 ? 4 : 2
+}
+
+/**
+ * roadmap 5.55, redesigned per review finding F2: the tonal-context triad
+ * establishes a real KEY that the interval's own lower note is drawn AS A
+ * DIATONIC DEGREE OF (see `generateIntervalItem` below) — not, as originally
+ * shipped, a key fully independent of the item's pitch material. The
+ * original "independent key" design left the announced key and the sounding
+ * interval unrelated in practice (measured: diatonic-to-key only 30.1% of
+ * draws), which is incoherent with what a real aural exam does: the
+ * examiner's tonic triad is the key the following material is actually IN.
+ * The MODE drawn here still carries zero information about the interval's
+ * SIZE (major vs minor 3rd, level 1's own answer pair) — mode and interval
+ * size are independent draws — so establishing a coherent key does not hand
+ * the answer over; see the "distribution" test for the proof.
+ */
+function pickContextKey(level: number, rng: Rng): Key {
+  const bound = contextFifthsBound(level)
+  const fifths = randomInt(rng, -bound, bound)
+  const mode: Mode = randomInt(rng, 0, 1) === 0 ? 'major' : 'minor'
+  return keyFromFifths(fifths, mode)
+}
+
+/** `key`'s own diatonic pitch classes (0-11) — major or natural-minor scale
+ *  degrees built from `SCALE_INTERVALS` directly (never `buildScale`, which
+ *  spells each degree and can throw for an exotic key; only pitch-class
+ *  membership is needed here). */
+function diatonicPitchClasses(key: Key): ReadonlySet<number> {
+  const scaleType = key.mode === 'major' ? 'major' : 'naturalMinor'
+  const tonicPc = spelledPitchClass(key.tonic)
+  return new Set(SCALE_INTERVALS[scaleType].map((interval) => (tonicPc + interval) % 12))
+}
+
+/** Every Midi in `[low, high]` whose pitch class is diatonic to `key`, ascending. */
+function diatonicCandidatesInRange(key: Key, low: Midi, high: Midi): readonly Midi[] {
+  const pcs = diatonicPitchClasses(key)
+  const out: Midi[] = []
+  for (let m = low; m <= high; m++) {
+    if (pcs.has(((m % 12) + 12) % 12)) out.push(midi(m))
+  }
+  return out
+}
+
 export function generateIntervalItem(level: number, opts: IntervalItemOptions, rng: Rng): EarItem {
   const range = opts.range ?? DEFAULT_RANGE
   invariant(
@@ -165,9 +223,16 @@ export function generateIntervalItem(level: number, opts: IntervalItemOptions, r
   )
   const interval = pick(rng, pool)
   const direction = pickDirection(level, opts, rng)
+  const contextKey = pickContextKey(level, rng)
 
-  const maxLow = Math.min(range.high, 127 - interval.semitones)
-  const lowMidi = midi(randomInt(rng, range.low, maxLow))
+  // The lower note is drawn AS A DIATONIC DEGREE of `contextKey` (review
+  // finding F2c) — falls back to the old uniform draw only when no diatonic
+  // pitch class exists in range at all (a degenerate custom range, e.g. a
+  // single MIDI value that happens not to be one of the key's 7 degrees).
+  const maxLow = midi(Math.min(range.high, 127 - interval.semitones))
+  const diatonicLows = diatonicCandidatesInRange(contextKey, range.low, maxLow)
+  const lowMidi =
+    diatonicLows.length > 0 ? pick(rng, diatonicLows) : midi(randomInt(rng, range.low, maxLow))
   const highMidi = midi(lowMidi + interval.semitones)
   const hand: Hand = lowMidi >= MIDDLE_C ? 'right' : 'left'
 
@@ -205,11 +270,21 @@ export function generateIntervalItem(level: number, opts: IntervalItemOptions, r
         ],
       })
 
-  // The lower note anchors the tonal context (roadmap 5.28) — an interval
-  // item has no real key, so the lower note itself is the most honest thing
-  // to call "the tonic" here: it is the note the learner's ear settles on
-  // before the interval moves away from it.
-  return { id, kind, prompt, answerKey, level, contextTonicMidi: lowMidi }
+  // The lower note anchors `contextTonicMidi` (roadmap 5.28) — see that
+  // field's own doc in item.ts for why this stays exactly as 5.28 shipped it
+  // (RevealPanel's post-answer root highlight), distinct from `contextKey`
+  // (roadmap 5.55, drawn above and now the very key `lowMidi` was drawn
+  // diatonic to — see `pickContextKey`'s doc) which is what the PRE-answer
+  // tonal-context triad actually plays from.
+  return {
+    id,
+    kind,
+    prompt,
+    answerKey,
+    level,
+    contextTonicMidi: lowMidi,
+    contextKey,
+  }
 }
 
 // ---------------------------------------------------------------------------

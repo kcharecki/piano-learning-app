@@ -235,7 +235,7 @@ fixes count only if the prose is on screen.
       this source and never applied here. Blocks **sight reading**.
       *Proof: a driven level-1 exercise engraves quarter and half notes and no whole notes; the
       monotonic-ladder property test in `levelDefaults.test.ts`/`melody.test.ts` extended to rhythm.*
-- [ ] 5.55 `app/eartraining` + `core/eartraining`: 5.28's "tonal context" is documented in its own code
+- [x] 5.55 `app/eartraining` + `core/eartraining`: 5.28's "tonal context" is documented in its own code
       as "a drone: tonic + fifth" — an **open fifth, with no third**, so it cannot establish major or
       minor. Both cited authorities specify something that can: RCM 2022 "identify the key, **play the
       tonic triad once**"; ABRSM 2025–26 aural p.45 "**play a tonic chord** (to establish the key)".
@@ -247,6 +247,17 @@ fixes count only if the prose is on screen.
       *Proof: the recorded `AudioOutput` calls carry three distinct pitch classes forming the key's own
       tonic triad before the item's first note (the 5.28/3.13 pattern — assert the calls, not the
       projection), a minor-key item sounds a minor triad, and the key is read off the running screen.*
+      **Shipped**, then **redesigned by adversarial review**: the first pass gave chord-quality and
+      scale-mode drills a random *independent* `contextKey` too — a worse leak, since their own
+      answer IS a key/mode. Context now applies only where the answer isn't the key itself: interval
+      (diatonic lower note of `contextKey`) and melodic-dictation. Chord-quality/scale-mode carry no
+      `contextKey` and render no label. `scheduleContext`'s triad transposes under the item's lowest
+      prompt note; `scheduleItem` anchors `baseMs` on the *earliest* scheduled offset (was `now()`),
+      so the pre-roll no longer collapses onto the first note. The label latches to the context last
+      actually scheduled, not the live toggle.
+      `npx vitest run src/core/eartraining src/app/eartraining` — 257 tests green, incl. distribution
+      properties (≥1000 seeds: ≥6 keys, both modes, P(major) ∈ [.42, .58]) and an every-event-≥-now
+      property. `npm run typecheck` and `npx eslint src/core/eartraining src/app/eartraining` clean.
 - [ ] 5.58 `core/eartraining/dictation`: 5.34's per-level bounds are systematically shorter than the
       syllabus they cite — app level 1 is **2–3 notes**, RCM is **4 at Preparatory A and 5 at Level 1**
       (verified 2026-08-12); app level 5 is 7–8 against RCM's 8–10. Re-anchor the ladder on the quoted

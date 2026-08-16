@@ -330,7 +330,13 @@ export function generateMelodicDictation(level: number, opts: DictationOptions, 
   const clampedLevel = Math.min(5, Math.max(1, Math.round(level)))
   // roadmap 5.28: melodic dictation is generated IN a real Key (`key`,
   // above) — unlike every other drill here, this one gets to use the actual
-  // tonic rather than a stand-in.
+  // tonic rather than a stand-in. roadmap 5.55: `contextKey` is that SAME
+  // real key, mode included — a real minor-key phrase gets a real minor
+  // tonic triad before it, which is legitimate here (unlike every other
+  // drill's independent-key fix, `pickContextKey` in intervals.ts/chords.ts)
+  // because what this drill grades is the notes and rhythm the learner plays
+  // back, never "major or minor", so reflecting the genuine key teaches
+  // nothing false.
   return {
     id,
     kind: 'melodic-dictation',
@@ -338,6 +344,7 @@ export function generateMelodicDictation(level: number, opts: DictationOptions, 
     answerKey,
     level: clampedLevel,
     contextTonicMidi: toMidi(key.tonic),
+    contextKey: key,
   }
 }
 

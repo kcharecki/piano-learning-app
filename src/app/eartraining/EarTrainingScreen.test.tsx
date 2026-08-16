@@ -146,6 +146,10 @@ describe('EarTrainingScreen — melodic dictation', () => {
   // Asserted against the RECORDED AudioOutput calls with exact timestamps, not the rendered
   // "count-in plays first" label — a label proves nothing about what actually reached the
   // AudioOutput (see the module doc's own warning about the silent PLAY_VELOCITY = 0 defect).
+  // `baseMs` is `clock.now()` AT SCHEDULE TIME, not the count-in's own first
+  // click — review finding F1: `scheduleItem` anchors playback earlier than
+  // a bare `now()` reading so nothing ever lands in the past, so the
+  // count-in's first (accented) click now lands exactly AT `baseMs`.
   it('plays a one-bar count-in of clicks before the prompt notes', async () => {
     const user = userEvent.setup()
     const { audioOutput, clock } = setup()
@@ -156,13 +160,13 @@ describe('EarTrainingScreen — melodic dictation', () => {
 
     const clicks = audioOutput.calls.filter((c) => c.kind === 'click')
     expect(clicks).toEqual([
-      { kind: 'click', accented: true, at: baseMs - 2000 },
-      { kind: 'click', accented: false, at: baseMs - 1500 },
-      { kind: 'click', accented: false, at: baseMs - 1000 },
-      { kind: 'click', accented: false, at: baseMs - 500 },
+      { kind: 'click', accented: true, at: baseMs },
+      { kind: 'click', accented: false, at: baseMs + 500 },
+      { kind: 'click', accented: false, at: baseMs + 1000 },
+      { kind: 'click', accented: false, at: baseMs + 1500 },
     ])
     const firstNoteOn = audioOutput.calls.find((c) => c.kind === 'noteOn')
-    expect(firstNoteOn?.at).toBe(baseMs)
+    expect(firstNoteOn?.at).toBe(baseMs + 2000)
   })
 
   it('pressing back the exact prompt notes at the exact moments they played, then submitting, grades it correct with a per-note breakdown', async () => {
@@ -551,17 +555,107 @@ describe('EarTrainingScreen — tonal context toggle (roadmap 5.28)', () => {
     expect(toggle).toBeChecked()
 
     await user.click(screen.getByRole('button', { name: 'Play item' }))
-    // Level 1 melodic interval prompt is 2 notes; the default-on drone adds
-    // 2 more (tonic + fifth) ahead of them.
-    expect(audioOutput.calls.filter((c) => c.kind === 'noteOn')).toHaveLength(4)
+    // Level 1 melodic interval prompt is 2 notes; the default-on tonal
+    // context (roadmap 5.55: a real tonic triad, 3 notes) adds 3 more ahead
+    // of them.
+    expect(audioOutput.calls.filter((c) => c.kind === 'noteOn')).toHaveLength(5)
     const afterFirstPlay = audioOutput.calls.filter((c) => c.kind === 'noteOn').length
 
     await user.click(toggle)
     expect(toggle).not.toBeChecked()
     await user.click(screen.getByRole('button', { name: 'Replay' }))
 
-    // Only the 2 prompt notes this time — no drone.
+    // Only the 2 prompt notes this time — no tonal-context triad.
     expect(audioOutput.calls.filter((c) => c.kind === 'noteOn')).toHaveLength(afterFirstPlay + 2)
+  })
+
+  // roadmap 5.55, review finding F4c: pins the EXACT string, not just the
+  // `/^Key: /` shape — a scripted rng makes the drawn key deterministic
+  // (level 1, all-zero draws: fifths = -2, mode = major -> Bb major), so a
+  // generator that always drew the same key regardless of level/rng, or one
+  // that named it wrong, would still have passed the old shape-only regex.
+  it('shows the tonal-context key by its exact name while the toggle is on', async () => {
+    const user = userEvent.setup()
+    const clock = new FakeClock(9000)
+    const audioOutput = new RecordingAudioOutput(clock)
+    const date = new FakeClock(1_700_000_000_000)
+    const midiInput = new FakeMidiInput()
+    render(
+      <EarTrainingScreen
+        date={date}
+        audioOutput={audioOutput}
+        rng={scriptedRng([0])}
+        midiInput={midiInput}
+      />,
+    )
+
+    expect(screen.queryByTestId('eartraining-context-key')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
+    expect(screen.getByTestId('eartraining-context-key')).toHaveTextContent('Key: Bb major')
+  })
+
+  // roadmap 5.55, review finding F5b: the label must follow whatever
+  // `tonalContext` value the LAST actually-scheduled playback used, not the
+  // checkbox's live state — merely toggling the checkbox (no Play/Replay
+  // yet) must not move a label describing audio that already played.
+  it('the key label does not change on toggle alone — only once Replay actually reschedules audio with the new setting', async () => {
+    const user = userEvent.setup()
+    const clock = new FakeClock(9000)
+    const audioOutput = new RecordingAudioOutput(clock)
+    const date = new FakeClock(1_700_000_000_000)
+    const midiInput = new FakeMidiInput()
+    render(
+      <EarTrainingScreen
+        date={date}
+        audioOutput={audioOutput}
+        rng={scriptedRng([0])}
+        midiInput={midiInput}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
+    expect(screen.getByTestId('eartraining-context-key')).toHaveTextContent('Key: Bb major')
+
+    const toggle = screen.getByRole('checkbox', { name: 'Play tonal context before each item' })
+    await user.click(toggle)
+    // Toggling alone: the already-played audio DID have a triad, so the
+    // label describing it must still be there.
+    expect(screen.getByTestId('eartraining-context-key')).toHaveTextContent('Key: Bb major')
+
+    await user.click(screen.getByRole('button', { name: 'Replay' }))
+    // Now that Replay actually rescheduled audio with tonal context off,
+    // the label follows.
+    expect(screen.queryByTestId('eartraining-context-key')).not.toBeInTheDocument()
+  })
+
+  // roadmap 5.55, review finding F3/F2b: a chord-quality item's own answer
+  // set IS a major/minor-style pair, so it carries no `contextKey` at all —
+  // no triad, no label, regardless of the toggle.
+  it('shows no key label at all for a chord-quality item, even with tonal context on', async () => {
+    const user = userEvent.setup()
+    const clock = new FakeClock(9000)
+    const audioOutput = new RecordingAudioOutput(clock)
+    const date = new FakeClock(1_700_000_000_000)
+    const midiInput = new FakeMidiInput()
+    render(
+      <EarTrainingScreen
+        date={date}
+        audioOutput={audioOutput}
+        rng={scriptedRng([0])}
+        midiInput={midiInput}
+      />,
+    )
+    // The tonal-context toggle defaults on (unlike this file's own setup()
+    // helper, which unchecks it) — no need to touch it here.
+    expect(
+      screen.getByRole('checkbox', { name: 'Play tonal context before each item' }),
+    ).toBeChecked()
+
+    await user.selectOptions(screen.getByLabelText('Drill'), 'Chord quality')
+    await user.click(screen.getByRole('button', { name: 'Play item' }))
+
+    expect(screen.queryByTestId('eartraining-context-key')).not.toBeInTheDocument()
   })
 })
 

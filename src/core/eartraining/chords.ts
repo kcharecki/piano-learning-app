@@ -218,9 +218,17 @@ export function generateChordQualityItem(level: number, opts: ChordItemOptions, 
     notes: arpeggiated ? arpeggiatedChordNotes(notes, hand) : blockChordNotes(notes, hand),
   })
   // The chord's own root — not affected by which inversion actually sounds
-  // (roadmap 5.28): the tonal-context drone establishes the ROOT as a
-  // reference, exactly like the answer itself is graded by quality, never by
-  // voicing (see this module's own doc on inversions grading as their quality).
+  // (roadmap 5.28): `contextTonicMidi` stays the ROOT as a reference (see
+  // item.ts's own doc on why RevealPanel's use of it is untouched), exactly
+  // like the answer itself is graded by quality, never by voicing (see this
+  // module's own doc on inversions grading as their quality). No `contextKey`
+  // (roadmap 5.55, review finding F2b): this drill's own answer set IS a
+  // major/minor-style quality choice with no separate "key" to establish
+  // that would not either leak the answer (a triad matching the drawn
+  // quality) or actively mislead (a triad in the OTHER quality) — quality ID
+  // is context-free by design in every syllabus this app cites, so this item
+  // gets no tonal-context triad and no on-screen key label at all. See
+  // item.ts's own doc on `contextKey` for the full rationale.
   return {
     id,
     kind: 'chord-quality',
@@ -274,8 +282,14 @@ export function generateScaleModeItem(level: number, opts: ScaleItemOptions, rng
 
   const id = `scale-mode:${type}:${notes.join('-')}`
   const prompt = makeScore({ id, measures: [{}], notes: noteInputs })
-  // roadmap 5.28: the scale's own tonic is the tonal context to establish —
-  // it is also the prompt's own first and last sounding note.
+  // roadmap 5.28: `contextTonicMidi` stays the scale's own tonic — it is
+  // also the prompt's own first and last sounding note, and RevealPanel
+  // reads it unchanged (item.ts's own doc). No `contextKey` (roadmap 5.55,
+  // review finding F2b) for the same reason `generateChordQualityItem` above
+  // has none: level 1's own answer set is exactly {major, naturalMinor}, so
+  // any tonal-context triad here either leaks or misleads the mode answer —
+  // scale/mode ID is context-free by design. See item.ts's own doc on
+  // `contextKey`.
   return {
     id,
     kind: 'scale-mode',

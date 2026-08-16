@@ -14,10 +14,13 @@
  *
  * ## Playback
  *
- * Every note in `item.prompt` is scheduled on the `AudioOutput` from a single
- * `audioOutput.now()` reading plus the score's own tick->ms mapping
- * (`@core/timing/tempo.ts`), exactly as the task brief asks — never a second
- * clock reading per note, and never hand-rolled tick/tempo arithmetic.
+ * Every note in `item.prompt`, plus any pre-roll (tonal-context triad,
+ * dictation count-in), is scheduled on the `AudioOutput` from a single
+ * `audioOutput.now()` reading, offset by the earliest pre-roll event's own
+ * tick (`scheduleItem`'s `earliestEventTick` — review finding F1, so nothing
+ * scheduled ever lands in the past) plus the score's own tick->ms mapping
+ * (`@core/timing/tempo.ts`) — never a second clock reading per note, and
+ * never hand-rolled tick/tempo arithmetic.
  *
  * ## Phase
  *
@@ -106,6 +109,7 @@ import {
 } from '@core/eartraining/dictation.ts'
 import { nextDueItemId, recordEarAttempt, type EarAttempt } from '@core/eartraining/session.ts'
 import { retentionStats, type RetentionStats } from '@core/srs/scheduler.ts'
+import { invariant } from '@core/shared/invariant.ts'
 import { bpmAtTick, makeTempoMap, msToTick, tickToMs, type TempoMap } from '@core/timing/tempo.ts'
 import type { AudioOutput, DateSource, MidiInput, Rng } from '@core/ports/index.ts'
 import { seededRng } from '@core/ports/rng.ts'
@@ -119,8 +123,9 @@ import {
   type Millis,
   type Ticks,
 } from '@core/shared/units.ts'
-import type { ChordQuality } from '@core/theory/chords.ts'
+import { buildChord, chordMidi, type ChordQuality } from '@core/theory/chords.ts'
 import { parseInterval, type Interval } from '@core/theory/intervals.ts'
+import { keyName, type Key } from '@core/theory/keys.ts'
 import type { ScaleType } from '@core/theory/scales.ts'
 
 export type EarTrainingPhase = 'idle' | 'playing' | 'answering' | 'graded'
@@ -154,12 +159,19 @@ export type UseEarTrainingOptions = {
   readonly midiInput?: MidiInput
   readonly connectMidi?: ConnectMidi
   /**
-   * Play a brief tonic-context (a drone: tonic + fifth) before every item —
-   * REQ-3.6.1/REQ-3.6.2's "establish a tonal center first" (roadmap 5.28).
-   * Defaults on. Pass `false` for context-free practice: functional
-   * (key-relative) and context-free (interval-only) hearing are
-   * complementary skills, neither one obsoleting the other — see this
-   * option's own module-doc section below.
+   * Play a brief tonic-context (the key's own tonic TRIAD, root position,
+   * octave-placed just below the item's own lowest note — roadmap 5.55,
+   * replacing 5.28's bare tonic+fifth, which has no third and so cannot
+   * establish major or minor) before every item that carries a `contextKey`
+   * — REQ-3.6.1/REQ-3.6.2's "establish a tonal center first". That is
+   * `interval-*` and `melodic-dictation` only: `chord-quality`/`scale-mode`
+   * never carry one (review finding F2b — their own answer set is itself a
+   * major/minor-style pair, so a context triad there would leak or mislead,
+   * never merely orient), and `rhythmic-dictation` has no scale. Defaults
+   * on. Pass `false` for context-free practice: functional (key-relative)
+   * and context-free (interval-only) hearing are complementary skills,
+   * neither one obsoleting the other — see this option's own module-doc
+   * section below.
    */
   readonly tonalContext?: boolean
 }
@@ -181,6 +193,15 @@ export type UseEarTraining = {
    *  display — REQ-3.6.1 (roadmap 3.23), see the module doc's "A count-in and
    *  a displayed tempo" section. `undefined` with no item loaded yet. */
   readonly promptTempoBpm: number | undefined
+  /**
+   * The tonal-context key's name (`'G major'`, `'E minor'` — `theory/keys.ts`'s
+   * own `keyName`), for the screen to name the key the way RCM's examiner
+   * does out loud (roadmap 5.55). `undefined` when the current item carries
+   * no `contextKey` (rhythmic dictation), none is loaded yet, or `tonalContext`
+   * is off — context-free practice means genuinely no tonal hint, spoken or
+   * played, not just a muted drone with the answer's key still named on screen.
+   */
+  readonly contextKeyName: string | undefined
   setKind(kind: EarItemKind): void
   /** Generate (SRS-due, else fresh) and play the next item for the current kind. */
   start(): void
@@ -372,60 +393,155 @@ function scheduleIntervalReference(audioOutput: AudioOutput, semitones: number, 
   audioOutput.noteOff(target, millis(baseMs + REFERENCE_NOTE_SPACING_MS + REFERENCE_NOTE_MS))
 }
 
-/** Beats of tonic-drone context (tonic + fifth, held together) played before an item
- *  (roadmap 5.28) — see `scheduleContext`'s own doc below. */
+/** Beats of tonic-TRIAD context (held together) played before an item — roadmap 5.55, replacing
+ *  5.28's tonic+fifth drone (see `contextTriadMidi`'s own doc for why). */
 const CONTEXT_BEATS = 2
 /** Softer than a prompt note's own velocity (score notes default around 80):
- *  the drone is a reference to listen past, not the thing being graded. */
+ *  the triad is a reference to listen past, not the thing being graded. */
 const CONTEXT_VELOCITY = 55
 
 /**
- * A tonic + fifth drone ending exactly at `endTick` — negative-tick scheduled
- * against the item's own tempo map, the same `tickToMs` extrapolation
- * `scheduleCountIn` already uses, so no second hand-rolled ms/tick
- * computation exists in this file. `endTick` is tick 0 for a non-dictation
- * item, or the count-in's own start tick for a dictation item (see
- * `scheduleItem`) — the drone always finishes right where the NEXT sound
- * begins, never overlapping it.
+ * The three sounding MIDI pitches of `key`'s own tonic triad, root position —
+ * built with `buildChord`/`chordMidi`, the exact same theory functions every
+ * other real chord in this app goes through, never semitone arithmetic on a
+ * bare MIDI number (that was 5.28's `tonicMidi + 7` for the fifth, which is
+ * why it could not represent a third at all).
+ *
+ * roadmap 5.55: RCM 2022 ("The examiner will identify the key, play the
+ * tonic triad once…") and ABRSM 2025-26 aural p.45 ("The examiner will play
+ * a tonic chord (to establish the key)…") both specify a full triad; 5.28's
+ * "a drone: tonic + fifth" has no third, so it could establish a tonic
+ * pitch but never major-vs-minor — exactly the one thing this level 1's own
+ * answer sets ({M3, m3} for intervals, {major, minor} for chords, {major,
+ * naturalMinor} for scales) need distinguished. `key.mode` is a real `Mode`
+ * ('major' | 'minor'), which is also a real `ChordQuality`, so it passes
+ * straight through with no conversion.
+ */
+function contextTriadMidi(key: Key): readonly Midi[] {
+  return chordMidi(buildChord(key.tonic, key.mode, 0))
+}
+
+/** Lowest MIDI pitch of `pitches` — small local helper so `triadBelow`
+ *  does not need a second import just to reduce over 3 numbers. */
+function lowestOf(pitches: readonly Midi[]): Midi {
+  const low = pitches.reduce((min, p) => Math.min(min, p), Infinity)
+  invariant(Number.isFinite(low), 'lowestOf: pitches must be non-empty')
+  return midi(low)
+}
+
+/** Highest MIDI pitch of `pitches` — see `lowestOf`. */
+function highestOf(pitches: readonly Midi[]): Midi {
+  const high = pitches.reduce((max, p) => Math.max(max, p), -Infinity)
+  invariant(Number.isFinite(high), 'highestOf: pitches must be non-empty')
+  return midi(high)
+}
+
+/**
+ * Octave-transposes `triad` (whole chord, shape preserved) so its root sits
+ * at the highest MIDI value <= `belowMidi` that is a whole number of octaves
+ * from where `triad` already is — i.e. the register of `triad` nearest
+ * below (or, failing that, clamped to stay within 0-127) the item's own
+ * lowest sounding prompt note. Review finding F5c: the triad used to play at
+ * a fixed `KEY_OCTAVE` register (MIDI 60-78 for the tonic) regardless of
+ * where the item's own prompt actually sits (this drill's items span roughly
+ * 48-72), so a context key drawn near either end of that range could sound a
+ * full octave or more away from the material it introduces — audible as a
+ * register jump, not a smooth "here is the key, here is the item" handoff.
+ */
+function triadBelow(triad: readonly Midi[], belowMidi: Midi): readonly Midi[] {
+  const root = triad[0]
+  invariant(root !== undefined, 'triadBelow: triad must have at least one pitch')
+  let shift = Math.floor((belowMidi - root) / 12) * 12
+  while (lowestOf(triad) + shift < 0) shift += 12
+  while (highestOf(triad) + shift > 127) shift -= 12
+  return triad.map((p) => midi(p + shift))
+}
+
+/**
+ * A tonic-TRIAD reference ending exactly at `endTick` — negative-tick
+ * scheduled against the item's own tempo map, the same `tickToMs`
+ * extrapolation `scheduleCountIn` already uses, so no second hand-rolled
+ * ms/tick computation exists in this file. `endTick` is tick 0 for a
+ * non-dictation item, or the count-in's own start tick for a dictation item
+ * (see `scheduleItem`) — the triad always finishes right where the NEXT
+ * sound begins, never overlapping it. `lowestPromptMidi` positions the
+ * triad's own register via `triadBelow` (review finding F5c) — never the
+ * item's answer, only where the prompt itself already sits.
  */
 function scheduleContext(
   audioOutput: AudioOutput,
-  tonicMidi: Midi,
+  key: Key,
   baseMs: Millis,
   tempoMap: TempoMap,
   endTick: Ticks,
+  lowestPromptMidi: Midi,
 ): void {
-  const fifth = midi(tonicMidi + 7)
   const startTick = ticks(endTick - CONTEXT_BEATS * TICKS_PER_QUARTER)
   const onMs = millis(baseMs + tickToMs(tempoMap, startTick))
   const offMs = millis(baseMs + tickToMs(tempoMap, endTick))
-  for (const pitch of [tonicMidi, fifth]) {
+  for (const pitch of triadBelow(contextTriadMidi(key), lowestPromptMidi)) {
     audioOutput.noteOn(pitch, CONTEXT_VELOCITY, onMs)
     audioOutput.noteOff(pitch, offMs)
   }
 }
 
+/** The start tick of the count-in, for a dictation item — one bar before tick 0. Also the
+ *  context triad's own end tick for a dictation item (see `scheduleItem`): the triad always
+ *  finishes exactly where the count-in begins. */
+function countInStartTick(item: EarItem): Ticks {
+  const beats = item.prompt.measures[0]?.timeSignature.beats ?? 4
+  return ticks(-beats * TICKS_PER_QUARTER)
+}
+
 /**
- * Schedule every note of `item.prompt` from one `audioOutput.now()` reading, plus (in order)
- * a tonal-context drone (roadmap 5.28, unless `tonalContext` is false or the item carries no
- * `contextTonicMidi` — see `scheduleContext`'s own doc above) and a count-in for a dictation
- * item (module doc's "A count-in and a displayed tempo" section). Both extras schedule BEFORE
- * the prompt's own notes and never touch their timestamps, so grading (which only ever reads
- * `item.prompt`/the learner's answer) is unaffected either way.
+ * The most-negative tick any event `scheduleItem` will schedule for `item` starts at — `ticks(0)`
+ * when nothing precedes the prompt (no context, no count-in). Review finding F1: `scheduleItem`
+ * used to anchor every timestamp to a bare `audioOutput.now()` reading and schedule the pre-roll
+ * (context triad, and — a pre-existing instance of the same bug — the dictation count-in) at
+ * NEGATIVE offsets from it, i.e. strictly in the past. The webaudio adapter clamps any past
+ * timestamp to "right now" (`webaudio.ts`'s `toCtxSeconds`, `Math.max(ctx.currentTime, seconds)`),
+ * which silently collapsed the whole pre-roll onto the prompt's own first note instead of playing
+ * before it. Anchoring `baseMs` here instead — this many ms EARLIER than `audioOutput.now()` — is
+ * the fix: every subsequently-computed timestamp becomes `>= audioOutput.now()`, so nothing the
+ * adapter schedules is ever in the past, while every relative gap (triad-to-prompt, count-in
+ * beats, prompt's own internal timing) is preserved exactly as `tickToMs` already computes it.
+ */
+function earliestEventTick(item: EarItem, isDictation: boolean, hasContext: boolean): Ticks {
+  const countInTick = isDictation ? countInStartTick(item) : ticks(0)
+  const contextEndTick = isDictation ? countInStartTick(item) : ticks(0)
+  const contextStartTick = hasContext
+    ? ticks(contextEndTick - CONTEXT_BEATS * TICKS_PER_QUARTER)
+    : ticks(0)
+  return ticks(Math.min(0, countInTick, contextStartTick))
+}
+
+/**
+ * Schedule every note of `item.prompt`, plus (in order) a tonal-context tonic triad (roadmap 5.55,
+ * unless `tonalContext` is false or the item carries no `contextKey` — see `scheduleContext`'s own
+ * doc above) and a count-in for a dictation item (module doc's "A count-in and a displayed tempo"
+ * section). Both extras schedule BEFORE the prompt's own notes and never touch their timestamps,
+ * so grading (which only ever reads `item.prompt`/the learner's answer) is unaffected either way.
+ *
+ * `baseMs` is anchored via `earliestEventTick` (review finding F1), not a bare `audioOutput.now()`
+ * read — see that function's own doc for why: every timestamp scheduled below is guaranteed
+ * `>= audioOutput.now()` as a result, which a bare `now()` anchor did not guarantee once anything
+ * was scheduled at a negative tick offset (the context triad, and the dictation count-in).
  */
 function scheduleItem(audioOutput: AudioOutput, item: EarItem, tonalContext: boolean): void {
   const tempoMap = makeTempoMap(item.prompt.tempos)
-  const baseMs = audioOutput.now()
   const isDictation = isDictationKind(item.kind)
-  if (tonalContext && item.contextTonicMidi !== undefined) {
-    // The drone ends where the FIRST sound after it begins: tick 0 for every
+  const hasContext = tonalContext && item.contextKey !== undefined
+  const earliestTick = earliestEventTick(item, isDictation, hasContext)
+  const baseMs = millis(audioOutput.now() - tickToMs(tempoMap, earliestTick))
+  if (hasContext && item.contextKey !== undefined) {
+    // The triad ends where the FIRST sound after it begins: tick 0 for every
     // other kind, or the count-in's own start tick for a dictation item — a
     // dictation item's count-in must stay the sound immediately before the
     // prompt (REQ-3.6.1's pulse-before-you-play-it purpose), not have the
-    // drone wedged between it and the prompt.
-    const beats = item.prompt.measures[0]?.timeSignature.beats ?? 4
-    const contextEndTick = isDictation ? ticks(-beats * TICKS_PER_QUARTER) : ticks(0)
-    scheduleContext(audioOutput, item.contextTonicMidi, baseMs, tempoMap, contextEndTick)
+    // triad wedged between it and the prompt.
+    const contextEndTick = isDictation ? countInStartTick(item) : ticks(0)
+    const lowestPromptMidi = midi(Math.min(...item.prompt.notes.map((n) => n.midi)))
+    scheduleContext(audioOutput, item.contextKey, baseMs, tempoMap, contextEndTick, lowestPromptMidi)
   }
   if (isDictation) scheduleCountIn(audioOutput, item, baseMs, tempoMap)
   for (const note of item.prompt.notes) {
@@ -482,6 +598,15 @@ export function useEarTraining(options: UseEarTrainingOptions = {}): UseEarTrain
   // state: it never needs to trigger a render on its own, only alongside a
   // dictationNotes update.
   const firstPressMsRef = useRef<Millis | undefined>(undefined)
+  // Latches the `tonalContext` value actually used by the LAST `scheduleItem`
+  // call (`playItemNow`/`replay`), so `contextKeyName` (below) describes what
+  // was actually scheduled, not `options.tonalContext` read live — review
+  // finding F5b: reading it live meant toggling tonal context mid-item (after
+  // `start()` already scheduled audio, before the next `start()`/`replay()`)
+  // changed the on-screen label for audio that had already been scheduled the
+  // OTHER way, e.g. showing "Key: ..." over a triad that never actually
+  // played, or hiding a key name a triad already sounded.
+  const lastScheduledTonalContextRef = useRef<boolean>(options.tonalContext ?? true)
 
   // A new kind always starts idle, with no stale item/grade from the
   // previous drill lingering — mirrors `useFlashcardDrill`'s deck-change
@@ -512,7 +637,9 @@ export function useEarTraining(options: UseEarTrainingOptions = {}): UseEarTrain
   }
 
   function playItemNow(next: EarItem): void {
-    scheduleItem(getAudioOutput(), next, options.tonalContext ?? true)
+    const tonalContext = options.tonalContext ?? true
+    lastScheduledTonalContextRef.current = tonalContext
+    scheduleItem(getAudioOutput(), next, tonalContext)
     setPhase('playing')
   }
 
@@ -539,7 +666,9 @@ export function useEarTraining(options: UseEarTrainingOptions = {}): UseEarTrain
     // grade is on screen, and re-entering 'answering'/'playing' would let a
     // second answer on the same item record a duplicate EarAttempt while the
     // learner can see the answer. See the review finding this fixes.
-    scheduleItem(getAudioOutput(), item, options.tonalContext ?? true)
+    const tonalContext = options.tonalContext ?? true
+    lastScheduledTonalContextRef.current = tonalContext
+    scheduleItem(getAudioOutput(), item, tonalContext)
     // A dictation in progress must not survive a replay: pressDictationNote
     // anchors every later press to the *first* press's wall-clock time, and
     // replaying touches neither `dictationNotes` nor `firstPressMsRef` — so a
@@ -679,6 +808,16 @@ export function useEarTraining(options: UseEarTrainingOptions = {}): UseEarTrain
   const promptTempoBpm =
     item === undefined ? undefined : bpmAtTick(makeTempoMap(item.prompt.tempos), ticks(0))
 
+  // roadmap 5.55: named the way RCM's examiner names it out loud — undefined
+  // whenever the audio context itself would be (no item, no `contextKey`, or
+  // tonal context off — see `contextKeyName`'s own doc on `UseEarTraining`).
+  // Reads `lastScheduledTonalContextRef`, not `options.tonalContext` live —
+  // see that ref's own doc (review finding F5b).
+  const contextKeyName =
+    item?.contextKey === undefined || !lastScheduledTonalContextRef.current
+      ? undefined
+      : keyName(item.contextKey)
+
   return {
     phase,
     item,
@@ -688,6 +827,7 @@ export function useEarTraining(options: UseEarTrainingOptions = {}): UseEarTrain
     kind,
     midi,
     promptTempoBpm,
+    contextKeyName,
     setKind: setKindState,
     start,
     replay,

@@ -196,10 +196,11 @@ export function describeExpected(kind: EarItemKind, expected: string): string {
 }
 
 export function EarTrainingScreen(props: EarTrainingScreenProps) {
-  // Roadmap 5.28: tonal context defaults ON (a tonic drone before every
-  // item) — this is the learner's own opt-out, kept as screen-local state so
-  // toggling it never regenerates or re-grades the current item, only
-  // changes what the NEXT `start()`/`replay()` schedules.
+  // Roadmap 5.28: tonal context defaults ON (5.55: a real tonic TRIAD before
+  // every item, not the original bare tonic+fifth) — this is the learner's
+  // own opt-out, kept as screen-local state so toggling it never
+  // regenerates or re-grades the current item, only changes what the NEXT
+  // `start()`/`replay()` schedules.
   const [tonalContext, setTonalContext] = useState(true)
   const drill = useEarTraining({ ...props, tonalContext })
   const kind = drill.kind
@@ -337,6 +338,21 @@ export function EarTrainingScreen(props: EarTrainingScreenProps) {
           />
           Play tonal context before each item
         </label>
+
+        {/* roadmap 5.55: names the key the way RCM's examiner does out loud
+            ("The examiner will identify the key, play the tonic triad
+            once…") — undefined (so nothing renders) exactly when the tonic
+            triad itself would not sound: no item yet, no real key to
+            establish (rhythmic dictation — rhythm has no scale; chord-quality
+            and scale-mode, review finding F2b — their own answer IS a
+            major/minor-style pair), or the learner has switched tonal context
+            off. `role="status"` (review finding F5e) so a screen reader
+            announces the key the same way it would hear an examiner speak it. */}
+        {drill.contextKeyName !== undefined && (
+          <p role="status" data-testid="eartraining-context-key" className="eartraining-stage-meta">
+            Key: {drill.contextKeyName}
+          </p>
+        )}
 
         {isDictation && drill.promptTempoBpm !== undefined && (
           <p data-testid="dictation-tempo" className="eartraining-stage-meta">

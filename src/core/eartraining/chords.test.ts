@@ -122,6 +122,23 @@ describe('generateChordQualityItem', () => {
     )
   })
 
+  // roadmap 5.55, review finding F2b: level 1's own answer set IS exactly
+  // {major, minor}, so ANY tonal-context triad here would either leak the
+  // answer (matches the drawn quality) or actively mislead (does not) —
+  // there is no key to establish that is not itself part of the question.
+  // Quality ID is context-free by design; this item carries no `contextKey`
+  // at all, on any level or seed (replaces the old "independent key" tests,
+  // which the redesign made obsolete — that design is what F2 found
+  // incoherent in the first place).
+  it('carries no tonal-context key at all, on any level or seed (property)', () => {
+    fc.assert(
+      fc.property(levelArb, seedArb, (level, seed) => {
+        const item = generateChordQualityItem(level, {}, seededRng(seed))
+        expect(item.contextKey).toBeUndefined()
+      }),
+    )
+  })
+
   it('property: any other quality grades wrong, reporting both sides', () => {
     fc.assert(
       fc.property(levelArb, seedArb, (level, seed) => {
@@ -262,6 +279,18 @@ describe('generateScaleModeItem', () => {
       fc.property(levelArb, seedArb, (level, seed) => {
         const item = generateScaleModeItem(level, {}, seededRng(seed))
         expect(item.contextTonicMidi).toBe(item.prompt.notes[0]?.midi)
+      }),
+    )
+  })
+
+  // roadmap 5.55, review finding F2b — same reason as the chord-quality
+  // drill above: level 1's own scale-type set is exactly {major,
+  // naturalMinor}, so this item carries no `contextKey` at all.
+  it('carries no tonal-context key at all, on any level or seed (property)', () => {
+    fc.assert(
+      fc.property(levelArb, seedArb, (level, seed) => {
+        const item = generateScaleModeItem(level, {}, seededRng(seed))
+        expect(item.contextKey).toBeUndefined()
       }),
     )
   })
