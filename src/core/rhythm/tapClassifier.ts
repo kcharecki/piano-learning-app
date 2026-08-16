@@ -32,14 +32,28 @@
  *
  * This is the same trade the pitched `NoteMatcher` makes for missed notes
  * (`closeWindows`'s cursor only ever moves forward), generalised to matching
- * itself: for the well-separated onsets real generated patterns produce (see
- * `clapback.ts`'s own tolerance-vs-floor reasoning — the matching window is
- * always comfortably under half the level's shortest gap), FIFO and
- * global-nearest agree on every tap, which is exactly the "clean run" case
- * `classifyTap`'s consistency property below pins against `gradeTapping`.
- * They can only diverge when two onsets' windows genuinely overlap, and in
- * that narrow case FIFO is the one that can never violate ordering — the
- * property this module exists to guarantee for live feedback.
+ * itself. FIFO and global-nearest are GUARANTEED to agree on every tap only
+ * when no two onsets' matching windows can overlap, i.e. `2 * toleranceTicks`
+ * is strictly less than the shortest gap between successive onsets. That is
+ * NOT automatically true of a config-supplied tolerance: `core/generator/
+ * rhythm.ts`'s minimum onset gap shrinks as complexity rises (480 ticks at
+ * complexity 1-2, 240 at 3-4, 120 at 5 — `MIN_DURATION_BY_COMPLEXITY`), while
+ * a tolerance sized once for the loosest case does not shrink to match, so at
+ * complexity >= 3 an ungoverned tolerance can legitimately exceed half the
+ * level's own floor — a real, measured divergence (FIFO calls a tap 'late'
+ * against onset N while `gradeTapping`'s global-nearest hands the SAME tap to
+ * onset N+1 instead), not merely a theoretical one.
+ *
+ * `effectiveToleranceTicks` (below) is what actually closes that gap: every
+ * caller derives ONE tolerance per run — `min(configToleranceTicks,
+ * floor((minSuccessiveGap - 1) / 2))` over that run's own onset grid — and
+ * passes that SAME clamped value both to this live classifier and to
+ * `gradeTapping`/`gradeClapback`'s own tolerance parameter. With
+ * `2 * toleranceTicks < minSuccessiveGap` enforced this way, no two onsets'
+ * windows can ever overlap, so FIFO and global-nearest are provably identical
+ * on every input — the property `classifyTap`'s consistency test below pins
+ * against `gradeTapping`, for every tap sequence, not only the well-separated
+ * common case.
  *
  * ## Two windows, not one: `hit` vs `early`/`late`
  *
@@ -67,8 +81,19 @@
  * never sees it — so stopping mid-pattern can never mark an unplayed onset
  * missed. Stopping at or after the last onset's own window has elapsed closes
  * everything there is to close, which is definitionally the same state the
- * run reaches on its own, so `snapshotGrade` afterward equals the ordinary
- * run-ended grade.
+ * run reaches on its own.
+ *
+ * Roadmap U.3 fix round: a caller grading a manual Stop no longer reads that
+ * final grade off `snapshotGrade` — it reads `TapClassifierState.lo` (the
+ * count of DECIDED onsets: matched + missed, always equal by construction —
+ * see `TapClassifierState`'s own doc) after calling `closeExpiredOnsets`, and
+ * uses that to slice the pattern's own onsets down to the decided prefix
+ * before handing it to `gradeTapping`/`gradeClapback` — the same batch grader
+ * a natural finish uses, just over a restricted input, rather than a second,
+ * differently-shaped grade this module would compute itself. `lo === 0` (a
+ * Stop before anything was decided) is the caller's signal to record no grade
+ * at all, rather than a technically-truthful-but-meaningless "0 of 0"
+ * summary.
  */
 import { at, invariant } from '@core/shared/invariant.ts'
 import { ticks as asTicks, type Ticks } from '@core/shared/units.ts'
@@ -111,7 +136,10 @@ export type TapClassifierGrade = {
   readonly matched: number
   readonly missed: number
   readonly extra: number
-  /** `matched / (matched + missed + extra)`; 1 when nothing has been decided yet. */
+  /** `matched / (matched + missed + extra)`; 0 (not a perfect score — nothing
+   *  has been earned) when nothing has been decided yet. Roadmap U.3 fix
+   *  round: this used to default to 1, which is what let a manual Stop at
+   *  tick 0 (nothing tapped, nothing decided) read as a 100% run. */
   readonly accuracy: number
   /** Mean |deltaTicks| over matched taps; 0 when nothing has matched. */
   readonly meanAbsDeviationTicks: number
@@ -130,6 +158,44 @@ export function defaultHitWindowTicks(toleranceTicks: Ticks): Ticks {
     `defaultHitWindowTicks: toleranceTicks must be a finite number >= 0, got ${toleranceTicks}`,
   )
   return asTicks(toleranceTicks * DEFAULT_HIT_WINDOW_RATIO)
+}
+
+/**
+ * The tolerance actually safe to use against `onsetTicks` — clamped so this
+ * module's FIFO matching and the batch graders' (`gradeTapping`/
+ * `gradeClapback`) global-nearest matching are PROVABLY identical on every
+ * input; see the module doc's "FIFO matching" section for why an
+ * un-clamped tolerance cannot promise that at higher complexities/levels.
+ * `configToleranceTicks` is the tolerance the caller would reach for if onset
+ * spacing were no concern (`TAPPING_DEFAULTS`-derived, or a clap-back level's
+ * own `toleranceTicksForLevel`); this clamps it down only as far as the run's
+ * OWN onsets actually require, never further.
+ *
+ * Two onsets' windows can only overlap when `2 * toleranceTicks` reaches the
+ * gap between them, so half the shortest gap between successive onsets —
+ * minus one, floored, so a tap sitting exactly halfway between two onsets is
+ * never simultaneously inside both windows — is the largest tolerance that
+ * can never let that happen. Fewer than two onsets means there is no gap to
+ * protect, so the caller's own tolerance passes through unchanged.
+ */
+export function effectiveToleranceTicks(
+  onsetTicks: readonly Ticks[],
+  configToleranceTicks: Ticks,
+): Ticks {
+  invariant(
+    Number.isFinite(configToleranceTicks) && configToleranceTicks >= 0,
+    `effectiveToleranceTicks: configToleranceTicks must be a finite number >= 0, got ${configToleranceTicks}`,
+  )
+  if (onsetTicks.length < 2) return configToleranceTicks
+
+  let minGap = Number.POSITIVE_INFINITY
+  for (let i = 1; i < onsetTicks.length; i++) {
+    const gap = at(onsetTicks, i) - at(onsetTicks, i - 1)
+    invariant(gap >= 0, 'effectiveToleranceTicks: onsetTicks must be sorted ascending')
+    if (gap < minGap) minGap = gap
+  }
+  const cap = Math.floor((minGap - 1) / 2)
+  return asTicks(Math.max(0, Math.min(configToleranceTicks, cap)))
 }
 
 function validateOptions(opts: TapClassifierOptions): void {
@@ -245,16 +311,27 @@ export function classifyTap(
   return { classification: undefined, state: { ...expired, extra: expired.extra + 1 } }
 }
 
-/** Everything decided so far — matched or closed-out-missed — as one grade.
- *  Onsets still pending (window not yet elapsed) are excluded entirely; see
- *  the module doc's "Grading a prefix safely" section. */
+/**
+ * Everything decided so far — matched or closed-out-missed — as one grade.
+ * Onsets still pending (window not yet elapsed) are excluded entirely; see
+ * the module doc's "Grading a prefix safely" section.
+ *
+ * Roadmap U.3 fix round: this is now LIVE-HUD-ONLY — never the source of a
+ * run summary on any path (natural finish or manual Stop both grade with the
+ * SAME batch grader the other uses, `gradeTapping`/`gradeClapback`, over
+ * whichever onsets/taps are in scope; see `app/rhythm/useRhythmDrill.ts`'s
+ * and `useClapbackDrill.ts`'s own `stopRun` comments). `accuracy` is 0, not
+ * 1, when nothing has been decided (`total === 0`) — a caller that DID once
+ * treat this as a run summary (a manual Stop before anything was graded) used
+ * to read that as a perfect 100% run; nothing decided is not a perfect score.
+ */
 export function snapshotGrade(state: TapClassifierState): TapClassifierGrade {
   const total = state.matched + state.missed + state.extra
   return {
     matched: state.matched,
     missed: state.missed,
     extra: state.extra,
-    accuracy: total === 0 ? 1 : state.matched / total,
+    accuracy: total === 0 ? 0 : state.matched / total,
     meanAbsDeviationTicks: state.matched === 0 ? 0 : state.deviationSum / state.matched,
   }
 }

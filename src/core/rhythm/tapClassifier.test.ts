@@ -8,6 +8,7 @@ import {
   classifyTap,
   closeExpiredOnsets,
   defaultHitWindowTicks,
+  effectiveToleranceTicks,
   initTapClassifierState,
   snapshotGrade,
   DEFAULT_HIT_WINDOW_RATIO,
@@ -338,8 +339,143 @@ describe('tapClassifier — everyday shape', () => {
     expect(grade.extra).toBe(1)
   })
 
-  it('grade on an empty onset grid with no taps is accuracy 1 (nothing to grade)', () => {
+  it('grade on an empty onset grid with no taps is accuracy 0 (nothing decided is not a perfect score)', () => {
+    // Roadmap U.3 fix round (BLOCKER-2): this used to be accuracy 1, which is
+    // exactly what let a manual Stop at tick 0 — nothing tapped, nothing
+    // decided — read as a 100% run.
     const state = initTapClassifierState(0)
-    expect(snapshotGrade(state)).toEqual({ matched: 0, missed: 0, extra: 0, accuracy: 1, meanAbsDeviationTicks: 0 })
+    expect(snapshotGrade(state)).toEqual({ matched: 0, missed: 0, extra: 0, accuracy: 0, meanAbsDeviationTicks: 0 })
+  })
+})
+
+describe('tapClassifier — effectiveToleranceTicks (roadmap U.3 fix round, BLOCKER-1)', () => {
+  it('passes the config tolerance through unchanged for fewer than 2 onsets', () => {
+    expect(effectiveToleranceTicks([], ticks(200))).toBe(200)
+    expect(effectiveToleranceTicks([ticks(1000)], ticks(200))).toBe(200)
+  })
+
+  it("the review's own reproducer: onsets [0, 240], config tolerance 144 clamps to 119", () => {
+    // core/generator/rhythm.ts's complexity 3-4 floor (240 ticks) with
+    // TAPPING_DEFAULTS.toleranceMs's tick equivalent (144) unclamped: two
+    // onsets' +-144 windows overlap in [96, 240-96]=[96,144]... concretely,
+    // floor((240 - 1) / 2) = 119, strictly under the un-clamped 144.
+    const onsetTicks = [ticks(0), ticks(240)]
+    expect(effectiveToleranceTicks(onsetTicks, ticks(144))).toBe(119)
+  })
+
+  it("the reproducer end to end: taps [140, 360] against onsets [0, 240] now agree between the live classifier and gradeTapping", () => {
+    const onsetTicks: readonly Ticks[] = [ticks(0), ticks(240)]
+    const effTol = effectiveToleranceTicks(onsetTicks, ticks(144))
+    expect(effTol).toBe(119)
+    const o = opts(Number(effTol), Math.floor(Number(effTol) / 3))
+
+    const { state } = classifyAll(onsetTicks, [ticks(140), ticks(360)], o)
+    const finalState = closeExpiredOnsets(onsetTicks, state, ticks(240 + Number(effTol) + 1), o)
+    const liveGrade = snapshotGrade(finalState)
+    expect(liveGrade).toMatchObject({ matched: 1, missed: 1, extra: 1 })
+    expect(liveGrade.accuracy).toBeCloseTo(1 / 3)
+
+    const tempo = makeTempoMap([])
+    const pattern: RhythmPattern = {
+      timeSignature: { beats: 4, beatType: 4 },
+      bars: 1,
+      onsets: onsetTicks.map((t) => ({ tick: t, durationTicks: ticks(1), isRest: false })),
+    }
+    const batch = gradeTapping(
+      pattern,
+      [ticks(140), ticks(360)].map((t) => millis(Number(tickToMs(tempo, t)))),
+      tempo,
+      { toleranceMs: Number(tickToMs(tempo, effTol)) },
+    )
+    expect(batch.matched).toBe(liveGrade.matched)
+    expect(batch.missed).toBe(liveGrade.missed)
+    expect(batch.extra).toBe(liveGrade.extra)
+  })
+
+  it('folding the live classifier over arbitrary taps at the clamped tolerance always agrees with gradeTapping exactly', () => {
+    fc.assert(
+      fc.property(
+        // Strictly-increasing onset ticks: a cumulative sum of positive gaps,
+        // starting at 0 — 0 gaps is a single onset (exercises the <2 branch).
+        fc.array(fc.integer({ min: 1, max: 2000 }), { minLength: 0, maxLength: 12 }).map((gaps) => {
+          let t = 0
+          const out = [ticks(0)]
+          for (const g of gaps) {
+            t += g
+            out.push(ticks(t))
+          }
+          return out
+        }),
+        fc.array(fc.integer({ min: -2000, max: 25000 }), { minLength: 0, maxLength: 15 }),
+        fc.integer({ min: 1, max: 400 }),
+        (onsetTicks, rawTaps, configTolerance) => {
+          const taps = [...rawTaps].sort((a, b) => a - b).map((n) => ticks(n))
+          const effTol = effectiveToleranceTicks(onsetTicks, ticks(configTolerance))
+          const o = opts(Number(effTol), Math.floor(Number(effTol) / 3))
+
+          const { state } = classifyAll(onsetTicks, taps, o)
+          const lastOnset = onsetTicks[onsetTicks.length - 1] as number
+          const finalState = closeExpiredOnsets(onsetTicks, state, ticks(lastOnset + Number(effTol) + 1), o)
+          const liveGrade = snapshotGrade(finalState)
+
+          const tempo = makeTempoMap([])
+          const pattern: RhythmPattern = {
+            timeSignature: { beats: 4, beatType: 4 },
+            bars: 1,
+            onsets: onsetTicks.map((t) => ({ tick: t, durationTicks: ticks(1), isRest: false })),
+          }
+          const tapMs = taps.map((t) => millis(Number(tickToMs(tempo, t))))
+          const batch = gradeTapping(pattern, tapMs, tempo, {
+            toleranceMs: Number(tickToMs(tempo, effTol)),
+          })
+
+          expect(liveGrade.matched).toBe(batch.matched)
+          expect(liveGrade.missed).toBe(batch.missed)
+          expect(liveGrade.extra).toBe(batch.extra)
+        },
+      ),
+      { numRuns: 300 },
+    )
+  })
+})
+
+describe('tapClassifier — mutation-killer fixed examples (roadmap U.3 fix round)', () => {
+  it('meanAbsDeviationTicks is the mean of ABSOLUTE deviations, not the signed mean, over mixed early+late taps', () => {
+    // Onset 0 tapped 30 early (delta -30), onset 1 tapped 50 late (delta
+    // +50). A signed-sum mutant would compute (-30 + 50) / 2 = 10; the
+    // correct |deviation| mean is (30 + 50) / 2 = 40.
+    const onsetTicks: readonly Ticks[] = [ticks(1000), ticks(2000)]
+    const o = opts(200, 60)
+    let state = initTapClassifierState(2)
+    state = classifyTap(onsetTicks, state, ticks(970), o).state
+    state = classifyTap(onsetTicks, state, ticks(2050), o).state
+    const grade = snapshotGrade(state)
+    expect(grade.matched).toBe(2)
+    expect(grade.meanAbsDeviationTicks).toBe(40)
+  })
+
+  it('accuracy is matched / (matched + missed + extra) — deliberately NOT onsetCount, with all three non-zero and two onsets left pending', () => {
+    // 5 onsets, but only 2 are ever decided (1 matched, 1 missed) and 1 extra
+    // tap lands in the dead zone between them — onsets 3 and 4 are left
+    // pending on purpose. total (matched+missed+extra = 3) and onsetCount (5)
+    // deliberately differ here, so a mutant that divided by onsetCount
+    // instead of total (1/5 = 0.2) is caught — a fixture where they
+    // coincidentally match would let that mutant survive.
+    const onsetTicks: readonly Ticks[] = [ticks(0), ticks(1000), ticks(2000), ticks(3000), ticks(4000)]
+    const o = opts(200, 60)
+    let state = initTapClassifierState(5)
+    // Onset 0: matched on time.
+    state = classifyTap(onsetTicks, state, ticks(0), o).state
+    // Onset 1's tap never comes — closed out as missed once its window elapses.
+    state = closeExpiredOnsets(onsetTicks, state, ticks(1300), o)
+    // A stray tap in the dead zone between onset 1 (closed) and onset 2
+    // (window not yet open): matches nothing, an extra.
+    state = classifyTap(onsetTicks, state, ticks(1500), o).state
+    const grade = snapshotGrade(state)
+    expect(grade.matched).toBe(1)
+    expect(grade.missed).toBe(1)
+    expect(grade.extra).toBe(1)
+    // 1 / (1 + 1 + 1) = 1/3 exactly, not 1/5 (onsetCount) and not 1/2 (matched+missed only).
+    expect(grade.accuracy).toBeCloseTo(1 / 3, 10)
   })
 })
