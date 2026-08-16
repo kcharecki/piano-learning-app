@@ -235,4 +235,67 @@ describe('LEVEL_ROWS — hand-range congruency (roadmap 5.11 regression)', () =>
       expect(p.rightRange.low - p.leftRange.low).toBe(p.rightRange.high - p.leftRange.high)
     }
   })
+
+  /**
+   * roadmap 5.53b: the `'unison'` check above only covers rows whose
+   * `levelDescriptions.ts` prose promises octave doubling. Level 3's own
+   * prose ("Both hands move in parallel thirds") is checked by
+   * `handIndependence === 'parallel'` here instead — `levelDescriptions.ts`'s
+   * own module doc says hand-independence prose describes
+   * `generateSecondHand`'s literal per-case behaviour, so `'parallel'` is the
+   * field that stands for that sentence, the same way `'unison'` stands for
+   * the octave-doubling one above.
+   *
+   * Unlike the `'unison'` check, this is NOT provable from `LEVEL_ROWS`
+   * alone: a `leftRange` can be perfectly plausible-looking on paper and
+   * still leave `doubleHand`'s register-correct target unreachable for the
+   * high end of `rightRange`, silently degrading "parallel thirds" into
+   * "mostly wrong intervals" (5.2% of level 3's engraved simultaneities,
+   * before this task — see `levelDefaults.ts`'s own module doc for the
+   * measured before/after). So this asserts on GENERATED output, sampled
+   * over real seeds, exactly like the leap-ceiling block above.
+   */
+  it("'parallel' rows engrave a diatonic third (or tenth) between the hands on almost every simultaneity, matching levelDescriptions.ts's promise", () => {
+    for (const level of LEVELS) {
+      const params = defaultParamsForLevel(level)
+      if (params.handIndependence !== 'parallel') continue
+
+      let thirdOrTenth = 0
+      let dissonant = 0 // tritone (6) or minor/major 7th (10, 11) — never a "parallel third"
+      let total = 0
+      for (let seed = 0; seed < SAMPLE_SEEDS; seed++) {
+        const result = generateMelody(params, seededRng(seed))
+        if (!result.ok) continue
+        const right = handNotes(result.value, 'right')
+        const left = handNotes(result.value, 'left')
+        const leftByTick = new Map<number, number[]>()
+        for (const n of left) leftByTick.set(n.startTick, [...(leftByTick.get(n.startTick) ?? []), n.midi])
+        const rightByTick = new Map<number, number[]>()
+        for (const n of right) rightByTick.set(n.startTick, [...(rightByTick.get(n.startTick) ?? []), n.midi])
+        for (const [tick, rPitches] of rightByTick) {
+          const lPitches = leftByTick.get(tick)
+          // A simultaneity: exactly one note per hand at this tick. `doubleHand`
+          // mirrors the primary line's rhythm exactly, so every onset here IS
+          // one — this mirrors `verticalIntervals`'s exclusion of chord tones
+          // the same way `monophonicSequence` above excludes them for leaps.
+          if (lPitches === undefined || rPitches.length !== 1 || lPitches.length !== 1) continue
+          const interval = Math.abs((rPitches[0] as number) - (lPitches[0] as number))
+          total += 1
+          if (interval === 3 || interval === 4 || interval === 15 || interval === 16) thirdOrTenth += 1
+          if (interval === 6 || interval === 10 || interval === 11) dissonant += 1
+        }
+      }
+      expect(total).toBeGreaterThan(0)
+      // Pinned to what was actually measured for level 3's re-graded
+      // leftRange (roadmap 5.53b, `scratchpad-vertical-probe.ts`, 200 seeds,
+      // not committed): 99.8% thirds/tenths, 0 tritones/7ths out of 8907
+      // simultaneities. Thresholds sit with margin below/above that so the
+      // test isn't flaky on a different sample, but ABOVE the old `48..67`
+      // leftRange's own measured baseline (94.7% thirds/tenths, 78
+      // tritones/8907) — reverting `levelDefaults.ts`'s level-3 leftRange
+      // back to `48..67` fails both assertions below (hand-verified).
+      expect(thirdOrTenth / total).toBeGreaterThanOrEqual(0.97)
+      expect(dissonant).toBe(0)
+    }
+  })
 })
