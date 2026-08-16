@@ -116,6 +116,15 @@ item lands inside a slice that drives something (specs state their proof surface
       is where `subdivisionCellTick`'s swung positions get an actual caller; DR-13 (grid
       editor) needs to decide how it surfaces `scoreToGrid`'s "note not grid-aligned" /
       "two notes share a cell" `Err` cases in the UI.
+      Post-merge verification (2026-08-16, independent Opus pass, verdict MERGE) added
+      three DR-13-relevant notes: (a) `GrooveGrid` carries no `swingUnit` — `gridToScore`
+      infers it from the subdivision, so a score→grid→score round trip silently rewrites
+      the swing feel (`sixteenth`→`eighth` and mirror); harmless while grid→score→grid is
+      the only documented invariant, but DR-13's editor does the other direction — put
+      `swingUnit` on `GrooveGrid` first. (b) `grid.ts`'s comment overstates why
+      `gridToScore` returns `Result`: a `cellsPerMeasure` inconsistent with the time
+      signature returns `Ok` on the straight path. (c) `parse.ts` maps an unknown
+      `<swing-type>` to `'eighth'` silently — foreign-file leniency, worth a doc line.
 - [ ] DR-02 E-drum MIDI input — kit maps, presets, MIDI-learn wizard, CC4 hi-hat state
       machine, chokes, debounce → [spec](features/DR-02-edrum-midi-input.md)
 - [ ] DR-03 ‖ Fallback inputs — keyboard map with dynamics modifiers, on-screen pads,
