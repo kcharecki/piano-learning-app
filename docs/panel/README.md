@@ -19,6 +19,8 @@ it requires. Values come from here.
 | `DRIVE_LOG_PATH` | `runs/<id>/drive.md`, written at §1c. |
 | `LEARNER_PROFILE` | The persona: stage, current grade, this week's goal. |
 | `BANNED_SOURCES` | `docs/ux-pedagogy-review-2026-08-12.md`, `docs/drums/research-2026-08-15.md`, and any other of this app's own digests. |
+| `PICK_SOURCE` | The `--source` the §2 pick recorded. Teacher seat only: it decides whether the slice is citation-exempt. |
+| `HARM_HYPOTHESIS` | Teacher seat only. The pick's stated harm hypothesis for a `1a`/`1e`/`reg`/`idea` pick, verbatim. For a cited pick, exactly `n/a — this pick carries citations`, never blank: a blank here is a stop under the rule below, and a Teacher given one would review a citation-exempt slice with nothing to judge. |
 
 **A token the template requires and the run cannot supply is a stop, not a blank.** A seat given
 an empty `{{STATE_RECIPES}}` reports the states as checked without ever forcing one, and a seat

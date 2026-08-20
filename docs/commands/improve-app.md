@@ -74,12 +74,12 @@ node scripts/improve-run.mjs pick --source <1a-1e|reg|idea> --instrument <piano|
 ```
 
 `--instrument` must match the persona or `pick` refuses; 1b and 1e are repo-wide and the top row
-is usually piano, so without that gate the alternation is decorative. `pick` derives the tier and
-enforces, in order: **harm gate**, **prerequisites win**,
-**innovation quota**, **continue-then-rotate**; the script refuses the call that breaks them. The
-**quota** — no instrument goes three consecutive runs of its own without a `VOID`, `THIN`, `reg`
-or `idea` pick — outranks the thread rule, because the other two overrides can only ever be won
-by a repair. A thread the quota defers waits one run of its instrument, cap not advancing.
+is usually piano, without which the alternation is decorative. `--harm 1` and `--class HARMFUL`
+must agree; `VOID` forces tier L; one `pick` per run. `pick` enforces, in order: **harm gate**,
+**prerequisites win**, **innovation quota**, **continue-then-rotate**, refusing the call that
+breaks them. The **quota** — no instrument goes three consecutive runs of its own without a
+`VOID`, `THIN`, `reg` or `idea` pick — outranks the thread rule, because the other two overrides
+can only ever be won by a repair. A thread the quota defers waits one run of its own, cap frozen.
 
 | Tier | Set by | Panel | Adds |
 |---|---|---|---|

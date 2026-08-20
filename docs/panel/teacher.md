@@ -45,12 +45,23 @@ If {{ROUND}} is 2 or higher, a clean round is not automatically a pass:
 5. **Cite your standard.** For each pedagogical judgement give the claim, a verbatim quote from a
    syllabus or method book (grade and page, or a URL you fetched in this session), and one
    sentence saying why that quote supports your judgement. A named authority with no quote is not
-   a citation. Do not cite the app's own docs as pedagogy authority.
+   a citation. Do not cite the app's own docs as pedagogy authority. **If {{PICK_SOURCE}} is
+   `1a`, `1e`, `reg` or `idea`, this slice is citation-exempt** — the learner does not cite, and a
+   genuinely new idea has no syllabus precedent. Judge its stated harm hypothesis instead:
+   {{HARM_HYPOTHESIS}}. Say whether that is the real way this could teach the wrong thing, or
+   whether a likelier one goes unstated. Never manufacture a citation to fill this section.
+6. **If this slice ships a proxy, is the proxy disclosed?** A slice from the cannot-sense register
+   measures a stand-in for something the app cannot sense — velocity variance for touch, signed
+   per-limb offset for the pocket. It must show the learner the *measurement*, labelled as a proxy,
+   in the learner's own words, on the screen that shows it — never a verdict on the unsensable
+   thing. "Your snare sits 18 ms behind the click, consistently" ships; "your feel is good" does
+   not. **A proxy the learner is not told is a proxy is a BLOCKER.** You are the only seat that
+   checks this. Name the screen and quote the words that appear on it.
 
 ## Severity
 
 `BLOCKER` — ships a wrong musical fact, teaches a defect, loses learner data, or breaks a screen
-the learner reaches today. `MAJOR` — the claim is not actually true for some real learner state,
+the learner reaches today. `MAJOR` — the claim is not true for some real learner state,
 or the feedback is wrong enough that a teacher would contradict it. `MINOR` — everything else.
 Grade against this rubric, not against how hard the fix looks. The polish loop ends on zero
 BLOCKER and zero MAJOR, so a finding you soften to MINOR ends the run.
@@ -62,7 +73,9 @@ One line per finding, most severe first, each exactly:
 
 Then `CITATIONS:` one block per finding that needs one, each `claim / quote / entailment`.
 Then `ENDORSE: <YES|NO> — <one sentence>`. Endorsing means you would let a student of yours use
-this feature unsupervised.
+this feature unsupervised. On a citation-exempt pick you are endorsing the harm hypothesis — that
+it names the real way this could teach the wrong thing — not a syllabus match, because there is no
+syllabus here to match.
 
 No preamble. No praise. No summary of the diff back to me.
 
@@ -79,3 +92,5 @@ No preamble. No praise. No summary of the diff back to me.
 {{PRIOR_FINDINGS}} — earlier rounds' findings and the commits that answered them.
 {{FIX_DIFF_REF}} — reference to the diff of fixes made since the last round.
 {{CLAIM}} — the teaching claim this slice makes.
+{{PICK_SOURCE}} — the discovery source the pick came from, which decides whether it is citation-exempt.
+{{HARM_HYPOTHESIS}} — the pick's stated harm hypothesis, or the fixed string for a cited pick.

@@ -51,9 +51,10 @@
  *
  *   node scripts/improve-run.mjs start [--budget <minutes, default 240>]
  *   node scripts/improve-run.mjs mark <0|1a|1b|1c|1d|1e|2|3|4|5|6|7|8>
- *   node scripts/improve-run.mjs pick --source <1a|1b|1c|1d|1e> --instrument <piano|drums>
+ *   node scripts/improve-run.mjs pick --source <1a|1b|1c|1d|1e|reg|idea> --instrument <piano|drums>
+ *       --class <VOID|THIN|BLIND|HARMFUL|MIS-GRADED|MIS-GATED|UNREACHABLE|FLAT>
  *       --sum <0-12> --cost <S|M|L> --leader-gap <n> --harm <0|1> --thread <slug|none>
- *       --metric <name> --baseline <value> [--payoff <id> --prereqs <n>]
+ *       [--payoff <id> --prereqs <n>] --metric <name> --baseline <value>
  *   node scripts/improve-run.mjs thread --slug <slug> --state <open|abandoned|shipped>
  *       [--reason <text>]
  *   node scripts/improve-run.mjs spec --id <id> --red-exit <code>
@@ -84,12 +85,21 @@ import { pathToFileURL } from 'node:url'
 const DEFAULT_LEDGER = 'runs/ledger.ndjson'
 
 const SECTIONS = ['0', '1a', '1b', '1c', '1d', '1e', '2', '3', '4', '5', '6', '7', '8']
-const SOURCES = ['1a', '1b', '1c', '1d', '1e']
+// 'reg' (the cannot-sense register) and 'idea' (the idea register) are first-class discovery
+// sources alongside 1a-1e (docs/improve-log.md "Entry schema", docs/commands/improve-app.md
+// §1/§2) — NOT added to SECTIONS, which are the loop's fixed steps, not discovery sources.
+const SOURCES = ['1a', '1b', '1c', '1d', '1e', 'reg', 'idea']
 const COSTS = ['S', 'M', 'L']
 const OUTCOMES = ['clean', 'shipped-not-clean', 'abort']
 const THREAD_STATES = ['open', 'abandoned', 'shipped']
 const INSTRUMENTS = ['piano', 'drums']
 const DEFAULT_THREAD_CAP = 3
+
+// Gap classes, in the order docs/improve/method.md's "Gap classes" table lists them. THIN is
+// explicitly "the only non-deficiency class" there — every other class names a defect. VOID and
+// THIN are also the two classes that count as new capability / under-served capability rather
+// than repair, which is exactly why the innovation quota below keys off them.
+const GAP_CLASSES = ['HARMFUL', 'MIS-GRADED', 'MIS-GATED', 'VOID', 'BLIND', 'UNREACHABLE', 'THIN', 'FLAT']
 
 // 8 personas, alternating PIANO/DRUMS by table position. The alternation is load-bearing:
 // without it, one instrument starves while the other gets every run (this app is two
@@ -231,6 +241,14 @@ const startEventFor = (events, runId) =>
   events.find((e) => e.event === 'start' && e.run === runId)
 const pickEventFor = (events, runId) => eventsForRun(events, runId).find((e) => e.event === 'pick')
 const hasSlice = (events, runId) => eventsForRun(events, runId).some((e) => e.event === 'slice')
+// Mirrors hasSlice: a run gets exactly one metric verdict, the same way it gets exactly one
+// slice — two verdicts on one run would mean the ledger has two answers for what the run's
+// metric did and cannot say which is authoritative.
+const hasVerdict = (events, runId) => eventsForRun(events, runId).some((e) => e.event === 'verdict')
+// Same shape again: a run gets exactly one pick — this is the one `pickEventFor`'s `.find()`
+// semantics make dangerous to skip, since a second pick wouldn't error, it would just be
+// silently ignored by every reader that calls `pickEventFor` and gets the first one back.
+const hasPick = (events, runId) => eventsForRun(events, runId).some((e) => e.event === 'pick')
 
 function personaIndexAt(events) {
   let starts = 0
@@ -290,10 +308,68 @@ const describeCapOrigin = (info) =>
     ? `payoff "${info.payoff}", ${info.prereqs} prerequisite(s), opened at run ${info.openingRun}`
     : `default cap, opened at run ${info.openingRun}`
 
+// A pick "satisfies the innovation quota" (docs/commands/improve-app.md §2) iff it is new
+// capability (class VOID), an under-served capability the app already has (class THIN), or came
+// from one of the two registers that exist specifically to surface what the other four discovery
+// sources structurally cannot (source reg = cannot-sense register, source idea = idea register).
+// Every other class is a repair, however well it scores — the quota's whole job is to stop a
+// process that can legitimately rank repairs highest every single run from doing that forever.
+const satisfiesQuota = (pick) =>
+  pick.class === 'VOID' || pick.class === 'THIN' || pick.source === 'reg' || pick.source === 'idea'
+
+/** How many consecutive runs OF `instrument`, walking backward from just before `currentRunId`
+ * through same-instrument runs only, picked a gap that did NOT satisfy the innovation quota
+ * (`satisfiesQuota` above) — returned as the run ids themselves (most-recent-first), not a bare
+ * count, so a refusal message can name them. Shape mirrors `consecutiveThreadStreak` below
+ * exactly (same-instrument runs only, walked backward, an other-instrument run skipped over
+ * entirely) with the match condition inverted: this counts MISSES and stops at the first run
+ * that satisfies the quota, where `consecutiveThreadStreak` counts MATCHES and stops at the
+ * first run that doesn't name the thread.
+ *
+ * A run with no `pick` event at all (an abort) counts as a MISS, not a stop. The quota's rule is
+ * "no instrument goes three consecutive runs of its own without a VOID/THIN/reg/idea pick" — a
+ * run that picked nothing picked no VOID/THIN/reg/idea either, and treating an abort as a free
+ * pass would let an instrument dodge the quota forever by aborting every third run instead of
+ * ever picking something that satisfies it. */
+function consecutiveQuotaMissRuns(events, currentRunId, instrument) {
+  const sameInstrumentRuns = [
+    ...new Set(
+      events.filter((e) => e.event === 'start' && e.instrument === instrument).map((e) => e.run),
+    ),
+  ]
+  const missRuns = []
+  for (let i = sameInstrumentRuns.indexOf(currentRunId) - 1; i >= 0; i--) {
+    const pick = pickEventFor(events, sameInstrumentRuns[i])
+    if (pick && satisfiesQuota(pick)) break
+    missRuns.push(sameInstrumentRuns[i])
+  }
+  return missRuns
+}
+
+/** True iff `runId` is the run docs/commands/improve-app.md §2 describes as deferred: "A thread
+ * the quota defers waits one run of its instrument, cap not advancing." Detected from the
+ * ledger's own shape (the quota was already two misses deep going into this run, and this run's
+ * pick satisfied it) rather than from a caller-supplied "I deferred" flag, so it can't be faked
+ * and `audit` can recompute it exactly like everything else. */
+function threadDeferredByQuota(events, runId, instrument) {
+  const pick = pickEventFor(events, runId)
+  if (!pick || !satisfiesQuota(pick)) return false
+  return consecutiveQuotaMissRuns(events, runId, instrument).length >= 2
+}
+
 /** How many consecutive runs OF `instrument`, walking backward from just before
  * `currentRunId` through same-instrument runs only, picked `slug` as their thread. A run of
  * the OTHER instrument is skipped over entirely — it neither breaks nor extends the streak, so
- * an intervening drums run can't starve (or secretly advance) a piano thread's cap. */
+ * an intervening drums run can't starve (or secretly advance) a piano thread's cap.
+ *
+ * A same-instrument run that names a DIFFERENT thread (or none) is normally where the count
+ * stops — continuing a thread must be genuinely consecutive. The one exception is a run the
+ * innovation quota deferred it away from (`threadDeferredByQuota` above): the quota outranks the
+ * thread rule (docs/improve/method.md, "the three rules that override the table"), so complying
+ * with it can't also cost the thread its cap. That run is transparent too — neither counted nor
+ * a reason to stop counting further back — which is what "cap not advancing" means: held, not
+ * reset. A rule that reset the streak on every deferral would let a thread run forever by
+ * deferring once per cap. */
 function consecutiveThreadStreak(events, currentRunId, slug, instrument) {
   const sameInstrumentRuns = [
     ...new Set(
@@ -302,14 +378,26 @@ function consecutiveThreadStreak(events, currentRunId, slug, instrument) {
   ]
   let streak = 0
   for (let i = sameInstrumentRuns.indexOf(currentRunId) - 1; i >= 0; i--) {
-    const pick = pickEventFor(events, sameInstrumentRuns[i])
-    if (pick && pick.thread === slug) streak++
-    else break
+    const runId = sameInstrumentRuns[i]
+    const pick = pickEventFor(events, runId)
+    if (pick && pick.thread === slug) {
+      streak++
+      continue
+    }
+    if (threadDeferredByQuota(events, runId, instrument)) continue
+    break
   }
   return streak
 }
 
-const deriveTier = (cost, harm) => (harm ? 'L' : { S: 'Floor', M: 'M', L: 'L' }[cost])
+// `gapClass` participates in tier because `docs/commands/improve-app.md`'s tier table forces L
+// for HARMFUL (harm) or VOID, not just for cost L: VOID is new capability, and L is the only
+// tier that keeps a held-out goal, the one test that a new capability actually generalises.
+// Without this, the innovation quota (which exists to force VOID/THIN picks) would route new
+// capability to the CHEAPEST review instead of the most rigorous one. THIN is deliberately left
+// out — it is under-serving something the app already does, not new capability, so it derives
+// from cost like any other pick.
+const deriveTier = (cost, harm, gapClass) => (harm || gapClass === 'VOID' ? 'L' : { S: 'Floor', M: 'M', L: 'L' }[cost])
 
 const tierForRun = (events, runId) => pickEventFor(events, runId)?.tier
 const roundOnePanel = (events, runId, role) =>
@@ -487,9 +575,21 @@ const cmdStart = runCommand((args, ctx) => {
 })
 
 const cmdMark = runCommand((args, ctx) => {
-  const section = args.positionals[0]
+  const { positionals, flags } = args
+  const section = positionals[0]
   if (!section || !SECTIONS.includes(section)) {
-    throw new UsageError(`mark requires a section from {${SECTIONS.join(',')}}, got "${section ?? ''}"`)
+    // `section` is positional (`mark 0`), not a flag. `mark --section 0` leaves `positionals`
+    // empty — parseArgs consumes "0" as --section's value — so the operator who typed exactly
+    // that sees `got ""` and is told they passed nothing, when they very much did. Say the
+    // section is positional always, and call out --section by name when that's what happened.
+    const sectionFlagNote =
+      flags.section !== undefined
+        ? ' `--section` is not a flag here — the section is positional: `mark 0`.'
+        : ''
+    throw new UsageError(
+      `mark requires a section from {${SECTIONS.join(',')}} as its positional argument (e.g. ` +
+        `\`mark 0\`), got "${section ?? ''}".${sectionFlagNote}`,
+    )
   }
 
   const events = loadLedger(ctx.ledgerPath)
@@ -527,6 +627,9 @@ const cmdPick = runCommand((args, ctx) => {
   const { flags } = args
   const source = requireEnum(flags, 'source', SOURCES)
   const instrumentFlag = requireEnum(flags, 'instrument', INSTRUMENTS)
+  // `class` is a reserved word — it's fine as a property key (`e.class`, `{ class: ... }`) but
+  // not as a bare binding, so the local is named `gapClass`.
+  const gapClass = requireEnum(flags, 'class', GAP_CLASSES)
   const sum = requireInt(flags, 'sum', { min: 0, max: 12 })
   const cost = requireEnum(flags, 'cost', COSTS)
   const leaderGap = requireInt(flags, 'leader-gap')
@@ -538,6 +641,21 @@ const cmdPick = runCommand((args, ctx) => {
   const payoff = payoffGiven ? requireFlag(flags, 'payoff') : undefined
   const prereqsGiven = flags.prereqs !== undefined
 
+  // --harm 1 and --class HARMFUL are two spellings of the same claim: docs/improve/method.md
+  // defines the harm gate as requiring exactly the HARMFUL class's evidence bar (a missing guard
+  // named at file:line, plus a cited source calling the habit a defect), so a pick invoking one
+  // without the other is asserting two different things about the same gap. Require them to
+  // agree both ways — harm=1 under a milder class would smuggle the ranking override in behind a
+  // label that hides what happened, and class=HARMFUL with harm=0 claims the evidence bar was
+  // met but declines the one override it exists to grant, which is not a claim an auditor reading
+  // the ledger later can make sense of either.
+  if ((harm === 1) !== (gapClass === 'HARMFUL')) {
+    throw new UsageError(
+      `--harm 1 and --class HARMFUL must agree (got --harm ${harm} with --class ${gapClass}) — ` +
+        'pass both together (the pick is HARMFUL and invokes the harm gate) or neither.',
+    )
+  }
+
   if (payoffGiven && thread === 'none') {
     throw new UsageError('--payoff requires --thread (a payoff caps a thread, not a threadless pick)')
   }
@@ -547,6 +665,23 @@ const cmdPick = runCommand((args, ctx) => {
 
   const events = loadLedger(ctx.ledgerPath)
   const run = requireCurrentRun(events)
+
+  // Mirrors the `slice` guard's shape exactly: a run gets exactly one gap, so a second `pick`
+  // for the same run is refused rather than silently accepted. This matters more than it looks —
+  // `pickEventFor` is a `.find()`, first match wins, so every consumer of a run's pick (tier,
+  // the innovation quota, thread streaks, the next run's prevPickSource, `finish`'s panel-seat
+  // requirements) would silently keep reading the FIRST pick forever while the ledger's own text
+  // said the operator had moved on to a second one.
+  const existingPick = pickEventFor(events, run)
+  if (existingPick) {
+    throw new RuleViolation(
+      `pick refused: run ${run} already has a pick event (source "${existingPick.source}", ` +
+        `class "${existingPick.class}") — exactly one gap per run. Rewind if this run's pick ` +
+        'was a mistake and needs to be redone, or finish the run: reconsidering a gap belongs to ' +
+        "the next run's pick, not a second one on this run.",
+    )
+  }
+
   const startEv = startEventFor(events, run)
 
   if (instrumentFlag !== startEv.instrument) {
@@ -554,6 +689,26 @@ const cmdPick = runCommand((args, ctx) => {
       `pick refused: --instrument ${instrumentFlag} does not match run ${run}'s persona ` +
         `instrument "${startEv.instrument}". Pass --instrument ${startEv.instrument}, or pick ` +
         'nothing this run.',
+    )
+  }
+
+  // Innovation quota (docs/commands/improve-app.md §2): no instrument goes three consecutive
+  // runs of its own without a VOID, THIN, reg, or idea pick. This is checked independent of
+  // --thread and ahead of the repeat-source/thread-continuation logic below because it outranks
+  // the thread rule — prerequisites-win and continue-then-rotate can each be won by a repair, but
+  // the quota firing is not an exception either of them can buy their way past. If this pick
+  // would be the instrument's 3rd consecutive miss, it must satisfy the quota itself; naming an
+  // open thread is not, on its own, an excuse (that thread's cap is protected instead — see
+  // `threadDeferredByQuota` above — by deferring it, not by exempting this pick).
+  const quotaMissRuns = consecutiveQuotaMissRuns(events, run, instrumentFlag)
+  if (quotaMissRuns.length >= 2 && !satisfiesQuota({ class: gapClass, source })) {
+    const [mostRecent, secondMostRecent] = quotaMissRuns
+    throw new RuleViolation(
+      `pick refused: ${instrumentFlag} would go a 3rd consecutive run without a VOID, THIN, reg, ` +
+        `or idea pick — runs ${secondMostRecent} and ${mostRecent} already missed it. Satisfy the ` +
+        'quota this run with --class VOID, --class THIN, --source reg, or --source idea — or, if ' +
+        'you meant to continue an open thread instead, defer it: its cap will not advance for ' +
+        'this run.',
     )
   }
 
@@ -611,12 +766,13 @@ const cmdPick = runCommand((args, ctx) => {
     }
   }
 
-  const tier = deriveTier(cost, harm)
+  const tier = deriveTier(cost, harm, gapClass)
   appendEvent(
     ctx.ledgerPath,
     buildEvent(ctx.now, run, 'pick', {
       source,
       instrument: instrumentFlag,
+      class: gapClass,
       sum,
       cost,
       tier,
@@ -628,7 +784,8 @@ const cmdPick = runCommand((args, ctx) => {
       baseline,
     }),
   )
-  return ok(`pick recorded: source ${source}, tier ${tier}${harm ? ' (harm forces L)' : ''}`)
+  const tierForcedBy = harm ? 'harm' : gapClass === 'VOID' ? 'VOID class' : null
+  return ok(`pick recorded: source ${source}, class ${gapClass}, tier ${tier}${tierForcedBy ? ` (${tierForcedBy} forces L)` : ''}`)
 })
 
 const cmdThread = runCommand((args, ctx) => {
@@ -764,6 +921,15 @@ const cmdVerdict = runCommand((args, ctx) => {
 
   const events = loadLedger(ctx.ledgerPath)
   const run = requireCurrentRun(events)
+  // Mirrors the `slice` guard: one verdict per run, because two verdicts on the same run would
+  // give the ledger two answers for what the run's metric did with no way to say which counts.
+  if (hasVerdict(events, run)) {
+    throw new RuleViolation(
+      `verdict refused: run ${run} already has a verdict event — exactly one metric answer per ` +
+        'run. The ledger is append-only, so a wrong first verdict cannot be edited here; note ' +
+        'the correction in the next run instead of recording a second verdict for this one.',
+    )
+  }
   appendEvent(ctx.ledgerPath, buildEvent(ctx.now, run, 'verdict', { value, note }))
   return ok(`verdict recorded for run ${run}: ${hasNone ? 'none' : value}`)
 })
@@ -910,19 +1076,49 @@ export function auditLedger(ledgerPath, { runFilter } = {}) {
       const startEv = startEventFor(running, e.run)
       if (startEv) {
         const expectedPct = round2(((Date.parse(e.ts) - Date.parse(startEv.ts)) / 60_000 / startEv.budgetMin) * 100)
-        if (Math.abs(expectedPct - e.elapsedPct) > 0.01) {
+        // `Math.abs(expectedPct - e.elapsedPct) > 0.01` is FALSE whenever e.elapsedPct is
+        // non-numeric (null, a string, absent) — `NaN > 0.01` is false, so a corrupt value used
+        // to sail through as "clean" instead of being reported. Guard the type first.
+        if (!Number.isFinite(e.elapsedPct)) {
+          problems.push(`line ${e.__line}: mark ${e.section} stores a non-finite/missing elapsedPct (${JSON.stringify(e.elapsedPct)}), replay derives ${expectedPct}`)
+        } else if (Math.abs(expectedPct - e.elapsedPct) > 0.01) {
           problems.push(`line ${e.__line}: mark ${e.section} stores elapsedPct ${e.elapsedPct}, replay derives ${expectedPct}`)
         }
       }
     }
     if (e.event === 'pick') {
-      const expectedTier = deriveTier(e.cost, e.harm)
+      if (hasPick(running, e.run)) {
+        problems.push(`line ${e.__line}: run ${e.run} already had a pick event — exactly one gap per run`)
+      }
+      const expectedTier = deriveTier(e.cost, e.harm, e.class)
       if (e.tier !== expectedTier) {
-        problems.push(`line ${e.__line}: pick stores tier "${e.tier}", replay derives "${expectedTier}" from cost=${e.cost} harm=${e.harm}`)
+        problems.push(`line ${e.__line}: pick stores tier "${e.tier}", replay derives "${expectedTier}" from cost=${e.cost} harm=${e.harm} class=${e.class}`)
       }
       const expectedInstrument = startEventFor(running, e.run)?.instrument
       if (e.instrument !== expectedInstrument) {
         problems.push(`line ${e.__line}: pick stores instrument "${e.instrument}", run ${e.run}'s persona instrument is "${expectedInstrument}"`)
+      }
+      // A hand-edited ledger can put anything in `class` — requireEnum only guards the write
+      // path. Validate it against GAP_CLASSES here the same way sum/prereqs/round are validated
+      // below, so a bad value is reported rather than just quietly failing satisfiesQuota (which
+      // would count it as a quota miss by luck, not by rule).
+      if (!GAP_CLASSES.includes(e.class)) {
+        problems.push(`line ${e.__line}: pick stores an invalid class (${JSON.stringify(e.class)}) — must be one of ${GAP_CLASSES.join('|')}`)
+      }
+      // Same NaN-masking shape as elapsedPct above: `sum` feeds nothing derived today, but an
+      // out-of-range or non-numeric value should still be caught on replay rather than only at
+      // write time (where requireInt already bounds it 0-12).
+      if (!Number.isInteger(e.sum) || e.sum < 0 || e.sum > 12) {
+        problems.push(`line ${e.__line}: pick stores a non-integer/out-of-range sum (${JSON.stringify(e.sum)})`)
+      }
+      const quotaMissRuns = consecutiveQuotaMissRuns(running, e.run, expectedInstrument)
+      if (quotaMissRuns.length >= 2 && !satisfiesQuota(e)) {
+        const [mostRecent, secondMostRecent] = quotaMissRuns
+        problems.push(
+          `line ${e.__line}: pick violates the innovation quota — ${expectedInstrument} runs ` +
+            `${secondMostRecent} and ${mostRecent} already missed it, and this pick (class ` +
+            `${e.class}, source ${e.source}) does not satisfy VOID/THIN/reg/idea either`,
+        )
       }
       if (e.thread !== 'none') {
         const existing = threadCapInfo(running, e.thread)
@@ -935,22 +1131,43 @@ export function auditLedger(ledgerPath, { runFilter } = {}) {
               : `line ${e.__line}: pick's payoff/prereqs for thread "${e.thread}" (payoff ${e.payoff}, prereqs ${e.prereqs}) disagree with the values recorded when it opened at run ${existing.openingRun} (payoff ${existing.payoff}, prereqs ${existing.prereqs})`,
           )
         }
-        const cap = isFirstRun ? (e.payoff !== undefined ? e.prereqs + 1 : DEFAULT_THREAD_CAP) : existing.cap
-        const capInstrument = isFirstRun ? expectedInstrument : existing.instrument
-        const streak = consecutiveThreadStreak(running, e.run, e.thread, capInstrument)
-        if (streak >= cap) {
-          problems.push(`line ${e.__line}: pick names thread "${e.thread}" for its ${streak + 1}th consecutive ${capInstrument} run — exceeds its cap of ${cap}`)
+        // A corrupt `prereqs` on the opening pick of a payoff thread would otherwise feed
+        // straight into `e.prereqs + 1` (NaN, or string concatenation) and make `streak >= cap`
+        // silently false forever — the same shape of bug as elapsedPct, just reached through cap
+        // arithmetic instead of a threshold comparison. Report it and skip the cap/streak check
+        // for this line rather than let a corrupt cap "pass".
+        const prereqsCorrupt =
+          isFirstRun && e.payoff !== undefined && !(Number.isInteger(e.prereqs) && e.prereqs >= 0)
+        if (prereqsCorrupt) {
+          problems.push(`line ${e.__line}: pick opens thread "${e.thread}" with a non-integer/negative prereqs (${JSON.stringify(e.prereqs)}) — its cap cannot be derived`)
+        } else {
+          const cap = isFirstRun ? (e.payoff !== undefined ? e.prereqs + 1 : DEFAULT_THREAD_CAP) : existing.cap
+          const capInstrument = isFirstRun ? expectedInstrument : existing.instrument
+          const streak = consecutiveThreadStreak(running, e.run, e.thread, capInstrument)
+          if (streak >= cap) {
+            problems.push(`line ${e.__line}: pick names thread "${e.thread}" for its ${streak + 1}th consecutive ${capInstrument} run — exceeds its cap of ${cap}`)
+          }
         }
       }
     }
-    if (e.event === 'panel' && e.round > 1) {
-      const round1 = roundOnePanel(running, e.run, e.role)
-      if (round1 && round1.templateSha !== e.templateSha) {
-        problems.push(`line ${e.__line}: panel round ${e.round} (${e.role}) template-sha diverges from its round-1 sha`)
+    if (e.event === 'panel') {
+      // Same NaN-masking shape again: `e.round > 1` is false for a non-numeric round, which
+      // would silently skip the round-2+ template-drift check below rather than flag the
+      // corruption.
+      if (!Number.isInteger(e.round) || e.round < 1) {
+        problems.push(`line ${e.__line}: panel stores a non-integer/invalid round (${JSON.stringify(e.round)})`)
+      } else if (e.round > 1) {
+        const round1 = roundOnePanel(running, e.run, e.role)
+        if (round1 && round1.templateSha !== e.templateSha) {
+          problems.push(`line ${e.__line}: panel round ${e.round} (${e.role}) template-sha diverges from its round-1 sha`)
+        }
       }
     }
     if (e.event === 'slice' && hasSlice(running, e.run)) {
       problems.push(`line ${e.__line}: run ${e.run} already had a slice event — exactly one gap per run`)
+    }
+    if (e.event === 'verdict' && hasVerdict(running, e.run)) {
+      problems.push(`line ${e.__line}: run ${e.run} already had a verdict event — exactly one metric answer per run`)
     }
     running.push(e)
   }
@@ -1071,6 +1288,14 @@ export function runCli(argv, { git: gitImpl = defaultGit } = {}) {
         )
       }
       now = args.flags.now
+      // A bad --now (unparseable, or parseable to a non-finite timestamp) would corrupt every
+      // elapsedPct derived from it downstream, silently, since Date.parse of garbage is NaN and
+      // arithmetic on NaN never throws — it just produces more NaN. Catch it here, at the one
+      // place a caller-supplied clock value enters the system, rather than at every place it's
+      // later used.
+      if (!Number.isFinite(Date.parse(now))) {
+        throw new UsageError(`--now must parse to a valid ISO timestamp, got "${now}"`)
+      }
     }
     const ctx = {
       ledgerPath: typeof args.flags.ledger === 'string' ? args.flags.ledger : DEFAULT_LEDGER,

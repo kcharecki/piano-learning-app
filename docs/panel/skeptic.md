@@ -74,7 +74,7 @@ Drive log: {{DRIVE_LOG_PATH}}
 ## Severity
 
 `BLOCKER` — ships a wrong musical fact, teaches a defect, loses learner data, or breaks a screen
-the learner reaches today. `MAJOR` — the claim is not actually true for some real learner state,
+the learner reaches today. `MAJOR` — the claim is not true for some real learner state,
 or the feedback is wrong enough that a teacher would contradict it. `MINOR` — everything else.
 Grade against this rubric, not against how hard the fix looks. The polish loop ends on zero
 BLOCKER and zero MAJOR, so a finding you soften to MINOR ends the run.

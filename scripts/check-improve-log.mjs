@@ -33,6 +33,7 @@ const REQUIRED_FIELDS = [
   'Pick source',
   'Pick gap',
   'Previous pick source',
+  'Class',
   'Claim',
   'Refutation condition',
   'Metric',
@@ -42,7 +43,24 @@ const REQUIRED_FIELDS = [
 ]
 
 const VALID_TIERS = new Set(['Floor', 'M', 'L'])
-const VALID_SOURCES = new Set(['1a', '1b', '1c', '1d', '1e', 'none'])
+// "Pick source" and "Previous pick source" are documented with different legal value sets
+// (`docs/improve-log.md`'s Entry schema, lines 22-23): only "Previous pick source" may be
+// "none" — a run always picked *something*, but the very first run has no predecessor.
+const VALID_PICK_SOURCES = new Set(['1a', '1b', '1c', '1d', '1e', 'reg', 'idea'])
+const VALID_PREV_PICK_SOURCES = new Set(['1a', '1b', '1c', '1d', '1e', 'reg', 'idea', 'none'])
+// The ledger table's Source column takes the same set as "Pick source" (never "none" — every
+// ledger row is a real candidate).
+const VALID_LEDGER_SOURCE = /^(1[a-e]|reg|idea)$/
+const VALID_CLASSES = new Set([
+  'HARMFUL',
+  'MIS-GRADED',
+  'MIS-GATED',
+  'VOID',
+  'BLIND',
+  'UNREACHABLE',
+  'THIN',
+  'FLAT',
+])
 const VALID_OUTCOMES = new Set(['clean', 'shipped-not-clean', 'abort'])
 const VALID_COSTS = new Set(['S', 'M', 'L'])
 const VALID_ENDORSEMENTS = new Set(['yes', 'no', 'n/a — Floor tier'])
@@ -231,14 +249,14 @@ function parseLedger(lines, start, end, headingLine, violations) {
   for (let i = dataStart; i < tableLines.length; i++) {
     const { line, num } = tableLines[i]
     const cells = splitRow(line)
-    if (cells.length !== 8) {
+    if (cells.length !== 9) {
       violations.push({
         line: num,
-        message: `ledger row has ${cells.length} column(s), expected 8 (gap, source, 4 axis scores, sum, cost). Fix the row.`,
+        message: `ledger row has ${cells.length} column(s), expected 9 (gap, source, class, 4 axis scores, sum, cost). Fix the row.`,
       })
       continue
     }
-    const [gap, source, a1, a2, a3, a4, sumCell, cost] = cells
+    const [gap, source, cls, a1, a2, a3, a4, sumCell, cost] = cells
     const scores = [a1, a2, a3, a4]
     let rowOk = true
 
@@ -249,10 +267,17 @@ function parseLedger(lines, start, end, headingLine, violations) {
       })
       rowOk = false
     }
-    if (!/^1[a-e]$/.test(source)) {
+    if (!VALID_LEDGER_SOURCE.test(source)) {
       violations.push({
         line: num,
-        message: `ledger row source "${source}" is not one of 1a, 1b, 1c, 1d, 1e. Fix the value.`,
+        message: `ledger row source "${source}" is not one of 1a, 1b, 1c, 1d, 1e, reg, idea. Fix the value.`,
+      })
+      rowOk = false
+    }
+    if (!VALID_CLASSES.has(cls)) {
+      violations.push({
+        line: num,
+        message: `ledger row Class "${cls}" is not one of ${[...VALID_CLASSES].join(', ')}. Fix the value.`,
       })
       rowOk = false
     }
@@ -320,7 +345,7 @@ function parseLedger(lines, start, end, headingLine, violations) {
     }
 
     if (rowOk) {
-      rows.push({ gap, source, sum: total, line: num })
+      rows.push({ gap, source, cls, sum: total, line: num })
     }
   }
 
@@ -652,10 +677,18 @@ function validateRunEntry(lines, start, end, violations, metricFields) {
   }
 
   const pickSource = fields.get('Pick source')
-  if (pickSource && !VALID_SOURCES.has(pickSource.value)) {
+  if (pickSource && !VALID_PICK_SOURCES.has(pickSource.value)) {
     violations.push({
       line: pickSource.line,
-      message: `Pick source "${pickSource.value}" is not one of 1a, 1b, 1c, 1d, 1e, none. Fix the value.`,
+      message: `Pick source "${pickSource.value}" is not one of 1a, 1b, 1c, 1d, 1e, reg, idea. Fix the value.`,
+    })
+  }
+
+  const cls = fields.get('Class')
+  if (cls && !VALID_CLASSES.has(cls.value)) {
+    violations.push({
+      line: cls.line,
+      message: `Class "${cls.value}" is not one of ${[...VALID_CLASSES].join(', ')}. Fix the value.`,
     })
   }
 
@@ -682,10 +715,10 @@ function validateRunEntry(lines, start, end, violations, metricFields) {
   }
 
   const prevPickSource = fields.get('Previous pick source')
-  if (prevPickSource && !VALID_SOURCES.has(prevPickSource.value)) {
+  if (prevPickSource && !VALID_PREV_PICK_SOURCES.has(prevPickSource.value)) {
     violations.push({
       line: prevPickSource.line,
-      message: `Previous pick source "${prevPickSource.value}" is not one of 1a, 1b, 1c, 1d, 1e, none. Fix the value.`,
+      message: `Previous pick source "${prevPickSource.value}" is not one of 1a, 1b, 1c, 1d, 1e, reg, idea, none. Fix the value.`,
     })
   }
 
@@ -746,6 +779,24 @@ function validateRunEntry(lines, start, end, violations, metricFields) {
         line: harmGate.line,
         message:
           'Harm gate override was claimed but not evidenced — it must cite a "file:line" location and either an http(s) URL or a quoted passage. Fix the value.',
+      })
+    }
+  }
+
+  // A third override-exemption line (`docs/improve-log.md` line 67-68), for a run whose pick
+  // was mandated by the cannot-sense register's every-fourth-run cadence
+  // (`docs/improve/method.md`'s "Cadence") rather than by the ledger's own ranking. Unlike
+  // Harm gate, the docs give no evidence format for this line — only that it must "explain the
+  // override" — so this checks presence of a non-empty explanation, not a specific shape.
+  const registerCadence = fields.get('Register cadence')
+  let registerCadenceValid = false
+  if (registerCadence) {
+    registerCadenceValid = registerCadence.value.trim() !== ''
+    if (!registerCadenceValid) {
+      violations.push({
+        line: registerCadence.line,
+        message:
+          'Register cadence override was claimed but left blank — it must say what mandated the cadence pick and why. Fix the value.',
       })
     }
   }
@@ -813,7 +864,7 @@ function validateRunEntry(lines, start, end, violations, metricFields) {
     } else {
       const topSum = Math.max(...ledgerRows.map((r) => r.sum))
       if (pickedRow.sum !== topSum) {
-        const hasEvidencedOverride = harmGateValid || threadShapeValid
+        const hasEvidencedOverride = harmGateValid || threadShapeValid || registerCadenceValid
         if (!hasEvidencedOverride) {
           const topGaps = ledgerRows
             .filter((r) => r.sum === topSum)
@@ -821,9 +872,20 @@ function validateRunEntry(lines, start, end, violations, metricFields) {
             .join(', ')
           violations.push({
             line: pickGap.line,
-            message: `Pick gap "${pickGap.value}" (sum ${pickedRow.sum}) does not match the top-scoring ledger row (${topGaps}). Fix the pick, or add an evidenced "- **Harm gate:**" or a valid "- **Thread:**" line documenting the override.`,
+            message: `Pick gap "${pickGap.value}" (sum ${pickedRow.sum}) does not match the top-scoring ledger row (${topGaps}). Fix the pick, or add an evidenced "- **Harm gate:**", a valid "- **Thread:**", or a "- **Register cadence:**" line documenting the override.`,
           })
         }
+      }
+
+      // The pick's own Class must agree with the Class column of the ledger row it picked —
+      // same "the pick cannot silently disagree with its own ledger" motive as the Pick-gap
+      // vs. top-row check above, extended per docs line 70-72's "Class is required on the pick
+      // and on every ledger row".
+      if (cls && VALID_CLASSES.has(cls.value) && pickedRow.cls !== cls.value) {
+        violations.push({
+          line: cls.line,
+          message: `Class "${cls.value}" disagrees with the picked ledger row's Class column ("${pickedRow.cls}") for gap "${pickGap.value}". Fix whichever one is wrong.`,
+        })
       }
     }
   }

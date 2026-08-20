@@ -37,6 +37,7 @@ const VALID_RUN = `## Run 1
 - **Pick source:** 1b
 - **Pick gap:** Metronome drifts under rubato
 - **Previous pick source:** none
+- **Class:** BLIND
 - **Claim:** The learner will be able to find the tempo slider within one screen, and we will know because the learner sees the tempo slider appear on the Practice screen within 10s of lesson start.
 - **Refutation condition:** The slider-open event does not fire within 10s for 3 consecutive sessions.
 - **Metric:** time-to-slider-open (ms)
@@ -45,11 +46,11 @@ const VALID_RUN = `## Run 1
 - **Endorsement:** yes
 
 ### Ledger
-| Gap | Source | Blocked | Reach | Teacherliness | Unmatchable | Sum | Cost |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Tempo slider hard to find | 1a | 1 | 1 | 1 | 0 | 3 | S |
-| Metronome drifts under rubato | 1b | 3 | 2 | 2 | 2 | 9 | M |
-| Fingering hints too sparse | 1c | 2 | 1 | 1 | 1 | 5 | S |
+| Gap | Source | Class | Blocked | Reach | Teacherliness | Unmatchable | Sum | Cost |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Tempo slider hard to find | 1a | THIN | 1 | 1 | 1 | 0 | 3 | S |
+| Metronome drifts under rubato | 1b | BLIND | 3 | 2 | 2 | 2 | 9 | M |
+| Fingering hints too sparse | 1c | FLAT | 2 | 1 | 1 | 1 | 5 | S |
 
 ### Cannot-sense register
 none this run
@@ -235,16 +236,16 @@ describe('validateImproveLog', () => {
 
   it('rejects a ledger row with the wrong column count, and one with an empty Gap', () => {
     const badColumns = VALID_RUN.replace(
-      '| Fingering hints too sparse | 1c | 2 | 1 | 1 | 1 | 5 | S |',
-      '| 1c | 2 | 1 | 1 | 1 | 5 | S |',
+      '| Fingering hints too sparse | 1c | FLAT | 2 | 1 | 1 | 1 | 5 | S |',
+      '| 1c | FLAT | 2 | 1 | 1 | 1 | 5 | S |',
     )
-    expect(validateImproveLog(badColumns).some((v) => v.message.includes('expected 8'))).toBe(
+    expect(validateImproveLog(badColumns).some((v) => v.message.includes('expected 9'))).toBe(
       true,
     )
 
     const emptyGap = VALID_RUN.replace(
-      '| Fingering hints too sparse | 1c | 2 | 1 | 1 | 1 | 5 | S |',
-      '|  | 1c | 2 | 1 | 1 | 1 | 5 | S |',
+      '| Fingering hints too sparse | 1c | FLAT | 2 | 1 | 1 | 1 | 5 | S |',
+      '|  | 1c | FLAT | 2 | 1 | 1 | 1 | 5 | S |',
     )
     expect(
       validateImproveLog(emptyGap).some((v) => v.message.includes('"Gap" column is empty')),
@@ -257,14 +258,14 @@ describe('validateImproveLog', () => {
     )
 
     const fixture = VALID_RUN.replace(
-      '| Tempo slider hard to find | 1a | 1 | 1 | 1 | 0 | 3 | S |',
-      '| Tempo slider hard to find | 1a | 4 | 1 | 1 | 0 | 3 | S |',
+      '| Tempo slider hard to find | 1a | THIN | 1 | 1 | 1 | 0 | 3 | S |',
+      '| Tempo slider hard to find | 1a | THIN | 4 | 1 | 1 | 0 | 3 | S |',
     )
     const violations = validateImproveLog(fixture)
     expect(
       violations.some(
         (v) =>
-          v.line === lineOf(fixture, '| Tempo slider hard to find | 1a | 4 |') &&
+          v.line === lineOf(fixture, '| Tempo slider hard to find | 1a | THIN | 4 |') &&
           v.message.includes('axis score "4"'),
       ),
     ).toBe(true)
@@ -272,8 +273,8 @@ describe('validateImproveLog', () => {
 
   it('rejects an age bonus on a non-1e ledger row, and a Sum that disagrees with the axis scores', () => {
     const badBonus = VALID_RUN.replace(
-      '| Fingering hints too sparse | 1c | 2 | 1 | 1 | 1 | 5 | S |',
-      '| Fingering hints too sparse | 1c | 2 | 1 | 1 | 1 | 5 +1 | S |',
+      '| Fingering hints too sparse | 1c | FLAT | 2 | 1 | 1 | 1 | 5 | S |',
+      '| Fingering hints too sparse | 1c | FLAT | 2 | 1 | 1 | 1 | 5 +1 | S |',
     )
     const bonusViolations = validateImproveLog(badBonus)
     expect(
@@ -285,8 +286,8 @@ describe('validateImproveLog', () => {
     ).toBe(true)
 
     const badSum = VALID_RUN.replace(
-      '| Fingering hints too sparse | 1c | 2 | 1 | 1 | 1 | 5 | S |',
-      '| Fingering hints too sparse | 1c | 2 | 1 | 1 | 1 | 9 | S |',
+      '| Fingering hints too sparse | 1c | FLAT | 2 | 1 | 1 | 1 | 5 | S |',
+      '| Fingering hints too sparse | 1c | FLAT | 2 | 1 | 1 | 1 | 9 | S |',
     )
     const sumViolations = validateImproveLog(badSum)
     expect(
@@ -308,8 +309,8 @@ describe('validateImproveLog', () => {
         '- **Pick gap:** Fingering feels stale for a returning player',
       )
       .replace(
-        '| Tempo slider hard to find | 1a | 1 | 1 | 1 | 0 | 3 | S |',
-        '| Fingering feels stale for a returning player | 1e | 1 | 3 | 3 | 1 | 8 +2 | M |',
+        '| Tempo slider hard to find | 1a | THIN | 1 | 1 | 1 | 0 | 3 | S |',
+        '| Fingering feels stale for a returning player | 1e | BLIND | 1 | 3 | 3 | 1 | 8 +2 | M |',
       )
     const violations = validateImproveLog(fixture)
     expect(
@@ -750,6 +751,211 @@ ${VALID_RUN.replace('## Run 1', '## Run 2').replace('- **Tier:** M', '- **Tier:*
       expect(validateImproveLog(fixture, null).some((v) => v.message.includes('Metric'))).toBe(
         false,
       )
+    })
+  })
+
+  // ------------------------------------------------------- Class entry field (§C1)
+
+  describe('Class entry field', () => {
+    it('rejects a missing Class field, naming the field and the heading line', () => {
+      const fixture = VALID_RUN.split('\n')
+        .filter((l) => !l.startsWith('- **Class:**'))
+        .join('\n')
+      const violations = validateImproveLog(fixture)
+      const headingLine = lineOf(fixture, '## Run 1')
+      expect(
+        violations.some((v) => v.line === headingLine && v.message.includes('"Class"')),
+      ).toBe(true)
+    })
+
+    it('rejects a Class value outside the eight legal classes', () => {
+      const fixture = VALID_RUN.replace('- **Class:** BLIND', '- **Class:** BANANA')
+      const violations = validateImproveLog(fixture)
+      expect(
+        violations.some(
+          (v) =>
+            v.line === lineOf(fixture, '- **Class:**') && v.message.includes('Class "BANANA"'),
+        ),
+      ).toBe(true)
+    })
+
+    it('accepts every one of the eight legal classes with no Class violation', () => {
+      for (const c of [
+        'HARMFUL',
+        'MIS-GRADED',
+        'MIS-GATED',
+        'VOID',
+        'BLIND',
+        'UNREACHABLE',
+        'THIN',
+        'FLAT',
+      ]) {
+        // Also re-class the picked ledger row to match, so this loop isolates the legal-value
+        // check from the pick/ledger Class cross-check (§C5) tested separately below.
+        const fixture = VALID_RUN.replace('- **Class:** BLIND', `- **Class:** ${c}`).replace(
+          '| Metronome drifts under rubato | 1b | BLIND | 3 | 2 | 2 | 2 | 9 | M |',
+          `| Metronome drifts under rubato | 1b | ${c} | 3 | 2 | 2 | 2 | 9 | M |`,
+        )
+        expect(validateImproveLog(fixture).some((v) => v.message.includes('Class'))).toBe(false)
+      }
+    })
+  })
+
+  // ------------------------------------------------------- Ledger Class column (§C2)
+
+  describe('Ledger Class column', () => {
+    it('rejects a ledger row with an invalid Class value', () => {
+      const fixture = VALID_RUN.replace(
+        '| Fingering hints too sparse | 1c | FLAT | 2 | 1 | 1 | 1 | 5 | S |',
+        '| Fingering hints too sparse | 1c | BOGUS | 2 | 1 | 1 | 1 | 5 | S |',
+      )
+      const violations = validateImproveLog(fixture)
+      expect(
+        violations.some(
+          (v) =>
+            v.line === lineOf(fixture, 'Fingering hints too sparse') &&
+            v.message.includes('ledger row Class "BOGUS"'),
+        ),
+      ).toBe(true)
+    })
+
+    it('reports zero Class or column-count violations for the well-formed 9-column ledger', () => {
+      const violations = validateImproveLog(VALID_RUN)
+      expect(violations.some((v) => v.message.includes('ledger row Class'))).toBe(false)
+      expect(violations.some((v) => v.message.includes('expected 9'))).toBe(false)
+    })
+  })
+
+  // --------------------------------- Pick source / ledger Source accept reg, idea (§C3)
+
+  describe('Pick source, Previous pick source, and ledger Source accept reg and idea', () => {
+    it('accepts "reg" and "idea" as Pick source', () => {
+      for (const v of ['reg', 'idea']) {
+        const fixture = VALID_RUN.replace('- **Pick source:** 1b', `- **Pick source:** ${v}`)
+        expect(
+          validateImproveLog(fixture).some((viol) => viol.message.includes('Pick source')),
+        ).toBe(false)
+      }
+    })
+
+    it('rejects "none" as a Pick source — only Previous pick source may be "none"', () => {
+      const fixture = VALID_RUN.replace('- **Pick source:** 1b', '- **Pick source:** none')
+      const violations = validateImproveLog(fixture)
+      expect(
+        violations.some(
+          (v) =>
+            v.line === lineOf(fixture, '- **Pick source:**') &&
+            v.message.includes('Pick source "none"'),
+        ),
+      ).toBe(true)
+    })
+
+    it('accepts "reg", "idea", and "none" as Previous pick source', () => {
+      for (const v of ['reg', 'idea', 'none']) {
+        const fixture = VALID_RUN.replace(
+          '- **Previous pick source:** none',
+          `- **Previous pick source:** ${v}`,
+        )
+        expect(
+          validateImproveLog(fixture).some((viol) =>
+            viol.message.includes('Previous pick source'),
+          ),
+        ).toBe(false)
+      }
+    })
+
+    it('rejects a bad Previous pick source value', () => {
+      const fixture = VALID_RUN.replace(
+        '- **Previous pick source:** none',
+        '- **Previous pick source:** 1z',
+      )
+      expect(
+        validateImproveLog(fixture).some((v) => v.message.includes('Previous pick source "1z"')),
+      ).toBe(true)
+    })
+
+    it('accepts "reg" and "idea" as a ledger row Source', () => {
+      const fixture = VALID_RUN.replace(
+        '| Fingering hints too sparse | 1c | FLAT | 2 | 1 | 1 | 1 | 5 | S |',
+        '| Fingering hints too sparse | reg | FLAT | 2 | 1 | 1 | 1 | 5 | S |',
+      )
+      expect(validateImproveLog(fixture).some((v) => v.message.includes('ledger row source'))).toBe(
+        false,
+      )
+    })
+
+    it('rejects a ledger row Source outside 1a-1e, reg, idea', () => {
+      const fixture = VALID_RUN.replace(
+        '| Fingering hints too sparse | 1c | FLAT | 2 | 1 | 1 | 1 | 5 | S |',
+        '| Fingering hints too sparse | 9z | FLAT | 2 | 1 | 1 | 1 | 5 | S |',
+      )
+      expect(
+        validateImproveLog(fixture).some((v) => v.message.includes('ledger row source "9z"')),
+      ).toBe(true)
+    })
+  })
+
+  // --------------------------------------------- Register cadence exemption (§C4)
+
+  describe('Register cadence override exemption', () => {
+    it('accepts a disagreeing Pick gap overridden by a Register cadence line, with no Harm gate or Thread', () => {
+      const fixture = VALID_RUN.replace(
+        '- **Pick gap:** Metronome drifts under rubato',
+        '- **Pick gap:** Tempo slider hard to find',
+      )
+        .replace('- **Class:** BLIND', '- **Class:** THIN') // agree with the newly picked row (§C5)
+        .replace(
+          '- **Outcome:** clean',
+          '- **Outcome:** clean\n- **Register cadence:** every-fourth-run cadence mandated a register pick this run (docs/improve/method.md).',
+        )
+      const violations = validateImproveLog(fixture)
+      expect(
+        violations.some((v) => v.message.includes('does not match the top-scoring ledger row')),
+      ).toBe(false)
+    })
+
+    it('rejects a blank Register cadence line as an unexplained override, and the top-row mismatch still stands', () => {
+      const fixture = VALID_RUN.replace(
+        '- **Pick gap:** Metronome drifts under rubato',
+        '- **Pick gap:** Tempo slider hard to find',
+      ).replace('- **Outcome:** clean', '- **Outcome:** clean\n- **Register cadence:**')
+      const violations = validateImproveLog(fixture)
+      expect(
+        violations.some(
+          (v) =>
+            v.line === lineOf(fixture, '- **Register cadence:**') &&
+            v.message.includes('claimed but left blank'),
+        ),
+      ).toBe(true)
+      expect(
+        violations.some((v) => v.message.includes('does not match the top-scoring ledger row')),
+      ).toBe(true)
+    })
+  })
+
+  // ----------------------------------- Class vs. picked ledger row cross-check (§C5)
+
+  describe('Class cross-check against the picked ledger row', () => {
+    it("rejects a Class that disagrees with the picked ledger row's Class column", () => {
+      const fixture = VALID_RUN.replace('- **Class:** BLIND', '- **Class:** VOID')
+      const violations = validateImproveLog(fixture)
+      expect(
+        violations.some(
+          (v) =>
+            v.line === lineOf(fixture, '- **Class:**') &&
+            v.message.includes(
+              'Class "VOID" disagrees with the picked ledger row\'s Class column ("BLIND")',
+            ),
+        ),
+      ).toBe(true)
+    })
+
+    it("accepts a Class that agrees with the picked ledger row's Class column", () => {
+      expect(
+        validateImproveLog(VALID_RUN).some((v) =>
+          v.message.includes("disagrees with the picked ledger row"),
+        ),
+      ).toBe(false)
     })
   })
 })

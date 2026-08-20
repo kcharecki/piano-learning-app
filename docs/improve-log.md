@@ -20,6 +20,8 @@ missing.
 - **Persona:** <stage + concrete musical goal> (piano|drums)
 - **Tier:** Floor|M|L
 - **Pick source:** 1a|1b|1c|1d|1e|reg|idea
+- **Pick gap:** <the Gap text of the ledger row this run picked — the key the checker
+  cross-checks Pick source, Class and Sum against; it must match that row exactly>
 - **Previous pick source:** 1a|1b|1c|1d|1e|reg|idea|none
 - **Class:** HARMFUL|MIS-GRADED|MIS-GATED|VOID|BLIND|UNREACHABLE|THIN|FLAT
 - **Claim:** After this ships, a learner who <state> will be able to <do what>, and we
@@ -32,6 +34,8 @@ missing.
 - **Harm gate:** <only when the harm gate overrode the ranking — say what and why>
 - **Thread:** <slug>, run k of ≤N — N is 3, or prereq-count+1 for a prerequisites-win
   thread (`docs/improve/method.md`) — <what the previous run left open>
+- **Register cadence:** <only when the cannot-sense cadence forced the pick — say what
+  mandated it and why>
 
 ### Ledger
 

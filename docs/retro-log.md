@@ -16,6 +16,43 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
+## 2026-08-20 (b) — the two script halves the ten loops left as prose
+
+- user-reported defects since last session: **0**. Follow-up to the entry below: "finish the
+  orphan-signals redesign and the quota script" — the two items the previous session named as
+  shipped-in-docs-only.
+- slices proven / started: **3/3**, all driven, not inspected. (1) `orphan-signals.mjs` v2 landed
+  with 21 tests; (2) `improve-run.mjs` gained `--class`, sources `reg`/`idea`, the innovation
+  quota and quota-above-thread ordering, 44 tests; (3) `check-improve-log.mjs` gained the `Class`
+  field, the 9-column ledger and the `reg`/`idea` sources, 59 tests. `audit` is now wired into
+  `verify`, so a hand-edited ledger blocks a commit.
+- gate catches before commit: **six, five of them found by driving the CLI rather than reading the
+  diff.** (1) `pick` had no duplicate guard — two picks per run both accepted, `audit` called it
+  clean, and `pickEventFor` uses `.find()` so the first silently wins; the agent had fixed the
+  identical bug for `verdict` and not seen it for `pick`. (2) `deriveTier` ignored class, so
+  `VOID` — the class the new quota exists to force — derived **Floor** at cost S: the cheapest
+  panel and no held-out goal for the most novel work. (3) `check-improve-log.mjs` required a
+  `Pick gap` field the documented schema never listed, so an operator copying the schema failed
+  `verify`. (4) The proxy-disclosure BLOCKER in `method.md` was routed to **no panel seat at all**.
+  (5) The Teacher seat was told to cite a syllabus on picks the method declares citation-exempt.
+  (6) The core suite went 2.25s → 3.25s, over the hard ceiling.
+- docs budget (ROADMAP+CLAUDE+PROCESS lines): green; `improve-app.md` held at 200/200 by
+  reflowing one paragraph to fit three new rules in the same seven lines.
+- cost note: three parallel agents on non-overlapping file pairs, ~500k subagent tokens. The main
+  thread wrote no script code — it wrote briefs, then drove nine-run ledgers to check the claims.
+  Two of the six catches came from an agent's own honest "did not fix" section.
+- hypothesis: **the weakest part is now that "verified" still means "I drove it once".** Every
+  gate this session was proven by a hand-built scenario I thought of. The duplicate-`pick` bug was
+  found by accident — a dirty-tree refusal made me re-run a command — not by a scenario I designed.
+  Nothing systematically generates the ledger shapes nobody thought to try.
+- change: none. Six catches in one session is the process working; adding a seventh gate now would
+  be changing a thing that is currently passing its own tests. The 2026-09-05 review-by from the
+  entry below still stands and now has real data to judge, since the quota is enforced in script.
+- experiment verdicts due: **innovation quota (review-by 2026-09-05 / 4 `/improve-app` runs) —
+  extend.** The doc half shipped last session, the script half shipped this one; the experiment
+  has not yet run once against a real pick, so there is nothing to keep or revert yet. Verdict
+  moves to the first session after four real runs.
+
 ## 2026-08-20 — `/improve-app`: ten adversarial loops on a process, not a feature
 
 - user-reported defects since last session: **0**. This session built a second session loop
