@@ -16,6 +16,48 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
+## 2026-08-21 — the first `/improve-app` run, and it aborted
+
+- **user-reported defects since last session:** 0
+- **slices proven / started:** 0 / 1 — run 2026-08-20-1 (RCM Preparatory A triad sequence, tier L,
+  source 1d, class VOID) built, panelled twice, and exited through ABORT. `1120597` reverted the
+  implementation and kept the spec, which is RED at HEAD (exit 1). Eight triage entries
+  (T.7–T.14) and the log entry landed in `e9042a0`.
+- **gate catches before commit:** 7 — round 1's two BLOCKERs (24 straight eighths where the
+  syllabus row is triplets; a refutation condition that passed against sabotaged code), round 2's
+  four (OSMD engraving 2 of 8 tuplet numerals; the round-1 fix silently reverting `setBpm`; a
+  180/min click on a ♩=60 memory drill; the triplet reading absent from the run's own artifacts),
+  and `check-improve-log.mjs` refusing the log entry three times over an undeclared metric field,
+  a claim whose observable was written in store-and-field terms, and a cannot-sense row with no
+  screen named.
+- **docs budget (ROADMAP+CLAUDE+PROCESS lines):** passing — `npm run docs:budget` green with
+  T.7–T.14 added.
+- **cost note:** 84% of a 240-minute tier-L budget, and roughly half of it went to the panel and
+  its re-panel. That is the correct place for it to go: every finding above came from a seat or
+  from checking a seat's claim, and none came from the build.
+- **hypothesis:** the weakest part of the process is that a slice can prove the *file it wrote*
+  and never the *thing the learner reads*. The tuplet BLOCKER is the clean case — the MusicXML was
+  schema-correct, 24 `<time-modification>` and 8 `<tuplet>` elements, asserted by 30 green tests,
+  and OSMD drew a numeral on 2 of 8 groups, so the score on screen said 5 beats in a 4/4 bar. The
+  suite could not see it because the suite was reading our own output back to us. The same shape
+  cost this run a second BLOCKER: `useTechniqueDrill.ts` carried a prose invariant ("every
+  technique drill is written in quarter notes"), the slice broke it, and nothing failed.
+- **change:** the §7 experience gate in `docs/commands/improve-app.md` and the drive step in
+  `docs/PROCESS.md` say "driven in the running app on real content". Add one clause: **when a
+  slice produces a file that a third-party library renders, the gate is the render, not the file —
+  the proof must assert on what is drawn (SVG glyph counts, on-screen text), and a test that reads
+  back the artefact we wrote does not discharge it.** Recorded as prose only because the
+  mechanical version needs a rendered-notation assertion helper that does not exist yet.
+  **Review by 2026-09-20 (or 4 runs):** if another slice ships a render defect under a green
+  suite, escalate to the helper plus a gate in `scripts/improve-run.mjs slice` that refuses a
+  notation-touching slice with no SVG assertion in its proof.
+- **experiment verdicts due:** none — the 2026-08-20 (b) experiment reviews on 2026-09-15, and the
+  builder/fixer-template clause from the session before it has not reached its date either. The
+  clause did hold this run: the round-1 fix was reported as a defect and reverted rather than
+  patched to green.
+
+---
+
 ## 2026-08-20 (b) — the two script halves the ten loops left as prose
 
 - user-reported defects since last session: **0**. Follow-up to the entry below: "finish the

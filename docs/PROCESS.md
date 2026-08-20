@@ -50,6 +50,14 @@ over a dozen "tests green, feature dead in the browser" defects. The browser dri
 2. **Driven proof on real content** — the task's proof action performed in the running app
    against a real piece or full drill flow, never only a six-bar fixture. Evidence captured:
    screenshot, console, or a driven e2e asserting behaviour (not presence).
+   **When the slice writes a file a third-party library renders, the gate is the render,
+   not the file.** Assert what is drawn — SVG glyph counts, on-screen text — because a test
+   that reads back the artefact we wrote proves only that we can read our own output.
+   *Evidence (improve-app run 2026-08-20-1): the emitted MusicXML carried 24
+   `<time-modification>` and 8 `<tuplet>` elements under 30 green tests, and OSMD drew a
+   numeral on 2 of 8 groups, so the learner read 5 beats in a 4/4 bar.* **Review-by
+   2026-09-20 (or 4 runs)** — if it recurs, escalate to a rendered-notation assertion helper
+   and a gate in `scripts/improve-run.mjs slice`.
 3. **Visual pass** — `node scripts/visual-pass.mjs <destination>` (with `--level track=n` /
    `--select sel=label` when the screen needs a state first) shoots every changed screen at
    1280px and 1024px, dark and light, and exits 1 on any console error. Judge the four

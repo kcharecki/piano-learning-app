@@ -25,3 +25,4 @@
 {"ts":"2026-08-20T22:40:45.221Z","run":"2026-08-20-1","event":"verdict","value":null}
 {"ts":"2026-08-20T22:40:45.277Z","run":"2026-08-20-1","event":"mark","section":"7","elapsedPct":83.79}
 {"ts":"2026-08-20T22:40:45.346Z","run":"2026-08-20-1","event":"mark","section":"8","elapsedPct":83.79}
+{"ts":"2026-08-20T22:45:06.745Z","run":"2026-08-20-1","event":"finish","outcome":"abort","blocker":"four unfixed BLOCKERs at round 2 and a REFUTED skeptic verdict: OSMD engraves 2 of 8 tuplet numerals (T.8), the round-1 fix reverts setBpm via same-tick setter staleness in useMetronome (T.9), the click ran 180/min on a memory drill marked crotchet=60, and the run's own artifacts do not evidence the triplet reading. Implementation reverted in 1120597, spec kept and RED at HEAD (exit 1)."}
