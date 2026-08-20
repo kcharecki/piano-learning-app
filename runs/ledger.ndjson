@@ -1,0 +1,27 @@
+{"ts":"2026-08-20T19:19:40.133Z","run":"2026-08-20-1","event":"start","commit":"d328fb8852d3a2c50ca3cac8ef802c441bc26f21","budgetMin":240,"persona":"Total beginner (PIANO)","personaIndex":0,"instrument":"piano","prevPickSource":"none"}
+{"ts":"2026-08-20T19:20:00.168Z","run":"2026-08-20-1","event":"mark","section":"0","elapsedPct":0.14}
+{"ts":"2026-08-20T19:20:00.231Z","run":"2026-08-20-1","event":"mark","section":"1a","elapsedPct":0.14}
+{"ts":"2026-08-20T19:21:16.553Z","run":"2026-08-20-1","event":"mark","section":"1b","elapsedPct":0.67}
+{"ts":"2026-08-20T19:23:32.854Z","run":"2026-08-20-1","event":"mark","section":"1d","elapsedPct":1.62}
+{"ts":"2026-08-20T19:23:32.952Z","run":"2026-08-20-1","event":"mark","section":"1c","elapsedPct":1.62}
+{"ts":"2026-08-20T19:28:45.003Z","run":"2026-08-20-1","event":"mark","section":"1e","elapsedPct":3.78}
+{"ts":"2026-08-20T19:30:23.823Z","run":"2026-08-20-1","event":"mark","section":"2","elapsedPct":4.47}
+{"ts":"2026-08-20T19:32:57.479Z","run":"2026-08-20-1","event":"pick","source":"1d","instrument":"piano","class":"VOID","sum":10,"cost":"M","tier":"L","harm":0,"thread":"none","metric":"techniqueHistory.attempts[drillId=triad-sequence-c-major-broken-hands-right].clean","baseline":"0 events, newly instrumented"}
+{"ts":"2026-08-20T19:33:18.594Z","run":"2026-08-20-1","event":"mark","section":"3","elapsedPct":5.68}
+{"ts":"2026-08-20T19:50:07.066Z","run":"2026-08-20-1","event":"spec","sha":"b8dd8dda6adb26f63f28438fcefdd79c49a74cb8","redExit":1}
+{"ts":"2026-08-20T19:50:20.645Z","run":"2026-08-20-1","event":"mark","section":"4","elapsedPct":12.78}
+{"ts":"2026-08-20T20:05:51.733Z","run":"2026-08-20-1","event":"slice","sha":"0651a78"}
+{"ts":"2026-08-20T20:05:51.815Z","run":"2026-08-20-1","event":"mark","section":"5","elapsedPct":19.25}
+{"ts":"2026-08-20T20:27:32.544Z","run":"2026-08-20-1","event":"panel","round":1,"role":"rival","templateSha":"e18bd067c434bd6b3871e7c0cebede489163fb4aadba502fcb49c0d076024f15","renderedSha":"818f175b1d4f0428a4b278f6d881df558636986e877e8613923fb33f8489b331","blockers":1,"majors":0,"minors":4}
+{"ts":"2026-08-20T20:37:22.357Z","run":"2026-08-20-1","event":"panel","round":1,"role":"teacher","templateSha":"dd202b28a0860662f99e2299b8f150928e805e33836ced5abb80c6967334802c","renderedSha":"f295ad43f85bb26f73713ea3f5923ecda16305b44c14fd74d19538738635b24f","blockers":1,"majors":3,"minors":2}
+{"ts":"2026-08-20T20:38:51.609Z","run":"2026-08-20-1","event":"panel","round":1,"role":"regression-hunter","templateSha":"ac31f8bc944f8ff176e8e945d089166d6e3b5d5a0e4569448084ebd1a1b2e25c","renderedSha":"216c0fed4ef338e30e7f0749311c6b78afddf96cbe3d249303b1e9f0ee49fba8","blockers":0,"majors":0,"minors":0}
+{"ts":"2026-08-20T21:08:21.843Z","run":"2026-08-20-1","event":"panel","round":1,"role":"skeptic","templateSha":"634b4f660794aab2b50d64fcd8155b01a10da3bd52a5bd4e2852d8dcc98bb673","renderedSha":"e3ca3e753d1f88cd668ec07ca2fd3585af198a35df9ef577879b2e8d90f2a06d","blockers":1,"majors":3,"minors":2}
+{"ts":"2026-08-20T21:22:32.108Z","run":"2026-08-20-1","event":"mark","section":"6","elapsedPct":51.19}
+{"ts":"2026-08-20T21:27:50.497Z","run":"2026-08-20-1","event":"mark","section":"5","elapsedPct":53.41}
+{"ts":"2026-08-20T21:45:44.901Z","run":"2026-08-20-1","event":"panel","round":2,"role":"rival","templateSha":"e18bd067c434bd6b3871e7c0cebede489163fb4aadba502fcb49c0d076024f15","renderedSha":"e5a58ee97848790f6cbe2305f43e31a518ee327e5b25850286a67bcd0e3dd8e3","blockers":1,"majors":2,"minors":1}
+{"ts":"2026-08-20T21:45:44.960Z","run":"2026-08-20-1","event":"panel","round":2,"role":"teacher","templateSha":"dd202b28a0860662f99e2299b8f150928e805e33836ced5abb80c6967334802c","renderedSha":"a01b070aca60ea362e85ea2e37ec03b478da9d350b8cbc3c269f72c6d1a4cc03","blockers":1,"majors":5,"minors":2}
+{"ts":"2026-08-20T21:56:52.205Z","run":"2026-08-20-1","event":"panel","round":2,"role":"regression-hunter","templateSha":"ac31f8bc944f8ff176e8e945d089166d6e3b5d5a0e4569448084ebd1a1b2e25c","renderedSha":"b04b6bc2b3a2e0ff006a3274e2a07984701aca72e1d8fb586d1be0a8c58a1bc6","blockers":0,"majors":0,"minors":1}
+{"ts":"2026-08-20T22:33:28.688Z","run":"2026-08-20-1","event":"panel","round":2,"role":"skeptic","templateSha":"634b4f660794aab2b50d64fcd8155b01a10da3bd52a5bd4e2852d8dcc98bb673","renderedSha":"5618d11227a6690e1a58a32ac03d07b4856afee19c354265678622a6eaf1abc1","blockers":4,"majors":5,"minors":1}
+{"ts":"2026-08-20T22:40:45.221Z","run":"2026-08-20-1","event":"verdict","value":null}
+{"ts":"2026-08-20T22:40:45.277Z","run":"2026-08-20-1","event":"mark","section":"7","elapsedPct":83.79}
+{"ts":"2026-08-20T22:40:45.346Z","run":"2026-08-20-1","event":"mark","section":"8","elapsedPct":83.79}

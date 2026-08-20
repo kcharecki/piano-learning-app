@@ -83,6 +83,74 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
       in both themes: identical engraving, tablet correctly re-laid-out to 2 measures per system,
       no horizontal scroll.
 
+- [ ] T.7 **The triad sequence itself is still missing, and there is a RED spec saying so.**
+      `/improve-app` run 2026-08-20-1 built it and aborted; 1120597 reverted the implementation
+      and kept b8dd8dd's `e2e/improve-triad-sequence.spec.ts`, which fails at line 163 —
+      `expect(offered).toContain('C major triad sequence, broken, right hand')` — because the
+      level-1 Drill picker offers no triad drill at all. RCM Preparatory A's technical test is
+      14 marks and includes this row. Rebuilding it must clear T.8 and T.9 first, and must assert
+      the ENGRAVING, not the MusicXML string. Full panel record: `runs/2026-08-20-1/panel-r2-*.md`.
+      *Proof: that spec goes green without `test.fixme`, and a driven run writes a clean
+      `TechniqueAttempt` at the drill's own target tempo.*
+- [ ] T.8 **OSMD engraves only 2 of 8 triplet groups with a numeral.** Found by the run's Skeptic
+      seat, driven in the running app: with every `<text>` in the drill score SVG hidden, 2 glyph
+      numerals survive, both in bar 1, so 6 of 8 groups read as plain beamed eighths and the
+      learner sees 5 beats in bar 1 and 6 in bar 2 of a 4/4 score. The written MusicXML is
+      schema-correct (24 `<time-modification>`, 8 `<tuplet type="start">` / 8 `"stop"`, both
+      measures summing to 1920 at divisions 480), so this is a render defect: suspect
+      `rules.TupletNumberLimitedDrawing` / `TupletsBracketed` in `src/app/score/osmdEngraver.ts`.
+      Affects any tuplet score, not only technique drills. A second, smaller half: `parseMusicXml`
+      drops `<time-modification>`, so our own written triplets do not round-trip.
+      *Proof: a test that counts rendered tuplet numerals in the SVG (must equal the number of
+      groups), plus a screenshot.*
+- [ ] T.9 **`useMetronome`: a second setter in the same tick silently undoes the first.**
+      `setSubdivision`, `setAccents` and `setTimeSignature` each rebuild their draft from the
+      render-closure `bpmState` (`src/app/metronome/useMetronome.ts:252,261,265`), so
+      `setBpm(72)` followed by `setSubdivision(3)` in one `act()` leaves bpm at **100** —
+      reproduced directly with `renderHook`; split across two `act()`s it leaves 72. Nothing calls
+      two setters in one tick today (1120597 removed the only caller), so no screen is currently
+      wrong — it is a loaded trap in a shared hook, and it cost this run a BLOCKER. `bpmRef` does
+      **not** fix it: refs assigned during render are exactly as stale in-tick as state. Fix: a
+      draft ref written synchronously by `applyIfValid`, or a single `apply(partial)`.
+      *Proof: a test that calls two setters in one `act()` and asserts both land.*
+- [ ] T.10 **Technique evenness has no absolute tolerance floor, so the bar moves with the note
+      rate.** `evennessOf` divides by the median gap and is compared to a fixed
+      `CLEAN_EVENNESS_THRESHOLD` of 0.8, which is ±5% of the gap with no floor: measured ±25.0ms
+      at 500ms spacing, ±16.7ms at 333ms, ±10.4ms at 208ms, ±83.3ms on the solid drill. Two seats
+      raised it independently; the Teacher simulated 400 runs and a learner with 15ms onset SD
+      fell from 66% of runs clean to 5% purely because the same pattern was re-notated as
+      triplets. RCM p.7 calls its metronome marks "a guideline for the minimum tempo", so a ±17ms
+      gate is a standard the syllabus does not set. Fix: judge against
+      `max(tolerance × median, FLOOR_MS)`. *Proof: a property test that a fixed absolute jitter
+      keeps its verdict when the same pattern is re-notated at a different note value.*
+- [ ] T.11 **`MATCHER_DEFAULTS.chordWindowMs` (80ms) is a cliff at both ends.** Below it a rolled
+      blocked triad is graded perfect; above it the same roll scores 0% — measured on the solid
+      drill: 30ms/note roll gives 8 onsets, 100%, clean; 45ms/note gives 16 onsets and 0%. The
+      run's own `drive.md` records this learner with no MIDI device, striking three notes with one
+      mouse pointer at ~100ms spread. In the other direction the window swallows real detail: at
+      300bpm a triplet gap is 66.7ms, so all three onsets of a triad collapse and a jittery run
+      scored "Evenness 100% — Clean at 300bpm". Fix: a beat-relative window, and report the
+      measured spread in words instead of folding it into evenness.
+      *Proof: driven runs at both ends of the window with the verdict text pasted.*
+- [ ] T.12 **The technique verdict cannot name a wrong note.** `TechniqueScreen.tsx:244` renders
+      `Evenness {n}% — Clean at {bpm}bpm | Not yet clean` and nothing else; accuracy is computed
+      (`useTechniqueDrill.ts:358`) and persisted in the `TechniqueAttempt`, then dropped. Playing
+      all eight triads minor returns "Evenness 88% — Not yet clean", and a beginner reads the 88%
+      as near-success. The learner's own stated goal that week was knowing which note was wrong.
+      *Proof: a driven wrong-third run whose result line names the pitch and the degree.*
+- [ ] T.13 **`fiveFingerRun` omits the closing blocked triad the syllabus puts in that row.**
+      `src/core/technique/library.ts:244` returns `[...degrees, ...degrees.slice(0,-1).reverse()]`
+      = 9 single notes. RCM Prep A p.9 Scales row reads "Legato Pentascales (five-finger patterns)
+      … tonic to dominant, ascending and descending (ending with solid/blocked root-position
+      triad)". This is also the on-ramp T.7 needs: without it the triad sequence is the learner's
+      first chord ever. *Proof: the drill's note list ends with a three-note blocked triad, driven.*
+- [ ] T.14 **The Progress "Technique tempo" card flattens drills with different targets onto one
+      unlabelled line.** Seeding one clean solid attempt (target 72) and one clean broken attempt
+      (target 60) draws 72 → 60 under "Technique clean tempo over time", so two correct runs read
+      as getting slower; the drill id is in a tooltip only and no legend node exists. Re-run live
+      by the regression-hunter this session. Fix: one series per drill, or normalise each point
+      against its own drill's target. *Proof: the seeded two-drill state, screenshotted.*
+
 ## Phases 0-2 — Foundation, M1 playable core, M2 feedback & reading — all done
 
 Every box in these three phases is `[x]`. Moved to
