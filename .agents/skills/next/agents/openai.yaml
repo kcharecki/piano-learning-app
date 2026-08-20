@@ -1,0 +1,4 @@
+interface:
+  display_name: "Next"
+  short_description: "Run the complete project session loop"
+  default_prompt: "Use $next to recover, triage, ship proven slices, and run the retro."
