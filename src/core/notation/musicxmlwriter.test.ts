@@ -11,7 +11,8 @@ import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import { writeMusicXml } from './musicxmlwriter.ts'
 import { parseMusicXml } from './musicxml.ts'
-import { makeScore, type Hand, type Score, type ScoreNoteInput, type ScoreInput } from './score.ts'
+import { makeScore, type Hand, type Score, type ScoreNoteInput, type ScoreInput, type Tuplet } from './score.ts'
+import { TRIPLET_EIGHTH } from '@core/shared/units.ts'
 
 const load = (name: string): string =>
   readFileSync(new URL(`./__fixtures__/${name}.musicxml`, import.meta.url), 'utf8')
@@ -115,6 +116,91 @@ describe('writeMusicXml: fingering (roadmap 5.22, REQ-3.7.1)', () => {
       notes: [{ midi: 60, startTick: 0, durationTicks: 480, hand: 'right' }],
     })
     expect(writeMusicXml(score)).not.toContain('<notations>')
+  })
+})
+
+// ======================================================================= tuplets
+
+/**
+ * Three eighth-note triplets (160 ticks each, 3:2) filling the first quarter
+ * of a 4/4 measure — the group the frozen `Tuplet` contract describes in its
+ * own doc comment.
+ */
+function tripletGroup(): ScoreNoteInput[] {
+  const of = (position: Tuplet['position']): Tuplet => ({ actual: 3, normal: 2, position })
+  return [
+    { midi: 60, startTick: 0, durationTicks: TRIPLET_EIGHTH, hand: 'right', tuplet: of('start') },
+    { midi: 62, startTick: TRIPLET_EIGHTH, durationTicks: TRIPLET_EIGHTH, hand: 'right', tuplet: of('inner') },
+    { midi: 64, startTick: TRIPLET_EIGHTH * 2, durationTicks: TRIPLET_EIGHTH, hand: 'right', tuplet: of('stop') },
+  ]
+}
+
+describe('writeMusicXml: tuplets (frozen Tuplet contract)', () => {
+  it('writes <type>eighth</type> for a 160-tick triplet eighth, not 16th (the bug this fixes)', () => {
+    // Raw duration alone (160 ticks = 0.333 quarters) would match <16th>
+    // (0.25) before <eighth> (0.5); the written duration via the 3:2 ratio
+    // (160 * 3 / 2 = 240 ticks = an eighth) is what must win.
+    const score = makeScore({ id: 'triplet-type', measures: [{}], notes: tripletGroup() })
+    const xml = writeMusicXml(score)
+    expect(xml.match(/<type>eighth<\/type>/g)).toHaveLength(3)
+    expect(xml).not.toContain('<type>16th</type>')
+  })
+
+  it('emits <time-modification> 3:2 on every note of the group, including the inner one', () => {
+    const score = makeScore({ id: 'triplet-timemod', measures: [{}], notes: tripletGroup() })
+    const xml = writeMusicXml(score)
+    const matches = xml.match(
+      /<time-modification><actual-notes>3<\/actual-notes><normal-notes>2<\/normal-notes><\/time-modification>/g,
+    )
+    expect(matches).toHaveLength(3)
+  })
+
+  it('brackets only the edges: one tuplet type="start", one type="stop", none on the inner note', () => {
+    const score = makeScore({ id: 'triplet-bracket', measures: [{}], notes: tripletGroup() })
+    const xml = writeMusicXml(score)
+    expect(xml.match(/<tuplet type="start" number="1"\/>/g)).toHaveLength(1)
+    expect(xml.match(/<tuplet type="stop" number="1"\/>/g)).toHaveLength(1)
+    expect(xml).not.toContain('<tuplet type="inner"')
+  })
+
+  it('beams the group begin / continue / end', () => {
+    const score = makeScore({ id: 'triplet-beam', measures: [{}], notes: tripletGroup() })
+    const xml = writeMusicXml(score)
+    expect(xml).toContain('<beam number="1">begin</beam>')
+    expect(xml).toContain('<beam number="1">continue</beam>')
+    expect(xml).toContain('<beam number="1">end</beam>')
+  })
+
+  it('keeps schema order: time-modification before <staff>, beam before <notations>', () => {
+    const notes = tripletGroup()
+    const startNote = notes[0]
+    if (startNote === undefined) throw new Error('tripletGroup() returned no notes')
+    const score = makeScore({ id: 'triplet-order', measures: [{}], notes: [startNote] })
+    const xml = writeMusicXml(score)
+    const timeModAt = xml.indexOf('<time-modification>')
+    const staffAt = xml.indexOf('<staff>')
+    const beamAt = xml.indexOf('<beam number="1">')
+    const notationsAt = xml.indexOf('<notations>')
+    expect(timeModAt).toBeGreaterThan(-1)
+    expect(staffAt).toBeGreaterThan(-1)
+    expect(beamAt).toBeGreaterThan(-1)
+    expect(notationsAt).toBeGreaterThan(-1)
+    expect(timeModAt).toBeLessThan(staffAt)
+    expect(staffAt).toBeLessThan(beamAt)
+    expect(beamAt).toBeLessThan(notationsAt)
+  })
+
+  it('leaves a plain (non-tuplet) note byte-identical to before tuplet support', () => {
+    // Same score, same pinned hash, as the "produces byte-identical output for
+    // a fixed score" test above — proves the non-tuplet path emits nothing new.
+    const score = makeScore({
+      id: 'x',
+      measures: [{}],
+      notes: [{ midi: 60, startTick: 0, durationTicks: 1920, hand: 'right' }],
+    })
+    let hash = 0
+    for (const ch of writeMusicXml(score)) hash = (hash * 31 + ch.charCodeAt(0)) | 0
+    expect(hash).toBe(700_250_274)
   })
 })
 

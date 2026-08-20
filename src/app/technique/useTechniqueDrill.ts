@@ -12,13 +12,20 @@
  * ## Reusing the metronome, not a second scheduler
  *
  * `useMetronome` (roadmap 2.28) is the standalone click track; this hook
- * drives it directly rather than building a third scheduler. Every drill note
- * sits on a beat (`techniqueScore` writes one `QUARTER` per note — see
- * `@core/technique/library.ts`), so the metronome's default 1-click-per-beat
- * subdivision is exactly the pulse the learner plays against, at whatever bpm
- * is currently selected: `techniqueScore(drill, metronome.bpm)` is
- * regenerated whenever that bpm changes, so the engraved score and the clicks
- * are always describing the same tempo.
+ * drives it directly rather than building a third scheduler.
+ *
+ * Most drills write one `QUARTER` per note, so the metronome's default
+ * 1-click-per-beat subdivision is exactly the pulse the learner plays against.
+ * That was once stated here as an invariant over *every* drill — and it was
+ * wrong the moment the RCM triad sequence arrived, whose broken form is
+ * eighth-note triplets, three to a beat. A prose invariant caught nothing:
+ * the drill shipped with the click marking one note in three and landing off
+ * four of its eight triad roots. `subdivisionFor` now derives the click rate
+ * from the score itself, so a drill that is not in quarters says so in data
+ * rather than relying on this comment being re-read.
+ *
+ * `techniqueScore(drill, metronome.bpm)` is regenerated whenever that bpm
+ * changes, so the engraved score and the clicks always describe one tempo.
  *
  * ## Scoring a run
  *
@@ -62,7 +69,7 @@ import { measureDurationTicks, scoreDurationTicks, type Score, type TimeSignatur
 import type { AudioOutput, Clock, DateSource, MidiInput } from '@core/ports/index.ts'
 import { MATCHER_DEFAULTS, NoteMatcher } from '@core/practice/matcher.ts'
 import { bpm as asBpm, millis as asMillis, type Bpm, type Midi } from '@core/shared/units.ts'
-import { MAX_BPM, MIN_BPM } from '@core/timing/metronome.ts'
+import { MAX_BPM, MIN_BPM, SUBDIVISIONS, type Subdivision } from '@core/timing/metronome.ts'
 import { makeTempoMap, tickToMs, type TempoMap } from '@core/timing/tempo.ts'
 import {
   bestCleanBpm,
@@ -85,6 +92,17 @@ import {
 
 const FALLBACK_BPM = 60
 const DEFAULT_TIME_SIGNATURE: TimeSignature = { beats: 4, beatType: 4 }
+
+/**
+ * The click rate a drill wants: one click per note of a tuplet group when the
+ * drill is written in tuplets, otherwise one per beat. A triplet drill clicked
+ * in quarters marks only every third note the learner plays, and lands off the
+ * root of four triads in eight — the one thing a technique pulse must not do.
+ */
+function subdivisionFor(score: Score): Subdivision {
+  const actual = score.notes.find((n) => n.tuplet !== undefined)?.tuplet?.actual
+  return SUBDIVISIONS.find((s) => s === actual) ?? 1
+}
 
 export type UseTechniqueDrillOptions = {
   readonly level: number
@@ -200,6 +218,8 @@ export function useTechniqueDrill(options: UseTechniqueDrillOptions): TechniqueD
     if (drill === undefined) return
     const best = bestCleanBpm(useTechniqueStore.getState().attempts, drill.id)
     metronomeRef.current.setBpm(best > 0 ? best : drill.targetBpm)
+    // Tuplets are tempo-independent, so the drill's own target is a safe probe.
+    metronomeRef.current.setSubdivision(subdivisionFor(techniqueScore(drill, drill.targetBpm)))
   }, [drill])
 
   const score = useMemo(

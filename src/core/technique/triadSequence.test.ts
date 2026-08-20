@@ -4,7 +4,7 @@ import { at } from '@core/shared/invariant.ts'
 import { letterIndex, spell, toMidi, type Letter, type SpelledPitch } from '@core/theory/pitch.ts'
 import type { ScaleType } from '@core/theory/scales.ts'
 import type { Hand, ScoreNoteInput } from '@core/notation/score.ts'
-import { EIGHTH, QUARTER } from '@core/shared/units.ts'
+import { QUARTER, TRIPLET_EIGHTH } from '@core/shared/units.ts'
 import {
   TRIAD_SEQUENCE_STEPS,
   triadSequenceDurationTicks,
@@ -130,7 +130,11 @@ describe('triadSequenceSteps', () => {
 })
 
 describe('triadSequenceNotes', () => {
-  it('C major, right hand, broken: 24 eighth notes at ticks 0, 240, … 5520', () => {
+  // Kills the mutant this drill actually shipped first: straight EIGHTHs
+  // (240 ticks) instead of triplet eighths (160). That mutant ran the drill
+  // for 12.0s instead of 8.0s at ♩=60 and started four of the eight triads
+  // off the beat, while passing every pitch assertion in this file.
+  it('C major, right hand, broken: 24 triplet eighths at ticks 0, 160, … 3680', () => {
     const notes = triadSequenceNotes(spell('C', 0, 4), 'major', 'right', 'broken')
     expect(notes).toHaveLength(24)
     expect(notes.map((n) => n.midi)).toEqual([
@@ -138,15 +142,46 @@ describe('triadSequenceNotes', () => {
       79,
     ])
     expect(notes.map((n) => n.startTick)).toEqual(
-      Array.from({ length: 24 }, (_, i) => i * EIGHTH),
+      Array.from({ length: 24 }, (_, i) => i * TRIPLET_EIGHTH),
     )
     for (const n of notes) {
-      expect(n.durationTicks).toBe(EIGHTH)
+      expect(n.durationTicks).toBe(TRIPLET_EIGHTH)
       expect(n.hand).toBe('right')
     }
     expect(notes.map((n) => n.fingering)).toEqual(
       Array.from({ length: 8 }, () => [1, 3, 5]).flat(),
     )
+  })
+
+  // One triad per beat is the whole point of the triplet: the syllabus's
+  // ♩=60 has to mean one chord per click, and no triad may straddle a bar.
+  it('broken: every triad starts exactly on a beat, and none straddles a barline', () => {
+    const notes = triadSequenceNotes(spell('C', 0, 4), 'major', 'right', 'broken')
+    const triadStarts = notes.filter((_, i) => i % 3 === 0).map((n) => n.startTick)
+    expect(triadStarts).toEqual(Array.from({ length: 8 }, (_, i) => i * QUARTER))
+    for (const tick of triadStarts) expect(tick % QUARTER).toBe(0)
+    const BAR = 4 * QUARTER
+    for (const tick of triadStarts) {
+      expect(Math.floor(tick / BAR)).toBe(Math.floor((tick + QUARTER - 1) / BAR))
+    }
+  })
+
+  it('broken: every note carries a 3:2 tuplet, bracketed start/inner/stop per triad', () => {
+    const notes = triadSequenceNotes(spell('C', 0, 4), 'major', 'right', 'broken')
+    for (const n of notes) {
+      expect(n.tuplet?.actual).toBe(3)
+      expect(n.tuplet?.normal).toBe(2)
+    }
+    expect(notes.map((n) => n.tuplet?.position)).toEqual(
+      Array.from({ length: 8 }, () => ['start', 'inner', 'stop']).flat(),
+    )
+  })
+
+  // The solid form is NOT a tuplet — quarter plus quarter rest, per the same
+  // syllabus cell. Guards against the triplet fix leaking across forms.
+  it('solid: carries no tuplet at all', () => {
+    const notes = triadSequenceNotes(spell('C', 0, 4), 'major', 'right', 'solid')
+    for (const n of notes) expect(n.tuplet).toBeUndefined()
   })
 
   // Kills: a mutant that spaces solid blocks back-to-back with no rest gap
@@ -178,8 +213,8 @@ describe('triadSequenceNotes', () => {
     ])
   })
 
-  it('durations: broken is 5760 ticks (3 bars of 4/4), solid is 7680 (4 bars)', () => {
-    expect(triadSequenceDurationTicks('broken')).toBe(5760)
+  it('durations: broken is 3840 ticks (2 bars of 4/4), solid is 7680 (4 bars)', () => {
+    expect(triadSequenceDurationTicks('broken')).toBe(3840)
     expect(triadSequenceDurationTicks('solid')).toBe(7680)
   })
 

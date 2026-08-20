@@ -55,21 +55,27 @@ import { makeTempoMap, tickToMs } from '../src/core/timing/tempo.ts'
  * 100% — measured, not assumed, so the jitter below is the only thing keeping
  * the assertion honest.
  *
- * The arithmetic, which is NOT `1 - 2*JITTER/gap`. At 60bpm an eighth is
- * 500ms and this drill has 24 onsets, so 23 gaps alternating (500 - 2J) and
- * (500 + 2J) — twelve short, eleven long. `evennessOf` divides by the
- * **median** gap, and the median of twelve shorts and eleven longs is the
- * SHORT one, not 500. So the worst gap sits 4J above a (500 - 2J) median:
+ * The arithmetic, which is NOT `1 - 2*JITTER/gap`. The broken form is
+ * eighth-note TRIPLETS, so at 60bpm the gap is a third of a quarter —
+ * 333.33ms, not 500 — and this drill has 24 onsets, so 23 gaps alternating
+ * (g - 2J) and (g + 2J), twelve short and eleven long. `evennessOf` divides
+ * by the **median** gap, and the median of twelve shorts and eleven longs is
+ * the SHORT one, not g. So the worst gap sits 4J above a (g - 2J) median:
  *
- *     evenness = 1 - (4J / (500 - 2J)) / 0.5 = 1 - 8J / (500 - 2J)
+ *     evenness = 1 - (4J / (g - 2J)) / 0.5 = 1 - 8J / (g - 2J)
  *
- * J=8 gives 1 - 64/484 = 0.868, i.e. the 87% the assertions below band. (The
- * first draft of this spec used J=15 and predicted 88% from the wrong
- * formula; the app returned 74%, which this formula predicts exactly — the
- * spec's arithmetic was wrong, the app's evenness was right.) J=8 keeps the
- * run inside `MATCHER_DEFAULTS.toleranceMs` (150ms, so accuracy stays 1) and
- * above `CLEAN_EVENNESS_THRESHOLD` (0.8, so the run is clean and earns its
- * tempo-history point).
+ * J=5 gives 1 - 40/323.3 = 0.876, i.e. the 88% the assertions below band.
+ *
+ * Two mistakes are recorded here because both were expensive. First draft:
+ * J=15 with the wrong formula predicted 88%, the app returned 74%, and this
+ * formula predicts 74% exactly — the spec's arithmetic was wrong, the app's
+ * evenness was right. Second: this spec was written when the drill was
+ * straight eighths (g=500) and J=8 scored 87%. Fixing the drill to triplets
+ * halves g, and J=8 at g=333.33 scores 79.8% — BELOW
+ * `CLEAN_EVENNESS_THRESHOLD` (0.8), which would have flipped this run to
+ * "not clean" and failed the spec for a reason having nothing to do with the
+ * bug being fixed. J=5 keeps the run inside `MATCHER_DEFAULTS.toleranceMs`
+ * (150ms, so accuracy stays 1) and clear of that threshold.
  */
 
 const DB_NAME = 'piano-learning-app'
@@ -110,8 +116,9 @@ const EXPECTED_MIDI: readonly number[] = [
 ]
 
 const DEFAULT_TIME_SIGNATURE: TimeSignature = { beats: 4, beatType: 4 }
-const JITTER_MS = 8
-const NOTE_HOLD_MS = 300
+const JITTER_MS = 5
+/** Well inside the 333.33ms triplet gap, so a note never overlaps its successor. */
+const NOTE_HOLD_MS = 200
 
 function collectErrors(page: Page): string[] {
   const errors: string[] = []

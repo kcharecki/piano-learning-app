@@ -22,9 +22,20 @@
  * ## Tick layout (`triadSequenceNotes`)
  *
  * Two engraved forms, both starting at tick 0:
- *  - **broken**: the 24 notes played one after another, each an EIGHTH note
- *    (240 ticks). 24 sequential onsets at ticks 0, 240, 480, … 5520; total
- *    span 5760 ticks (3 bars of 4/4).
+ *  - **broken**: the 24 notes played one after another as EIGHTH-NOTE TRIPLETS
+ *    — three to a quarter, so one triad per beat. Each note is
+ *    `TRIPLET_EIGHTH` (160 ticks) and carries a 3:2 `Tuplet`; onsets fall at
+ *    0, 160, 320, … 3680; total span 3840 ticks (2 bars of 4/4).
+ *
+ *    The triplet is the syllabus's own notation, not a stylistic choice: the
+ *    RCM 2022 Preparatory A "Note Values" column engraves this row as three
+ *    beamed eighths under an italic 3 against ♩=60, and its p. 121 example
+ *    beams the 24 notes in eight groups of three with no time signature and
+ *    no barlines. Shipping straight eighths (the first cut of this module)
+ *    ran the drill for 12.0 s instead of 8.0 s and started four of the eight
+ *    triads off the beat, so a learner earning "Clean at 60bpm" was in fact
+ *    playing the exam's pattern at ♩=40. One triad per beat also means no
+ *    triad straddles a barline, which straight eighths could not avoid.
  *  - **solid**: the same 8 triads as blocks. Each block is a QUARTER note
  *    (480 ticks) followed by a quarter rest, so blocks start at ticks 0,
  *    960, 1920, … 6720; total span 7680 ticks (4 bars of 4/4). All three
@@ -38,8 +49,8 @@
 import { at, invariant } from '@core/shared/invariant.ts'
 import { toMidi, type SpelledPitch } from '@core/theory/pitch.ts'
 import { buildScale, noteAtDegree, type ScaleType } from '@core/theory/scales.ts'
-import type { Hand, ScoreNoteInput } from '@core/notation/score.ts'
-import { EIGHTH, QUARTER } from '@core/shared/units.ts'
+import type { Hand, ScoreNoteInput, Tuplet } from '@core/notation/score.ts'
+import { QUARTER, TRIPLET_EIGHTH } from '@core/shared/units.ts'
 
 export type TriadForm = 'broken' | 'solid'
 
@@ -64,6 +75,15 @@ const LEFT_HAND_FINGERS: readonly number[] = [5, 3, 1]
 
 /** Two scale degrees between each note of the stack — a third, letter-wise. */
 const THIRD_STEP = 2
+
+/** Three triplet eighths sound in the written time of two plain ones. */
+const TRIPLET_RATIO = { actual: 3, normal: 2 } as const
+
+/** Where note `i` of a triad sits in its triplet bracket — the group is always 3. */
+function tripletPosition(i: number): Tuplet {
+  const position = i === 0 ? 'start' : i === NOTES_PER_TRIAD - 1 ? 'stop' : 'inner'
+  return { ...TRIPLET_RATIO, position }
+}
 
 /**
  * The eight root-position diatonic triads of `tonic`/`scaleType`, one per
@@ -107,11 +127,12 @@ export function triadSequenceNotes(
       step.notes.forEach((pitch, i) => {
         out.push({
           midi: toMidi(pitch),
-          startTick: index * EIGHTH,
-          durationTicks: EIGHTH,
+          startTick: index * TRIPLET_EIGHTH,
+          durationTicks: TRIPLET_EIGHTH,
           hand,
           fingering: at(step.fingers, i),
           spelling: pitch,
+          tuplet: tripletPosition(i),
         })
         index += 1
       })
@@ -137,10 +158,11 @@ export function triadSequenceNotes(
   return out
 }
 
-/** Total duration of the drill in ticks: broken 5760 (3 bars of 4/4), solid 7680 (4 bars). */
+/** Total duration of the drill in ticks: broken 3840 (2 bars of 4/4), solid 7680 (4 bars). */
 export function triadSequenceDurationTicks(form: TriadForm): number {
   if (form === 'broken') {
-    return TRIAD_SEQUENCE_STEPS * NOTES_PER_TRIAD * EIGHTH
+    // One triad per beat: three triplet eighths make exactly one QUARTER.
+    return TRIAD_SEQUENCE_STEPS * QUARTER
   }
   invariant(form === 'solid', `triadSequenceDurationTicks: unknown form ${String(form)}`)
   return TRIAD_SEQUENCE_STEPS * 2 * QUARTER
