@@ -37,10 +37,17 @@ Score each 0–3. `check-improve-log.mjs` rejects an out-of-range score or a mis
 
 | Axis | 0–3 |
 |---|---|
-| **Blocked** | Can the learner reach their goal at all without it? |
-| **Reach** | Share of practice sessions that hit it. |
+| **Blocked** | Can the learner reach their goal at all without it? For something that does not exist, score against the learner's **musicianship**, not against this week's goal. |
+| **Reach** | Share of practice sessions that hit it. For something that does not exist, the share in which the **skill** is required — never the share that reach the missing feature, which is always 0. |
 | **Teacherliness** | Distance from what a human teacher would give here. |
-| **Unmatchable** | Could a teacher with a book and a metronome do this at all? (0 = easily) |
+| **Unmatchable** | Could a teacher with a book and a metronome do this at all? (0 = easily.) **A skill on the learner's own syllabus scores ≥1** — matching a teacher on a required skill is the baseline, not a null. |
+
+**Score a capability that does not exist against the learner's musicianship, never against
+today's app.** Read literally, three of these four axes are 0 for anything VOID: nothing blocks a
+goal it was never part of, no session reaches a missing feature, and every syllabus skill is one
+a teacher has done with a book for a century. That is a nine-point handicap on new capability,
+applied silently. It is not hypothetical — two competent readers scored the same absent aural
+test **5 and 10** on this table before the sentences above were added.
 
 **Rank on the raw sum (0–12), plus any 1e age bonus. Cost never divides the score** — it sets
 the tier and nothing else. Dividing by cost is arithmetically guaranteed to buy the cheapest
@@ -76,10 +83,9 @@ capability can never win and the process ships small repairs for ever while soun
    writing**, naming what was learned and what finishing would have cost — a chain abandoned
    one item short of its declared payoff is logged as the process failing, not the chain.
 
-   *All three parts are load-bearing.* Without the binding, a drums run picks the highest piano
-   row and reports success. Without continuation, an L-cost capability is unreachable by
-   construction and nothing shipped "not clean" is returned to. Without rotation, every run
-   picks a drive defect and nothing new is ever built.
+   *All three parts are load-bearing.* Without the binding, a drums run picks the top piano row
+   and reports success. Without continuation, an L capability is unreachable by construction.
+   Without rotation, every run picks a drive defect and nothing new is built.
 
 ## Citations
 
@@ -87,6 +93,12 @@ Every pedagogy claim carries **the claim, a verbatim quote, and one sentence of 
 saying why the quote supports *this* fix. Source: a URL fetched in this session, or a syllabus
 or method book cited to grade and page. Piano — RCM 2022, ABRSM 2025–26, Faber, Alfred,
 Taubman. Drums — Drumeo, Rockschool, Trinity, PAS.
+
+**If the primary source refuses the fetch** — 403, paywall, login — the claim ships labelled
+`UNFETCHED`, naming the URL and status, and **carries no verbatim quote**, because a search
+summary of a PDF is not that PDF. Cite the syllabus to grade for its *shape*; never quote it.
+*Evidence 2026-08-20: the ABRSM Grade 1 PDF 403'd, and the run's aural facts came from a
+different, genuinely fetched page — correct, and undirected by this file at the time.*
 
 A repo `path:line` may evidence **facts about the app**, never pedagogy. A named authority with
 no quote is not a citation. `docs/ux-pedagogy-review-2026-08-12.md` and
@@ -108,32 +120,11 @@ not against how hard the fix looks — the reviewer who softens a finding to MIN
 | **MAJOR** | The claim is not true for some real learner state, or the feedback is wrong enough that a teacher would contradict it. |
 | **MINOR** | Everything else. |
 
-## Panel token contract
-
-`docs/panel/*.md` are byte-stable: the orchestrator substitutes `{{TOKEN}}`s and never edits the
-prose, and `improve-run.mjs panel` records the rendered sha256 so a later round cannot quietly
-soften its own prompt. Each template ends with the tokens it requires. Values come from here:
-
-| Token | Value |
-|---|---|
-| `REPO_ROOT`, `RUN_ID`, `INSTRUMENT` | From `improve-run.mjs start`. |
-| `DIFF_REF`, `BASE_SHA` | The slice sha from `slice --sha`, and the start commit `start` stamped. |
-| `ROUND`, `PRIOR_FINDINGS`, `FIX_DIFF_REF` | Round 1: `1`, `none — this is round 1`, `n/a`. Later rounds: the previous rounds' verbatim findings and the diff of the fixes made since. |
-| `CLAIM`, `REFUTATION_CONDITION`, `METRIC` | The §3 claim block, unedited. |
-| `DEV_URL`, `SEED_PROFILE`, `STATE_RECIPES` | The running dev server, the profile §1c seeded, and how to force empty / loading / error / no-MIDI. |
-| `DRIVE_LOG_PATH` | `runs/<id>/drive.md`, written at §1c. |
-| `LEARNER_PROFILE` | The persona: stage, current grade, this week's goal. |
-| `BANNED_SOURCES` | `docs/ux-pedagogy-review-2026-08-12.md`, `docs/drums/research-2026-08-15.md`, and any other of this app's own digests. |
-
-A token the template requires and the run cannot supply is a **stop**, not a blank: a seat given
-`{{STATE_RECIPES}}` it cannot fill will report the states as checked without forcing them.
-
 ## Personas
 
-`improve-run.mjs start` owns the rotation and **alternates piano and drums**, so neither
-instrument can be starved by a run of interesting gaps in the other. The rotation advances once
-per run and is derived from the ledger by replay (`count(start) − count(rewind)`), so it cannot
-be silently reset. A bootstrap run gives its persona back with `rewind`.
+`improve-run.mjs start` owns the rotation and **alternates piano and drums**. It advances once
+per run, derived from the ledger by replay (`count(start) − count(rewind)`), so it cannot be
+silently reset. A bootstrap run gives its persona back with `rewind`.
 
 Each persona is a stage and a concrete musical goal, not a demographic — something a teacher
 would recognise as a week's work: *play Ode to Joy hands together at 60 bpm without stopping*,
@@ -144,16 +135,25 @@ cold and know what I got wrong*.
 
 Drum teaching does not grade "wrong note". A drums drive reports **per-limb mean offset and
 variance** (ahead or behind), **ghost/accent separation**, and **per-limb drift under load**.
-**Sticking and hand-assignment are permanently unsensable** — a pad hit does not report which
-hand made it — so they live on the register, not in a ledger, and are not re-derived each run.
-Never ship a slice that infers them and grades the learner on the inference.
+**Sticking and hand-assignment are PHYSICAL** — see the register; never grade an inference of them.
 
 ## The cannot-sense register
 
-Everything this method counts is a discrete event. **Tone, touch, voicing, the pocket, phrasing,
-posture, grip** and **drum sticking** live between the events and cannot surface as a gap here.
-Never let the countable quietly define the curriculum.
+**Tone, touch, voicing, the pocket, phrasing, posture, grip, drum sticking** live between the
+discrete events this method counts. Never let the countable quietly define the curriculum — nor
+this register the ceiling. It is open problems, not laws. `docs/improve-log.md` owns the table
+and its rules: **PHYSICAL** (no sensor in this rig reports it) versus **OURS** (the signal
+reaches the app and this repo discards or normalises it — **an OURS entry is a gap**, scored on
+the four axes like any other), the countability challenge every row carries, the disclosure
+rule, and how a row enters, leaves, or is re-filed.
 
-`docs/improve-log.md` owns the register, the rule that each entry names the screen disclosing the
-limit, and the list of signals that are captured-but-unread and therefore `orphan-signals`
-business rather than blindness. It narrows only on proof of countability.
+**Cadence.** Every fourth run of an instrument must pick a register entry — an OURS one, or a
+PHYSICAL one whose challenge it intends to attempt, which excludes any row whose challenge reads
+*None known*. Citation-exempt like 1a and 1e, with a stated harm hypothesis. Ranked at §2 **above
+continue-then-rotate**, so an open repair thread defers the cadence by one run instead of
+cancelling it, and the thread's cap does not advance while it waits.
+
+**The honesty rule is the price of the cadence.** A register slice ships the *measurement*,
+labelled as a proxy on the screen that shows it, never a verdict on the unsensable thing.
+"Your snare sits 18 ms behind the click, consistently" ships; "your feel is good" does not. A
+register slice that cannot state its proxy in the learner's own words on screen is a BLOCKER.

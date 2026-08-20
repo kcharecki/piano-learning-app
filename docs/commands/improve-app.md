@@ -4,27 +4,31 @@
 from evidence, and holds the result to a bar above "done".
 
 **Read now:** this file, then `docs/improve/method.md` — classes, axes, ranking, severity,
-tokens, personas, the blind register. That is the whole up-front load. **Read when you reach
-it:** `ROADMAP.md` at §2 and not before, `docs/DESIGN.md` at §3, `docs/efficiency-guide.md`
-Appendix A at §4, `docs/panel/*` at §5, `docs/PROCESS.md` at §7, `docs/retro-log.md` at §8.
-Front-loading the rest is how a run spends its budget reading. `docs/PROCESS.md` applies in full
-and is not restated here — its experience gate is the **floor**, not the target.
+personas, the register. That is the whole up-front load. **Read when you reach it:** `ROADMAP.md`
+at §2 and not before, `docs/efficiency-guide.md` Appendix A at §4, `docs/panel/*` at §5,
+`docs/PROCESS.md` at §3 and §7 (it carries `docs/DESIGN.md`'s screen rules), `retro-log.md` at §8. Front-loading the rest
+is how a run spends its budget reading. `docs/PROCESS.md` applies in full and is not restated —
+its experience gate is the **floor**, not the target.
 
 **Main checkout only.** This command writes `ROADMAP.md`'s Triage section and
 `docs/retro-log.md`, which `docs/WORKTREES.md` forbids to worktree sessions. `/next`'s step 0
 routes a refused claim into a worktree; **this command stops and reports instead.**
 
-**Great means**, for a run: the slice names one metric in the learner's persisted history,
-instrumented with its pre-ship baseline recorded (`0 events, newly instrumented` is valid); the
-refutation condition was run and did **not** refute the claim; and at M and above the Teacher
-endorses it against a cited syllabus. The metric's verdict is due at the **next** run — no run
-can observe its own effect on a human's playing.
+**Great means**, for a run: the slice names one metric in the learner's persisted history with
+its pre-ship baseline (`0 events, newly instrumented` is valid); the refutation condition ran and
+did **not** refute the claim; at M+ the Teacher endorses it against a cited syllabus. That
+metric's verdict is due at the **next** run — no run observes its own effect on human playing.
 
 ## The loop
 
-Every step names the gate that enforces it. Where a gate exists, prose is not the rule — the
-script is, and it refuses to advance. Call `improve-run.mjs mark <section>` on entering each
-section; that is what the budget stops read.
+Where a gate exists, the script is the rule and it refuses to advance. Call `improve-run.mjs
+mark <section>` on entering each section; that is what the budget stops read.
+
+**Five rules no script can check, and the process is worth nothing if you fake them:** the 1a
+answer is the learner's real words, the §1c drive happened, the panel seats were real agents given
+the real templates, a citation's quote is genuine, and a severity is graded against the rubric
+rather than against how hard the fix looks. Every other gate is scripted so attention is free
+for these five.
 
 ### 0. START
 
@@ -40,43 +44,42 @@ node scripts/improve-run.mjs start                  # → run id, persona, instr
 
 `start` refuses a dirty tree, a worktree, and a previous run with no metric verdict. It stamps
 the start commit and a 240-minute budget (every percentage below is of that), creates
-`runs/<id>/`, and advances the persona rotation once — the rotation **alternates piano and
-drums**, and the persona's instrument **binds this run's pick** (method doc, rule 3), so neither
-instrument can be starved by a run of interesting gaps in the other.
-
-**`runs/<id>/` is git-ignored scratch; `runs/ledger.ndjson` is committed.** Without the ignore,
-run 1 leaves untracked files and run 2's `start` refuses the tree as dirty.
+`runs/<id>/`, and advances the persona rotation once — it **alternates piano and drums**, and the
+persona's instrument **binds this run's pick** (method doc, rule 3). `runs/<id>/` is git-ignored
+scratch, `runs/ledger.ndjson` committed; without that split run 2's `start` sees a dirty tree.
 
 ### 1. DISCOVER — five sources. **Do not open `ROADMAP.md` yet.** Cap: 25% of budget
 
-The roadmap records what somebody already noticed. This step finds what nobody has.
+The roadmap records what somebody already noticed; this finds what nobody has.
+`docs/improve-log.md`'s **idea** and **cannot-sense** registers are sources too (`--source idea|reg`).
 
 | | Source | How |
 |---|---|---|
 | **1a** | **Ask the learner** | This app has one user and they are in this chat. Post the four questions from the method doc as one block, keep working, paste the reply **verbatim** into `runs/<id>/interview.md`. Never simulate an answer that did not arrive; `no answer this run` is the only substitute. |
-| **1b** | **Mine their history** | Export the stores from the running app. Report the three metrics unmoved in 30 days, the most-abandoned item (started, not returned to in 14 days) with its last error, and the top error class of ≤7 buckets. Each is admissible with no drive failure attached. An empty profile is a finding — say so, never invent history. |
+| **1b** | **Mine their history** | Export the stores from the running app. Report the three metrics unmoved in 30 days, the most-abandoned item (started, not returned to in 14 days) with its last error, and the top error class of ≤7 buckets, **and the most-repeated item with how many unplayed items remain at the learner's level** — exhaustion is a THIN finding, not an error, and without this figure four of the five sources can only report deficiencies. Each is admissible with no drive failure attached. An empty profile is a finding — say so, never invent history. |
 | **1c** | **Drive as the learner** | One drive, every tier, on a seeded profile, interactively via the on-screen keyboard / QWERTY note input (`e2e/qwerty-note-input.spec.ts`). `e2e/fake-midi.ts` installs only through `page.addInitScript` before `page.goto` — spec-driven proof, not a live drive. Take the wrong turns a beginner takes. Classify every failure. **Write it to `runs/<id>/drive.md`** — screens entered, inputs played, what the app said back, every failure — that file is `{{DRIVE_LOG_PATH}}` and two panel seats read it. |
 | **1d** | **Syllabus first** | Fix the learner's grade in one cited syllabus. Write the 10–15 skills it requires **before opening the app**, then mark each taught+graded / taught-not-graded / absent. Every *absent* is a VOID needing no drive. **The only source that finds what no drive hits.** |
 | **1e** | **Orphan signals** | `node scripts/orphan-signals.mjs` — captured, persisted or decoded, and read by no grader or screen. Paste it verbatim. The script owns the ages (+1 per run, capped +3, added to the raw sum). **This is where new capability comes from**; it needs no drive failure attached. Confirm LOW-confidence rows by hand before ledgering them. |
 
 ### 2. LEDGER, PICK, CLAIM
 
-Score every gap on the four axes in the method doc, **rank on the raw sum (0–12) plus any 1e
-age bonus, and never divide by cost** — dividing by cost is arithmetically guaranteed to buy
-the cheapest gap, which is how an ambitious-sounding process ships ten consecutive small
-repairs. Cost sets the tier and nothing else.
+Score every gap on the four axes in the method doc. **Rank on the raw sum (0–12) plus any 1e age
+bonus; never divide by cost** — cost sets the tier and nothing else, and the method doc shows why.
 
 ```bash
-node scripts/improve-run.mjs pick --source <1a-1e> --instrument <piano|drums> \
+node scripts/improve-run.mjs pick --source <1a-1e|reg|idea> --instrument <piano|drums> \
+  --class <VOID|THIN|BLIND|HARMFUL|MIS-GRADED|MIS-GATED|UNREACHABLE|FLAT> \
   --sum <n> --cost <S|M|L> --leader-gap <n> --harm <0|1> \
   --thread <slug|none> [--payoff <id> --prereqs <n>] --metric <field> --baseline <v>
 ```
 
-`--instrument` must match this run's persona or `pick` refuses — without that gate the
-alternation is decorative, because 1b and 1e are repo-wide and the top row is usually piano.
-`pick` derives the tier and enforces, in order: **harm gate**, **prerequisites win**,
-**continue-then-rotate**. Rules in the method doc; the script refuses the call that breaks them,
-so the table cannot disagree with what gets built.
+`--instrument` must match the persona or `pick` refuses; 1b and 1e are repo-wide and the top row
+is usually piano, so without that gate the alternation is decorative. `pick` derives the tier and
+enforces, in order: **harm gate**, **prerequisites win**,
+**innovation quota**, **continue-then-rotate**; the script refuses the call that breaks them. The
+**quota** — no instrument goes three consecutive runs of its own without a `VOID`, `THIN`, `reg`
+or `idea` pick — outranks the thread rule, because the other two overrides can only ever be won
+by a repair. A thread the quota defers waits one run of its instrument, cap not advancing.
 
 | Tier | Set by | Panel | Adds |
 |---|---|---|---|
@@ -84,13 +87,15 @@ so the table cannot disagree with what gets built.
 | **M** | cost M, or crosses a `src/` top-level boundary (core↔adapters↔app↔content), or crosses piano↔drums | + Teacher, 2 re-panels | three-design divergence |
 | **L** | cost L, HARMFUL, or VOID | + Rival, 3 re-panels | second and third drive (here, not §1), held-out goal |
 
-**Budget stops**, enforced by `mark`: no `slice` by 40% → drop to Floor and drop every
-tier-added obligation not yet started; none by 60% → ABORT.
+**Budget stops**, enforced by `mark`: no `slice` by 40% → **shed the tier's added obligations**
+(extra drives, extra panel rounds), keeping the same gap; none by 60% → ABORT. **The held-out
+goal is never shed** — the only test that a new capability *generalises*, and VOID forces L, so
+shedding it strips the proof from the picks needing it most. Nor is shedding a trade-down.
 
 *Now* cross-check `ROADMAP.md` — already a task → take its id; contradicts one → resolve it
-there. Then claim: `node scripts/worktrees.mjs claim <id>` — the bare roadmap id, or
-`improve-<slug>` if it has none. **Not** `task/<id>`: the script adds that prefix itself, and
-passing it defeats the collision guard that stops two sessions claiming the same work.
+there. Then `node scripts/worktrees.mjs claim <id>`, the **bare** id (or `improve-<slug>`), never
+`task/<id>` — the script adds that prefix, and passing it defeats the collision guard that stops
+two sessions claiming the same work.
 
 ### 3. DESIGN, then commit the claim before the code
 
@@ -123,10 +128,9 @@ no green committed slice → ABORT.
 
 ### 5. PANEL — parallel, prompts rendered from `docs/panel/`, never rewritten
 
-Verbatim output to `runs/<id>/panel-rN-<role>.md`; the orchestrator may append a named
-refutation under a reviewer's text but may not edit a severity.
-`improve-run.mjs panel --round n --role r --prompt-sha <sha> --file <path>` records the prompt
-hash and refuses a round 2 whose prompt differs from round 1.
+Verbatim output to `runs/<id>/panel-rN-<role>.md`; the orchestrator may append a named refutation
+under a reviewer's text but may not edit a severity. `panel --round n --role r --file <path>
+--blockers/--majors/--minors <n>` hashes `docs/panel/<role>.md` and refuses a drifted round 2.
 
 | Seat | From | Model | Duty |
 |---|---|---|---|
@@ -135,17 +139,16 @@ hash and refuses a round 2 whose prompt differs from round 1.
 | **Teacher** | M | Opus | One seat **per instrument the slice touches** — a slice touching both gets two, never one reviewer wearing both hats. Would a teacher endorse this? Cite the syllabus. |
 | **Rival** | L | Opus, high | A concrete superior alternative from shipping products, **or** an evidenced "nothing found", every negative carrying a fetched URL. A bare "nothing found" is invalid. |
 
-Every template ends with the tokens it requires; values come from the method doc's token table.
-**A token you cannot fill is a stop, not a blank** — a seat handed an empty `{{STATE_RECIPES}}`
-reports the states as checked without ever forcing one.
+Every template ends with the tokens it requires; `docs/panel/README.md` says where each value
+comes from and which seats run at which tier. **A token you cannot fill is a stop, not a
+blank** — a seat handed an empty `{{STATE_RECIPES}}` reports the states checked, forcing none.
 
 ### 6. POLISH
 
-Fix every BLOCKER and every MAJOR (method doc defines all three words), re-panel with
-byte-identical prompts, up to the tier's cap. Cosmetic findings fixed too unless the log says why
-not. **Clean = a round with zero BLOCKER and zero MAJOR.** Silence does not pass round 2+: a
-re-panel re-runs earlier repros, attacks the fix diff rather than the original slice, and is void
-if it makes no attempt an earlier round did not.
+Fix every BLOCKER and every MAJOR (method doc defines all three), re-panel with byte-identical
+prompts, up to the tier's cap. Cosmetic findings fixed too unless the log says why not. **Clean =
+a round with zero BLOCKER and zero MAJOR.** Silence does not pass round 2+: a re-panel re-runs
+earlier repros, attacks the fix diff, and is void if it makes no attempt an earlier round did not.
 
 At the cap it is **not** a pass: each unresolved MAJOR becomes a `T.<n>` in `ROADMAP.md`'s
 Triage, the roadmap box stays `[~]` naming those ids, outcome logged `shipped-not-clean`.
@@ -157,29 +160,29 @@ the one outcome this command never permits.
 ### 7. PROVE
 
 1. `e2e/improve-<id>.spec.ts` **RED at the spec commit, GREEN on HEAD**, both exit codes pasted.
-   This proves the gap closed; `visual-pass` only proves the screen is not broken.
+   That proves the gap closed; `visual-pass` only proves the screen is not broken.
 2. The refutation condition, run, with its result.
-3. **L**: the held-out goal — a second goal in the same skill, written down *before* the build,
-   driven once, unaided.
-4. **If the slice claims adaptivity**: two different input streams through the shipped path; the
-   outputs must differ **and** one must match a teacher-verified expected result. Differing-but-
-   wrong feedback is worse than none.
+3. **L**: the held-out goal — a second goal in the same skill, written *before* the build, driven
+   once, unaided. Never shed; an L slice that cannot afford it aborts.
+4. **Adaptivity claims**: two input streams through the shipped path; outputs must differ **and**
+   one must match a teacher-verified expected result — differing-but-wrong is worse than none.
 5. The full experience gate in `docs/PROCESS.md`.
 
 ### 8. LOG, RETRO, RELEASE
 
-Append the run to `docs/improve-log.md` in the schema `check-improve-log.mjs` enforces (it runs
-in `verify`, so a malformed entry cannot reach a commit): persona, tier, pick source and the
-previous one, ledger table, claim, refutation condition, metric, baseline, outcome, the
-cannot-sense register, and **the verdict on the previous run's metric**. Then:
+Append the run to `docs/improve-log.md` in the schema that file documents and
+`check-improve-log.mjs` enforces inside `verify`. It includes **the verdict on the previous run's
+metric** — the point of the whole ledger — and the pick's **Class**, without which the log cannot
+say whether ten runs in a row were all repairs. Then:
 
 ```bash
 node scripts/improve-run.mjs verdict --value <n>|--none
-node scripts/improve-run.mjs finish --outcome <clean|shipped-not-clean|abort>
+node scripts/improve-run.mjs finish --outcome <clean|shipped-not-clean|abort> [--clean-round <n>]
 ```
 
-`finish` refuses without the section marks, the verdict and (unless aborting) the slice. Then
-the `docs/PROCESS.md` retro in `docs/retro-log.md`, then release every claim taken at §0 and §2:
+`finish` refuses without the marks, the verdict, the spec, the slice, and a full seat sweep at
+the declared clean round. Then the `docs/PROCESS.md` retro in `docs/retro-log.md`, then release
+every claim taken at §0 and §2:
 
 ```bash
 node scripts/worktrees.mjs release <id>
@@ -193,5 +196,4 @@ revert the implementation commits, **keep the spec commit** — the run's one du
 failing test naming what the app still cannot do. File the blocker as a `T.<n>`, run §8 with
 `--outcome abort` and a `### Proof` section evidencing it, release the claims, end.
 
-A run that ships nothing and says why is a pass. A run that downgrades to a cosmetic S-cost gap
-so it can report success is the failure this clause exists to prevent.
+A run that ships nothing and says why is a pass. Downgrading to a cosmetic gap to report success is not.

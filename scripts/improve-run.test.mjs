@@ -3,7 +3,14 @@
  * `runs/ledger.ndjson`) and a fake `git` (never shells out to this repo), exercising the
  * frozen contract's gates the way the real `/improve-app` loop would call them. `--now` is
  * always injected, so nothing here touches the real clock either.
+ *
+ * `--now` is gated behind IMPROVE_RUN_ALLOW_FAKE_CLOCK=1 in the real CLI (see runCli in
+ * improve-run.mjs) so a live run can't freeze its own budget clock by passing --now. Every
+ * test in this file legitimately needs the fake clock, so it's set once here at module load
+ * rather than per test; the one test that exercises the gate itself deletes and restores it.
  */
+process.env.IMPROVE_RUN_ALLOW_FAKE_CLOCK = '1'
+
 import { describe, expect, it } from 'vitest'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -22,6 +29,8 @@ function cleanGit(overrides = {}) {
     gitCommonDir: () => '/repo/.git',
     headSha: () => 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef',
     headChangedPaths: () => [],
+    verifyCommit: () => true,
+    showFile: () => "test('spec', () => { expect(1).toBe(1) })",
     ...overrides,
   }
 }
@@ -31,6 +40,45 @@ const isoAt = (baseIso, minutes) => new Date(Date.parse(baseIso) + minutes * 60_
 
 function expectExit(result, code) {
   expect(result.exitCode, `expected exit ${code}, got ${result.exitCode}. stderr: ${result.stderr.join('\n')}`).toBe(code)
+}
+
+// ---- panel fixtures -------------------------------------------------------------------------
+// `panel` computes its template hash from disk (docs/panel/<role>.md in real usage) rather than
+// accepting one as a flag — see cmdPanel in improve-run.mjs. AGENTS.md bars real IO in tests
+// ("never real time, real randomness, or real IO in a test"), so these fixtures stand in for the
+// real docs/panel/ directory via the injectable --panel-dir flag rather than reading or, worse,
+// mutating the repo's actual docs/panel/*.md files to simulate drift.
+
+function panelFixtureDir() {
+  const dir = mkdtempSync(join(tmpdir(), 'improve-run-panel-tpl-'))
+  for (const role of ['skeptic', 'regression-hunter', 'teacher', 'rival']) {
+    writeFileSync(join(dir, `${role}.md`), `# ${role} template v1\n`)
+  }
+  return dir
+}
+
+function panelOutputFile() {
+  const dir = mkdtempSync(join(tmpdir(), 'improve-run-panel-out-'))
+  const file = join(dir, 'panel-output.md')
+  writeFileSync(file, 'panel notes')
+  return file
+}
+
+function runPanel(ledger, now, git, { round, role, panelDir, file, blockers = 0, majors = 0, minors = 0 }) {
+  return runCli(
+    ['panel', '--round', String(round), '--role', role, '--file', file, '--panel-dir', panelDir,
+      '--blockers', String(blockers), '--majors', String(majors), '--minors', String(minors),
+      '--ledger', ledger, '--now', now],
+    { git },
+  )
+}
+
+/** Records a panel event for every Floor seat (skeptic, regression-hunter) at `round` — the
+ * minimum `finish` (for any non-abort outcome, at an S-cost/harm=0 pick's Floor tier) requires. */
+function floorPanelSweep(ledger, now, git, panelDir, file, round = 1, severities = {}) {
+  for (const role of ['skeptic', 'regression-hunter']) {
+    expectExit(runPanel(ledger, now, git, { round, role, panelDir, file, ...severities }), 0)
+  }
 }
 
 describe('start', () => {
@@ -57,6 +105,27 @@ describe('start', () => {
       gitCommonDir: () => '/repo/.git',
     })
     expectExit(runCli(['start', '--ledger', tempLedger(), '--now', '2026-08-20T09:00:00.000Z'], { git: worktree }), 1)
+  })
+
+  it('records instrument as a first-class, replay-derivable field alongside persona', () => {
+    const ledger = tempLedger()
+    const git = cleanGit()
+    expectExit(runCli(['start', '--ledger', ledger, '--now', '2026-08-20T09:00:00.000Z'], { git }), 0)
+    const starts = loadLedger(ledger).filter((e) => e.event === 'start')
+    expect(starts[0].instrument).toBe('piano')
+    expect(starts[0].persona).toMatch(/PIANO/)
+  })
+
+  it('refuses to start when git itself cannot be read (not a repo, or git unavailable) rather than treating that as a clean tree', () => {
+    const notARepo = cleanGit({ statusPorcelain: () => null })
+    const result = runCli(['start', '--ledger', tempLedger(), '--now', '2026-08-20T09:00:00.000Z'], { git: notARepo })
+    expectExit(result, 1)
+    expect(result.stderr.join(' ')).toMatch(/does not look like a git repository/)
+
+    const gitDirFails = cleanGit({ gitDir: () => null })
+    const result2 = runCli(['start', '--ledger', tempLedger(), '--now', '2026-08-20T09:00:00.000Z'], { git: gitDirFails })
+    expectExit(result2, 1)
+    expect(result2.stderr.join(' ')).toMatch(/does not look like a git repository/)
   })
 })
 
@@ -123,31 +192,26 @@ describe('pick — repeat-source gate', () => {
     const ledger = tempLedger()
     let now = '2026-08-20T09:00:00.000Z'
 
-    runCli(['start', '--ledger', ledger, '--now', now], { git })
+    runCli(['start', '--ledger', ledger, '--now', now], { git }) // run1: PIANO
     expectExit(
-      runCli(['pick', '--source', '1a', '--cost', 'M', '--leader-gap', '0', '--harm', '0', '--thread', 'none',
+      runCli(['pick', '--source', '1a', '--instrument', 'piano', '--cost', 'M', '--leader-gap', '0', '--harm', '0', '--thread', 'none',
         '--sum', '8', '--metric', 'm', '--baseline', '1', '--ledger', ledger, '--now', now], { git }),
       0,
     )
     now = isoAt(now, 5)
     runCli(['verdict', '--none', '--ledger', ledger, '--now', now], { git })
     now = isoAt(now, 5)
-    runCli(['start', '--ledger', ledger, '--now', now], { git })
+    runCli(['start', '--ledger', ledger, '--now', now], { git }) // run2: DRUMS
 
     const blocked = runCli(
-      ['pick', '--source', '1a', '--cost', 'M', '--leader-gap', '9', '--harm', '0', '--thread', 'none',
+      ['pick', '--source', '1a', '--instrument', 'drums', '--cost', 'M', '--leader-gap', '9', '--harm', '0', '--thread', 'none',
         '--sum', '8', '--metric', 'm', '--baseline', '1', '--ledger', ledger, '--now', now],
       { git },
     )
     expectExit(blocked, 1)
 
     expectExit(
-      runCli(['pick', '--source', '1a', '--cost', 'M', '--leader-gap', '9', '--harm', '1', '--thread', 'none',
-        '--sum', '8', '--metric', 'm', '--baseline', '1', '--ledger', ledger, '--now', now], { git }),
-      0,
-    )
-    expectExit(
-      runCli(['pick', '--source', '1a', '--cost', 'M', '--leader-gap', '2', '--harm', '0', '--thread', 'none',
+      runCli(['pick', '--source', '1a', '--instrument', 'drums', '--cost', 'M', '--leader-gap', '9', '--harm', '1', '--thread', 'none',
         '--sum', '8', '--metric', 'm', '--baseline', '1', '--ledger', ledger, '--now', now], { git }),
       0,
     )
@@ -158,17 +222,17 @@ describe('pick — repeat-source gate', () => {
     const ledger = tempLedger()
     let now = '2026-08-20T09:00:00.000Z'
 
-    runCli(['start', '--ledger', ledger, '--now', now], { git })
-    runCli(['pick', '--source', '1b', '--cost', 'S', '--leader-gap', '9', '--harm', '0', '--thread', 'continuity',
+    runCli(['start', '--ledger', ledger, '--now', now], { git }) // run1: PIANO
+    runCli(['pick', '--source', '1b', '--instrument', 'piano', '--cost', 'S', '--leader-gap', '9', '--harm', '0', '--thread', 'continuity',
       '--sum', '5', '--metric', 'm', '--baseline', '1', '--ledger', ledger, '--now', now], { git })
     expectExit(runCli(['thread', '--slug', 'continuity', '--state', 'open', '--ledger', ledger, '--now', now], { git }), 0)
     now = isoAt(now, 5)
     runCli(['verdict', '--none', '--ledger', ledger, '--now', now], { git })
     now = isoAt(now, 5)
-    runCli(['start', '--ledger', ledger, '--now', now], { git })
+    runCli(['start', '--ledger', ledger, '--now', now], { git }) // run2: DRUMS
 
     const excused = runCli(
-      ['pick', '--source', '1b', '--cost', 'S', '--leader-gap', '9', '--harm', '0', '--thread', 'continuity',
+      ['pick', '--source', '1b', '--instrument', 'drums', '--cost', 'S', '--leader-gap', '9', '--harm', '0', '--thread', 'continuity',
         '--sum', '5', '--metric', 'm', '--baseline', '1', '--ledger', ledger, '--now', now],
       { git },
     )
@@ -181,7 +245,7 @@ describe('pick — tier derivation', () => {
     const git = cleanGit()
     const ledger = tempLedger()
     const now = '2026-08-20T09:00:00.000Z'
-    runCli(['start', '--ledger', ledger, '--now', now], { git })
+    runCli(['start', '--ledger', ledger, '--now', now], { git }) // run1: PIANO
 
     const cases = [
       { cost: 'S', harm: '0', expected: 'Floor' },
@@ -191,7 +255,7 @@ describe('pick — tier derivation', () => {
     ]
     for (const c of cases) {
       const result = runCli(
-        ['pick', '--source', '1a', '--sum', '5', '--cost', c.cost, '--leader-gap', '9', '--harm', c.harm,
+        ['pick', '--source', '1a', '--instrument', 'piano', '--sum', '5', '--cost', c.cost, '--leader-gap', '9', '--harm', c.harm,
           '--thread', 'none', '--metric', 'm', '--baseline', '1', '--ledger', ledger, '--now', now],
         { git },
       )
@@ -205,64 +269,217 @@ describe('pick — tier derivation', () => {
   })
 })
 
-describe('thread', () => {
-  it('exits 1 when a thread is picked for a 4th consecutive run', () => {
+describe('pick — instrument gate', () => {
+  it('refuses when --instrument does not match the run persona instrument, and accepts when it does', () => {
+    const git = cleanGit()
+    const ledger = tempLedger()
+    const now = '2026-08-20T09:00:00.000Z'
+    runCli(['start', '--ledger', ledger, '--now', now], { git }) // run1: PIANO
+
+    const mismatch = runCli(
+      ['pick', '--source', '1a', '--instrument', 'drums', '--sum', '5', '--cost', 'S', '--leader-gap', '9',
+        '--harm', '0', '--thread', 'none', '--metric', 'm', '--baseline', '1', '--ledger', ledger, '--now', now],
+      { git },
+    )
+    expectExit(mismatch, 1)
+    expect(mismatch.stderr.join(' ')).toMatch(/piano/)
+    expect(mismatch.stderr.join(' ')).toMatch(/drums/)
+
+    const match = runCli(
+      ['pick', '--source', '1a', '--instrument', 'piano', '--sum', '5', '--cost', 'S', '--leader-gap', '9',
+        '--harm', '0', '--thread', 'none', '--metric', 'm', '--baseline', '1', '--ledger', ledger, '--now', now],
+      { git },
+    )
+    expectExit(match, 0)
+  })
+})
+
+describe('pick — payoff cap', () => {
+  it('caps a capless thread at 3 consecutive same-instrument runs, but a --payoff thread with 4 prereqs (cap 5) survives a 4th and 5th, refusing only the 6th', () => {
+    const git = cleanGit()
+    const sources = ['1a', '1b', '1c', '1d', '1e']
+
+    // Capless thread: cap stays at the default of 3. Runs are pinned to PIANO via `rewind`
+    // after each one, so all 4 attempts are same-instrument and directly comparable.
+    const capless = tempLedger()
+    let now = '2026-08-20T09:00:00.000Z'
+    for (let i = 0; i < 3; i++) {
+      runCli(['start', '--ledger', capless, '--now', now], { git })
+      const result = runCli(
+        ['pick', '--source', sources[i], '--instrument', 'piano', '--sum', '5', '--cost', 'S', '--leader-gap', '9',
+          '--harm', '0', '--thread', 'no-payoff-thread', '--metric', 'm', '--baseline', '1', '--ledger', capless, '--now', now],
+        { git },
+      )
+      expectExit(result, 0)
+      now = isoAt(now, 5)
+      runCli(['verdict', '--none', '--ledger', capless, '--now', now], { git })
+      now = isoAt(now, 5)
+      runCli(['rewind', '--reason', 'pin instrument for test', '--ledger', capless, '--now', now], { git })
+      now = isoAt(now, 5)
+    }
+    runCli(['start', '--ledger', capless, '--now', now], { git })
+    const fourthCapless = runCli(
+      ['pick', '--source', sources[3], '--instrument', 'piano', '--sum', '5', '--cost', 'S', '--leader-gap', '9',
+        '--harm', '0', '--thread', 'no-payoff-thread', '--metric', 'm', '--baseline', '1', '--ledger', capless, '--now', now],
+      { git },
+    )
+    expectExit(fourthCapless, 1)
+    expect(fourthCapless.stderr.join(' ')).toMatch(/default cap/)
+
+    // Payoff thread: 4 unshipped prerequisites -> cap 5. 5 consecutive same-instrument runs
+    // all succeed; the 6th is refused.
+    const payoffLedger = tempLedger()
+    now = '2026-08-20T09:00:00.000Z'
+    for (let i = 0; i < 5; i++) {
+      runCli(['start', '--ledger', payoffLedger, '--now', now], { git })
+      const args = ['pick', '--source', sources[i], '--instrument', 'piano', '--sum', '5', '--cost', 'S',
+        '--leader-gap', '9', '--harm', '0', '--thread', 'chord-inversions', '--metric', 'm', '--baseline', '1',
+        '--ledger', payoffLedger, '--now', now]
+      if (i === 0) args.push('--payoff', 'play-ii-V-I-in-C', '--prereqs', '4')
+      const result = runCli(args, { git })
+      expectExit(result, 0)
+      now = isoAt(now, 5)
+      runCli(['verdict', '--none', '--ledger', payoffLedger, '--now', now], { git })
+      now = isoAt(now, 5)
+      runCli(['rewind', '--reason', 'pin instrument for test', '--ledger', payoffLedger, '--now', now], { git })
+      now = isoAt(now, 5)
+    }
+    const picks = loadLedger(payoffLedger).filter((e) => e.event === 'pick')
+    expect(picks).toHaveLength(5)
+    expect(picks[0].prereqs).toBe(4)
+
+    runCli(['start', '--ledger', payoffLedger, '--now', now], { git })
+    const sixth = runCli(
+      ['pick', '--source', '1a', '--instrument', 'piano', '--sum', '5', '--cost', 'S', '--leader-gap', '9',
+        '--harm', '0', '--thread', 'chord-inversions', '--metric', 'm', '--baseline', '1', '--ledger', payoffLedger, '--now', now],
+      { git },
+    )
+    expectExit(sixth, 1)
+    expect(sixth.stderr.join(' ')).toMatch(/payoff "play-ii-V-I-in-C"/)
+  })
+
+  it('refuses a later run of the same thread that re-passes --payoff or --prereqs', () => {
     const git = cleanGit()
     const ledger = tempLedger()
     let now = '2026-08-20T09:00:00.000Z'
-    const sources = ['1a', '1b', '1c', '1d']
-
-    for (let i = 0; i < 3; i++) {
-      runCli(['start', '--ledger', ledger, '--now', now], { git })
-      const pick = runCli(
-        ['pick', '--source', sources[i], '--cost', 'S', '--leader-gap', '9', '--harm', '0', '--thread', 'groove-mode',
-          '--sum', '5', '--metric', 'm', '--baseline', '1', '--ledger', ledger, '--now', now],
-        { git },
-      )
-      expectExit(pick, 0)
-      now = isoAt(now, 5)
-      runCli(['verdict', '--none', '--ledger', ledger, '--now', now], { git })
-      now = isoAt(now, 5)
-    }
 
     runCli(['start', '--ledger', ledger, '--now', now], { git })
-    const fourth = runCli(
-      ['pick', '--source', sources[3], '--cost', 'S', '--leader-gap', '9', '--harm', '0', '--thread', 'groove-mode',
-        '--sum', '5', '--metric', 'm', '--baseline', '1', '--ledger', ledger, '--now', now],
+    expectExit(
+      runCli(['pick', '--source', '1a', '--instrument', 'piano', '--sum', '5', '--cost', 'S', '--leader-gap', '9',
+        '--harm', '0', '--thread', 'scales-in-thirds', '--metric', 'm', '--baseline', '1', '--ledger', ledger, '--now', now], { git }),
+      0,
+    ) // opened capless (no --payoff)
+    now = isoAt(now, 5)
+    runCli(['verdict', '--none', '--ledger', ledger, '--now', now], { git })
+    now = isoAt(now, 5)
+    runCli(['rewind', '--reason', 'pin instrument for test', '--ledger', ledger, '--now', now], { git })
+    now = isoAt(now, 5)
+    runCli(['start', '--ledger', ledger, '--now', now], { git })
+
+    const late = runCli(
+      ['pick', '--source', '1b', '--instrument', 'piano', '--sum', '5', '--cost', 'S', '--leader-gap', '9',
+        '--harm', '0', '--thread', 'scales-in-thirds', '--payoff', 'some-payoff', '--prereqs', '2',
+        '--metric', 'm', '--baseline', '1', '--ledger', ledger, '--now', now],
       { git },
     )
-    expectExit(fourth, 1)
-    expect(fourth.stderr.join(' ')).toMatch(/consecutive/)
+    expectExit(late, 1)
+    expect(late.stderr.join(' ')).toMatch(/must not be re-passed/)
+  })
+})
+
+describe('pick — instrument-filtered thread streak', () => {
+  it('does not let an intervening drums run break or extend a piano thread\'s streak', () => {
+    const git = cleanGit()
+    const ledger = tempLedger()
+    let now = '2026-08-20T09:00:00.000Z'
+
+    // run1: PIANO (index0) — opens the thread with 1 prereq -> cap 2.
+    runCli(['start', '--ledger', ledger, '--now', now], { git })
+    expectExit(
+      runCli(['pick', '--source', '1a', '--instrument', 'piano', '--sum', '5', '--cost', 'S', '--leader-gap', '9',
+        '--harm', '0', '--thread', 'left-hand-voicings', '--payoff', 'comp-a-ii-V-I', '--prereqs', '1',
+        '--metric', 'm', '--baseline', '1', '--ledger', ledger, '--now', now], { git }),
+      0,
+    )
+    now = isoAt(now, 5)
+    runCli(['verdict', '--none', '--ledger', ledger, '--now', now], { git })
+    now = isoAt(now, 5)
+
+    // run2: DRUMS (index1) — unrelated pick; must not touch the piano thread's streak.
+    runCli(['start', '--ledger', ledger, '--now', now], { git })
+    expectExit(
+      runCli(['pick', '--source', '1b', '--instrument', 'drums', '--sum', '5', '--cost', 'S', '--leader-gap', '9',
+        '--harm', '0', '--thread', 'none', '--metric', 'm', '--baseline', '1', '--ledger', ledger, '--now', now], { git }),
+      0,
+    )
+    now = isoAt(now, 5)
+    runCli(['verdict', '--none', '--ledger', ledger, '--now', now], { git })
+    now = isoAt(now, 5)
+
+    // run3: PIANO (index2) again — 2nd consecutive PIANO pick of the thread (streak 1 -> allowed).
+    runCli(['start', '--ledger', ledger, '--now', now], { git })
+    expectExit(
+      runCli(['pick', '--source', '1c', '--instrument', 'piano', '--sum', '5', '--cost', 'S', '--leader-gap', '9',
+        '--harm', '0', '--thread', 'left-hand-voicings', '--metric', 'm', '--baseline', '1', '--ledger', ledger, '--now', now], { git }),
+      0,
+    )
+    now = isoAt(now, 5)
+    runCli(['verdict', '--none', '--ledger', ledger, '--now', now], { git })
+    now = isoAt(now, 5)
+
+    // run4: DRUMS (index3) — another unrelated pick.
+    runCli(['start', '--ledger', ledger, '--now', now], { git })
+    expectExit(
+      runCli(['pick', '--source', '1d', '--instrument', 'drums', '--sum', '5', '--cost', 'S', '--leader-gap', '9',
+        '--harm', '0', '--thread', 'none', '--metric', 'm', '--baseline', '1', '--ledger', ledger, '--now', now], { git }),
+      0,
+    )
+    now = isoAt(now, 5)
+    runCli(['verdict', '--none', '--ledger', ledger, '--now', now], { git })
+    now = isoAt(now, 5)
+
+    // run5: PIANO (index4) again — this would be the 3rd consecutive PIANO pick of the thread,
+    // exceeding cap 2. A naive calendar-adjacency streak would see run4 (drums, no thread)
+    // immediately before it and count 0 — this asserts the instrument-filtered count (2, from
+    // run1 and run3) is what actually gates it, proving the intervening drums runs were
+    // correctly skipped rather than resetting or silently extending the count.
+    runCli(['start', '--ledger', ledger, '--now', now], { git })
+    const fifth = runCli(
+      ['pick', '--source', '1a', '--instrument', 'piano', '--sum', '5', '--cost', 'S', '--leader-gap', '9',
+        '--harm', '0', '--thread', 'left-hand-voicings', '--metric', 'm', '--baseline', '1', '--ledger', ledger, '--now', now],
+      { git },
+    )
+    expectExit(fifth, 1)
+    expect(fifth.stderr.join(' ')).toMatch(/piano/)
   })
 })
 
 describe('panel', () => {
-  it('exits 1 when a re-panel round uses a different --prompt-sha than round 1', () => {
+  it('exits 1 when round 2\'s docs/panel/<role>.md template has drifted from round 1\'s, and 0 once it matches again', () => {
     const git = cleanGit()
     const ledger = tempLedger()
-    const dir = mkdtempSync(join(tmpdir(), 'improve-run-panel-'))
-    const file = join(dir, 'panel-output.md')
-    writeFileSync(file, 'panel notes')
+    const file = panelOutputFile()
+    const panelDir = mkdtempSync(join(tmpdir(), 'improve-run-panel-tpl-'))
+    const templatePath = join(panelDir, 'skeptic.md')
+    writeFileSync(templatePath, '# Skeptic v1\n')
     const now = '2026-08-20T09:00:00.000Z'
-    const shaA = 'a'.repeat(64)
-    const shaB = 'b'.repeat(64)
 
-    runCli(['start', '--ledger', ledger, '--now', now], { git })
-    runCli(['pick', '--source', '1a', '--cost', 'M', '--leader-gap', '9', '--harm', '0', '--thread', 'none',
+    runCli(['start', '--ledger', ledger, '--now', now], { git }) // run1: PIANO
+    runCli(['pick', '--source', '1a', '--instrument', 'piano', '--cost', 'M', '--leader-gap', '9', '--harm', '0', '--thread', 'none',
       '--sum', '5', '--metric', 'm', '--baseline', '1', '--ledger', ledger, '--now', now], { git })
 
-    expectExit(
-      runCli(['panel', '--round', '1', '--role', 'skeptic', '--prompt-sha', shaA, '--file', file, '--ledger', ledger, '--now', now], { git }),
-      0,
-    )
-    expectExit(
-      runCli(['panel', '--round', '2', '--role', 'skeptic', '--prompt-sha', shaB, '--file', file, '--ledger', ledger, '--now', now], { git }),
-      1,
-    )
-    expectExit(
-      runCli(['panel', '--round', '2', '--role', 'skeptic', '--prompt-sha', shaA, '--file', file, '--ledger', ledger, '--now', now], { git }),
-      0,
-    )
+    expectExit(runPanel(ledger, now, git, { round: 1, role: 'skeptic', panelDir, file }), 0)
+
+    // Template drifts between round 1 and round 2 — this is what the round-2 drift check must
+    // catch: the sha is recomputed from disk on every call, never retyped by the caller.
+    writeFileSync(templatePath, '# Skeptic v2 — reworded\n')
+    const drifted = runPanel(ledger, now, git, { round: 2, role: 'skeptic', panelDir, file })
+    expectExit(drifted, 1)
+    expect(drifted.stderr.join(' ')).toMatch(/template/)
+
+    // Restored to the exact round-1 content — now it's a genuine re-panel.
+    writeFileSync(templatePath, '# Skeptic v1\n')
+    expectExit(runPanel(ledger, now, git, { round: 2, role: 'skeptic', panelDir, file }), 0)
   })
 })
 
@@ -274,6 +491,16 @@ describe('slice', () => {
     runCli(['start', '--ledger', ledger, '--now', now], { git })
     expectExit(runCli(['slice', '--sha', 'abc123', '--ledger', ledger, '--now', now], { git }), 0)
     expectExit(runCli(['slice', '--sha', 'def456', '--ledger', ledger, '--now', now], { git }), 1)
+  })
+
+  it('refuses a --sha that does not resolve to a real commit', () => {
+    const git = cleanGit({ verifyCommit: () => false })
+    const ledger = tempLedger()
+    const now = '2026-08-20T09:00:00.000Z'
+    runCli(['start', '--ledger', ledger, '--now', now], { git })
+    const result = runCli(['slice', '--sha', 'not-a-real-sha', '--ledger', ledger, '--now', now], { git })
+    expectExit(result, 1)
+    expect(result.stderr.join(' ')).toMatch(/does not resolve to a real commit/)
   })
 })
 
@@ -299,27 +526,63 @@ describe('audit', () => {
     expectExit(dirty, 1)
     expect(dirty.stderr.join(' ')).toMatch(new RegExp(`line ${startLineIndex + 1}`))
   })
+
+  it('exits 0 silently when the ledger file does not exist yet — same convention as check-improve-log.mjs', () => {
+    const git = cleanGit()
+    const dir = mkdtempSync(join(tmpdir(), 'improve-run-noledger-'))
+    const ledger = join(dir, 'does-not-exist.ndjson')
+    const result = runCli(['audit', '--ledger', ledger], { git })
+    expectExit(result, 0)
+    expect(result.stderr).toEqual([])
+  })
 })
 
 describe('finish', () => {
-  it('exits 1 without mark 8, and exits 0 once every gate is satisfied', () => {
-    const git = cleanGit()
+  /** A run with every prerequisite `finish` (for a non-abort outcome) now needs EXCEPT
+   * mark 8 and the panel sweep: mark 0, an S-cost/harm=0 (Floor tier) pick, a slice, a verdict,
+   * and a spec event whose fake git reports HEAD as touching exactly that spec's expected path. */
+  function fullySetUpRun() {
     const ledger = tempLedger()
+    const panelDir = panelFixtureDir()
+    const file = panelOutputFile()
     const now = '2026-08-20T09:00:00.000Z'
+    const specId = 'DR-99'
+    const git = cleanGit({ headChangedPaths: () => [`e2e/improve-${specId}.spec.ts`] })
+
     runCli(['start', '--ledger', ledger, '--now', now], { git })
     runCli(['mark', '0', '--ledger', ledger, '--now', now], { git })
+    runCli(
+      ['pick', '--source', '1a', '--instrument', 'piano', '--sum', '5', '--cost', 'S', '--leader-gap', '9',
+        '--harm', '0', '--thread', 'none', '--metric', 'm', '--baseline', '1', '--ledger', ledger, '--now', now],
+      { git },
+    )
     runCli(['slice', '--sha', 'abc123', '--ledger', ledger, '--now', now], { git })
     runCli(['verdict', '--none', '--ledger', ledger, '--now', now], { git })
+    runCli(['spec', '--id', specId, '--red-exit', '1', '--ledger', ledger, '--now', now], { git })
 
-    const early = runCli(['finish', '--outcome', 'clean', '--ledger', ledger, '--now', now], { git })
+    return { ledger, now, panelDir, file, git }
+  }
+
+  it('exits 1 without mark 8, exits 1 while the round-1 panel sweep is missing, and exits 0 once every gate is satisfied', () => {
+    const { ledger, now, panelDir, file, git } = fullySetUpRun()
+
+    const early = runCli(['finish', '--outcome', 'clean', '--clean-round', '1', '--ledger', ledger, '--now', now], { git })
     expectExit(early, 1)
     expect(early.stderr.join(' ')).toMatch(/mark 8/)
 
     runCli(['mark', '8', '--ledger', ledger, '--now', now], { git })
-    expectExit(runCli(['finish', '--outcome', 'clean', '--ledger', ledger, '--now', now], { git }), 0)
+
+    const stillMissingPanel = runCli(['finish', '--outcome', 'clean', '--clean-round', '1', '--ledger', ledger, '--now', now], { git })
+    expectExit(stillMissingPanel, 1)
+    expect(stillMissingPanel.stderr.join(' ')).toMatch(/panel round 1 \(skeptic\)/)
+    expect(stillMissingPanel.stderr.join(' ')).toMatch(/panel round 1 \(regression-hunter\)/)
+
+    floorPanelSweep(ledger, now, git, panelDir, file, 1)
+
+    expectExit(runCli(['finish', '--outcome', 'clean', '--clean-round', '1', '--ledger', ledger, '--now', now], { git }), 0)
   })
 
-  it('does not require a slice event when the outcome is abort', () => {
+  it('does not require spec, pick, or a panel sweep when the outcome is abort', () => {
     const git = cleanGit()
     const ledger = tempLedger()
     const now = '2026-08-20T09:00:00.000Z'
@@ -330,6 +593,40 @@ describe('finish', () => {
 
     const result = runCli(['finish', '--outcome', 'abort', '--blocker', 'blocked on X', '--ledger', ledger, '--now', now], { git })
     expectExit(result, 0)
+  })
+
+  // ---- Round 3 Bar: the six-command speedrun (start / mark 0 / slice / mark 8 / verdict /
+  // finish --outcome clean) must now be refused — this is the worst of the six adversarial
+  // findings: `finish --outcome clean` used to require no panel review at all.
+  it('refuses --outcome clean when no panel event exists at all (the six-command speedrun)', () => {
+    const { ledger, now, git } = fullySetUpRun()
+    runCli(['mark', '8', '--ledger', ledger, '--now', now], { git })
+
+    const result = runCli(['finish', '--outcome', 'clean', '--clean-round', '1', '--ledger', ledger, '--now', now], { git })
+    expectExit(result, 1)
+    expect(result.stderr.join(' ')).toMatch(/panel round 1 \(skeptic\)/)
+    expect(result.stderr.join(' ')).toMatch(/panel round 1 \(regression-hunter\)/)
+  })
+
+  it('refuses --outcome clean when a seat at the clean round reports a MAJOR (or a BLOCKER)', () => {
+    const { ledger, now, panelDir, file, git } = fullySetUpRun()
+    runCli(['mark', '8', '--ledger', ledger, '--now', now], { git })
+
+    expectExit(runPanel(ledger, now, git, { round: 1, role: 'skeptic', panelDir, file, majors: 1 }), 0)
+    expectExit(runPanel(ledger, now, git, { round: 1, role: 'regression-hunter', panelDir, file }), 0)
+
+    const result = runCli(['finish', '--outcome', 'clean', '--clean-round', '1', '--ledger', ledger, '--now', now], { git })
+    expectExit(result, 1)
+    expect(result.stderr.join(' ')).toMatch(/zero BLOCKER and zero MAJOR/)
+    expect(result.stderr.join(' ')).toMatch(/skeptic reported 0 blocker\(s\), 1 major\(s\)/)
+  })
+
+  it('accepts --outcome shipped-not-clean with only the round-1 sweep, MAJORs and all — no --clean-round required', () => {
+    const { ledger, now, panelDir, file, git } = fullySetUpRun()
+    runCli(['mark', '8', '--ledger', ledger, '--now', now], { git })
+    floorPanelSweep(ledger, now, git, panelDir, file, 1, { majors: 2 }) // ships, just not "clean"
+
+    expectExit(runCli(['finish', '--outcome', 'shipped-not-clean', '--ledger', ledger, '--now', now], { git }), 0)
   })
 })
 
@@ -346,21 +643,80 @@ describe('spec', () => {
     expectExit(runCli(['spec', '--id', 'DR-01', '--red-exit', '0', '--ledger', ledger, '--now', now], { git: rightPath }), 1)
     expectExit(runCli(['spec', '--id', 'DR-01', '--red-exit', '1', '--ledger', ledger, '--now', now], { git: rightPath }), 0)
   })
+
+  it('refuses when the named spec file is empty or has no assertion-shaped call at HEAD, even with a matching path and a nonzero --red-exit', () => {
+    const now = '2026-08-20T09:00:00.000Z'
+
+    const emptyFile = cleanGit({ headChangedPaths: () => ['e2e/improve-DR-02.spec.ts'], showFile: () => '' })
+    const emptyLedger = tempLedger()
+    runCli(['start', '--ledger', emptyLedger, '--now', now], { git: emptyFile })
+    const empty = runCli(['spec', '--id', 'DR-02', '--red-exit', '1', '--ledger', emptyLedger, '--now', now], { git: emptyFile })
+    expectExit(empty, 1)
+    expect(empty.stderr.join(' ')).toMatch(/missing, empty, or has no assertion/)
+
+    const noAssertion = cleanGit({
+      headChangedPaths: () => ['e2e/improve-DR-02.spec.ts'],
+      showFile: () => 'just some prose describing the test, no calls here',
+    })
+    const noAssertionLedger = tempLedger()
+    runCli(['start', '--ledger', noAssertionLedger, '--now', now], { git: noAssertion })
+    const noAssertionResult = runCli(['spec', '--id', 'DR-02', '--red-exit', '1', '--ledger', noAssertionLedger, '--now', now], { git: noAssertion })
+    expectExit(noAssertionResult, 1)
+    expect(noAssertionResult.stderr.join(' ')).toMatch(/missing, empty, or has no assertion/)
+  })
 })
 
 describe('status', () => {
-  it('reports no run before start, and the run state after', () => {
+  it('reports no run before start, and the run state — including instrument, active thread/cap, and prev pick source — after', () => {
     const git = cleanGit()
     const ledger = tempLedger()
     const before = runCli(['status', '--ledger', ledger], { git })
     expectExit(before, 0)
     expect(before.stdout.join(' ')).toMatch(/no run in progress/)
 
-    const now = '2026-08-20T09:00:00.000Z'
+    let now = '2026-08-20T09:00:00.000Z'
     runCli(['start', '--ledger', ledger, '--now', now, '--budget', '100'], { git })
-    const after = runCli(['status', '--ledger', ledger, '--now', isoAt(now, 10)], { git })
-    expectExit(after, 0)
-    expect(after.stdout.join(' ')).toMatch(/elapsed: 10%/)
+    const afterStart = runCli(['status', '--ledger', ledger, '--now', isoAt(now, 10)], { git })
+    expectExit(afterStart, 0)
+    const startText = afterStart.stdout.join(' | ')
+    expect(startText).toMatch(/elapsed: 10%/)
+    expect(startText).toMatch(/instrument: piano/)
+    expect(startText).toMatch(/active thread: none/)
+    expect(startText).toMatch(/prev pick source: none/)
+
+    runCli(['pick', '--source', '1a', '--instrument', 'piano', '--sum', '5', '--cost', 'S', '--leader-gap', '9',
+      '--harm', '0', '--thread', 'metronome-drills', '--payoff', 'play-along-track', '--prereqs', '2',
+      '--metric', 'm', '--baseline', '1', '--ledger', ledger, '--now', isoAt(now, 10)], { git })
+    const afterPick = runCli(['status', '--ledger', ledger, '--now', isoAt(now, 10)], { git })
+    const pickText = afterPick.stdout.join(' | ')
+    expect(pickText).toMatch(/active thread: metronome-drills — run 1 of 3/)
+    expect(pickText).toMatch(/payoff "play-along-track", 2 prerequisite\(s\)/)
+    // Floor tier (S cost, harm 0) — status should now preview the round-1 panel sweep it needs.
+    expect(pickText).toMatch(/panel round 1 \(skeptic/)
+    expect(pickText).toMatch(/panel round 1 \(regression-hunter/)
+  })
+})
+
+describe('--now clock gating', () => {
+  it('refuses --now unless IMPROVE_RUN_ALLOW_FAKE_CLOCK=1 is set in the environment', () => {
+    const git = cleanGit()
+    const ledger = tempLedger()
+    const previous = process.env.IMPROVE_RUN_ALLOW_FAKE_CLOCK
+    delete process.env.IMPROVE_RUN_ALLOW_FAKE_CLOCK
+    try {
+      const result = runCli(['start', '--ledger', ledger, '--now', '2026-08-20T09:00:00.000Z'], { git })
+      expectExit(result, 2)
+      expect(result.stderr.join(' ')).toMatch(/IMPROVE_RUN_ALLOW_FAKE_CLOCK/)
+    } finally {
+      if (previous === undefined) delete process.env.IMPROVE_RUN_ALLOW_FAKE_CLOCK
+      else process.env.IMPROVE_RUN_ALLOW_FAKE_CLOCK = previous
+    }
+  })
+
+  it('accepts --now once IMPROVE_RUN_ALLOW_FAKE_CLOCK=1 is set (the default for every other test in this file)', () => {
+    const git = cleanGit()
+    const ledger = tempLedger()
+    expectExit(runCli(['start', '--ledger', ledger, '--now', '2026-08-20T09:00:00.000Z'], { git }), 0)
   })
 })
 

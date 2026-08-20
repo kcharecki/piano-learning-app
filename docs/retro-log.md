@@ -16,6 +16,55 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
+## 2026-08-20 — `/improve-app`: ten adversarial loops on a process, not a feature
+
+- user-reported defects since last session: **0**. This session built a second session loop
+  rather than shipping app slices, at the user's request: "improve the workflow of implementing
+  this app in 10 loops, have a panel of sub-agents adversarially review each loop."
+- slices proven / started: **2/3**. Shipped: the `/improve-app` loop (command doc, method doc,
+  panel templates, ledger schema, `improve-run.mjs` + `check-improve-log.mjs` with 74 tests
+  between them) and the loop-10 corrections. **Not shipped: the `orphan-signals.mjs` redesign** —
+  the agent hit a session limit mid-rewrite, leaving a new API against a stale test. Reverted to
+  HEAD (11 tests green); the WIP is in the scratchpad, not in the tree. Source 1e is therefore
+  still the noisy version: 47 rows, 45 LOW-confidence, and it flags `RepertoirePieceLike.title`.
+- gate catches before commit: **six, all from adversarial review or from running things myself.**
+  (1) A discovery run executed §1 for real and found 9 of 15 ABRSM Grade 1 skills VOID —
+  including all four aural tests — against a `ROADMAP.md` reading 54 done and an empty Triage.
+  (2) The innovation panel found `Reach` and `Unmatchable` reproduce, unpatched, the bug `Blocked`
+  had already been patched for: read literally, three of four axes score 0 for anything VOID.
+  Two competent readers scored the same absent aural test **5 and 10**. (3) The ledger recorded no
+  gap **Class**, so "ten consecutive repairs" — the failure the doc names as its reason to exist —
+  was undetectable in its own log. (4) The cannot-sense cadence, the only forced-invention rule,
+  was in no script and outranked by two repair-only overrides. (5) `docs/panel/README.md` claimed
+  `panel` hashes the *rendered* prompt; `improve-run.mjs:703` hashes the template file. As
+  documented, `{{ROUND}}` differs every round, so a rendered hash would have refused every round 2
+  and made §6 unrunnable. (6) `docs/DESIGN.md` was promised "at §3" and never mentioned in §3.
+- docs budget (ROADMAP+AGENTS+PROCESS lines): 847 + 109 + 138 = **1094**. New budgets added:
+  `docs/commands/improve-app.md` 199/200, `docs/improve/method.md` 159/160. Both were hit four
+  times this session and paid for by compression every time, never by raising the number.
+- cost note: **most of it went into adversarial review, and that is where it earned out.** Eight
+  loops of panel review produced incremental polish; loop 9 (execute the process for real) and
+  loop 10 (attack whether it can innovate at all) produced every finding above. The single most
+  valuable observation came free, from the discovery agent's own verdict: *"the syllabus source
+  did the work here."* Sources 1a, 1b and 1c produced nothing or labelled substitutes. **1e ran
+  because it has a script. 1d ran because it needs no runtime. The three with only prose behind
+  them did not run.** That is the strongest evidence this repo has yet produced for its own
+  standing rule that a hard rule belongs in automation, not in a sentence.
+- hypothesis: the weakest part of the new loop is that its innovation quota exists **only in
+  prose**. `pick` does not yet enforce `--class`, `--source reg|idea`, or the three-run quota;
+  the Round-4 agent carrying that work died on the session limit. Until it lands, the docs
+  describe a gate the script does not have — the exact defect loop 8 caught elsewhere.
+- change: **the innovation quota, ranked above continue-then-rotate** (`pick` refuses a third
+  consecutive same-instrument run without a `VOID`/`THIN`/`reg`/`idea` pick), plus `Class` on
+  every ledger row. Doc side landed this session; script side is the first task of the next.
+  **Review-by 2026-09-05 (or 4 `/improve-app` runs)** — the verdict is whether any run in that
+  window shipped new capability rather than a repair, which is now answerable because `Class`
+  is recorded. **Also standing: `audit` cannot detect a corrupted `elapsedPct`** — I produced a
+  ledger whose every budget mark serialised to `null` and `audit` called it "clean", because
+  `Math.abs(NaN - null) > 0.01` is false. Not a production bug (`--now <iso>` is the contract),
+  but an audit blind to its own corruption is worth closing.
+- experiment verdicts due: none had passed a review-by date this session.
+
 ## 2026-08-15 — the 2s Practice navigation: a profiler round, T.6 closed
 
 - user-reported defects since last session: **1** — "Navigating to Practice takes 2s to load.

@@ -16,6 +16,14 @@ states handled, no perf regression. Green tests alone are not done — this proj
 a dozen inert features under green suites. Every session ends with a retro entry in
 `docs/retro-log.md` and at most one process change.
 
+`/improve-app` is the other loop, in [docs/commands/improve-app.md](docs/commands/improve-app.md).
+`/next` triages a backlog somebody already wrote; `/improve-app` **writes the backlog itself**
+from five evidence sources — ask the learner, mine their history, drive as them, diff a cited
+syllabus, scan for captured-but-unread signals — then builds one gap, puts it through a
+four-seat adversarial panel, and proves it closed. Use it when the question is *what is this app
+missing*, not *what is next on the list*. Main checkout only; its gates are scripts
+(`scripts/improve-run.mjs`), not prose.
+
 ## Parallel sessions
 
 Multiple sessions run in parallel via git worktrees (`claude --worktree <name>`, then `/next`

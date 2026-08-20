@@ -20,6 +20,7 @@ test-results/
 .claude/worktrees/
 visual-pass/
 
-# /improve-app per-run scratch (docs/commands/improve-app.md §0). The append-only
-# runs/ledger.ndjson IS committed — it is the process's only memory between runs.
+# /improve-app per-run scratch (docs/commands/improve-app.md §0). Only the per-run
+# directories are ignored. runs/ledger.ndjson and runs/orphan-ages.json ARE committed —
+# they are the process's only memory between runs, and ignoring them silently resets it.
 runs/*/

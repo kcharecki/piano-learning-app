@@ -20,6 +20,14 @@ a UI that "looks bad, feels bad", and a `/next` that did the bare minimum to tic
 Explicitly not optimized: roadmap boxes per session, test counts, prose volume, agent counts.
 Three proven slices beat six half-proven ones every time.
 
+## Two loops
+
+`/next` runs the session loop below: recover, triage `ROADMAP.md`, ship 3–4 slices, retro.
+`/improve-app` (`docs/commands/improve-app.md`) runs a different loop for a different question —
+it discovers gaps nobody has written down, ships **one**, and reviews it with an adversarial
+panel. Everything in this file that is a standard rather than a step — the experience gate, the
+delegation policy, the retro — applies to both. The loop below is `/next`'s alone.
+
 ## The session loop (`/next` runs this)
 
 0. **RECOVER** — `git status`. Dirty → `npm run verify`; green → slice-commit leftovers;

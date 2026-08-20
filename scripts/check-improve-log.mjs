@@ -19,29 +19,77 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import ts from 'typescript'
 
 const DEFAULT_FILE = 'docs/improve-log.md'
+
+// The two files that between them describe everything this app persists and exports — the
+// only legal vocabulary for `Metric`. See `collectMetricFields` below.
+const METRIC_SOURCE_FILES = ['src/app/state/persistedShapes.ts', 'src/core/progress/export.ts']
 
 const REQUIRED_FIELDS = [
   'Persona',
   'Tier',
   'Pick source',
+  'Pick gap',
   'Previous pick source',
   'Claim',
   'Refutation condition',
   'Metric',
   'Baseline',
   'Outcome',
+  'Endorsement',
 ]
 
 const VALID_TIERS = new Set(['Floor', 'M', 'L'])
 const VALID_SOURCES = new Set(['1a', '1b', '1c', '1d', '1e', 'none'])
 const VALID_OUTCOMES = new Set(['clean', 'shipped-not-clean', 'abort'])
 const VALID_COSTS = new Set(['S', 'M', 'L'])
+const VALID_ENDORSEMENTS = new Set(['yes', 'no', 'n/a — Floor tier'])
+const FLOOR_ENDORSEMENT = 'n/a — Floor tier'
 
 // The ways a claim gets written so that it structurally cannot fail. Denylisted rather
 // than left to reviewer judgement, because judgement is exactly what a deadline erodes.
-const CLAIM_DENYLIST = ['a test passes', 'tests pass', 'a hint appears', 'the code now']
+const CLAIM_DENYLIST = [
+  'a test passes',
+  'tests pass',
+  'a hint appears',
+  'the code now',
+  'the test suite',
+  'the spec passes',
+  'is implemented',
+  'is wired',
+  'the function returns',
+  'the component renders',
+  'no console errors',
+  'coverage',
+  'typecheck',
+  'the field is set',
+  'the store contains',
+  'it compiles',
+]
+
+// Terms whose presence marks a claim's "we will know because" clause as describing
+// something a learner can observe in the running app — a screen, an action, a sense —
+// rather than a fact about the code or the test suite. Widen this list only with evidence
+// (a real claim that should pass and currently doesn't); do not add a word because it
+// "sounds" observable.
+export const OBSERVABLE_ALLOWLIST = [
+  'sees',
+  'hears',
+  'plays',
+  'shows',
+  'displays',
+  'reads back',
+  'on screen',
+  'the learner can',
+]
+
+// A claim also counts as observable when it names a screen ("the Practice screen", "the
+// tempo-slider screen") — one or two words immediately before the word "screen".
+const SCREEN_NAME = /\b[\w-]+(?:\s+[\w-]+)?\s+screen\b/i
+
+const WATCH_MARKER = 'we will know because'
 
 // These are captured and already on disk (MIDI note-off, sustain pedal, velocity, and
 // release time all reach the adapters layer). Calling one of them "cannot sense" in this
@@ -49,11 +97,24 @@ const CLAIM_DENYLIST = ['a test passes', 'tests pass', 'a hint appears', 'the co
 // orphan-signals scan, which asks whether a captured signal is used, not whether it exists.
 const CAPTURED_SIGNALS = ['note-off', 'sustain', 'velocity', 'release time']
 
+// A Harm gate override must cite a `file:line` location and either a URL or a quoted
+// passage — the same evidence bar `docs/improve/method.md` sets for a HARMFUL finding.
+// Anything looser (a lone sentence with no citation) is not evidence, it is an off switch.
+const HARM_GATE_LOCATION = /\S+\.\w+:\d+/
+const HARM_GATE_URL = /https?:\/\/\S+/
+const HARM_GATE_QUOTE = /"[^"]+"/
+
 const FIELD_LINE = /^-\s+\*\*([^*]+?):\*\*\s*(.*)$/
 const RUN_HEADING = /^##\s+Run\b/
+const H2_HEADING = /^##\s+/
 const H2_OR_H3_HEADING = /^#{2,3}\s+/
 const LEDGER_HEADING = /^###\s+Ledger\b/
 const REGISTER_HEADING = /^###\s+Cannot-sense register\b/
+const STANDING_REGISTER_HEADING = /^##\s+Cannot-sense register\b/
+const IDEA_REGISTER_HEADING = /^##\s+Idea register\b/
+const IDEA_PLACEHOLDER = '*(none yet)*'
+const VALID_IDEA_STATUS = /^(open|shipped in .+|struck — .+)$/
+const NOT_YET_DISCLOSED = /^\*\(not yet disclosed\)\*$/i
 const TABLE_ROW = /^\s*\|.*\|\s*$/
 
 /** True for a markdown table separator row (`| --- | :--: | ... |`), any column count. */
@@ -121,7 +182,7 @@ function collectFields(lines, start, end) {
 /**
  * Parse the `### Ledger` table inside [start, end). Pushes a violation for each malformed
  * row and for a missing section/table entirely. Returns the VALID rows only — a malformed
- * row cannot be ranked, so it is excluded from the "does Pick source match the top row"
+ * row cannot be ranked, so it is excluded from the "does Pick gap match the top row"
  * check rather than silently treated as a candidate.
  */
 function parseLedger(lines, start, end, headingLine, violations) {
@@ -259,11 +320,230 @@ function parseLedger(lines, start, end, headingLine, violations) {
     }
 
     if (rowOk) {
-      rows.push({ source, sum: total, line: num })
+      rows.push({ gap, source, sum: total, line: num })
     }
   }
 
   return rows
+}
+
+/**
+ * Validate the standing `## Cannot-sense register (standing)` table: 4 columns (Unsensable,
+ * Why, Countability challenge, Disclosed on). `Why` must classify PHYSICAL or OURS, every row
+ * must carry a written countability challenge (the doc's own words: a row without one "is
+ * not defended, it is unexamined"), `Disclosed on` must name a screen or the not-yet-disclosed
+ * placeholder, and `Unsensable` may never name a signal this app already captures. This is a
+ * standing, file-level section — validated once per file, not once per run entry.
+ */
+function validateStandingCannotSenseTable(lines, violations) {
+  let headingLine = -1
+  for (let i = 0; i < lines.length; i++) {
+    if (STANDING_REGISTER_HEADING.test(lines[i])) {
+      headingLine = i
+      break
+    }
+  }
+  if (headingLine === -1) return
+
+  let sectionEnd = lines.length
+  for (let i = headingLine + 1; i < lines.length; i++) {
+    if (H2_HEADING.test(lines[i])) {
+      sectionEnd = i
+      break
+    }
+  }
+
+  const tableLines = []
+  for (let i = headingLine + 1; i < sectionEnd; i++) {
+    if (TABLE_ROW.test(lines[i])) tableLines.push({ line: lines[i], num: i + 1 })
+  }
+  if (tableLines.length < 2) return
+
+  const dataStart = isSeparatorRow(tableLines[1].line) ? 2 : 1
+  for (let i = dataStart; i < tableLines.length; i++) {
+    const { line, num } = tableLines[i]
+    const cells = splitRow(line)
+    if (cells.length !== 4) {
+      violations.push({
+        line: num,
+        message: `cannot-sense register (standing) row has ${cells.length} column(s), expected 4 (Unsensable, Why, Countability challenge, Disclosed on). Fix the row.`,
+      })
+      continue
+    }
+    const [unsensable, why, challenge, disclosedOn] = cells
+
+    if (!/^\*\*(PHYSICAL|OURS)\*\*/.test(why)) {
+      violations.push({
+        line: num,
+        message: `cannot-sense register (standing) row "Why" must begin with "**PHYSICAL**" or "**OURS**": "${why}"`,
+      })
+    }
+    if (challenge === '') {
+      violations.push({
+        line: num,
+        message:
+          'cannot-sense register (standing) row has an empty "Countability challenge" — an unexamined row is not defended. Add one.',
+      })
+    }
+    if (!NOT_YET_DISCLOSED.test(disclosedOn) && !/\(screen:\s*[^)]+\)/.test(disclosedOn)) {
+      violations.push({
+        line: num,
+        message: `cannot-sense register (standing) row "Disclosed on" is missing "(screen: <name>)" or the "*(not yet disclosed)*" placeholder: "${disclosedOn}"`,
+      })
+    }
+    const lowerUnsensable = unsensable.toLowerCase()
+    for (const signal of CAPTURED_SIGNALS) {
+      if (lowerUnsensable.includes(signal)) {
+        violations.push({
+          line: num,
+          message: `"${signal}" is captured and on disk — it belongs to the orphan-signals scan, not the cannot-sense register. Remove it from this entry.`,
+        })
+      }
+    }
+  }
+}
+
+/**
+ * Validate the standing `## Idea register` table: 3 columns (Idea, From run, Status), every
+ * data row's Idea non-empty (or the accepted `*(none yet)*` empty-state placeholder, skipped
+ * like the per-run register's "none this run"), and Status one of `open`, `shipped in <run-id>`,
+ * `struck — <reason>`. Missing entirely is a violation — this section exists so the Rival
+ * seat's unshipped output is written down instead of discarded.
+ */
+function validateIdeaRegister(lines, violations) {
+  let headingLine = -1
+  for (let i = 0; i < lines.length; i++) {
+    if (IDEA_REGISTER_HEADING.test(lines[i])) {
+      headingLine = i
+      break
+    }
+  }
+  if (headingLine === -1) {
+    violations.push({
+      line: 1,
+      message: 'missing required "## Idea register" section. Add one with the ideas table.',
+    })
+    return
+  }
+
+  let sectionEnd = lines.length
+  for (let i = headingLine + 1; i < lines.length; i++) {
+    if (H2_HEADING.test(lines[i])) {
+      sectionEnd = i
+      break
+    }
+  }
+
+  const tableLines = []
+  for (let i = headingLine + 1; i < sectionEnd; i++) {
+    if (TABLE_ROW.test(lines[i])) tableLines.push({ line: lines[i], num: i + 1 })
+  }
+  if (tableLines.length < 2) {
+    violations.push({
+      line: headingLine + 1,
+      message: '"## Idea register" section has no table. Add a markdown table with a header row and one row per idea.',
+    })
+    return
+  }
+
+  const dataStart = isSeparatorRow(tableLines[1].line) ? 2 : 1
+  for (let i = dataStart; i < tableLines.length; i++) {
+    const { line, num } = tableLines[i]
+    const cells = splitRow(line)
+    if (cells.length !== 3) {
+      violations.push({
+        line: num,
+        message: `idea register row has ${cells.length} column(s), expected 3 (Idea, From run, Status). Fix the row.`,
+      })
+      continue
+    }
+    const [idea, , status] = cells
+    if (idea === IDEA_PLACEHOLDER) continue
+
+    if (idea === '') {
+      violations.push({
+        line: num,
+        message: `idea register row "Idea" column is empty. Add the idea, or use the "${IDEA_PLACEHOLDER}" placeholder row.`,
+      })
+    }
+    if (!VALID_IDEA_STATUS.test(status)) {
+      violations.push({
+        line: num,
+        message: `idea register row Status "${status}" is not one of "open", "shipped in <run-id>", "struck — <reason>". Fix the value.`,
+      })
+    }
+  }
+}
+
+/**
+ * Collect every field name declared on an exported `type X = { ... }` object-literal alias in
+ * `src/app/state/persistedShapes.ts` and `src/core/progress/export.ts` — the two files that
+ * between them describe everything this app persists and exports. Used to keep `Metric`
+ * honest: a run cannot defer its verdict to a field name nobody declared. Returns `null` when
+ * either source file is missing — skip the check, the same convention as a missing target
+ * file — rather than failing every run.
+ *
+ * A small, independent reimplementation of the AST walk `scripts/orphan-signals.mjs`'s
+ * `parseTypeFields` already does over these same two files, not an import of it: the two
+ * scripts read the same files for a related but distinct reason and stay decoupled anyway.
+ */
+export function collectMetricFields(root = process.cwd()) {
+  const fieldsByType = new Map()
+  const allFieldNames = new Set()
+
+  for (const rel of METRIC_SOURCE_FILES) {
+    const abs = resolve(root, rel)
+    if (!existsSync(abs)) return null
+    const text = readFileSync(abs, 'utf8')
+    const sf = ts.createSourceFile(rel, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+    for (const stmt of sf.statements) {
+      if (!ts.isTypeAliasDeclaration(stmt)) continue
+      if (!(ts.getCombinedModifierFlags(stmt) & ts.ModifierFlags.Export)) continue
+      if (!ts.isTypeLiteralNode(stmt.type)) continue
+      const typeName = stmt.name.text
+      if (!fieldsByType.has(typeName)) fieldsByType.set(typeName, new Set())
+      for (const member of stmt.type.members) {
+        if (!ts.isPropertySignature(member) || !member.name) continue
+        const fieldName =
+          ts.isIdentifier(member.name) || ts.isStringLiteral(member.name)
+            ? member.name.text
+            : undefined
+        if (fieldName === undefined) continue
+        fieldsByType.get(typeName).add(fieldName)
+        allFieldNames.add(fieldName)
+      }
+    }
+  }
+
+  return { fieldsByType, allFieldNames }
+}
+
+/** True when `value` names a declared field (bare) or `<Type>.<field>` naming one. */
+function isDeclaredMetric(value, metricFields) {
+  if (metricFields.allFieldNames.has(value)) return true
+  const dot = value.indexOf('.')
+  if (dot > 0 && dot < value.length - 1) {
+    const typeName = value.slice(0, dot)
+    const fieldName = value.slice(dot + 1)
+    const set = metricFields.fieldsByType.get(typeName)
+    if (set && set.has(fieldName)) return true
+  }
+  return false
+}
+
+/** The clause of a Claim that names the observable — the text after "we will know because",
+ * or the whole Claim when that marker is absent (already flagged by the template-shape check
+ * this runs alongside). */
+function observableClause(claimValue) {
+  const lower = claimValue.toLowerCase()
+  const idx = lower.indexOf(WATCH_MARKER)
+  return idx === -1 ? claimValue : claimValue.slice(idx + WATCH_MARKER.length)
+}
+
+/** True when `value` cites a `file:line` location and either a URL or a quoted passage —
+ * the evidence bar a Harm gate override must clear to count as anything but an off switch. */
+function harmGateHasEvidence(value) {
+  return HARM_GATE_LOCATION.test(value) && (HARM_GATE_URL.test(value) || HARM_GATE_QUOTE.test(value))
 }
 
 /**
@@ -340,8 +620,9 @@ function validateRegister(lines, start, end, headingLine, violations) {
   }
 }
 
-/** Validate one `## Run` entry spanning lines [start, end) of the file. */
-function validateRunEntry(lines, start, end, violations) {
+/** Validate one `## Run` entry spanning lines [start, end) of the file. `metricFields` is the
+ * result of `collectMetricFields`, or `null` to skip the Metric-membership check. */
+function validateRunEntry(lines, start, end, violations, metricFields) {
   const headingLine = start + 1
   const fields = collectFields(lines, start, end)
 
@@ -378,6 +659,28 @@ function validateRunEntry(lines, start, end, violations) {
     })
   }
 
+  const endorsement = fields.get('Endorsement')
+  if (endorsement && !VALID_ENDORSEMENTS.has(endorsement.value)) {
+    violations.push({
+      line: endorsement.line,
+      message: `Endorsement "${endorsement.value}" is not one of yes, no, "${FLOOR_ENDORSEMENT}". Fix the value.`,
+    })
+  }
+  if (tier && (tier.value === 'M' || tier.value === 'L')) {
+    if (!endorsement || endorsement.value === FLOOR_ENDORSEMENT) {
+      violations.push({
+        line: endorsement ? endorsement.line : headingLine,
+        message: `Tier "${tier.value}" requires a real Teacher Endorsement ("yes" or "no") — a missing field or "${FLOOR_ENDORSEMENT}" is not enough. Fix the value.`,
+      })
+    }
+  }
+  if (tier && tier.value === 'Floor' && endorsement && endorsement.value !== FLOOR_ENDORSEMENT) {
+    violations.push({
+      line: endorsement.line,
+      message: `Tier "Floor" requires Endorsement "${FLOOR_ENDORSEMENT}", not "${endorsement.value}". Fix the value.`,
+    })
+  }
+
   const prevPickSource = fields.get('Previous pick source')
   if (prevPickSource && !VALID_SOURCES.has(prevPickSource.value)) {
     violations.push({
@@ -403,8 +706,16 @@ function validateRunEntry(lines, start, end, violations) {
       })
     }
   }
+  if (endorsement && endorsement.value === 'no' && outcome && outcome.value === 'clean') {
+    violations.push({
+      line: endorsement.line,
+      message:
+        'Endorsement "no" cannot pair with Outcome "clean" — an unendorsed slice may ship as shipped-not-clean or abort, never clean. Fix the Outcome, or get the endorsement.',
+    })
+  }
 
   const thread = fields.get('Thread')
+  let threadShapeValid = false
   if (thread) {
     const m = /^(.+),\s*run\s+(\d+)\s+of\s+(\d+)\s*$/.exec(thread.value)
     if (!m) {
@@ -420,7 +731,22 @@ function validateRunEntry(lines, start, end, violations) {
           line: thread.line,
           message: `Thread "${thread.value}" has run ${k} greater than its cap ${cap}. Fix the value.`,
         })
+      } else {
+        threadShapeValid = true
       }
+    }
+  }
+
+  const harmGate = fields.get('Harm gate')
+  let harmGateValid = false
+  if (harmGate) {
+    harmGateValid = harmGateHasEvidence(harmGate.value)
+    if (!harmGateValid) {
+      violations.push({
+        line: harmGate.line,
+        message:
+          'Harm gate override was claimed but not evidenced — it must cite a "file:line" location and either an http(s) URL or a quoted passage. Fix the value.',
+      })
     }
   }
 
@@ -436,38 +762,68 @@ function validateRunEntry(lines, start, end, violations) {
     }
   }
 
+  const metric = fields.get('Metric')
+  if (metric && metricFields && !isDeclaredMetric(metric.value, metricFields)) {
+    violations.push({
+      line: metric.line,
+      message: `Metric "${metric.value}" does not name a field declared in ${METRIC_SOURCE_FILES.join(' or ')}. Use a declared field name, or "<Type>.<field>". Fix the value.`,
+    })
+  }
+
   const claim = fields.get('Claim')
   if (claim) {
     const lower = claim.value.toLowerCase()
-    if (!lower.includes('will be able to') || !lower.includes('we will know because')) {
+    if (!lower.includes('will be able to') || !lower.includes(WATCH_MARKER)) {
       violations.push({
         line: claim.line,
         message:
           'Claim does not match the template shape (needs "will be able to" and "we will know because"). Rewrite it to the template.',
       })
     }
+    const clause = observableClause(claim.value)
+    const clauseLower = clause.toLowerCase()
     for (const phrase of CLAIM_DENYLIST) {
-      if (lower.includes(phrase)) {
+      if (clauseLower.includes(phrase)) {
         violations.push({
           line: claim.line,
           message: `Claim contains the non-observable phrase "${phrase}". Name an observable instead.`,
         })
       }
     }
+    const hasObservable =
+      OBSERVABLE_ALLOWLIST.some((term) => clauseLower.includes(term)) || SCREEN_NAME.test(clause)
+    if (!hasObservable) {
+      violations.push({
+        line: claim.line,
+        message: `claim's observable is not stated in learner-visible terms: "${clause.trim()}"`,
+      })
+    }
   }
 
   const ledgerRows = parseLedger(lines, start, end, headingLine, violations)
+  const pickGap = fields.get('Pick gap')
 
-  if (pickSource && VALID_SOURCES.has(pickSource.value) && ledgerRows.length > 0) {
-    const hasOverride = fields.has('Harm gate') || fields.has('Thread')
-    if (!hasOverride) {
+  if (pickGap && ledgerRows.length > 0) {
+    const pickedRow = ledgerRows.find((r) => r.gap === pickGap.value)
+    if (!pickedRow) {
+      violations.push({
+        line: pickGap.line,
+        message: `Pick gap "${pickGap.value}" does not match any row's Gap cell in the ledger table. Fix the value, or add the row.`,
+      })
+    } else {
       const topSum = Math.max(...ledgerRows.map((r) => r.sum))
-      const topSources = ledgerRows.filter((r) => r.sum === topSum).map((r) => r.source)
-      if (!topSources.includes(pickSource.value)) {
-        violations.push({
-          line: pickSource.line,
-          message: `Pick source "${pickSource.value}" does not match the top-scoring ledger row (${topSources.join(', ')}). Fix the pick, or add a "- **Harm gate:**" or "- **Thread:**" line documenting the override.`,
-        })
+      if (pickedRow.sum !== topSum) {
+        const hasEvidencedOverride = harmGateValid || threadShapeValid
+        if (!hasEvidencedOverride) {
+          const topGaps = ledgerRows
+            .filter((r) => r.sum === topSum)
+            .map((r) => `"${r.gap}"`)
+            .join(', ')
+          violations.push({
+            line: pickGap.line,
+            message: `Pick gap "${pickGap.value}" (sum ${pickedRow.sum}) does not match the top-scoring ledger row (${topGaps}). Fix the pick, or add an evidenced "- **Harm gate:**" or a valid "- **Thread:**" line documenting the override.`,
+          })
+        }
       }
     }
   }
@@ -478,11 +834,16 @@ function validateRunEntry(lines, start, end, violations) {
 /**
  * Validate the full text of `docs/improve-log.md` and return every violation found, each
  * as `{ line, message }` (1-based line number). Pure — no filesystem access — so tests can
- * drive it directly with fixture strings.
+ * drive it directly with fixture strings. `metricFields` is the result of
+ * `collectMetricFields`, or `null`/omitted to skip the Metric-membership check (the
+ * "sources missing, skip" convention — also what every fixture-only test gets by default).
  */
-export function validateImproveLog(text) {
+export function validateImproveLog(text, metricFields = null) {
   const lines = stripFencedCode(text.replace(/\r\n/g, '\n').split('\n'))
   const violations = []
+
+  validateStandingCannotSenseTable(lines, violations)
+  validateIdeaRegister(lines, violations)
 
   const runStarts = []
   lines.forEach((line, i) => {
@@ -498,7 +859,7 @@ export function validateImproveLog(text) {
         break
       }
     }
-    validateRunEntry(lines, start, end, violations)
+    validateRunEntry(lines, start, end, violations, metricFields)
   }
 
   return violations
@@ -523,7 +884,8 @@ function main() {
   if (!existsSync(target)) process.exit(0)
 
   const text = readFileSync(target, 'utf8')
-  const violations = validateImproveLog(text)
+  const metricFields = collectMetricFields(process.cwd())
+  const violations = validateImproveLog(text, metricFields)
 
   if (violations.length > 0) {
     for (const v of violations) console.error(`${file}:${v.line}: ${v.message}`)
