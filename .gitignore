@@ -19,3 +19,7 @@ test-results/
 # Parallel-session worktrees (docs/WORKTREES.md) and visual-pass screenshots
 .claude/worktrees/
 visual-pass/
+
+# /improve-app per-run scratch (docs/commands/improve-app.md §0). The append-only
+# runs/ledger.ndjson IS committed — it is the process's only memory between runs.
+runs/*/

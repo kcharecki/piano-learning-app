@@ -9,10 +9,18 @@ import { readFileSync } from 'node:fs';
 // archive pass mid-round, which is what 800 was doing. CLAUDE.md and PROCESS.md keep their
 // tighter budgets deliberately — those two are read in full every session, ROADMAP.md is
 // triaged from. Recorded in docs/retro-log.md, per the rule above.
+// 2026-08-20: CLAUDE.md's budget went vacuous when its body moved to AGENTS.md and it became a
+// one-line `@AGENTS.md` include — the 101 real lines were unbudgeted. AGENTS.md is budgeted here
+// under the same number, and CLAUDE.md keeps its entry so re-inlining the body cannot slip
+// through. The two /improve-app docs are budgeted on the same criterion as the rest: they are
+// re-read in full at the start of every run of that command.
 const BUDGETS = [
   ['ROADMAP.md', 1500],
   ['CLAUDE.md', 160],
+  ['AGENTS.md', 160],
   ['docs/PROCESS.md', 160],
+  ['docs/commands/improve-app.md', 200],
+  ['docs/improve/method.md', 160],
 ];
 
 let failed = false;
