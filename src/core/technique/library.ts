@@ -60,9 +60,15 @@ import {
   type ScaleType,
 } from '@core/theory/scales.ts'
 import { makeScore, type Hand, type Score, type ScoreNoteInput } from '@core/notation/score.ts'
+import {
+  triadSequenceDurationTicks,
+  triadSequenceNotes,
+  type TriadForm,
+} from '@core/technique/triadSequence.ts'
 import { QUARTER, WHOLE } from '@core/shared/units.ts'
 
-export type TechniqueKind = 'five-finger' | 'scale' | 'arpeggio' | 'chord-inversions'
+export type TechniqueKind =
+  'five-finger' | 'scale' | 'arpeggio' | 'chord-inversions' | 'triad-sequence'
 
 export type TechniqueDrill = {
   /** Stable and content-derived, e.g. 'scale-c-major-2oct-hands-together'. */
@@ -73,8 +79,11 @@ export type TechniqueDrill = {
   readonly tonic: SpelledPitch
   readonly scaleType?: ScaleType
   /** Only meaningful for 'scale'/'arpeggio' drills, which span this many octaves.
-   * Absent for 'five-finger' (spans a fifth) and 'chord-inversions' (no octave span). */
+   * Absent for 'five-finger' (spans a fifth), 'chord-inversions' (no octave span)
+   * and 'triad-sequence' (always exactly one octave — see `triadSequence.ts`). */
   readonly octaves?: number
+  /** Only meaningful for 'triad-sequence': whether the triads are broken or blocked. */
+  readonly form?: TriadForm
   readonly hands: 'left' | 'right' | 'both'
   readonly targetBpm: number
 }
@@ -190,12 +199,7 @@ function degreeFinger(pattern: readonly number[], i: number, total: number, hand
   return at(pattern, i % 7)
 }
 
-function ascendingScaleRun(
-  tonic: SpelledPitch,
-  type: ScaleType,
-  octaves: number,
-  hand: Hand,
-): Run {
+function ascendingScaleRun(tonic: SpelledPitch, type: ScaleType, octaves: number, hand: Hand): Run {
   const notes = scaleNotes(tonic, type, octaves)
   const fingering = fingeringFor(tonic, type)
   const pattern = hand === 'right' ? fingering.rightHand : fingering.leftHand
@@ -408,6 +412,43 @@ function chordInversionScore(
   return makeScore({ id, meta: { title }, measures, notes, tempos: [{ tick: 0, bpm }] })
 }
 
+/**
+ * The triad sequence ascends a full octave, so a left hand starting on the
+ * drill's own tonic would finish a fifth above middle C — a register no
+ * Preparatory left hand plays in. The syllabus engraves the pattern once, on a
+ * single treble-clef staff, marked "hands separately", which fixes the notes
+ * and leaves the register to the player; the left hand therefore takes it an
+ * octave down, where it sits inside the bass staff. This is NOT `handTonic`'s
+ * two-octave hands-together offset: these drills are hands separately only.
+ */
+const TRIAD_SEQUENCE_LEFT_OCTAVE_OFFSET = -1
+
+function triadSequenceScore(
+  id: string,
+  drill: TechniqueDrill,
+  scaleType: ScaleType,
+  hand: Hand,
+  form: TriadForm,
+  bpm: number,
+  keyFifths: number,
+): Score {
+  const { tonic } = drill
+  const start =
+    hand === 'left'
+      ? spell(tonic.letter, tonic.alter, tonic.octave + TRIAD_SEQUENCE_LEFT_OCTAVE_OFFSET)
+      : tonic
+  const notes = triadSequenceNotes(start, scaleType, hand, form)
+  const measureCount = Math.ceil(triadSequenceDurationTicks(form) / WHOLE)
+  const measures = Array.from({ length: measureCount }, (_, i) => (i === 0 ? { keyFifths } : {}))
+  return makeScore({
+    id,
+    meta: { title: drill.title },
+    measures,
+    notes: [...notes],
+    tempos: [{ tick: 0, bpm }],
+  })
+}
+
 /** The drill as a playable, engravable Score WITH fingerings on every note (REQ-3.7.1). */
 export function techniqueScore(drill: TechniqueDrill, bpm: number): Score {
   const id = `${drill.id}-render`
@@ -437,12 +478,7 @@ export function techniqueScore(drill: TechniqueDrill, bpm: number): Score {
       const quality: ChordQuality = qualityOf(drill.scaleType)
       const octaves = drill.octaves
       const runs = handsList(drill.hands).map((hand) => ({
-        run: arpeggioUpAndDown(
-          handTonic(drill.tonic, hand, drill.hands),
-          quality,
-          octaves,
-          hand,
-        ),
+        run: arpeggioUpAndDown(handTonic(drill.tonic, hand, drill.hands), quality, octaves, hand),
         hand,
       }))
       return scoreFromRuns(
@@ -464,6 +500,23 @@ export function techniqueScore(drill: TechniqueDrill, bpm: number): Score {
         drill.hands,
         bpm,
         keyFifthsFor(drill.tonic, quality),
+      )
+    }
+    case 'triad-sequence': {
+      invariant(drill.form !== undefined, 'triad-sequence drill requires form')
+      // The syllabus marks this test "hands separately"; there is no engraved
+      // two-hand form to build, so a 'both' registration is a bug in the
+      // library data below rather than something to render half of.
+      invariant(drill.hands !== 'both', 'triad-sequence drill is hands separately')
+      const type = drill.scaleType ?? 'major'
+      return triadSequenceScore(
+        id,
+        drill,
+        type,
+        drill.hands,
+        drill.form,
+        bpm,
+        keyFifthsFor(drill.tonic, qualityOf(type)),
       )
     }
   }
@@ -560,6 +613,35 @@ function chordDrill(
 }
 
 /**
+ * RCM Piano Syllabus 2022, Preparatory A: the triads of every degree of the
+ * scale, ascending one octave, hands separately, in two forms — broken
+ * (♩=60) and solid/blocked (♩=72). The notes themselves are built in
+ * `triadSequence.ts`; this only names and grades the drill.
+ */
+function triadSequenceDrill(
+  level: number,
+  tonic: SpelledPitch,
+  hands: 'left' | 'right',
+  form: TriadForm,
+  targetBpm: number,
+): TechniqueDrill {
+  const id = `triad-sequence-${tonicSlug(tonic)}-major-${form}-hands-${handsSlug(hands)}`
+  const title = `${tonicName(tonic)} major triad sequence, ${form}, ${handsLabel(hands)}`
+  // No `octaves`: the sequence is one octave by definition, not a parameter.
+  return {
+    id,
+    kind: 'triad-sequence',
+    title,
+    level,
+    tonic,
+    scaleType: 'major',
+    form,
+    hands,
+    targetBpm,
+  }
+}
+
+/**
  * Every drill, every level, built once and filtered/looked-up from below.
  * Ordered by level, then by how it was authored — stable across calls because
  * nothing here is random.
@@ -568,6 +650,16 @@ const ALL_DRILLS: readonly TechniqueDrill[] = [
   // Level 1 — five-finger positions, hands separately (requirements.md §2).
   ...([C, G, F] as const).flatMap((tonic) =>
     (['right', 'left'] as const).map((hand) => fiveFingerDrill(1, tonic, hand, 60)),
+  ),
+  // Level 1 — the Preparatory A triad sequence, C major, hands separately,
+  // both forms at the syllabus's own tempi.
+  ...(
+    [
+      ['broken', 60],
+      ['solid', 72],
+    ] as const
+  ).flatMap(([form, targetBpm]) =>
+    (['right', 'left'] as const).map((hand) => triadSequenceDrill(1, C, hand, form, targetBpm)),
   ),
 
   // Level 2 — one-octave major scales, hands separately, C/G/F.
@@ -592,9 +684,7 @@ const ALL_DRILLS: readonly TechniqueDrill[] = [
     scaleDrill(5, tonic, 'harmonicMinor', 2, 'both', 100),
     scaleDrill(5, tonic, 'melodicMinor', 2, 'both', 100),
   ]),
-  ...([A, D, E] as const).map((tonic) =>
-    arpeggioDrill(5, tonic, 'harmonicMinor', 2, 'both', 96),
-  ),
+  ...([A, D, E] as const).map((tonic) => arpeggioDrill(5, tonic, 'harmonicMinor', 2, 'both', 96)),
   ...([Db, Ab] as const).map((tonic) => chordDrill(5, tonic, 'major', 'both', 90)),
   ...([G, C] as const).map((tonic) => chordDrill(5, tonic, 'naturalMinor', 'both', 90)),
 ]

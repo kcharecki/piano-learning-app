@@ -51,12 +51,25 @@ import { makeTempoMap, tickToMs } from '../src/core/timing/tempo.ts'
  * As in `e2e/technique-drill.spec.ts`: every onset is nudged by an
  * alternating +/-`JITTER_MS`, so the evenness readout lands strictly inside
  * (0%, 100%) and a screen rendering a hardcoded 100% fails an assertion a
- * genuinely-computed one passes. At this drill's 60bpm an eighth note is
- * 500ms, consecutive gaps alternate 500+/-2*`JITTER_MS`, so the worst gap's
- * relative deviation is 30/500 = 0.06 and evenness is 1 - 0.06/0.5 = 0.88.
- * That is inside `MATCHER_DEFAULTS.toleranceMs` (150ms, so accuracy stays 1)
- * and above `CLEAN_EVENNESS_THRESHOLD` (0.8, so the run is clean and earns
- * its tempo-history point).
+ * genuinely-computed one passes. Played dead flat, this drill scores exactly
+ * 100% — measured, not assumed, so the jitter below is the only thing keeping
+ * the assertion honest.
+ *
+ * The arithmetic, which is NOT `1 - 2*JITTER/gap`. At 60bpm an eighth is
+ * 500ms and this drill has 24 onsets, so 23 gaps alternating (500 - 2J) and
+ * (500 + 2J) — twelve short, eleven long. `evennessOf` divides by the
+ * **median** gap, and the median of twelve shorts and eleven longs is the
+ * SHORT one, not 500. So the worst gap sits 4J above a (500 - 2J) median:
+ *
+ *     evenness = 1 - (4J / (500 - 2J)) / 0.5 = 1 - 8J / (500 - 2J)
+ *
+ * J=8 gives 1 - 64/484 = 0.868, i.e. the 87% the assertions below band. (The
+ * first draft of this spec used J=15 and predicted 88% from the wrong
+ * formula; the app returned 74%, which this formula predicts exactly — the
+ * spec's arithmetic was wrong, the app's evenness was right.) J=8 keeps the
+ * run inside `MATCHER_DEFAULTS.toleranceMs` (150ms, so accuracy stays 1) and
+ * above `CLEAN_EVENNESS_THRESHOLD` (0.8, so the run is clean and earns its
+ * tempo-history point).
  */
 
 const DB_NAME = 'piano-learning-app'
@@ -70,18 +83,34 @@ const SOLID_DRILL_TITLE = 'C major triad sequence, solid, right hand'
  * Syllabus 2022 (p. 121), note by note, and written here as MIDI numbers.
  */
 const EXPECTED_MIDI: readonly number[] = [
-  60, 64, 67, // C4 E4 G4
-  62, 65, 69, // D4 F4 A4
-  64, 67, 71, // E4 G4 B4
-  65, 69, 72, // F4 A4 C5
-  67, 71, 74, // G4 B4 D5
-  69, 72, 76, // A4 C5 E5
-  71, 74, 77, // B4 D5 F5
-  72, 76, 79, // C5 E5 G5
+  60,
+  64,
+  67, // C4 E4 G4
+  62,
+  65,
+  69, // D4 F4 A4
+  64,
+  67,
+  71, // E4 G4 B4
+  65,
+  69,
+  72, // F4 A4 C5
+  67,
+  71,
+  74, // G4 B4 D5
+  69,
+  72,
+  76, // A4 C5 E5
+  71,
+  74,
+  77, // B4 D5 F5
+  72,
+  76,
+  79, // C5 E5 G5
 ]
 
 const DEFAULT_TIME_SIGNATURE: TimeSignature = { beats: 4, beatType: 4 }
-const JITTER_MS = 15
+const JITTER_MS = 8
 const NOTE_HOLD_MS = 300
 
 function collectErrors(page: Page): string[] {
@@ -132,9 +161,7 @@ type StoredAttempt = { readonly drillId?: string; readonly bpm?: number; readonl
 
 async function readTechniqueAttempts(page: Page): Promise<readonly StoredAttempt[]> {
   const stored = (await readStored(page, 'techniqueHistory', 'techniqueHistory')) as
-    | { readonly attempts?: readonly StoredAttempt[] }
-    | readonly StoredAttempt[]
-    | undefined
+    { readonly attempts?: readonly StoredAttempt[] } | readonly StoredAttempt[] | undefined
   if (Array.isArray(stored)) return stored
   if (stored !== undefined && 'attempts' in stored) return stored.attempts ?? []
   return []
@@ -207,10 +234,10 @@ test('a level-1 learner can practise the RCM Preparatory A triad sequence and ge
     throw new Error(`could not parse an evenness percentage out of "${resultText}"`)
   }
   const evennessPercent = Number(match[1])
-  // The band the JITTER_MS arithmetic predicts (~88%) — a hardcoded 100%
-  // fails this, and so does a run the matcher judged inaccurate.
+  // The band the JITTER_MS arithmetic predicts (86.8% -> "87%") — a hardcoded
+  // 100% fails this, and so does a run the matcher judged inaccurate.
   expect(evennessPercent).toBeGreaterThan(84)
-  expect(evennessPercent).toBeLessThan(94)
+  expect(evennessPercent).toBeLessThan(91)
   expect(resultText).toContain(`Clean at ${bpm}bpm`)
 
   await expect(page.getByTestId('technique-best-bpm')).toHaveText(`Best clean tempo: ${bpm}bpm`)
