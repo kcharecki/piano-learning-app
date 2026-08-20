@@ -47,13 +47,6 @@ export const WHOLE = ticks(TICKS_PER_QUARTER * 4)
 export const HALF = ticks(TICKS_PER_QUARTER * 2)
 export const QUARTER = ticks(TICKS_PER_QUARTER)
 export const EIGHTH = ticks(TICKS_PER_QUARTER / 2)
-/**
- * One note of an eighth-note triplet: three in the time of a quarter. Exact
- * because 480 divides by 3 — see the `TICKS_PER_QUARTER` note above. A note of
- * this length is an EIGHTH as written; only its `Tuplet` ratio says so, since
- * by raw duration it would engrave as a 16th.
- */
-export const TRIPLET_EIGHTH = ticks(TICKS_PER_QUARTER / 3)
 export const SIXTEENTH = ticks(TICKS_PER_QUARTER / 4)
 
 export const addTicks = (a: Ticks, b: Ticks): Ticks => ticks(a + b)

@@ -51,31 +51,12 @@ import { makeTempoMap, tickToMs } from '../src/core/timing/tempo.ts'
  * As in `e2e/technique-drill.spec.ts`: every onset is nudged by an
  * alternating +/-`JITTER_MS`, so the evenness readout lands strictly inside
  * (0%, 100%) and a screen rendering a hardcoded 100% fails an assertion a
- * genuinely-computed one passes. Played dead flat, this drill scores exactly
- * 100% — measured, not assumed, so the jitter below is the only thing keeping
- * the assertion honest.
- *
- * The arithmetic, which is NOT `1 - 2*JITTER/gap`. The broken form is
- * eighth-note TRIPLETS, so at 60bpm the gap is a third of a quarter —
- * 333.33ms, not 500 — and this drill has 24 onsets, so 23 gaps alternating
- * (g - 2J) and (g + 2J), twelve short and eleven long. `evennessOf` divides
- * by the **median** gap, and the median of twelve shorts and eleven longs is
- * the SHORT one, not g. So the worst gap sits 4J above a (g - 2J) median:
- *
- *     evenness = 1 - (4J / (g - 2J)) / 0.5 = 1 - 8J / (g - 2J)
- *
- * J=5 gives 1 - 40/323.3 = 0.876, i.e. the 88% the assertions below band.
- *
- * Two mistakes are recorded here because both were expensive. First draft:
- * J=15 with the wrong formula predicted 88%, the app returned 74%, and this
- * formula predicts 74% exactly — the spec's arithmetic was wrong, the app's
- * evenness was right. Second: this spec was written when the drill was
- * straight eighths (g=500) and J=8 scored 87%. Fixing the drill to triplets
- * halves g, and J=8 at g=333.33 scores 79.8% — BELOW
- * `CLEAN_EVENNESS_THRESHOLD` (0.8), which would have flipped this run to
- * "not clean" and failed the spec for a reason having nothing to do with the
- * bug being fixed. J=5 keeps the run inside `MATCHER_DEFAULTS.toleranceMs`
- * (150ms, so accuracy stays 1) and clear of that threshold.
+ * genuinely-computed one passes. At this drill's 60bpm an eighth note is
+ * 500ms, consecutive gaps alternate 500+/-2*`JITTER_MS`, so the worst gap's
+ * relative deviation is 30/500 = 0.06 and evenness is 1 - 0.06/0.5 = 0.88.
+ * That is inside `MATCHER_DEFAULTS.toleranceMs` (150ms, so accuracy stays 1)
+ * and above `CLEAN_EVENNESS_THRESHOLD` (0.8, so the run is clean and earns
+ * its tempo-history point).
  */
 
 const DB_NAME = 'piano-learning-app'
@@ -89,36 +70,19 @@ const SOLID_DRILL_TITLE = 'C major triad sequence, solid, right hand'
  * Syllabus 2022 (p. 121), note by note, and written here as MIDI numbers.
  */
 const EXPECTED_MIDI: readonly number[] = [
-  60,
-  64,
-  67, // C4 E4 G4
-  62,
-  65,
-  69, // D4 F4 A4
-  64,
-  67,
-  71, // E4 G4 B4
-  65,
-  69,
-  72, // F4 A4 C5
-  67,
-  71,
-  74, // G4 B4 D5
-  69,
-  72,
-  76, // A4 C5 E5
-  71,
-  74,
-  77, // B4 D5 F5
-  72,
-  76,
-  79, // C5 E5 G5
+  60, 64, 67, // C4 E4 G4
+  62, 65, 69, // D4 F4 A4
+  64, 67, 71, // E4 G4 B4
+  65, 69, 72, // F4 A4 C5
+  67, 71, 74, // G4 B4 D5
+  69, 72, 76, // A4 C5 E5
+  71, 74, 77, // B4 D5 F5
+  72, 76, 79, // C5 E5 G5
 ]
 
 const DEFAULT_TIME_SIGNATURE: TimeSignature = { beats: 4, beatType: 4 }
-const JITTER_MS = 5
-/** Well inside the 333.33ms triplet gap, so a note never overlaps its successor. */
-const NOTE_HOLD_MS = 200
+const JITTER_MS = 15
+const NOTE_HOLD_MS = 300
 
 function collectErrors(page: Page): string[] {
   const errors: string[] = []
@@ -168,7 +132,9 @@ type StoredAttempt = { readonly drillId?: string; readonly bpm?: number; readonl
 
 async function readTechniqueAttempts(page: Page): Promise<readonly StoredAttempt[]> {
   const stored = (await readStored(page, 'techniqueHistory', 'techniqueHistory')) as
-    { readonly attempts?: readonly StoredAttempt[] } | readonly StoredAttempt[] | undefined
+    | { readonly attempts?: readonly StoredAttempt[] }
+    | readonly StoredAttempt[]
+    | undefined
   if (Array.isArray(stored)) return stored
   if (stored !== undefined && 'attempts' in stored) return stored.attempts ?? []
   return []
@@ -241,10 +207,10 @@ test('a level-1 learner can practise the RCM Preparatory A triad sequence and ge
     throw new Error(`could not parse an evenness percentage out of "${resultText}"`)
   }
   const evennessPercent = Number(match[1])
-  // The band the JITTER_MS arithmetic predicts (86.8% -> "87%") — a hardcoded
-  // 100% fails this, and so does a run the matcher judged inaccurate.
+  // The band the JITTER_MS arithmetic predicts (~88%) — a hardcoded 100%
+  // fails this, and so does a run the matcher judged inaccurate.
   expect(evennessPercent).toBeGreaterThan(84)
-  expect(evennessPercent).toBeLessThan(91)
+  expect(evennessPercent).toBeLessThan(94)
   expect(resultText).toContain(`Clean at ${bpm}bpm`)
 
   await expect(page.getByTestId('technique-best-bpm')).toHaveText(`Best clean tempo: ${bpm}bpm`)

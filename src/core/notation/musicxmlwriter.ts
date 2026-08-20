@@ -32,7 +32,6 @@ import {
   type Score,
   type ScoreNote,
   type StaffInfo,
-  type Tuplet,
 } from './score.ts'
 
 // -------------------------------------------------------------------- escaping
@@ -64,21 +63,11 @@ const dotFactor = (dots: number): number => 2 - 2 ** -dots
 /**
  * The largest `<type>` whose (possibly dotted, up to two dots) value does not
  * exceed the note's duration, engraving-only: the parser trusts `<duration>`
- * for everything, so no duration — however odd, e.g. from a tie fragment —
- * fails to produce a plausible type here.
- *
- * A tuplet note's raw `durationTicks` is not what it is written as — a triplet
- * eighth is 160 ticks (0.333 quarters), which by raw duration would engrave as
- * a 16th. `tuplet` recovers the WRITTEN duration via its ratio
- * (`durationTicks * actual / normal`; 160 * 3 / 2 = 240, an eighth) before the
- * lookup runs.
+ * for everything, so no duration — however odd, e.g. from a tuplet or a tie
+ * fragment — fails to produce a plausible type here.
  */
-function typeAndDots(
-  durationTicks: number,
-  tuplet?: Tuplet,
-): { readonly type: string; readonly dots: number } {
-  const writtenTicks = tuplet === undefined ? durationTicks : (durationTicks * tuplet.actual) / tuplet.normal
-  const quarters = writtenTicks / TICKS_PER_QUARTER
+function typeAndDots(durationTicks: number): { readonly type: string; readonly dots: number } {
+  const quarters = durationTicks / TICKS_PER_QUARTER
   for (const [type, base] of TYPE_QUARTERS) {
     if (base > quarters && type !== '32nd') continue
     let dots = 0
@@ -168,7 +157,7 @@ function noteXml(
   accidentalState: Map<string, number>,
 ): string {
   const { xml: pitch, accidental } = pitchXml(note, keyFifths, accidentalState)
-  const { type, dots } = typeAndDots(note.durationTicks, note.tuplet)
+  const { type, dots } = typeAndDots(note.durationTicks)
   const parts: string[] = ['<note>']
   if (chord) parts.push('<chord/>')
   parts.push(pitch, `<duration>${note.durationTicks}</duration>`)
@@ -177,33 +166,10 @@ function noteXml(
   parts.push(`<voice>${note.voice}</voice>`, `<type>${type}</type>`)
   for (let i = 0; i < dots; i++) parts.push('<dot/>')
   if (accidental !== undefined) parts.push(`<accidental>${accidental}</accidental>`)
-  // Schema order (`chord?, pitch, duration, tie*, voice, type, dot*,
-  // accidental?, time-modification?, staff?, beam*, notations*`):
-  // time-modification sits after accidental and before staff; beam sits after
-  // staff and before notations.
-  if (note.tuplet !== undefined) {
-    parts.push(
-      '<time-modification>' +
-        `<actual-notes>${note.tuplet.actual}</actual-notes>` +
-        `<normal-notes>${note.tuplet.normal}</normal-notes>` +
-        '</time-modification>',
-    )
-  }
   parts.push(`<staff>${staff}</staff>`)
-  if (note.tuplet !== undefined) {
-    const beam =
-      note.tuplet.position === 'start' ? 'begin' : note.tuplet.position === 'stop' ? 'end' : 'continue'
-    parts.push(`<beam number="1">${beam}</beam>`)
-  }
   const notations: string[] = []
   if (note.tiedFrom) notations.push('<tied type="stop"/>')
   if (note.tiedTo) notations.push('<tied type="start"/>')
-  // The bracket only marks the group's edges — MusicXML readers infer the
-  // span from start to the next matching stop, so an inner note (which
-  // already carries the <time-modification> above) gets neither tag.
-  if (note.tuplet !== undefined && note.tuplet.position !== 'inner') {
-    notations.push(`<tuplet type="${note.tuplet.position}" number="1"/>`)
-  }
   // REQ-3.7.1 (roadmap 5.22): a fingering rides on the SAME `<notations>` a
   // tie already uses — printed editions place RH numbers above the staff and
   // LH below it, and OSMD's `FingeringPositionFromXML` (default true) honors

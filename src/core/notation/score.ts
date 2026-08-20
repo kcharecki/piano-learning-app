@@ -17,7 +17,6 @@
  * structure it built before handing it on.
  */
 import { at, invariant } from '@core/shared/invariant.ts'
-import type { Tuplet } from './tuplet.ts'
 import { err, ok, type Result } from '@core/shared/result.ts'
 import {
   bpm as asBpm,
@@ -49,9 +48,6 @@ export type TimeSignature = { readonly beats: number; readonly beatType: number 
 
 export type StaffInfo = { readonly staff: number; readonly clef: Clef; readonly hand: Hand }
 
-/** Tuplet membership lives in its own module with its written-duration maths. */
-export type { Tuplet } from './tuplet.ts'
-
 export type ScoreNote = {
   /** Stable, derived from position: `m3.r.480.60` (measure.hand.startTick.midi). */
   readonly id: string
@@ -78,8 +74,6 @@ export type ScoreNote = {
    * `midi` — `buildNotes` rejects a mismatch.
    */
   readonly spelling?: SpelledPitch
-  /** Set when this note is one of a tuplet group — see `Tuplet`. */
-  readonly tuplet?: Tuplet
 }
 
 export type Measure = {
@@ -165,7 +159,6 @@ export type ScoreNoteInput = {
   readonly tiedTo?: boolean
   readonly fingering?: number
   readonly spelling?: SpelledPitch
-  readonly tuplet?: Tuplet
 }
 
 export type MeasureInput = {
@@ -327,7 +320,6 @@ function buildNotes(
       tiedTo: n.tiedTo ?? false,
       ...(n.fingering === undefined ? {} : { fingering: n.fingering }),
       ...(n.spelling === undefined ? {} : { spelling: n.spelling }),
-      ...(n.tuplet === undefined ? {} : { tuplet: n.tuplet }),
     }
   })
   // Stable sort: notes that agree on both keys keep the order they came in.
