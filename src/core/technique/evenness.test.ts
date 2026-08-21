@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import fc from 'fast-check'
 import {
   bestCleanBpm,
+  EVENNESS_REFERENCE_GAP_MS,
   evennessOf,
   isClean,
   tempoHistory,
@@ -54,11 +55,19 @@ describe('evennessOf', () => {
     )
   })
 
-  it('is scale-invariant: playing the same rhythm twice as fast scores the same', () => {
+  it('is scale-invariant ABOVE the reference gap: the same rhythm slower scores the same', () => {
+    // Scale invariance is the right model while the gaps are long enough that
+    // a proportional error is what the ear hears. Roadmap T.10 deliberately
+    // gives it up BELOW `EVENNESS_REFERENCE_GAP_MS` — see the next property —
+    // so this one is now stated over the range where it still holds, rather
+    // than over a range where it was actively harmful.
     fc.assert(
       fc.property(
-        fc.array(fc.integer({ min: 1, max: 2000 }), { minLength: 2, maxLength: 20 }),
-        fc.double({ min: 0.01, max: 100, noNaN: true }),
+        fc.array(fc.integer({ min: EVENNESS_REFERENCE_GAP_MS, max: 4000 }), {
+          minLength: 2,
+          maxLength: 20,
+        }),
+        fc.double({ min: 1, max: 100, noNaN: true }),
         (gaps, factor) => {
           // Non-degeneracy: only exercise runs that are actually uneven, so a
           // constant-1 stub (which trivially satisfies "unchanged") is killed.
@@ -72,6 +81,55 @@ describe('evennessOf', () => {
         },
       ),
     )
+  })
+
+  it('property: a fixed absolute jitter keeps its verdict when the run is re-notated at a different note value (roadmap T.10)', () => {
+    // T.10's proof obligation, verbatim. The learner plays with the SAME
+    // absolute unevenness — `deviationMs` of wobble on one gap — and we vary
+    // only the note value it is written at. Before the floor, the score fell
+    // as the note value shortened and the verdict flipped: the same playing
+    // was "clean" in quarters and not in triplets.
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 60, max: EVENNESS_REFERENCE_GAP_MS }),
+        fc.integer({ min: 60, max: EVENNESS_REFERENCE_GAP_MS }),
+        fc.integer({ min: 1, max: 55 }),
+        (gapA, gapB, deviationMs) => {
+          const run = (gap: number): number[] =>
+            onsetsFromGaps(0, [gap, gap, gap + deviationMs, gap, gap])
+          const a = evennessOf(run(gapA))
+          const b = evennessOf(run(gapB))
+          // Non-degeneracy: a real, uneven run, not a stub returning 1.
+          expect(a).toBeLessThan(1)
+          expect(Math.abs(a - b)).toBeLessThan(1e-9)
+          expect(isClean({ evenness: a, accuracy: 1 })).toBe(
+            isClean({ evenness: b, accuracy: 1 }),
+          )
+        },
+      ),
+    )
+  })
+
+  it('the broken triad sequence is judged no more harshly than the same wobble in quarters', () => {
+    // The concrete case T.10 was filed for. A learner wobbling 25ms plays the
+    // level-1 triad sequence at ♩=60: broken, that is eighth-note triplets at
+    // 333.33ms spacing; the same drill's solid form is quarters at 833.33ms.
+    // Both must read the same verdict for the same physical wobble.
+    const wobble = 25
+    const triplets = onsetsFromGaps(0, [1000 / 3, 1000 / 3, 1000 / 3 + wobble, 1000 / 3, 1000 / 3])
+    const quarters = onsetsFromGaps(0, [500, 500, 500 + wobble, 500, 500])
+    expect(evennessOf(triplets)).toBeCloseTo(evennessOf(quarters), 9)
+    expect(isClean({ evenness: evennessOf(triplets), accuracy: 1 })).toBe(true)
+  })
+
+  it('above the reference gap a longer note value really is judged more loosely', () => {
+    // The other side of the floor, so it cannot be mistaken for "absolute
+    // everywhere". At 2000ms spacing the same 25ms wobble is proportionally
+    // tiny and scores strictly better than it does at the reference.
+    const wobble = 25
+    const slow = onsetsFromGaps(0, [2000, 2000, 2000 + wobble, 2000, 2000])
+    const reference = onsetsFromGaps(0, [500, 500, 500 + wobble, 500, 500])
+    expect(evennessOf(slow)).toBeGreaterThan(evennessOf(reference))
   })
 
   it('is monotonic: adding jitter never raises the score', () => {

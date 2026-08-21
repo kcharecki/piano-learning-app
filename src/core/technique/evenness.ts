@@ -32,6 +32,31 @@ export type EvennessOptions = {
 
 const DEFAULT_TOLERANCE = 0.5
 
+/**
+ * The gap below which the evenness bar stops tightening (roadmap T.10).
+ *
+ * 500ms is one quarter note at the app's default ♩=120 — the spacing every
+ * other timing constant here is implicitly sized against.
+ *
+ * Without this floor the whole judgement is proportional to the median gap,
+ * so the bar moves with the NOTATION rather than with the playing. Measured
+ * on the technique drills, the onset jitter a run may carry and still be
+ * called clean was ±25.0ms at 500ms spacing, ±16.7ms at 333ms (the broken
+ * triad sequence's triplets at ♩=60) and ±10.4ms at 208ms — so re-notating the
+ * same physical performance as triplets tightened the bar by a third, and as
+ * sixteenths by well over half, without the learner playing any differently.
+ * A simulation of 400 runs put a learner with 15ms onset SD at 66% of runs
+ * clean when notated in quarters and 5% when notated as triplets. RCM p.7
+ * calls its metronome marks "a guideline for the minimum tempo", so a ±17ms
+ * gate is a standard the syllabus does not set and we should not invent.
+ *
+ * Above this spacing the score is unchanged and stays scale-invariant — that
+ * is still the right model when the gaps are long enough for a proportional
+ * error to be what the ear actually hears. Below it, evenness is judged on
+ * the ABSOLUTE deviation instead, against the bar a 500ms-spaced run gets.
+ */
+export const EVENNESS_REFERENCE_GAP_MS = 500
+
 function median(values: readonly number[]): number {
   const sorted = [...values].sort((a, b) => a - b)
   const mid = Math.floor(sorted.length / 2)
@@ -49,15 +74,25 @@ function clamp01(n: number): number {
  * alone — a run played evenly at the wrong tempo is still perfectly even, and
  * that is deliberate.
  *
- * The score is driven by the *worst* gap's ratio to the run's median gap, not
- * the mean ratio across all gaps. That ratio is what makes the result
- * scale-invariant: multiplying every onset by a positive constant (playing
- * the identical rhythm twice as fast) multiplies every gap and the median by
- * that same constant, so every ratio — and therefore the score — is
- * unchanged. A plausible-looking stub built on `1 - stddev(gaps)` fails
- * exactly this: doubling the tempo doubles the standard deviation of a
- * perfectly even run while the run is still perfectly even, which is the
- * mutant the property tests below are built to kill.
+ * The score is driven by the *worst* gap's deviation from the run's median
+ * gap, measured against `tolerance × max(medianGap,
+ * EVENNESS_REFERENCE_GAP_MS)`.
+ *
+ * While the median gap is at or above the reference, that denominator is
+ * `tolerance × medianGap` and the result is scale-invariant: multiplying
+ * every onset by a positive constant (playing the identical rhythm twice as
+ * fast) multiplies every gap and the median by that same constant, so the
+ * ratio — and therefore the score — is unchanged. A plausible-looking stub
+ * built on `1 - stddev(gaps)` fails exactly this: doubling the tempo doubles
+ * the standard deviation of a perfectly even run while the run is still
+ * perfectly even, which is the mutant the property tests below are built to
+ * kill.
+ *
+ * Below the reference the denominator stops shrinking, so the score depends
+ * only on the ABSOLUTE deviation — see `EVENNESS_REFERENCE_GAP_MS` for why
+ * that is deliberate. Scale invariance is given up there ON PURPOSE: it is
+ * exactly the property that let a re-notation change a verdict the playing
+ * did not change.
  *
  * Taking the worst gap rather than the mean is what makes the score
  * length-independent: a single note held twice as long is exactly as uneven
@@ -90,8 +125,12 @@ export function evennessOf(onsetMs: readonly number[], opts?: EvennessOptions): 
   // uneven rather than dividing by zero or an epsilon that would understate it.
   if (medianGap <= 0) return 0
 
-  const maxRelDeviation = Math.max(...gaps.map((g) => Math.abs(g - medianGap) / medianGap))
-  return clamp01(1 - maxRelDeviation / tolerance)
+  // `max(medianGap, ...)`, not `medianGap`: below the reference spacing the
+  // bar stops tightening, so the same absolute unevenness keeps the same
+  // verdict however the run is notated. Roadmap T.10.
+  const scaleGap = Math.max(medianGap, EVENNESS_REFERENCE_GAP_MS)
+  const maxDeviation = Math.max(...gaps.map((g) => Math.abs(g - medianGap)))
+  return clamp01(1 - maxDeviation / (tolerance * scaleGap))
 }
 
 /**

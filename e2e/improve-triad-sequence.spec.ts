@@ -68,13 +68,27 @@ import { makeTempoMap, tickToMs } from '../src/core/timing/tempo.ts'
  *     are the short gap and the median IS the short gap, not the nominal one.
  *     The worst deviation is therefore `4*JITTER_MS / (gap - 2*JITTER_MS)`.
  *
- * So evenness is `1 - (4J/(gap-2J))/0.5` = `1 - 8J/(gap-2J)`. At J=15 that is
- * 60.4% — under `CLEAN_EVENNESS_THRESHOLD` (0.8), so the original numbers
+ * So evenness was `1 - (4J/(gap-2J))/0.5` = `1 - 8J/(gap-2J)`. At J=15 that
+ * is 60.4% — under `CLEAN_EVENNESS_THRESHOLD` (0.8), so the original numbers
  * could not have produced the "clean" verdict this spec asserts at all, at
- * any tempo. At J=5 it is 87.6%, which renders as 88%: inside the band,
- * inside `MATCHER_DEFAULTS.toleranceMs` (150ms, so accuracy stays 1), and
- * above the clean threshold, so the run earns its tempo-history point.
- * Measured, not derived: see the sweep in this run's retro entry.
+ * any tempo. At J=5 it was 87.6%, which rendered as 88%.
+ *
+ * ### And then roadmap T.10 changed the denominator
+ *
+ * That whole calculation divided by the median gap, which is what T.10 fixed:
+ * below `EVENNESS_REFERENCE_GAP_MS` (500ms, a quarter at ♩=120) the bar stops
+ * tightening, so a triplet run is now judged against 500ms rather than against
+ * its own 333.333ms spacing. The worst deviation is still `4J` in absolute
+ * terms, so evenness is `1 - 4J/(0.5 × 500)` = `1 - J/62.5`. At J=5 that is
+ * 92%, which is what this spec now reads — still inside the band below, which
+ * has never changed, still inside `MATCHER_DEFAULTS.toleranceMs` (150ms, so
+ * accuracy stays 1), and still above the clean threshold, so the run earns its
+ * tempo-history point.
+ *
+ * Both numbers are recorded because the movement between them is the point:
+ * the same simulated performance scored 88% before T.10 and 92% after, purely
+ * because it is written in triplets. That is the bias T.10 removed, visible in
+ * this spec's own readout.
  */
 
 const DB_NAME = 'piano-learning-app'
@@ -233,8 +247,9 @@ test('a level-1 learner can practise the RCM Preparatory A triad sequence and ge
     throw new Error(`could not parse an evenness percentage out of "${resultText}"`)
   }
   const evennessPercent = Number(match[1])
-  // The band the JITTER_MS arithmetic predicts (~88%) — a hardcoded 100%
-  // fails this, and so does a run the matcher judged inaccurate.
+  // The band the JITTER_MS arithmetic predicts (92% since roadmap T.10, 88%
+  // before it — see this file's doc) — a hardcoded 100% fails this, and so
+  // does a run the matcher judged inaccurate.
   expect(evennessPercent).toBeGreaterThan(84)
   expect(evennessPercent).toBeLessThan(94)
   expect(resultText).toContain(`Clean at ${bpm}bpm`)
