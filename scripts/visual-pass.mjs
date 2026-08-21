@@ -44,6 +44,66 @@
 import { chromium } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 
+/**
+ * The layout audit — the one defect class the screenshots kept catching that
+ * no green suite ever did.
+ *
+ * `src/design-system/css/primitives.css` makes `.list > li` and
+ * `[role="status"]` ONE-LINE rows: `display: flex` with `align-items: center`,
+ * meant for a label and a badge sharing a line. Feature CSS that puts STACKED
+ * content in one — a heading, a line of text, a chart — has to override that,
+ * and keeps failing to: `.list > li` is specificity (0,1,1), so a bare
+ * `.my-row { align-items: stretch }` (0,1,0) loses and every stacked child is
+ * silently centred instead. That is UI-24's `.level-track-row` defect (fixed
+ * by raising the selector to `.level-track-list > .level-track-row`) and it
+ * cost two more slices in the 2026-08-21 session. All three were found by a
+ * human looking at a PNG.
+ *
+ * The fingerprint is exact, so this checks for it rather than for a symptom:
+ * one of those two primitives, still computing `align-items: center`, holding
+ * two or more BLOCK children. Block children are the tell — a row is for
+ * inline content (`span`, `button`, `a`, `strong`), and `span`s are never
+ * reported no matter how many there are. `flex-direction` is deliberately NOT
+ * part of the test: the primitives never declare one, so a feature's
+ * `flex-direction: column` DOES apply while its `align-items` loses — which
+ * is the shape of the real defect, a stack whose items are all centred and
+ * shrink-wrapped instead of filling the row (UI-24 measured 36px against a
+ * 118px card).
+ *
+ * Runs in the page right before each screenshot, so all four configurations
+ * are checked and a squeeze that only happens at 1024, or only in one theme,
+ * is caught too.
+ *
+ * Two symptom-based versions were tried first and BOTH failed against a real
+ * reintroduction of the UI-24 defect: content-wider-than-its-box never fires
+ * (flex children wrap, they do not overflow), and flex-direction is not what
+ * the primitive wins — it never declares one. Attributing the winning rule at
+ * runtime is not possible either: Vite serves the whole design system as one
+ * flattened stylesheet, so CSSOM cannot tell a primitive rule from a feature
+ * rule. Hence the narrow, hard-coded fingerprint.
+ */
+function auditLayout() {
+  const BLOCK = ['DIV', 'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'UL', 'OL', 'DL', 'TABLE', 'FIGURE', 'SECTION']
+  const offenders = []
+  for (const row of document.querySelectorAll('.list > li, [role="status"]')) {
+    const style = getComputedStyle(row)
+    if (style.display !== 'flex' && style.display !== 'inline-flex') continue
+    if (style.alignItems !== 'center') continue
+    const blocks = [...row.children].filter((c) => BLOCK.includes(c.tagName))
+    if (blocks.length < 2) continue
+    const name =
+      typeof row.className === 'string' && row.className.trim() !== ''
+        ? `${row.tagName.toLowerCase()}.${row.className.trim().split(/\s+/).join('.')}`
+        : `${row.tagName.toLowerCase()}[role=status]`
+    offenders.push(
+      `${name} stacks ${blocks.map((c) => c.tagName.toLowerCase()).join(', ')} inside a ` +
+        `one-line primitive row that still computes align-items: center — the primitive won; ` +
+        `override it at a higher specificity`,
+    )
+  }
+  return offenders
+}
+
 const WIDTHS = [1280, 1024]
 const THEMES = ['dark', 'light']
 const HEIGHT = 900
@@ -158,6 +218,10 @@ for (const theme of THEMES) {
     // learner ends up looking at, not about first paint.
     await page.waitForTimeout(2500)
     if (opts.wait > 0) await page.waitForTimeout(opts.wait)
+
+    for (const offender of await page.evaluate(auditLayout)) {
+      problems.push(`${where} layout: ${offender}`)
+    }
 
     const file = `${opts.out}/${slug}-${theme}-${width}.png`
     await page.screenshot({ path: file, fullPage: true })

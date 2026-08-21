@@ -16,6 +16,65 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
+## 2026-08-21 (second session) — Triage emptied; the roadmap has no open box left
+
+- **user-reported defects since last session:** 0
+- **slices proven / started:** 3 / 3 — T.11 (the chord window is a fraction of the written gap,
+  not a flat 80ms), T.14 (the Progress technique-tempo card draws one series per drill instead of
+  flattening two targets onto one line), T.16 (`score.ts` split into the model and its queries).
+  `ROADMAP.md` now has **zero** `- [ ]` items, Triage included.
+- **gate catches before commit:** 6.
+  1. `npm run verify` red on two `no-console` warnings in the new e2e spec — `eslint
+     --max-warnings 0` means a *warning* fails the gate; the verdicts moved to
+     `test.info().annotations`.
+  2. Visual pass: T.14's single-clean-run series drew as a lone dot in an empty 280×80 box.
+     `MIN_CHART_POINTS = 2` — the best line already says everything one point can.
+  3. Visual pass: `.list > li` squashed T.14's stacked series items onto one line.
+  4. Visual pass: `[role="status"]` did the same to T.11's roll report.
+  5. `tsc -b`: T.16's import rewrite missed relative sibling `'./score.ts'` imports in four files —
+     the first regex required `notation/score.ts` in the path.
+  6. `tsc -b`: `score.test.ts` still called `soundingAtTick` after the split, and carried two
+     type imports the split had made dead.
+- **docs budget (ROADMAP+CLAUDE+PROCESS lines):** 1303 — `npm run docs:budget` green.
+- **cost note:** most of it went to A/B-ing each slice — undo the fix, watch the specific
+  assertion go red, put it back. T.11: restoring the flat 80ms turned the e2e's second run into
+  `Evenness 0% · Notes 100% — Not yet clean` and under-reported the roll as 50ms against a real
+  100ms. T.14: flattening the series back onto one line failed the e2e with "element(s) not
+  found". Neither fix was believed until its absence was measured. The second-largest cost was
+  this retro's own experiment, below.
+- **hypothesis:** the weakest part of the process is that its most productive instrument is a
+  human eye. Three of six catches this session came from looking at a PNG, and two of those three
+  were the *same defect class* — a design-system one-line row (`.list > li`, `[role="status"]`)
+  silently winning against feature CSS that meant to stack. That class has now cost three slices
+  across two sessions (UI-24's `.level-track-row` was the first). A defect that recurs with an
+  identical fingerprint is a check, not a habit.
+- **change:** `scripts/visual-pass.mjs` now runs a **layout audit** in the page immediately before
+  each screenshot, in all four configurations, and reports through the same channel as console
+  errors (so the script exits 1). It fires on the exact fingerprint: a `.list > li` or
+  `[role="status"]` still computing `align-items: center` while holding two or more block
+  children. **A/B'd both ways**, not asserted: with UI-24's defect reintroduced (dropping
+  `.level-track-list >` from the override, back to specificity 0,1,0) it reports 3 rows × 4
+  configurations; with the override restored, ten screens × four configurations report nothing —
+  40 clean runs, zero false positives.
+  Worth recording that **two earlier designs failed** against the same A/B, because the failures
+  are the reason the check looks the way it does. (a) "a child whose content is wider than the box
+  it was given" never fires — flex children wrap, they do not overflow. (b) "a flex row containing
+  stacked children" never fires either: the primitives do not declare `flex-direction` at all, so
+  the feature's `column` DOES apply and only its `align-items` loses. A third idea — compare each
+  feature rule's declaration against the computed value and name the rule that beat it — is not
+  implementable at runtime: Vite serves the whole design system as one flattened stylesheet, so
+  CSSOM cannot tell a primitive rule from a feature rule. That leaves either this fingerprint or a
+  static check over postcss, which would need markup knowledge the CSS alone does not carry.
+  **Review by 2026-09-19 (or 4 sessions):** keep if it catches at least one real instance before a
+  human does; if a fourth instance of this class still reaches a screenshot first, escalate to the
+  static `scripts/check-css.mjs` version and pay for the TSX class map it needs.
+- **experiment verdicts due:** none. The nearest review-by is 2026-08-29 (measure-before-you-brief,
+  from the numeric-acceptance experiment); 2026-09-11, 2026-09-15 and 2026-09-20 are all further
+  out. The render-gate clause written yesterday did hold this session by accident of scope: no
+  slice produced a file a third-party library renders.
+
+---
+
 ## 2026-08-21 — the first `/improve-app` run, and it aborted
 
 - **user-reported defects since last session:** 0
