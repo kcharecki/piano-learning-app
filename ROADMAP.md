@@ -103,16 +103,30 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
       drops `<time-modification>`, so our own written triplets do not round-trip.
       *Proof: a test that counts rendered tuplet numerals in the SVG (must equal the number of
       groups), plus a screenshot.*
-- [ ] T.9 **`useMetronome`: a second setter in the same tick silently undoes the first.**
-      `setSubdivision`, `setAccents` and `setTimeSignature` each rebuild their draft from the
-      render-closure `bpmState` (`src/app/metronome/useMetronome.ts:252,261,265`), so
-      `setBpm(72)` followed by `setSubdivision(3)` in one `act()` leaves bpm at **100** —
-      reproduced directly with `renderHook`; split across two `act()`s it leaves 72. Nothing calls
-      two setters in one tick today (1120597 removed the only caller), so no screen is currently
-      wrong — it is a loaded trap in a shared hook, and it cost this run a BLOCKER. `bpmRef` does
-      **not** fix it: refs assigned during render are exactly as stale in-tick as state. Fix: a
-      draft ref written synchronously by `applyIfValid`, or a single `apply(partial)`.
-      *Proof: a test that calls two setters in one `act()` and asserts both land.*
+- [x] T.9 **`useMetronome`: a second setter in the same tick silently undid the first.**
+      `setSubdivision`, `setAccents` and `setTimeSignature` each rebuilt their draft from the
+      render-closure `bpmState`, so `setBpm(72)` followed by `setSubdivision(3)` in one `act()`
+      left bpm at **100**. Fixed with the second option the task offered: all four setters now
+      funnel into one `apply(partial)` that merges onto a `draftRef` written **synchronously**,
+      and `settingsRef`/`bpmRef` — mirrors assigned during render, and so exactly as stale
+      in-tick as the closure they mirrored — are deleted rather than kept alongside it. A
+      consequence worth naming: a combination is now validated as a combination, so raising the
+      tempo first can legitimately make the subdivision that follows it in the same tick illegal
+      (asserted, not incidental).
+      *Proof: 3 new cases in `useMetronome.test.ts` — two setters in one `act()` both land; the
+      second in-tick setter validates against the first one's value (bpm 300 then subdivision 8
+      is rejected, leaving 300/1 with an error, where before the pair silently ended 100/8); and
+      beats+accents set together keep the resized pattern. All three fail on the old hook.
+      `npm run verify` green (219 files / 4530 tests, +3). The refactor's own regression is the
+      reason there is a browser half too: dropping the render memo that re-assigned `tempoMapRef`
+      every commit left a metronome that DISPLAYED 240 and clicked at 100, and no unit test in
+      the file caught it. New `e2e/metronome.spec.ts` case counts beats against wall-clock — 240
+      in 4/4 must advance ≥6 beats in 2s — and was proven to be a real trap by reintroducing the
+      bug: "advanced 3 beats in 2017ms", i.e. the 100bpm default. Driven: `e2e/metronome.spec.ts`
+      2/2, and the hook's other consumer `e2e/technique-drill.spec.ts` (a whole drill through a
+      real MIDI keyboard) plus `session-technique`, `technique-safety` and both merged U.3
+      rhythm specs, 5/5. Visual pass on Metronome at 1280/1024 × dark/light: exit 0, no console
+      errors (only the headless-only `requestMIDIAccess` warning present on every screen).*
 - [ ] T.10 **Technique evenness has no absolute tolerance floor, so the bar moves with the note
       rate.** `evennessOf` divides by the median gap and is compared to a fixed
       `CLEAN_EVENNESS_THRESHOLD` of 0.8, which is ±5% of the gap with no floor: measured ±25.0ms

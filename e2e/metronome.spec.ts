@@ -140,3 +140,68 @@ test('the standalone metronome runs with no score and advances in real time (roa
 
   expect(errors).toEqual([])
 })
+
+/**
+ * Roadmap T.9's browser half. The unit suite proves two setters in one tick
+ * compose; what only a real browser proves is that the tempo a learner sets
+ * BEFORE pressing Start is the tempo the transport actually runs at.
+ *
+ * That path is not hypothetical: collapsing the four setters onto one
+ * synchronous draft ref removed the render memo that used to re-assign the
+ * tempo map every commit, and the first cut of the fix left a metronome that
+ * displayed 240 and clicked at 100. Counting BEATS against wall-clock is the
+ * assertion that catches it; "the readout changed" does not.
+ */
+test('runs at the tempo set before Start, not the one it was mounted with (roadmap T.9)', async ({
+  page,
+}) => {
+  test.setTimeout(30_000)
+  const errors = collectErrors(page)
+
+  await page.goto('/')
+  await page
+    .getByRole('navigation', { name: /main/i })
+    .getByRole('button', { name: 'Metronome', exact: true })
+    .click()
+  await expect(page.getByRole('heading', { name: 'Metronome' })).toBeVisible()
+
+  // 240bpm in 4/4 is a beat every 250ms; the 100bpm default is every 600ms.
+  // Over the sample window below those two are far enough apart that no
+  // amount of frame jitter can confuse them.
+  const bpmValue = page.locator('.metronome-bpm-stepper .stepper-value')
+  await bpmValue.fill('240')
+  await bpmValue.blur()
+  await expect(bpmValue).toHaveValue('240')
+
+  const readout = page.getByTestId('metronome-beat-readout')
+  await page.getByRole('button', { name: 'Start' }).click()
+  await expect(readout).toContainText(/Bar \d+, beat \d+/, { timeout: 10_000 })
+
+  /** Absolute beat index, so a bar rollover counts as forward motion. */
+  const beatIndex = async (): Promise<number> => {
+    const text = (await readout.textContent()) ?? ''
+    const match = /Bar (\d+), beat (\d+)/.exec(text)
+    expect(match, `unreadable beat readout: ${text}`).not.toBeNull()
+    const bar = Number(match?.[1])
+    const beat = Number(match?.[2])
+    return (bar - 1) * 4 + beat
+  }
+
+  const startedAt = Date.now()
+  const first = await beatIndex()
+  await page.waitForTimeout(2000)
+  const elapsedMs = Date.now() - startedAt
+  const advanced = (await beatIndex()) - first
+
+  // 240bpm gives ~8 beats in 2s. The 100bpm default gives ~3.3, and the read
+  // of `first` costs some of the window, so the floor is set at 6: it clears
+  // 240 comfortably and no tempo at or below 180bpm can reach it.
+  expect(
+    advanced,
+    `advanced ${advanced} beats in ${elapsedMs}ms — expected the 240bpm rate, not the 100bpm default`,
+  ).toBeGreaterThanOrEqual(6)
+
+  await page.getByRole('button', { name: 'Stop' }).click()
+  await expect(readout).toHaveText('Stopped')
+  expect(errors).toEqual([])
+})

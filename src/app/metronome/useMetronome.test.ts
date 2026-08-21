@@ -235,4 +235,65 @@ describe('useMetronome', () => {
     expect(result.current.error).toBeDefined()
     expect(result.current.subdivision).toBe(1)
   })
+
+  // roadmap T.9: every setter used to rebuild its draft from the RENDER
+  // closure, so a second setter in the same tick overwrote the first with the
+  // pre-tick value it had captured. Nothing called two setters in one tick at
+  // the time, which is exactly why it was worth closing before something did.
+  it('applies two setters called in the same tick: neither silently undoes the other', () => {
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const manual = manualDriver()
+    const { result } = renderHook(() =>
+      useMetronome({ clock, audioOutput: audio, frameDriver: manual.driver }),
+    )
+
+    act(() => {
+      result.current.setBpm(72)
+      result.current.setSubdivision(3)
+    })
+
+    expect(result.current.bpm).toBe(72)
+    expect(result.current.subdivision).toBe(3)
+    expect(result.current.error).toBeUndefined()
+  })
+
+  it('validates the second in-tick setter against the first one’s value, not the pre-tick one', () => {
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const manual = manualDriver()
+    const { result } = renderHook(() =>
+      useMetronome({ clock, audioOutput: audio, frameDriver: manual.driver }),
+    )
+
+    // 4/4 subdivision 8 is fine at the default 100bpm (75ms a click) and
+    // unusable at 300 (25ms, under the 50ms floor). Raising bpm first has to
+    // make the subdivision that follows it in the SAME tick illegal.
+    act(() => {
+      result.current.setBpm(MAX_BPM)
+      result.current.setSubdivision(8)
+    })
+
+    expect(result.current.bpm).toBe(MAX_BPM)
+    expect(result.current.subdivision).toBe(1)
+    expect(result.current.error).toBeDefined()
+  })
+
+  it('keeps a resized accent pattern when beats and accents are set in the same tick', () => {
+    const clock = new FakeClock()
+    const audio = new RecordingAudioOutput(clock)
+    const manual = manualDriver()
+    const { result } = renderHook(() =>
+      useMetronome({ clock, audioOutput: audio, frameDriver: manual.driver }),
+    )
+
+    act(() => {
+      result.current.setTimeSignature({ beats: 3, beatType: 4 })
+      result.current.setAccents([false, true, false] as unknown as AccentPattern)
+    })
+
+    expect(result.current.timeSignature.beats).toBe(3)
+    expect(result.current.accents).toEqual([false, true, false])
+    expect(result.current.error).toBeUndefined()
+  })
 })

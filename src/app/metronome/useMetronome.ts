@@ -25,6 +25,15 @@
  * subsequent gaps and does not re-fire past clicks": `posTickRef` only ever
  * moves forward, and every call to `clicksInRange` asks for a range strictly
  * after the last one already handed to `AudioOutput`.
+ *
+ * All four setters funnel into one `apply(partial)` that merges onto a draft
+ * ref written SYNCHRONOUSLY (roadmap T.9). Reading the render closure — or a
+ * ref assigned during render, which is exactly as stale in-tick — meant a
+ * second setter in the same tick rebuilt its draft from the pre-tick values
+ * and silently undid the first: `setBpm(72)` then `setSubdivision(3)` in one
+ * `act()` left bpm at 100. It also means a combination is validated as a
+ * combination, so raising the tempo first can legitimately make the
+ * subdivision that follows it in the same tick illegal.
  */
 import { createBrowserClock } from '@app/practice/clock.ts'
 import { createDefaultAudioOutput } from '@app/practice/createDefaultAudioOutput.ts'
@@ -44,7 +53,7 @@ import {
   type Subdivision,
 } from '@core/timing/metronome.ts'
 import { makeTempoMap, tickToMs, msToTick, type TempoMap } from '@core/timing/tempo.ts'
-import { useMemo, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { resizeAccents } from './AccentEditor.tsx'
 
 const DEFAULT_TIME_SIGNATURE: TimeSignature = { beats: 4, beatType: 4 }
@@ -116,27 +125,28 @@ export function useMetronome(options: UseMetronomeOptions = {}): MetronomeApi {
   const [lastClick, setLastClick] = useState<Click | undefined>(undefined)
   const [error, setError] = useState<string | undefined>(undefined)
 
-  const tempoMap = useMemo<TempoMap>(
-    () => makeTempoMap([{ tick: ticks(0), bpm: bpmState }]),
-    [bpmState],
-  )
-  const settings = useMemo<MetronomeSettings>(
-    () => draftSettings({ bpm: bpmState, timeSignature, subdivision, accents }),
-    [bpmState, timeSignature, subdivision, accents],
-  )
-
-  // Mirrors of the latest render, read by code that runs OUTSIDE render (the
-  // frame pump, and the synchronous reanchor in `applyIfValid`) — exactly the
-  // `onFrameRef` pattern `useTransportLoop` itself uses, so neither ever acts
-  // on a stale closure.
   const runningRef = useRef(running)
   runningRef.current = running
-  const settingsRef = useRef(settings)
-  settingsRef.current = settings
-  const tempoMapRef = useRef(tempoMap)
-  tempoMapRef.current = tempoMap
-  const bpmRef = useRef(bpmState)
-  bpmRef.current = bpmState
+
+  // The authoritative settings, and the ONLY thing any setter reads (roadmap
+  // T.9). Assigned during render it would be exactly as stale in-tick as the
+  // render closure it replaced: React has not re-rendered yet when a second
+  // setter runs in the same tick, so `bpmState` and friends still hold the
+  // pre-tick values. `apply` writes this ref synchronously instead, so two
+  // setters in one tick compose — the second validates against, and keeps,
+  // what the first just set — and the frame pump (which runs outside render)
+  // never acts on a settings object a setter has already superseded.
+  const draftRef = useRef<Draft>({
+    bpm: options.initialBpm ?? DEFAULT_BPM,
+    timeSignature: options.initialTimeSignature ?? DEFAULT_TIME_SIGNATURE,
+    subdivision: options.initialSubdivision ?? DEFAULT_SUBDIVISION,
+    accents:
+      options.initialAccents ??
+      defaultAccents(options.initialTimeSignature ?? DEFAULT_TIME_SIGNATURE),
+  })
+  const tempoMapRef = useRef<TempoMap>(
+    makeTempoMap([{ tick: ticks(0), bpm: draftRef.current.bpm }]),
+  )
 
   /** The last tick committed to `AudioOutput` — only ever moves forward. */
   const posTickRef = useRef(0)
@@ -149,7 +159,7 @@ export function useMetronome(options: UseMetronomeOptions = {}): MetronomeApi {
   function flush(nowMs: number): void {
     if (!runningRef.current) return
     const map = tempoMapRef.current
-    const settings = settingsRef.current
+    const settings = draftSettings(draftRef.current)
     const prevTick = posTickRef.current
     const rawTick = msToTick(map, millis(nowMs - originMsRef.current))
     const newTick = Math.max(prevTick, rawTick)
@@ -185,23 +195,37 @@ export function useMetronome(options: UseMetronomeOptions = {}): MetronomeApi {
     ...(options.frameDriver === undefined ? {} : { driver: options.frameDriver }),
   })
 
-  function applyIfValid(draft: Draft): boolean {
+  /**
+   * Merge `partial` onto the live draft and commit it if the RESULT validates.
+   * Every setter goes through here, so a change is judged against the settings
+   * as they stand at the instant of the call, not as they stood at the last
+   * render.
+   */
+  function apply(partial: Partial<Draft>): boolean {
+    const draft: Draft = { ...draftRef.current, ...partial }
     const validated = validateMetronomeSettings(draftSettings(draft))
     if (!validated.ok) {
       setError(validated.error)
       return false
     }
     setError(undefined)
-    if (runningRef.current && draft.bpm !== bpmRef.current) {
-      const nowMs = clock.now()
-      // Flush under the OLD tempo (still in the refs — this runs before the
-      // state update below commits) so nothing already due is lost, then
-      // reanchor so the committed tick continues unbroken at the NEW rate.
-      flush(nowMs)
+    if (draft.bpm !== draftRef.current.bpm) {
       const newMap = makeTempoMap([{ tick: ticks(0), bpm: draft.bpm }])
-      originMsRef.current = nowMs - tickToMs(newMap, ticks(posTickRef.current))
+      if (runningRef.current) {
+        const nowMs = clock.now()
+        // Flush under the OLD tempo — `draftRef` and `tempoMapRef` are both
+        // still the old ones on this line, and both are replaced below — so
+        // nothing already due is lost, then reanchor so the committed tick
+        // continues unbroken at the NEW rate.
+        flush(nowMs)
+        originMsRef.current = nowMs - tickToMs(newMap, ticks(posTickRef.current))
+      }
+      // Swapped whether or not the transport is running: a tempo set BEFORE
+      // Start must be the tempo Start runs at, and nothing else refreshes
+      // this ref now that it is no longer re-assigned from a render memo.
       tempoMapRef.current = newMap
     }
+    draftRef.current = draft
     setBpmState(draft.bpm)
     setTimeSignatureState(draft.timeSignature)
     setSubdivisionState(draft.subdivision)
@@ -210,7 +234,7 @@ export function useMetronome(options: UseMetronomeOptions = {}): MetronomeApi {
   }
 
   function start(): void {
-    const validated = validateMetronomeSettings(settingsRef.current)
+    const validated = validateMetronomeSettings(draftSettings(draftRef.current))
     if (!validated.ok) {
       setError(validated.error)
       return
@@ -236,7 +260,7 @@ export function useMetronome(options: UseMetronomeOptions = {}): MetronomeApi {
 
   function setBpm(value: number): void {
     const clamped = Math.min(MAX_BPM, Math.max(MIN_BPM, value))
-    applyIfValid({ bpm: asBpm(clamped), timeSignature, subdivision, accents })
+    apply({ bpm: asBpm(clamped) })
   }
 
   function setTimeSignature(next: TimeSignature): void {
@@ -249,20 +273,15 @@ export function useMetronome(options: UseMetronomeOptions = {}): MetronomeApi {
       setError(`bad time signature beats: ${next.beats}`)
       return
     }
-    applyIfValid({
-      bpm: bpmState,
-      timeSignature: next,
-      subdivision,
-      accents: resizeAccents(accents, next),
-    })
+    apply({ timeSignature: next, accents: resizeAccents(draftRef.current.accents, next) })
   }
 
   function setSubdivision(next: Subdivision): void {
-    applyIfValid({ bpm: bpmState, timeSignature, subdivision: next, accents })
+    apply({ subdivision: next })
   }
 
   function setAccents(next: AccentPattern): void {
-    applyIfValid({ bpm: bpmState, timeSignature, subdivision, accents: next })
+    apply({ accents: next })
   }
 
   return {
