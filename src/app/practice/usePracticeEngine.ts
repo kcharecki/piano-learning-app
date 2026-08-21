@@ -56,7 +56,8 @@
  * instead of making the caller guess it from its own `clock.now()`.
  */
 import type { ScoreViewerHandle } from '@app/score/ScoreViewer.tsx'
-import { filterHands, type Hand, type Score } from '@core/notation/score.ts'
+import { type Hand, type Score } from '@core/notation/score.ts'
+import { filterHands } from '@core/notation/scoreQueries.ts'
 import type { AudioOutput, Clock, MidiInput } from '@core/ports/index.ts'
 import { WaitModeController, type WaitState } from '@core/practice/waitmode.ts'
 import {

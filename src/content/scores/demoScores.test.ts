@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { notesInMeasure, validateScore, type ScoreNote } from '@core/notation/score.ts'
+import { validateScore, type ScoreNote } from '@core/notation/score.ts'
+import { notesInMeasure } from '@core/notation/scoreQueries.ts'
 import { midi, TICKS_PER_QUARTER } from '@core/shared/units.ts'
 import { analyseScore } from '@core/theory/analysis.ts'
 import { buildChord } from '@core/theory/chords.ts'

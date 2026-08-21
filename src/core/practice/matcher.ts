@@ -65,7 +65,8 @@
  *    value. REQ-3.3.2 is about which key and when, and release timing is far
  *    noisier than onset timing on a beginner's keyboard.
  */
-import { chordGroups, type Hand, type Score, type ScoreNote } from '@core/notation/score.ts'
+import { type Hand, type Score, type ScoreNote } from '@core/notation/score.ts'
+import { chordGroups } from '@core/notation/scoreQueries.ts'
 import { at, invariant } from '@core/shared/invariant.ts'
 import {
   isValidMidi,

@@ -1,5 +1,5 @@
 import { C_MAJOR_SCALE_RH, TWO_HAND_CHORDS } from '@test/fixtures.ts'
-import { measureRange } from '@core/notation/score.ts'
+import { measureRange } from '@core/notation/scoreQueries.ts'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'

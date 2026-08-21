@@ -99,7 +99,8 @@
  * copy) as two different pieces — see this file's build report for exactly
  * what `melody.ts` would need for the core-side fix.
  */
-import { scoreDurationTicks, type Hand, type Score } from '@core/notation/score.ts'
+import { type Hand, type Score } from '@core/notation/score.ts'
+import { scoreDurationTicks } from '@core/notation/scoreQueries.ts'
 import type { AudioOutput, Clock, DateSource, MidiInput, Rng } from '@core/ports/index.ts'
 import type { Midi } from '@core/shared/units.ts'
 import { assess, type AssessmentResult } from '@core/practice/assessment.ts'

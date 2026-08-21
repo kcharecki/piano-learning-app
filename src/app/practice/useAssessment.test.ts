@@ -8,7 +8,8 @@
  * `usePracticeEngine`'s `phase` and a real `FakeMidiInput` would drive them.
  */
 import { buildTestScore } from '@test/fixtures.ts'
-import { measureRange, type Score } from '@core/notation/score.ts'
+import { type Score } from '@core/notation/score.ts'
+import { measureRange } from '@core/notation/scoreQueries.ts'
 import { at } from '@core/shared/invariant.ts'
 import { midi, millis, QUARTER, WHOLE } from '@core/shared/units.ts'
 import { suggestedTempoScale } from '@core/practice/review.ts'

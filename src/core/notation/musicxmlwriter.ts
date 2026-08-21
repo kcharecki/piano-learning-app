@@ -24,16 +24,8 @@
 import { alterFor } from '@core/theory/keys.ts'
 import { fromMidi } from '@core/theory/pitch.ts'
 import { TICKS_PER_QUARTER } from '@core/shared/units.ts'
-import {
-  measureDurationTicks,
-  notesInMeasure,
-  type Clef,
-  type Measure,
-  type Score,
-  type ScoreNote,
-  type StaffInfo,
-  type Tuplet,
-} from './score.ts'
+import { measureDurationTicks, type Clef, type Measure, type Score, type ScoreNote, type StaffInfo, type Tuplet } from './score.ts'
+import { notesInMeasure } from './scoreQueries.ts'
 
 // -------------------------------------------------------------------- escaping
 

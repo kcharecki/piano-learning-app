@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import fc from 'fast-check'
 import { measuresInRange } from './measures.ts'
-import { measureRange, type Hand } from '@core/notation/score.ts'
+import { type Hand } from '@core/notation/score.ts'
+import { measureRange } from '@core/notation/scoreQueries.ts'
 import { C_MAJOR_SCALE_RH, PICKUP_MEASURE, TWO_HAND_CHORDS, buildTestScore } from '@test/fixtures.ts'
 import { ticks, type Ticks } from '@core/shared/units.ts'
 

@@ -5,7 +5,8 @@
  * which the react-refresh lint correctly refuses: a file that exports both a
  * component and a plain function breaks fast refresh.
  */
-import { pitchRange, type Score } from '@core/notation/score.ts'
+import { type Score } from '@core/notation/score.ts'
+import { pitchRange } from '@core/notation/scoreQueries.ts'
 import { PIANO_HIGHEST_MIDI, PIANO_LOWEST_MIDI, midi as asMidi, type Midi } from '@core/shared/units.ts'
 
 /** Fewer keys than this and the keyboard reads as a fragment rather than a piano. */

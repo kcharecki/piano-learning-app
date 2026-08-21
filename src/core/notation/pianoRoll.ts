@@ -35,7 +35,8 @@
  * against whatever score is loaded, including the 1600-note fixture
  * `e2e/perf-large-score.spec.ts` budgets against.
  */
-import { notesInRange, soundingAtTick, type Hand, type Score, type ScoreNote } from './score.ts'
+import { type Hand, type Score, type ScoreNote } from './score.ts'
+import { notesInRange, soundingAtTick } from './scoreQueries.ts'
 import { ticks as asTicks, type Midi, type Ticks } from '@core/shared/units.ts'
 
 /** The visible slice of musical time, in ticks. Half-open: `[fromTick, toTick)`. */

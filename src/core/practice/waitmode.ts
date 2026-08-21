@@ -66,7 +66,8 @@
  * while waiting); mixing the two here would report a `missed` for every note the
  * learner was being waited for.
  */
-import { HANDS, notesAtTick, type Hand, type Score, type ScoreNote } from '@core/notation/score.ts'
+import { HANDS, type Hand, type Score, type ScoreNote } from '@core/notation/score.ts'
+import { notesAtTick } from '@core/notation/scoreQueries.ts'
 import { at, invariant } from '@core/shared/invariant.ts'
 import { isValidMidi, ticks as asTicks, type Midi } from '@core/shared/units.ts'
 import type { Transport, TransportEvent } from '@core/timing/transport.ts'

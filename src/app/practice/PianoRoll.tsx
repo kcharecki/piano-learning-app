@@ -29,7 +29,8 @@ import {
   type PianoRollLaneRange,
   type PianoRollNote,
 } from '@core/notation/pianoRoll.ts'
-import { pitchRange, type Score } from '@core/notation/score.ts'
+import { type Score } from '@core/notation/score.ts'
+import { pitchRange } from '@core/notation/scoreQueries.ts'
 import { midi as asMidi, TICKS_PER_QUARTER } from '@core/shared/units.ts'
 import { forwardRef, useImperativeHandle, useMemo, useState } from 'react'
 

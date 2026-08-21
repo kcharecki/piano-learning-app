@@ -28,7 +28,8 @@
  * slows down bars 5-8 and finds the whole piece slowed on unchecking Loop.
  * Nothing here decides what the number IS — that stays in `scoreStore`.
  */
-import { measureRange, type Score } from '@core/notation/score.ts'
+import { type Score } from '@core/notation/score.ts'
+import { measureRange } from '@core/notation/scoreQueries.ts'
 import { measuresInRange } from '@core/notation/measures.ts'
 import type { LoopRange } from '@core/timing/transport.ts'
 import { useEffect, useId, useRef, useState } from 'react'

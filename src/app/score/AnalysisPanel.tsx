@@ -19,7 +19,8 @@ import { useMemo } from 'react'
 import { analyseScore, type Analysis, type AnalysedChord } from '@core/theory/analysis.ts'
 import type { CadenceType } from '@core/theory/harmony.ts'
 import { keyName } from '@core/theory/keys.ts'
-import { notesInMeasure, type Score } from '@core/notation/score.ts'
+import { type Score } from '@core/notation/score.ts'
+import { notesInMeasure } from '@core/notation/scoreQueries.ts'
 
 export type AnalysisPanelProps = { readonly score: Score }
 

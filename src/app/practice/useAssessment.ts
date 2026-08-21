@@ -64,7 +64,7 @@
  * never `addAssessment` — a second time for one run.
  */
 import type { Hand, Score } from '@core/notation/score.ts'
-import { measureRange, scoreDurationTicks } from '@core/notation/score.ts'
+import { measureRange, scoreDurationTicks } from '@core/notation/scoreQueries.ts'
 import type { Clock, DateSource, MidiInput } from '@core/ports/index.ts'
 import { assess, type AssessmentResult } from '@core/practice/assessment.ts'
 import { MATCHER_DEFAULTS, NoteMatcher } from '@core/practice/matcher.ts'

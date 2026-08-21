@@ -64,7 +64,7 @@
  * effect read it without needing to be listed.
  */
 import type { Score } from '@core/notation/score.ts'
-import { notesInMeasure } from '@core/notation/score.ts'
+import { notesInMeasure } from '@core/notation/scoreQueries.ts'
 import { useEffect, useRef, type RefObject } from 'react'
 
 export type ReadAheadHandle = {

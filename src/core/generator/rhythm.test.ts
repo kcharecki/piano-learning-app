@@ -18,12 +18,8 @@ import {
   ticks,
   type Ticks,
 } from '@core/shared/units.ts'
-import {
-  measureDurationTicks,
-  notesInMeasure,
-  validateScore,
-  type TimeSignature,
-} from '@core/notation/score.ts'
+import { measureDurationTicks, validateScore, type TimeSignature } from '@core/notation/score.ts'
+import { notesInMeasure } from '@core/notation/scoreQueries.ts'
 
 // A representative spread of simple and compound metres, all with a bar at
 // least a quarter note long — the floor `complexity: 1` promises to respect.

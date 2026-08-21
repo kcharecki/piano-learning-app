@@ -106,14 +106,8 @@ import {
 import { classifyCadence, type CadenceType, romanNumeralFor, type RomanNumeral } from './harmony.ts'
 import { keyFromFifths, type Key, relativeKey } from './keys.ts'
 import { fromMidi, toMidi } from './pitch.ts'
-import {
-  measureAtTick,
-  notesAtTick,
-  notesInMeasure,
-  type Score,
-  scoreDurationTicks,
-  soundingAtTick,
-} from '@core/notation/score.ts'
+import { type Score } from '@core/notation/score.ts'
+import { measureAtTick, notesAtTick, notesInMeasure, scoreDurationTicks, soundingAtTick } from '@core/notation/scoreQueries.ts'
 import { at, invariant } from '@core/shared/invariant.ts'
 import { type Midi, type Ticks, ticks as asTicks } from '@core/shared/units.ts'
 

@@ -13,7 +13,8 @@ import { readFileSync } from 'node:fs'
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import { parseMusicXml, parseXml, type XmlNode } from './musicxml.ts'
-import { notesInMeasure, scoreDurationTicks, type Score, type ScoreNote } from './score.ts'
+import { type Score, type ScoreNote } from './score.ts'
+import { notesInMeasure, scoreDurationTicks } from './scoreQueries.ts'
 import { isErr, type Result } from '@core/shared/result.ts'
 
 const load = (name: string): string =>

@@ -306,7 +306,7 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
       instrumentation, over the 5s default) and writing NO report, so the 90% gate had nothing to
       check. Given a 30s timeout; coverage now reports 98.27% lines overall and 100% on
       `timing/window.ts`, `rhythm/tapClassifier.ts`, `rhythm/clapback.ts`.
-- [ ] T.16 **`src/core/notation/score.ts` is over the 500-line cap and holds two concepts.**
+- [x] T.16 **`src/core/notation/score.ts` is over the 500-line cap and holds two concepts.**
       It is 503 lines, kept building only by an `eslint.config.js` `max-lines` override raising it
       to 520 — a cap raise is the thing AGENTS.md says to do only with a reason, and the reason on
       record is "restoring a revert mid-slice", which is not one. The file is the score MODEL
@@ -314,6 +314,25 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
       that concept and drop the override; do not split by line count.
       *Proof: both files under the default cap, the override deleted from `eslint.config.js`, and
       `npm run verify` green with no import-cycle warning.*
+      Done. Split by concept: `score.ts` keeps the model, construction and validation;
+      `scoreQueries.ts` (203 lines) takes the ten read-side functions — `notesInRange`,
+      `notesInMeasure`, `notesAtTick`, `soundingAtTick`, `measureAtTick`, `scoreDurationTicks`,
+      `filterHands`, `measureRange`, `chordGroups`, `pitchRange` — plus the private
+      `lowerBoundByStart` binary search they share. `measureIndexAtTick` deliberately stayed in
+      `score.ts` and is now exported, because `buildNotes` needs it and moving it would have made
+      the import direction two-way; as it stands `scoreQueries.ts -> score.ts` is the only edge,
+      so there is no cycle to warn about. The `max-lines: 520` override is gone from
+      `eslint.config.js` — `eslint --print-config` reports `max: 500` for both files and lint is
+      clean at that cap. Tests moved with the code into `scoreQueries.test.ts`, and the shared
+      fast-check generators moved to `@test/scoreArbitraries.ts` rather than being copied, so
+      "a valid random score" still has exactly one definition. One case changed place on the way:
+      "a zero-length grace note sounds nowhere" was asserted inside `makeScore`'s describe, which
+      is a fact about `soundingAtTick`, not about construction — it now lives with the query and
+      also pins that `notesAtTick` still finds the note. `npm run verify` green (4678 tests),
+      coverage 98.29% lines, core suite 2.98s, knip clean. Driven in the running app: a fresh
+      sight-reading exercise engraves (11 noteheads) with a clean console, and 24 e2e tests across
+      the score-query-heavy specs pass — including the 1603-note perf specs at p95 frame gap 18ms
+      and a Practice re-show in 108ms, so the extra module boundary costs nothing.
 
 ## Phases 0-2 — Foundation, M1 playable core, M2 feedback & reading — all done
 

@@ -38,13 +38,8 @@
  * the one exception: its `noteOff` follows its own `noteOn` immediately — ahead of
  * any other attack on that tick — because a release must never precede its attack.
  */
-import {
-  measureAtTick,
-  notesInRange,
-  scoreDurationTicks,
-  type Score,
-  type ScoreNote,
-} from '@core/notation/score.ts'
+import { type Score, type ScoreNote } from '@core/notation/score.ts'
+import { measureAtTick, notesInRange, scoreDurationTicks } from '@core/notation/scoreQueries.ts'
 import type { Clock } from '@core/ports/index.ts'
 import { at, invariant } from '@core/shared/invariant.ts'
 import {
