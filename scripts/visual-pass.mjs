@@ -94,7 +94,17 @@ const browser = await chromium.launch()
 
 for (const theme of THEMES) {
   for (const width of WIDTHS) {
-    const context = await browser.newContext({ viewport: { width, height: HEIGHT }, colorScheme: theme })
+    // Grant Web MIDI up front. Without it headless Chromium denies
+    // `requestMIDIAccess`, the MIDI adapter logs a warning, and this script
+    // reports a problem on EVERY screen in the app — which made the gate
+    // permanently red and so worth nothing. Granting it with no device
+    // attached resolves to zero inputs, which is the same "No MIDI — using
+    // on-screen keys" state a real learner without a keyboard sees.
+    const context = await browser.newContext({
+      viewport: { width, height: HEIGHT },
+      colorScheme: theme,
+      permissions: ['midi', 'midi-sysex'],
+    })
     const page = await context.newPage()
     const where = `[${theme} ${width}]`
     page.on('console', (m) => {
