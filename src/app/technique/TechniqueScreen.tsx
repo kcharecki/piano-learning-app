@@ -30,6 +30,12 @@
  * note. The sentence itself is built in `@core/technique/verdict.ts` — which
  * note stands in for which degree is music theory, not presentation — and
  * this file only decides how many of them fit on screen at once.
+ *
+ * Roadmap T.11: it also carries the roll line. Presses inside the drill's
+ * chord window are collapsed into one onset before evenness sees them, and
+ * that window is now wide enough to hold a chord struck with one mouse
+ * pointer — so how far the chords were actually rolled is reported in words
+ * beside the verdict instead of disappearing into the score.
  */
 import { PracticeKeyboard } from '@app/practice/PracticeKeyboard.tsx'
 import type { ConnectMidi } from '@app/practice/useMidiConnection.ts'
@@ -310,6 +316,16 @@ export function TechniqueScreen(props: TechniqueScreenProps) {
             {drill.lastAttempt.clean ? `Clean at ${drill.lastAttempt.bpm}bpm` : 'Not yet clean'}
           </p>
           <TechniqueMistakes diagnosis={drill.lastDiagnosis} />
+          {/* Roadmap T.11: the chord window is wide enough to hold a rolled
+              chord now, so what it holds has to be said out loud rather than
+              folded into the evenness figure where it reads as a timing
+              fault. Absent when nothing was rolled — a line printed after
+              every run is a line nobody reads. */}
+          {drill.lastRoll !== undefined && (
+            <p className="technique-result-aside" data-testid="technique-roll">
+              {drill.lastRoll}
+            </p>
+          )}
         </div>
       )}
 

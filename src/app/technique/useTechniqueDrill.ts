@@ -74,6 +74,12 @@ import {
   type TechniqueDiagnosis,
   type TechniqueKey,
 } from '@core/technique/verdict.ts'
+import {
+  chordWindowMs,
+  describeRoll,
+  groupOnsets,
+  shortestGapMs,
+} from '@core/technique/onsets.ts'
 import { bpm as asBpm, millis as asMillis, type Bpm, type Midi } from '@core/shared/units.ts'
 import { MAX_BPM, MIN_BPM } from '@core/timing/metronome.ts'
 import { makeTempoMap, tickToMs, type TempoMap } from '@core/timing/tempo.ts'
@@ -124,6 +130,9 @@ export type TechniqueDrillApi = {
   /** What went wrong in that same attempt, in named notes (roadmap T.12).
    *  Cleared by the next `start()`, and empty for a run with no wrong notes. */
   readonly lastDiagnosis: TechniqueDiagnosis | undefined
+  /** How far the run's chords were rolled, in words, or `undefined` when
+   *  none was rolled enough to be worth saying (roadmap T.11). */
+  readonly lastRoll: string | undefined
   /** REQ-3.7.3: this drill's clean-tempo history, oldest first. */
   readonly history: readonly TempoPoint[]
   readonly bestBpm: number
@@ -154,9 +163,13 @@ type Run = {
   /** The drill's key, kept on the run so a mid-run drill switch cannot make
    *  the verdict name degrees from a key the learner was not playing in. */
   readonly key: TechniqueKey
+  /** How far apart two presses may be and still be one chord, sized off THIS
+   *  score at THIS tempo (roadmap T.11). */
+  readonly chordWindowMs: number
   /** The clock instant onsets are measured relative to. */
   readonly anchorMs: number
-  readonly onsets: number[]
+  /** Every key press of the run, relative to `anchorMs`, ungrouped. */
+  readonly presses: number[]
   /** `clock.now()` when `start()` ran — the wall-time baseline the posture
    *  schedule's running-time counter is credited from on `stop()` (roadmap
    *  5.23). Deliberately the moment Start was pressed, not `anchorMs`
@@ -240,6 +253,7 @@ export function useTechniqueDrill(options: UseTechniqueDrillOptions): TechniqueD
 
   const [lastAttempt, setLastAttempt] = useState<TechniqueAttempt | undefined>(undefined)
   const [lastDiagnosis, setLastDiagnosis] = useState<TechniqueDiagnosis | undefined>(undefined)
+  const [lastRoll, setLastRoll] = useState<string | undefined>(undefined)
   const runRef = useRef<Run | undefined>(undefined)
 
   // REQ-5.23: the posture-prompt schedule (`posturePromptSchedule.ts`) is
@@ -278,16 +292,12 @@ export function useTechniqueDrill(options: UseTechniqueDrillOptions): TechniqueD
       if (run === undefined) return
       const t = event.time - run.anchorMs
       if (event.type === 'noteOn') {
-        // Collapse simultaneous presses (a chord, or two hands on the same
-        // beat) into one onset before scoring evenness — otherwise a
-        // hands-together drill's near-zero inter-hand gaps drag the median
-        // gap to (near) zero and `evennessOf` reports 0 for a flawless run.
-        // This is the same tolerance the matcher already uses to treat
-        // notes as "written on the same beat".
-        const last = run.onsets[run.onsets.length - 1]
-        if (last === undefined || t - last > MATCHER_DEFAULTS.chordWindowMs) {
-          run.onsets.push(t)
-        }
+        // Every press, ungrouped. Deciding which presses were one chord used
+        // to happen here, one event at a time, against a flat 80ms — which was
+        // a cliff at both ends of the tempo range (roadmap T.11). It is now
+        // `groupOnsets` at `stop()`, over the whole run at once, so the
+        // grouping can also MEASURE what it collapsed and say so.
+        run.presses.push(t)
         run.matcher.noteOn(event.note, asMillis(t))
       } else if (event.type === 'noteOff') {
         run.matcher.noteOff(event.note, asMillis(t))
@@ -319,17 +329,31 @@ export function useTechniqueDrill(options: UseTechniqueDrillOptions): TechniqueD
       tempo,
       score,
       matcher: new NoteMatcher(score, tempo),
+      // Sized off this score at this tempo, never a flat number: at ♩=300 a
+      // triplet gap is 66.7ms and the old flat 80ms swallowed notes the score
+      // wrote as separate. `tiedFrom` notes are skipped because they continue
+      // an earlier press rather than asking for a new one — the same rule the
+      // matcher applies to its own expected list.
+      chordWindowMs: chordWindowMs(
+        shortestGapMs(
+          [...new Set(score.notes.filter((n) => !n.tiedFrom).map((n) => n.startTick))]
+            .sort((a, b) => a - b)
+            .map((startTick) => tickToMs(tempo, startTick) as number),
+        ),
+        MATCHER_DEFAULTS.toleranceMs,
+      ),
       // `?? 'major'`: the drills that omit a scale type — five-finger patterns,
       // triad sequences — are all built on a major tonic, and their degrees
       // are what the learner is being asked to hear. See `library.ts`.
       key: { tonic: drill.tonic, scaleType: drill.scaleType ?? 'major' },
       anchorMs,
-      onsets: [],
+      presses: [],
       startedAtMs,
     }
     practiceLogRef.current.start('technique', drill.title)
     setLastAttempt(undefined)
     setLastDiagnosis(undefined)
+    setLastRoll(undefined)
   }
 
   function stop(): void {
@@ -347,7 +371,7 @@ export function useTechniqueDrill(options: UseTechniqueDrillOptions): TechniqueD
     // keyboard connected) has nothing to score: `evennessOf([])` would report
     // a misleadingly perfect 1, and a junk row would consume one of the
     // capped history slots for a silent attempt.
-    if (run.onsets.length === 0) {
+    if (run.presses.length === 0) {
       practiceLogRef.current.stop()
       return
     }
@@ -361,7 +385,8 @@ export function useTechniqueDrill(options: UseTechniqueDrillOptions): TechniqueD
       1
     run.matcher.advanceTo(asMillis(endMs))
     const accuracy = run.matcher.summary().accuracy
-    const evenness = evennessOf(run.onsets)
+    const grouping = groupOnsets(run.presses, run.chordWindowMs)
+    const evenness = evennessOf(grouping.onsets)
     const attempt: TechniqueAttempt = {
       drillId: run.drillId,
       at: date.epochMillis(),
@@ -377,6 +402,11 @@ export function useTechniqueDrill(options: UseTechniqueDrillOptions): TechniqueD
     // without telling them WHICH note, which was the one thing they asked for.
     // Roadmap T.12.
     setLastDiagnosis(diagnoseTechnique(run.matcher.results, run.key))
+    // Widening a window hides things, so nothing is hidden silently: what the
+    // grouping swallowed is reported in words rather than folded into the
+    // evenness figure, where a learner could not tell it apart from a
+    // timing problem. Roadmap T.11.
+    setLastRoll(describeRoll(grouping) ?? undefined)
     // REQ-5.23: a completed, scored attempt is one rep toward the
     // repetition-count half of the posture schedule.
     setPostureSchedule((prev) => addPostureAttempt(prev))
@@ -400,6 +430,7 @@ export function useTechniqueDrill(options: UseTechniqueDrillOptions): TechniqueD
     midi,
     lastAttempt,
     lastDiagnosis,
+    lastRoll,
     history,
     bestBpm,
     posturePromptDue,

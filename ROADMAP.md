@@ -176,7 +176,7 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
       simulated J=5 run read 88% before and reads 92% after — narrowed the spec's band to 91..93,
       watched it pass, restored 84..94. That 4-point move is the notation bias, visible in the
       app's own readout. 18 evenness tests green, full `npm run verify` green.
-- [ ] T.11 **`MATCHER_DEFAULTS.chordWindowMs` (80ms) is a cliff at both ends.** Below it a rolled
+- [x] T.11 **`MATCHER_DEFAULTS.chordWindowMs` (80ms) is a cliff at both ends.** Below it a rolled
       blocked triad is graded perfect; above it the same roll scores 0% — measured on the solid
       drill: 30ms/note roll gives 8 onsets, 100%, clean; 45ms/note gives 16 onsets and 0%. The
       run's own `drive.md` records this learner with no MIDI device, striking three notes with one
@@ -185,6 +185,21 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
       scored "Evenness 100% — Clean at 300bpm". Fix: a beat-relative window, and report the
       measured spread in words instead of folding it into evenness.
       *Proof: driven runs at both ends of the window with the verdict text pasted.*
+      **Done.** `src/core/technique/onsets.ts`: the window is a fraction of the SHORTEST gap the
+      score actually writes, capped at the matcher's `toleranceMs`. The fraction is at most a
+      half, which makes "the window can never reach the next written onset" arithmetic rather
+      than a comment — pinned as a property test, because that is the general form of the fast-end
+      defect. Grouping moved out of the per-event handler into `groupOnsets` over the whole run,
+      so it can MEASURE what it collapsed; `describeRoll` puts that in words beside the verdict
+      and says nothing when nothing was rolled. Both roadmap numbers were recomputed against the
+      real score rather than quoted: the broken drill's triplet gap at ♩=300 is 66.7ms (< the old
+      80ms, which is how it swallowed them), and the solid drill's window at ♩=72 is 150ms (> the
+      ~100ms mouse-pointer spread). Driven proof, `e2e/technique-chord-window.spec.ts`, same
+      gesture rolled 30ms and 50ms per note:
+      `Evenness 100% · Notes 100% — Clean at 72bpm | 8 chords were rolled — up to 60ms between the notes.`
+      `Evenness 100% · Notes 100% — Clean at 72bpm | 8 chords were rolled — up to 100ms between the notes.`
+      Restoring the flat 80ms turns the second into `Evenness 0% · Notes 100% — Not yet clean`,
+      so the spec bites. Visual pass at 1280/1024 x dark/light, console clean at all four.
 - [x] T.12 **The technique verdict cannot name a wrong note.** `TechniqueScreen.tsx:244` renders
       `Evenness {n}% — Clean at {bpm}bpm | Not yet clean` and nothing else; accuracy is computed
       (`useTechniqueDrill.ts:358`) and persisted in the `TechniqueAttempt`, then dropped. Playing

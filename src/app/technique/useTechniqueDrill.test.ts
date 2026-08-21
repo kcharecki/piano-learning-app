@@ -188,6 +188,89 @@ describe('useTechniqueDrill', () => {
     },
   )
 
+  describe('the chord window (roadmap T.11)', () => {
+    /** Play the solid triad drill with every chord rolled `perNoteMs` apart. */
+    function rolledRun(perNoteMs: number): {
+      readonly evenness: number
+      readonly accuracy: number
+      readonly roll: string | undefined
+    } {
+      const drill = techniqueDrillById('triad-sequence-c-major-solid-hands-right')
+      if (drill === undefined) throw new Error('expected the solid triad sequence drill')
+      const clock = new FakeClock()
+      const midiInput = new FakeMidiInput()
+      const audioOutput = new RecordingAudioOutput(clock)
+
+      const { result } = renderHook(() =>
+        useTechniqueDrill({
+          level: drill.level,
+          initialDrillId: drill.id,
+          clock,
+          date: clock,
+          midiInput,
+          audioOutput,
+          frameDriver: manualDriver(),
+        }),
+      )
+
+      runStart(clock)
+      act(() => result.current.start())
+      const score = result.current.score
+      if (score === undefined) throw new Error('expected a score once started')
+
+      const msPerBeat = 60000 / result.current.bpm
+      const countInMs = COUNT_IN_BEATS * msPerBeat
+      // Group by written onset, then roll each chord by `perNoteMs` per note.
+      const byTick = new Map<number, ScoreMidi[]>()
+      for (const note of score.notes) {
+        byTick.set(note.startTick, [...(byTick.get(note.startTick) ?? []), note.midi])
+      }
+      for (const [startTick, notes] of [...byTick.entries()].sort((a, b) => a[0] - b[0])) {
+        notes.forEach((note, i) => {
+          act(() =>
+            midiInput.emit({
+              type: 'noteOn',
+              note,
+              velocity: 80,
+              time: millis(
+                RUN_START_MS + countInMs + startTick * (msPerBeat / 480) + i * perNoteMs,
+              ),
+            }),
+          )
+        })
+      }
+
+      act(() => result.current.stop())
+      const attempt = result.current.lastAttempt
+      if (attempt === undefined) throw new Error('expected an attempt')
+      return {
+        evenness: attempt.evenness,
+        accuracy: attempt.accuracy,
+        roll: result.current.lastRoll,
+      }
+    }
+
+    it('does not fall off a cliff between a 30ms roll and a 50ms one', () => {
+      // The measured bug: under the old flat 80ms window, 30ms per note gave
+      // 8 onsets and evenness 1, and 45ms per note gave 16 onsets and 0. The
+      // learner in between those two numbers had no MIDI keyboard and was
+      // striking three notes with one mouse pointer.
+      const tight = rolledRun(30)
+      const loose = rolledRun(50)
+      expect(tight.evenness).toBeCloseTo(1, 9)
+      expect(loose.evenness).toBeCloseTo(1, 9)
+      expect(loose.accuracy).toBe(tight.accuracy)
+    })
+
+    it('says how far the chords were rolled instead of folding it into evenness', () => {
+      // Nothing is hidden by the wider window: the roll is reported in words.
+      const loose = rolledRun(50)
+      expect(loose.roll).toBe('8 chords were rolled — up to 100ms between the notes.')
+      // And a chord struck together says nothing at all.
+      expect(rolledRun(0).roll).toBeUndefined()
+    })
+  })
+
   it('names the wrong note when the run is played with a flat third (roadmap T.12)', () => {
     // The case T.12 was filed for, one note wide: everything on time, every
     // E played as E-flat. The accuracy figure alone would say "88%" and stop;
