@@ -42,11 +42,11 @@ describe('reference grooves: MusicXML round trip is exact and byte-stable', () =
     expect(writeDrumMusicXml(roundTripped)).toBe(xml)
   })
 
-  it('every reference groove is distinct and each has at least one note', () => {
+  it('all three reference grooves are distinct and each has at least one note', () => {
     const grooves = referenceGrooves()
-    expect(grooves).toHaveLength(4)
+    expect(grooves).toHaveLength(3)
     for (const g of grooves) expect(g.notes.length).toBeGreaterThan(0)
-    expect(new Set(grooves.map((g) => g.id)).size).toBe(4)
+    expect(new Set(grooves.map((g) => g.id)).size).toBe(3)
   })
 })
 

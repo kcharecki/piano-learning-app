@@ -21,9 +21,6 @@ import type { Recording } from '@core/practice/recorder.ts'
 import { ACTIVITY_KINDS, type ActivityKind, type PracticeEntry } from '@core/progress/log.ts'
 import { validateAnnotations, type ScoreAnnotations } from '@core/notation/annotations.ts'
 import type { TechniqueAttempt } from '@core/technique/evenness.ts'
-import { isDrumPad } from '@core/drums/model/pad.ts'
-import type { DrumsGrooveAttempt } from '@core/drums/practice/attempt.ts'
-import type { PadResult } from '@core/drums/practice/grooveGrader.ts'
 import { REPERTOIRE_STATUSES, type RepertoirePiece } from '@core/repertoire/repertoire.ts'
 import { MAX_LEVEL as MAX_TRACK_LEVEL, MIN_LEVEL as MIN_TRACK_LEVEL, TRACKS } from '@core/curriculum/types.ts'
 import type { Track } from '@core/curriculum/types.ts'
@@ -71,17 +68,6 @@ export type PersistedPracticeLog = {
 
 export type PersistedTechniqueHistory = {
   readonly attempts: readonly TechniqueAttempt[]
-}
-
-/**
- * Graded groove runs (roadmap DR-09) — see `drumsHistoryStore.ts`. Stored
- * under `COLLECTIONS.settings` with its own key rather than a new object
- * store, the same way the level, theme, ear-training and instrument slices
- * are: a new key in a store that already exists needs no IndexedDB version
- * bump (see `persistence.ts`'s module comment).
- */
-export type PersistedDrumsHistory = {
-  readonly attempts: readonly DrumsGrooveAttempt[]
 }
 
 export type PersistedLevelState = {
@@ -400,76 +386,6 @@ export function isValidTechniqueHistory(value: unknown): value is PersistedTechn
   if (typeof value !== 'object' || value === null) return false
   const v = value as Record<string, unknown>
   return Array.isArray(v.attempts) && v.attempts.every(isValidTechniqueAttempt)
-}
-
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value)
-}
-
-/** A number that may legitimately be absent — an offset for a pad that matched nothing. */
-function isOptionalFiniteNumber(value: unknown): value is number | undefined {
-  return value === undefined || isFiniteNumber(value)
-}
-
-export function isValidPadResult(value: unknown): value is PadResult {
-  if (typeof value !== 'object' || value === null) return false
-  const p = value as Record<string, unknown>
-  return (
-    typeof p.pad === 'string' &&
-    isDrumPad(p.pad) &&
-    isFiniteNumber(p.expected) &&
-    isFiniteNumber(p.matched) &&
-    isFiniteNumber(p.missed) &&
-    isFiniteNumber(p.extra) &&
-    isOptionalFiniteNumber(p.meanOffsetMs) &&
-    isOptionalFiniteNumber(p.worstOffsetMs) &&
-    isOptionalFiniteNumber(p.spreadMs) &&
-    isFiniteNumber(p.toleranceMs) &&
-    isFiniteNumber(p.steadyBarMs) &&
-    isOptionalFiniteNumber(p.gridTicks) &&
-    isOptionalFiniteNumber(p.phaseSlipSteps) &&
-    typeof p.steady === 'boolean'
-  )
-}
-
-/**
- * No migration, for either shape change this store has had: the `clean` -> `steady` rename,
- * and the per-pad window / grid / phase-slip fields that came with judging a run on how the
- * drums line up with each other rather than on one global number. `drumsHistory` was first
- * written this same release cycle with zero recorded events, so no stored run in the world
- * carries either older shape. A record still in a previous shape is therefore correctly
- * rejected as malformed, not migrated.
- */
-export function isValidDrumsGrooveAttempt(value: unknown): value is DrumsGrooveAttempt {
-  if (typeof value !== 'object' || value === null) return false
-  const a = value as Record<string, unknown>
-  return (
-    typeof a.grooveId === 'string' &&
-    typeof a.grooveTitle === 'string' &&
-    isFiniteNumber(a.bpm) &&
-    isFiniteNumber(a.repeats) &&
-    isFiniteNumber(a.at) &&
-    typeof a.steady === 'boolean' &&
-    Array.isArray(a.pads) &&
-    a.pads.every(isValidPadResult)
-  )
-}
-
-/**
- * Only the wrapper is judged here, deliberately. The previous version was
- * `attempts.every(isValidDrumsGrooveAttempt)`, so a single unreadable row threw away the
- * whole practice history: the store then started from `attempts: []` and the next finished
- * run wrote over the key, taking every good row with it. That is learner data lost to a
- * neighbour's corruption. The rows are filtered individually where they are restored
- * (`persistence.ts`), so a bad row now costs exactly one row.
- *
- * `value is PersistedDrumsHistory` is therefore a claim about the wrapper's shape, not a
- * promise that every element is well formed. The restore path may not skip the filter.
- */
-export function isValidDrumsHistory(value: unknown): value is PersistedDrumsHistory {
-  if (typeof value !== 'object' || value === null) return false
-  const v = value as Record<string, unknown>
-  return Array.isArray(v.attempts)
 }
 
 export function isValidRepertoirePiece(value: unknown): value is RepertoirePiece {

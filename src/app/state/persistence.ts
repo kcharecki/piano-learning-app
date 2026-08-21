@@ -27,11 +27,6 @@
  *  - the technique drill tempo history (`useTechniqueStore`, roadmap 4.4b,
  *    REQ-3.7.2/3.7.3). Without this, REQ-3.7.3's per-drill clean-tempo
  *    history — "currently clean at ♩=88" — resets to nothing on every reload.
- *  - the graded groove runs (`useDrumsHistoryStore`, roadmap DR-09). The
- *    drums Groove trainer's whole history: which groove, at what tempo, and
- *    how each pad did. Without this the trainer forgets every run the moment
- *    the tab closes, so a learner can never see that last week's 70 bpm is
- *    this week's 80. Reuses `COLLECTIONS.settings` under its own key.
  *  - the repertoire library (`useRepertoireStore`, roadmap 2.33,
  *    REQ-3.8.2/3.8.3/3.8.4). `COLLECTIONS.repertoire` was declared but written
  *    by nothing — without this slice a learner's curated piece list, statuses
@@ -175,7 +170,6 @@ import {
 } from '@app/state/progressStore.ts'
 import { useRepertoireStore, MAX_STORED_REPERTOIRE_PIECES } from '@app/state/repertoireStore.ts'
 import { useTechniqueStore, MAX_STORED_TECHNIQUE_ATTEMPTS } from '@app/state/techniqueStore.ts'
-import { useDrumsHistoryStore, MAX_STORED_GROOVE_ATTEMPTS } from '@app/state/drumsHistoryStore.ts'
 import { useLevelStore } from '@app/state/levelStore.ts'
 import { useEarTrainingStore } from '@app/state/earTrainingStore.ts'
 import { useThemeStore } from '@app/state/themeStore.ts'
@@ -183,8 +177,6 @@ import { useInstrumentStore } from '@app/state/instrumentStore.ts'
 import {
   isValidAnnotations,
   isValidAssessments,
-  isValidDrumsGrooveAttempt,
-  isValidDrumsHistory,
   isValidFlashcards,
   isValidInstrument,
   isValidLevelState,
@@ -197,7 +189,6 @@ import {
   isValidTheme,
   type PersistedAnnotations,
   type PersistedAssessments,
-  type PersistedDrumsHistory,
   type PersistedFlashcards,
   type PersistedInstrument,
   type PersistedLevelState,
@@ -217,7 +208,6 @@ import { isValidEarTraining, type PersistedEarTraining } from '@app/state/persis
 export type {
   PersistedAnnotations,
   PersistedAssessments,
-  PersistedDrumsHistory,
   PersistedFlashcards,
   PersistedInstrument,
   PersistedLevelState,
@@ -263,15 +253,6 @@ export const TECHNIQUE_COLLECTION = COLLECTIONS.techniqueHistory
 export const TECHNIQUE_KEY = 'techniqueHistory'
 
 /**
- * Collection + key the graded groove runs live under (roadmap DR-09). Reuses
- * `COLLECTIONS.settings` under its own key rather than declaring a drums
- * object store of its own — same reasoning as `LEVELS_COLLECTION` and the
- * three slices after it: a new key in a store that already exists needs no
- * `DB_VERSION` bump, so a learner's existing database opens unchanged.
- */
-export const DRUMS_HISTORY_COLLECTION = COLLECTIONS.settings
-export const DRUMS_HISTORY_KEY = 'drumsHistory'
-
 /** Collection + key the repertoire library lives under (roadmap 2.33, REQ-3.8.2/3.8.3/3.8.4). */
 export const REPERTOIRE_COLLECTION = COLLECTIONS.repertoire
 export const REPERTOIRE_KEY = 'repertoire'
@@ -326,7 +307,6 @@ let applyingRestoredAssessments = false
 let applyingRestoredRecordings = false
 let applyingRestoredPracticeLog = false
 let applyingRestoredTechniqueHistory = false
-let applyingRestoredDrumsHistory = false
 let applyingRestoredRepertoire = false
 let applyingRestoredLevels = false
 let applyingRestoredEarTraining = false
@@ -508,25 +488,6 @@ export async function restoreSession(store: Store): Promise<boolean> {
       useTechniqueStore
         .getState()
         .hydrate({ attempts: data.attempts.slice(0, MAX_STORED_TECHNIQUE_ATTEMPTS) }),
-  )
-
-  await restoreSlice(
-    store,
-    DRUMS_HISTORY_COLLECTION,
-    DRUMS_HISTORY_KEY,
-    isValidDrumsHistory,
-    (guarding) => {
-      applyingRestoredDrumsHistory = guarding
-    },
-    (data) =>
-      useDrumsHistoryStore.getState().hydrate({
-        // Row-by-row, never all-or-nothing: `isValidDrumsHistory` checks the wrapper only,
-        // so one unreadable attempt costs one attempt instead of the whole history. See
-        // that function's comment for what the all-or-nothing version destroyed.
-        attempts: data.attempts
-          .filter(isValidDrumsGrooveAttempt)
-          .slice(0, MAX_STORED_GROOVE_ATTEMPTS),
-      }),
   )
 
   await restoreSlice(
@@ -728,21 +689,6 @@ function persistTechniqueHistory(store: Store): PersistedSlice {
   return { unsubscribe, flush: write.flush }
 }
 
-/** Subscribes to the drums groove history and writes `attempts` on every change (roadmap DR-09). */
-function persistDrumsHistory(store: Store): PersistedSlice {
-  const write = createWriteQueue<PersistedDrumsHistory>(
-    store,
-    DRUMS_HISTORY_COLLECTION,
-    DRUMS_HISTORY_KEY,
-  )
-  const unsubscribe = useDrumsHistoryStore.subscribe((state, prevState) => {
-    if (applyingRestoredDrumsHistory) return
-    if (state.attempts === prevState.attempts) return
-    write({ attempts: state.attempts })
-  })
-  return { unsubscribe, flush: write.flush }
-}
-
 /** Subscribes to the repertoire store and writes `pieces` on every change. */
 function persistRepertoire(store: Store): PersistedSlice {
   const write = createWriteQueue<PersistedRepertoire>(store, REPERTOIRE_COLLECTION, REPERTOIRE_KEY)
@@ -813,7 +759,6 @@ export function startPersisting(store: Store): () => void {
     persistRecordings(store),
     persistPracticeLog(store),
     persistTechniqueHistory(store),
-    persistDrumsHistory(store),
     persistRepertoire(store),
     persistLevels(store),
     persistEarTraining(store),

@@ -21,6 +21,10 @@ export default tseslint.config(
       'playwright-report',
       'test-results',
       '.claude/worktrees',
+      // Mirrors .gitignore's `runs/*/`. Panel seats and drive sessions write scratch
+      // specs and probes in there; they are evidence, not source, and lint errors in
+      // them used to turn the commit gate red with nothing wrong in the app.
+      'runs/*/',
     ],
   },
   {

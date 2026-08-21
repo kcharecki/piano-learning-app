@@ -1,7 +1,6 @@
 /**
- * `DrumsTodayScreen` (roadmap DR-01, superseded by DR-09): thin render/a11y
- * test, per the testing rules — a static screen with one link to the groove
- * trainer and no other behaviour to wire.
+ * `DrumsTodayScreen` (roadmap DR-01): thin render/a11y test, per the testing
+ * rules — this is a static placeholder with no behaviour to wire.
  */
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
@@ -15,17 +14,8 @@ describe('DrumsTodayScreen', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Drums — start here' })).toBeInTheDocument()
   })
 
-  it('offers a way into the groove trainer', () => {
+  it('tells the learner drum training is coming, not a blank region', () => {
     render(<DrumsTodayScreen />)
-    const link = screen.getByRole('link', { name: /groove/i })
-    expect(link).toHaveAttribute('href', '/drums/groove')
-  })
-
-  // Regression: a green, unmodified suite once certified "drum training is
-  // coming soon" long after a real drum trainer shipped — this pins the
-  // phrase's absence so that failure mode cannot silently come back.
-  it('never says drum training is "coming soon"', () => {
-    render(<DrumsTodayScreen />)
-    expect(screen.queryByText(/coming soon/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/drum training is coming soon/i)).toBeInTheDocument()
   })
 })

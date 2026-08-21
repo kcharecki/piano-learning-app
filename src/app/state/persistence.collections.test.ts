@@ -16,16 +16,12 @@ import type { Card } from '@core/srs/scheduler.ts'
 import type { Recording } from '@core/practice/recorder.ts'
 import type { PracticeEntry } from '@core/progress/log.ts'
 import type { TechniqueAttempt } from '@core/technique/evenness.ts'
-import type { DrumsGrooveAttempt } from '@core/drums/practice/attempt.ts'
-import type { PadResult } from '@core/drums/practice/grooveGrader.ts'
 import type { RepertoirePiece } from '@core/repertoire/repertoire.ts'
 import { initialLevelState, type LevelState } from '@core/progress/levels.ts'
 import type { EarItem } from '@core/eartraining/item.ts'
 import { emptyEarSession, type EarSessionState } from '@core/eartraining/session.ts'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-  DRUMS_HISTORY_COLLECTION,
-  DRUMS_HISTORY_KEY,
   EAR_TRAINING_COLLECTION,
   EAR_TRAINING_KEY,
   FLASHCARDS_COLLECTION,
@@ -48,7 +44,6 @@ import {
   TECHNIQUE_COLLECTION,
   TECHNIQUE_KEY,
   type PersistedAssessments,
-  type PersistedDrumsHistory,
   type PersistedEarTraining,
   type PersistedFlashcards,
   type PersistedLevelState,
@@ -64,7 +59,6 @@ import { useFlashcardStore } from './flashcardStore.ts'
 import type { AssessmentResult } from '@core/practice/assessment.ts'
 import { useProgressStore, type StoredAssessment } from './progressStore.ts'
 import { useTechniqueStore } from './techniqueStore.ts'
-import { useDrumsHistoryStore } from './drumsHistoryStore.ts'
 import { useRepertoireStore, MAX_STORED_REPERTOIRE_PIECES } from './repertoireStore.ts'
 import { useLevelStore } from './levelStore.ts'
 import { useEarTrainingStore } from './earTrainingStore.ts'
@@ -494,153 +488,6 @@ describe('persistence: saved collections', () => {
       const store = new CountingStore()
       const saved: PersistedTechniqueHistory = { attempts: [ATTEMPT_A] }
       await store.put(TECHNIQUE_COLLECTION, TECHNIQUE_KEY, saved)
-      store.putCount = 0
-
-      persist(store)
-      await restoreSession(store)
-      await flush()
-
-      expect(store.putCount).toBe(0)
-    })
-  })
-
-  describe('groove trainer history persistence (roadmap DR-09)', () => {
-    // matched > 0, so steady is real rather than the "nothing landed" default.
-    const PAD_RESULT_KICK: PadResult = {
-      pad: 'kick',
-      expected: 4,
-      matched: 4,
-      missed: 0,
-      extra: 0,
-      meanOffsetMs: 2,
-      worstOffsetMs: 5,
-      spreadMs: 3,
-      toleranceMs: 100,
-      steadyBarMs: 35,
-      gridTicks: 240,
-      phaseSlipSteps: undefined,
-      steady: true,
-    }
-
-    // matched === 0: the legitimate case where every offset, including spreadMs, is absent.
-    const PAD_RESULT_UNPLAYED: PadResult = {
-      pad: 'snare',
-      expected: 4,
-      matched: 0,
-      missed: 4,
-      extra: 0,
-      meanOffsetMs: undefined,
-      worstOffsetMs: undefined,
-      spreadMs: undefined,
-      toleranceMs: 100,
-      steadyBarMs: 35,
-      gridTicks: 240,
-      phaseSlipSteps: undefined,
-      steady: false,
-    }
-
-    const ATTEMPT_A: DrumsGrooveAttempt = {
-      grooveId: 'money-beat',
-      grooveTitle: 'Money Beat',
-      bpm: 80,
-      repeats: 4,
-      at: 1000,
-      steady: true,
-      pads: [PAD_RESULT_KICK, PAD_RESULT_UNPLAYED],
-    }
-
-    it('round-trips attempts via startPersisting / restoreSession', async () => {
-      const store = new MemoryStore()
-      const unsubscribe = persist(store)
-
-      useDrumsHistoryStore.getState().addAttempt(ATTEMPT_A)
-      await flush()
-      unsubscribe()
-
-      useDrumsHistoryStore.setState({ attempts: [] })
-      expect(useDrumsHistoryStore.getState().attempts).toEqual([])
-
-      await restoreSession(store)
-      expect(useDrumsHistoryStore.getState().attempts).toEqual([ATTEMPT_A])
-    })
-
-    it.each([
-      ['not an object', 'nope'],
-      ['attempts missing', {}],
-      ['attempts not an array', { attempts: 'nope' }],
-      [
-        'an attempt missing a required field',
-        { attempts: [{ grooveId: 'x', grooveTitle: 'X', bpm: 80, repeats: 4, at: 1, pads: [] }] },
-      ],
-      ['an attempt with a non-finite bpm', { attempts: [{ ...ATTEMPT_A, bpm: Number.NaN }] }],
-      ['an attempt with a non-boolean steady', { attempts: [{ ...ATTEMPT_A, steady: 'yes' }] }],
-      [
-        'an attempt still carrying the old `clean` key, with no `steady`',
-        {
-          attempts: [
-            {
-              grooveId: 'money-beat',
-              grooveTitle: 'Money Beat',
-              bpm: 80,
-              repeats: 4,
-              at: 1000,
-              clean: true,
-              pads: [],
-            },
-          ],
-        },
-      ],
-      [
-        'a pad result missing `steady`',
-        {
-          attempts: [
-            {
-              ...ATTEMPT_A,
-              pads: [
-                {
-                  pad: 'kick',
-                  expected: 4,
-                  matched: 4,
-                  missed: 0,
-                  extra: 0,
-                  meanOffsetMs: 2,
-                  worstOffsetMs: 5,
-                  spreadMs: 3,
-                  toleranceMs: 100,
-                  steadyBarMs: 35,
-                  gridTicks: 240,
-                  phaseSlipSteps: undefined,
-                },
-              ],
-            },
-          ],
-        },
-      ],
-    ])('degrades to an empty attempts list on a corrupt payload: %s', async (_label, payload) => {
-      const store = new MemoryStore()
-      await store.put(DRUMS_HISTORY_COLLECTION, DRUMS_HISTORY_KEY, payload)
-      // A sibling collection with a VALID payload, to prove the corrupt
-      // drums-history collection does not prevent it from restoring — see
-      // the technique suite's identical comment above.
-      const entry: PracticeEntry = {
-        id: 'sibling-pe-drums',
-        startedAt: 1,
-        endedAt: 2,
-        kind: 'technique',
-        itemName: 'Sibling',
-      }
-      await store.put(PRACTICE_LOG_COLLECTION, PRACTICE_LOG_KEY, { practiceEntries: [entry] })
-
-      await restoreSession(store)
-
-      expect(useDrumsHistoryStore.getState().attempts).toEqual([])
-      expect(useProgressStore.getState().practiceEntries).toEqual([entry])
-    })
-
-    it('does not immediately re-save what it just restored (no write amplification)', async () => {
-      const store = new CountingStore()
-      const saved: PersistedDrumsHistory = { attempts: [ATTEMPT_A] }
-      await store.put(DRUMS_HISTORY_COLLECTION, DRUMS_HISTORY_KEY, saved)
       store.putCount = 0
 
       persist(store)

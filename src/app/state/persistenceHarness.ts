@@ -22,7 +22,6 @@ import { useSightReadingStore } from './sightReadingStore.ts'
 import { useFlashcardStore } from './flashcardStore.ts'
 import { useProgressStore } from './progressStore.ts'
 import { useTechniqueStore } from './techniqueStore.ts'
-import { useDrumsHistoryStore } from './drumsHistoryStore.ts'
 import { useRepertoireStore } from './repertoireStore.ts'
 import { useLevelStore } from './levelStore.ts'
 import { useEarTrainingStore } from './earTrainingStore.ts'
@@ -52,7 +51,6 @@ export function resetStore(): void {
   useFlashcardStore.setState({ cardsById: {} })
   useProgressStore.setState({ assessments: [], recordings: [], practiceEntries: [] })
   useTechniqueStore.setState({ attempts: [] })
-  useDrumsHistoryStore.setState({ attempts: [] })
   useRepertoireStore.setState({ pieces: [] })
   useLevelStore.setState({ levelState: initialLevelState(), hydrated: false })
   useEarTrainingStore.setState({ session: emptyEarSession(), itemsById: {} })

@@ -36,7 +36,6 @@ import type {
 import { useRoute } from '@app/shell/routing.ts'
 import { useInstrumentStore } from '@app/state/instrumentStore.ts'
 import { DrumsTodayScreen } from '@app/drums/DrumsTodayScreen.tsx'
-import { GrooveScreen } from '@app/drums/GrooveScreen.tsx'
 import { NotationDevGallery } from '@app/drums/notation/NotationDevGallery.tsx'
 import { ReferencePanel } from '@app/reference/ReferencePanel.tsx'
 import { SettingsScreen } from '@app/onboarding/SettingsScreen.tsx'
@@ -133,20 +132,14 @@ const PIANO_NAV_GROUPS: readonly NavGroup<PianoScreenId>[] = [
 ]
 
 /**
- * Drums' own nav table (roadmap DR-01, DR-09): the placeholder home
- * (`drums-today`) plus the groove trainer, which is the first drums
- * destination that teaches anything. Grows per phase as drum features land;
- * the type-level split from `PIANO_NAV_ITEMS`/`PIANO_NAV_GROUPS` (see
- * `route.ts`'s `DrumsScreenId`) means adding a Drums screen can never
- * accidentally collide with a piano one.
- *
- * `drums-notation-dev` is deliberately absent — it is DR-05's URL-only
- * development gallery, not a place a learner should land.
+ * Drums' own nav table (roadmap DR-01) — one destination so far
+ * (`drums-today`, the placeholder home `DrumsTodayScreen` renders), no
+ * groups yet. Grows per phase as drum features land; the type-level split
+ * from `PIANO_NAV_ITEMS`/`PIANO_NAV_GROUPS` (see `route.ts`'s `DrumsScreenId`)
+ * means adding a Drums screen can never accidentally collide with a piano one.
  */
 const DRUMS_NAV_PRIMARY: NavItem<DrumsScreenId> = { id: 'drums-today', label: 'Today', icon: 'target' }
-const DRUMS_NAV_GROUPS: readonly NavGroup<DrumsScreenId>[] = [
-  { label: 'Practice', items: [{ id: 'drums-groove', label: 'Groove', icon: 'rhythm' }] },
-]
+const DRUMS_NAV_GROUPS: readonly NavGroup<DrumsScreenId>[] = []
 
 /**
  * Where a planned session item sends the learner (roadmap 4.7a). The plan is
@@ -387,13 +380,11 @@ function renderPianoScreen(
   }
 }
 
-/** Drums' own screen renderer (roadmap DR-01, DR-09) — grows per phase. */
-function renderDrumsScreen(screen: DrumsScreenId, openGroove: () => void) {
+/** Drums' own screen renderer (roadmap DR-01) — one case so far, grows per phase. */
+function renderDrumsScreen(screen: DrumsScreenId) {
   switch (screen) {
     case 'drums-today':
-      return <DrumsTodayScreen onOpenGroove={openGroove} />
-    case 'drums-groove':
-      return <GrooveScreen />
+      return <DrumsTodayScreen />
     case 'drums-notation-dev':
       return <NotationDevGallery />
   }
@@ -772,7 +763,7 @@ export function Shell() {
               deck,
               theoryDrill,
             )
-          : renderDrumsScreen(appRoute.route.screen, () => goToDrums('drums-groove'))}
+          : renderDrumsScreen(appRoute.route.screen)}
       </main>
       {/* Sibling AFTER app-main, never a wrapper around it and never a layout
           column (module doc + parallel-round-10.md Q2) — position:fixed, so

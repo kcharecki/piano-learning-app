@@ -1,5 +1,5 @@
 /**
- * Four bundled reference grooves (DR-04) — the fixtures the MusicXML bridge's
+ * Three bundled reference grooves (DR-04) — the fixtures the MusicXML bridge's
  * round-trip proof runs against (`musicxml/roundTrip.test.ts`), and useful
  * example content for DR-09/DR-13 later. Built programmatically via
  * `makeGrooveScore` rather than hand-typed as static `.musicxml` fixtures:
@@ -7,36 +7,12 @@
  * what the writer actually emits, whereas a builder function is the same
  * kind of source-of-truth the tests already trust for everything else here.
  *
- * All four sit on a 4/4, quarter-, 8th- or 16th-note grid on purpose (see
+ * All three sit on a 4/4, 8th- or 16th-note grid on purpose (see
  * `musicxml/roundTrip.test.ts`'s extra `scoreToGrid` sanity check) — that is
- * a property of these four examples, not a constraint `GrooveScore` itself
+ * a property of these three examples, not a constraint `GrooveScore` itself
  * imposes.
  */
 import { makeGrooveScore, type GrooveScore } from './groove.ts'
-
-/**
- * The groove a beginner syllabus (Rockschool Debut) actually starts on:
- * closed hi-hat on all four quarters, kick on 1 and 3, snare backbeat on 2
- * and 4. One hi-hat stroke per beat means the hands play four notes a bar
- * instead of eight, so a learner can count out loud while playing. The
- * easiest thing in this file — everything else here subdivides the hi-hat
- * further before it changes anything else.
- */
-export function quarterHatRock(): GrooveScore {
-  const hihatTicks = [0, 480, 960, 1440]
-  return makeGrooveScore({
-    id: 'quarter-hat-rock',
-    title: 'Quarter-Note Rock',
-    measureCount: 1,
-    notes: [
-      ...hihatTicks.map((tick) => ({ pad: 'hhClosed' as const, tick, durationTicks: 480 })),
-      { pad: 'kick' as const, tick: 0, durationTicks: 480 },
-      { pad: 'kick' as const, tick: 960, durationTicks: 480 },
-      { pad: 'snare' as const, tick: 480, durationTicks: 480 },
-      { pad: 'snare' as const, tick: 1440, durationTicks: 480 },
-    ],
-  })
-}
 
 /**
  * The basic rock "money beat": closed hi-hat on every 8th note, kick on 1
@@ -118,14 +94,7 @@ export function ghostFunkBar(): GrooveScore {
   })
 }
 
-/**
- * Easiest first, not authoring order — a picker renders these in exactly
- * this order, so the ordering is load-bearing. Ranked by notes per bar, then
- * by how syncopated the kick is: `quarterHatRock` (8 notes, kick square on
- * the beat) before `moneyBeat` (12 notes, still a kick on the beat) before
- * `moneyBeatOpenHat` (12 notes, one hat swapped for a harder-to-control open
- * stroke) before `ghostFunkBar` (30 notes, syncopated kick, ghosted snare).
- */
+/** All three, for tests that want to sweep every reference groove. */
 export function referenceGrooves(): readonly GrooveScore[] {
-  return [quarterHatRock(), moneyBeat(), moneyBeatOpenHat(), ghostFunkBar()]
+  return [moneyBeat(), moneyBeatOpenHat(), ghostFunkBar()]
 }
