@@ -1,333 +1,131 @@
 /**
- * Focused validator tests for `isValidEarTraining` (roadmap 3.11, REQ-3.6.3).
- * Every other validator in `persistedShapes.ts` is already exercised through
- * `persistence.test.ts`'s corrupt-payload tables; this file exists because
- * `isValidEarTraining` is new and its own file has no home yet — see the
- * module comment on why the validator must reject at every level, not just
- * the top one.
+ * Focused validator tests for the drums-history corner of `persistedShapes.ts`
+ * (roadmap DR-09): `isValidPadResult`, `isValidDrumsGrooveAttempt` and
+ * `isValidDrumsHistory`. Every other validator in that file is already
+ * exercised through `persistence.test.ts`'s corrupt-payload tables; this file
+ * covers only these three, which have no coverage of their own yet.
+ *
+ * These are structural guards over untrusted data read back off disk, so
+ * every rejection case below is something a corrupted or hand-edited
+ * IndexedDB entry could plausibly contain: wrong top-level shape, a missing
+ * field, a value of the wrong type, or a `pad` string that isn't one of the
+ * kit's own pad names. They must return `false`, never throw — that is what
+ * lets `restoreSlice` degrade one corrupt slice without taking down the
+ * others (see that function's own comment in `persistence.ts`).
  */
-import type { EarItem } from '@core/eartraining/item.ts'
-import { emptyEarSession, type EarSessionState } from '@core/eartraining/session.ts'
-import type { Card } from '@core/srs/scheduler.ts'
-import { ticks } from '@core/shared/units.ts'
+import type { PadResult } from '@core/drums/practice/grooveGrader.ts'
+import type { DrumsGrooveAttempt } from '@core/drums/practice/attempt.ts'
 import { describe, expect, it } from 'vitest'
-import { isValidEarTraining, type PersistedEarTraining } from './persistedShapes.ts'
+import {
+  isValidDrumsGrooveAttempt,
+  isValidDrumsHistory,
+  isValidPadResult,
+  type PersistedDrumsHistory,
+} from './persistedShapes.ts'
 
-const CARD_A: Card = {
-  id: 'interval-melodic:48:55:asc',
-  due: 100,
-  intervalDays: 1,
-  ease: 2.5,
-  reps: 1,
-  lapses: 0,
-  introducedAt: 0,
+const PAD_A: PadResult = {
+  pad: 'hhClosed',
+  expected: 16,
+  matched: 16,
+  missed: 0,
+  extra: 0,
+  meanOffsetMs: 3,
+  worstOffsetMs: 8,
 }
 
-const ITEM_A: EarItem = {
-  id: 'interval-melodic:48:55:asc',
-  kind: 'interval-melodic',
-  prompt: {
-    id: 'interval-melodic:48:55:asc',
-    meta: { title: '', composer: '' },
-    measures: [],
-    notes: [],
-    tempos: [],
-    staves: [],
-    maxNoteDurationTicks: ticks(0),
-  },
-  answerKey: 'P5',
-  level: 1,
+const ATTEMPT_A: DrumsGrooveAttempt = {
+  grooveId: 'money-beat',
+  grooveTitle: 'Money Beat',
+  bpm: 80,
+  repeats: 4,
+  at: 1000,
+  clean: true,
+  pads: [PAD_A],
 }
 
-function validSession(): EarSessionState {
-  return {
-    ...emptyEarSession(),
-    levels: { ...emptyEarSession().levels, 'interval-melodic': 3 },
-    attempts: [{ itemId: ITEM_A.id, kind: 'interval-melodic', accuracy: 1, at: 100, level: 2 }],
-    cards: [CARD_A],
-    kinds: { [ITEM_A.id]: 'interval-melodic' },
-  }
+/** Drops `key` from `value` and returns a plain, loosely-typed clone — for building "missing a required field" payloads. */
+function omit<T extends object, K extends keyof T>(value: T, key: K): Record<string, unknown> {
+  const clone = { ...value } as Record<string, unknown>
+  delete clone[key as string]
+  return clone
 }
 
-function validPayload(): PersistedEarTraining {
-  return { session: validSession(), itemsById: { [ITEM_A.id]: ITEM_A } }
-}
-
-describe('isValidEarTraining', () => {
-  it('accepts a well-formed payload', () => {
-    expect(isValidEarTraining(validPayload())).toBe(true)
+describe('isValidPadResult', () => {
+  it('accepts a well-formed pad result with both offsets present', () => {
+    expect(isValidPadResult(PAD_A)).toBe(true)
   })
 
-  it('accepts the empty-session default (every field is either empty or the min level)', () => {
-    expect(isValidEarTraining({ session: emptyEarSession(), itemsById: {} })).toBe(true)
-  })
-
-  describe('pre-3.26 attempt migration (correct: boolean -> accuracy: number)', () => {
-    it('accepts a pre-3.26 attempt shape (correct: boolean, no accuracy at all)', () => {
-      const payload = {
-        session: {
-          ...validSession(),
-          attempts: [{ itemId: 'x', kind: 'interval-melodic', correct: true, at: 1, level: 1 }],
-        },
-        itemsById: {},
-      }
-      expect(isValidEarTraining(payload)).toBe(true)
-    })
-
-    // The hard requirement: real users have `correct: boolean` records on
-    // disk right now, and a guard that merely ACCEPTS the shape (previous
-    // test) is not enough — `restoreSlice` hands the exact object this
-    // predicate was called on straight to `hydrate` with no transform step
-    // of its own (see this function's own doc comment), so the record must
-    // come out the other side actually carrying a real `accuracy`, or every
-    // later `adaptEarLevel`/`recordEarAttempt` comparison against it reads
-    // `undefined` and silently misbehaves instead of throwing.
-    it('migrates a pre-3.26 attempt IN PLACE: correct:true -> accuracy:1, correct:false -> accuracy:0, and drops correct', () => {
-      const legacyTrue: Record<string, unknown> = {
-        itemId: 'x',
-        kind: 'interval-melodic',
-        correct: true,
-        at: 1,
-        level: 1,
-      }
-      const legacyFalse: Record<string, unknown> = {
-        itemId: 'y',
-        kind: 'chord-quality',
-        correct: false,
-        at: 2,
-        level: 3,
-      }
-      const payload = {
-        session: { ...validSession(), attempts: [legacyTrue, legacyFalse] },
-        itemsById: {},
-      }
-
-      expect(isValidEarTraining(payload)).toBe(true)
-      expect(legacyTrue).toEqual({ itemId: 'x', kind: 'interval-melodic', accuracy: 1, at: 1, level: 1 })
-      expect(legacyFalse).toEqual({ itemId: 'y', kind: 'chord-quality', accuracy: 0, at: 2, level: 3 })
-      expect(legacyTrue.correct).toBeUndefined()
-      expect(legacyFalse.correct).toBeUndefined()
-    })
-
-    it('leaves an already-current attempt (accuracy present) untouched', () => {
-      const current: Record<string, unknown> = {
-        itemId: 'x',
-        kind: 'interval-melodic',
-        accuracy: 0.73,
-        at: 1,
-        level: 1,
-      }
-      const payload = { session: { ...validSession(), attempts: [current] }, itemsById: {} }
-
-      expect(isValidEarTraining(payload)).toBe(true)
-      expect(current).toEqual({ itemId: 'x', kind: 'interval-melodic', accuracy: 0.73, at: 1, level: 1 })
-    })
+  it('accepts undefined offsets (a pad that matched nothing has no offset)', () => {
+    const unmatched: PadResult = {
+      pad: 'snare',
+      expected: 4,
+      matched: 0,
+      missed: 4,
+      extra: 0,
+      meanOffsetMs: undefined,
+      worstOffsetMs: undefined,
+    }
+    expect(isValidPadResult(unmatched)).toBe(true)
   })
 
   it.each([
     ['not an object', 'nope'],
     ['null', null],
-    ['session missing', { itemsById: {} }],
-    ['session not an object', { session: 'nope', itemsById: {} }],
-    ['itemsById missing', { session: validSession() }],
-    ['itemsById not an object', { session: validSession(), itemsById: 'nope' }],
-    ['itemsById is an array', { session: validSession(), itemsById: [] }],
+    ['a missing required field (extra)', omit(PAD_A, 'extra')],
+    ['an unknown pad value', { ...PAD_A, pad: 'tuba' }],
+    ['a NaN meanOffsetMs', { ...PAD_A, meanOffsetMs: Number.NaN }],
+    ['a NaN worstOffsetMs', { ...PAD_A, worstOffsetMs: Number.NaN }],
+    ['a string where a count belongs (expected)', { ...PAD_A, expected: '16' }],
+  ])('rejects %s', (_label, value) => {
+    expect(isValidPadResult(value)).toBe(false)
+  })
+})
 
-    // session.levels
-    [
-      'session.levels missing a kind',
-      {
-        session: { ...validSession(), levels: { 'interval-melodic': 1 } },
-        itemsById: {},
-      },
-    ],
-    [
-      'session.levels has an extra, unknown kind',
-      {
-        session: { ...validSession(), levels: { ...emptyEarSession().levels, bogus: 1 } },
-        itemsById: {},
-      },
-    ],
-    [
-      'session.levels has a non-finite level',
-      {
-        session: {
-          ...validSession(),
-          levels: { ...emptyEarSession().levels, 'interval-melodic': Number.NaN },
-        },
-        itemsById: {},
-      },
-    ],
-    [
-      'session.levels has a level below EAR_MIN_LEVEL',
-      {
-        session: { ...validSession(), levels: { ...emptyEarSession().levels, 'chord-quality': 0 } },
-        itemsById: {},
-      },
-    ],
-    [
-      'session.levels has a level above EAR_MAX_LEVEL',
-      {
-        session: { ...validSession(), levels: { ...emptyEarSession().levels, 'scale-mode': 6 } },
-        itemsById: {},
-      },
-    ],
-    [
-      'session.levels has a non-integer (fractional) level',
-      {
-        session: { ...validSession(), levels: { ...emptyEarSession().levels, 'interval-melodic': 2.5 } },
-        itemsById: {},
-      },
-    ],
+describe('isValidDrumsGrooveAttempt', () => {
+  it('accepts a well-formed attempt', () => {
+    expect(isValidDrumsGrooveAttempt(ATTEMPT_A)).toBe(true)
+  })
 
-    // session.attempts
+  it.each([
+    ['not an object', 'nope'],
+    ['a missing required field (grooveTitle)', omit(ATTEMPT_A, 'grooveTitle')],
+    ['a non-finite bpm', { ...ATTEMPT_A, bpm: Number.NaN }],
+    ['a non-finite at', { ...ATTEMPT_A, at: Number.NaN }],
+    ['a non-boolean clean', { ...ATTEMPT_A, clean: 'yes' }],
+    ['pads not an array', { ...ATTEMPT_A, pads: 'nope' }],
     [
-      'session.attempts is not an array',
-      { session: { ...validSession(), attempts: 'nope' }, itemsById: {} },
+      'a pad row with an unknown pad value',
+      { ...ATTEMPT_A, pads: [{ ...PAD_A, pad: 'tuba' }] },
     ],
     [
-      'an attempt missing itemId',
-      {
-        session: { ...validSession(), attempts: [{ kind: 'interval-melodic', accuracy: 1, at: 1, level: 1 }] },
-        itemsById: {},
-      },
+      'a pad row with a string where a count belongs',
+      { ...ATTEMPT_A, pads: [{ ...PAD_A, matched: '16' }] },
     ],
-    [
-      'an attempt with an invalid kind',
-      {
-        session: {
-          ...validSession(),
-          attempts: [{ itemId: 'x', kind: 'not-a-kind', accuracy: 1, at: 1, level: 1 }],
-        },
-        itemsById: {},
-      },
-    ],
-    [
-      'an attempt with neither a valid accuracy NOR a boolean correct (e.g. a string masquerading as either)',
-      {
-        session: {
-          ...validSession(),
-          attempts: [{ itemId: 'x', kind: 'interval-melodic', correct: 'yes', at: 1, level: 1 }],
-        },
-        itemsById: {},
-      },
-    ],
-    [
-      'an attempt with neither accuracy nor correct present at all',
-      {
-        session: {
-          ...validSession(),
-          attempts: [{ itemId: 'x', kind: 'interval-melodic', at: 1, level: 1 }],
-        },
-        itemsById: {},
-      },
-    ],
-    [
-      'an attempt with accuracy above 1',
-      {
-        session: {
-          ...validSession(),
-          attempts: [{ itemId: 'x', kind: 'interval-melodic', accuracy: 1.1, at: 1, level: 1 }],
-        },
-        itemsById: {},
-      },
-    ],
-    [
-      'an attempt with accuracy below 0',
-      {
-        session: {
-          ...validSession(),
-          attempts: [{ itemId: 'x', kind: 'interval-melodic', accuracy: -0.1, at: 1, level: 1 }],
-        },
-        itemsById: {},
-      },
-    ],
-    [
-      'an attempt with a non-finite accuracy',
-      {
-        session: {
-          ...validSession(),
-          attempts: [{ itemId: 'x', kind: 'interval-melodic', accuracy: Number.NaN, at: 1, level: 1 }],
-        },
-        itemsById: {},
-      },
-    ],
-    [
-      'an attempt with a non-finite at',
-      {
-        session: {
-          ...validSession(),
-          attempts: [{ itemId: 'x', kind: 'interval-melodic', accuracy: 1, at: Number.NaN, level: 1 }],
-        },
-        itemsById: {},
-      },
-    ],
+  ])('rejects %s', (_label, value) => {
+    expect(isValidDrumsGrooveAttempt(value)).toBe(false)
+  })
+})
 
-    // session.cards (reuses isValidCard — one representative failure)
-    [
-      'session.cards has a card with a non-finite ease',
-      {
-        session: { ...validSession(), cards: [{ ...CARD_A, ease: Number.NaN }] },
-        itemsById: {},
-      },
-    ],
-    [
-      'a card whose id has no entry in session.kinds — the exact corrupt payload named in ' +
-        'session.ts (a card seeded from storage that persisted cards but not the kinds map), ' +
-        'which used to pass validation and then throw an InvariantError on every Start forever',
-      {
-        session: {
-          ...validSession(),
-          cards: [CARD_A, { ...CARD_A, id: 'orphan-card-not-in-kinds' }],
-        },
-        itemsById: {},
-      },
-    ],
+describe('isValidDrumsHistory', () => {
+  it('accepts a well-formed history', () => {
+    const history: PersistedDrumsHistory = { attempts: [ATTEMPT_A] }
+    expect(isValidDrumsHistory(history)).toBe(true)
+  })
 
-    // session.kinds
-    [
-      'session.kinds is not an object',
-      { session: { ...validSession(), kinds: 'nope' }, itemsById: {} },
-    ],
-    [
-      'session.kinds has a value that is not a valid EarItemKind',
-      { session: { ...validSession(), kinds: { x: 'not-a-kind' } }, itemsById: {} },
-    ],
+  it('accepts an empty attempts array (a fresh install, not corruption)', () => {
+    expect(isValidDrumsHistory({ attempts: [] })).toBe(true)
+  })
 
-    // itemsById entries
+  it.each([
+    ['not an object', 'nope'],
+    ['attempts missing', {}],
+    ['attempts not an array', { attempts: 'nope' }],
+    ['an attempt missing a required field', { attempts: [omit(ATTEMPT_A, 'grooveId')] }],
     [
-      'an item missing id',
-      { session: validSession(), itemsById: { a: { ...ITEM_A, id: undefined } } },
+      'an attempt whose pad row has a NaN offset',
+      { attempts: [{ ...ATTEMPT_A, pads: [{ ...PAD_A, meanOffsetMs: Number.NaN }] }] },
     ],
-    [
-      'an item with an invalid kind',
-      { session: validSession(), itemsById: { a: { ...ITEM_A, kind: 'not-a-kind' } } },
-    ],
-    [
-      'an item missing prompt',
-      { session: validSession(), itemsById: { a: { ...ITEM_A, prompt: undefined } } },
-    ],
-    [
-      'an item whose prompt has no notes array',
-      {
-        session: validSession(),
-        itemsById: { a: { ...ITEM_A, prompt: { ...ITEM_A.prompt, notes: undefined } } },
-      },
-    ],
-    [
-      'an item with a non-finite level',
-      { session: validSession(), itemsById: { a: { ...ITEM_A, level: Number.NaN } } },
-    ],
-    [
-      'an item with a non-string answerKey',
-      { session: validSession(), itemsById: { a: { ...ITEM_A, answerKey: 7 } } },
-    ],
-    [
-      "an itemsById entry keyed under something other than the item's own id — the orphaning " +
-        'bug isValidAnnotations already guards against for its own byScoreId map',
-      { session: validSession(), itemsById: { 'wrong-key': ITEM_A } },
-    ],
-  ])('rejects: %s', (_label, payload) => {
-    expect(isValidEarTraining(payload)).toBe(false)
+  ])('rejects %s', (_label, value) => {
+    expect(isValidDrumsHistory(value)).toBe(false)
   })
 })

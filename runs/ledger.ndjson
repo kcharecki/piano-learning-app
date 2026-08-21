@@ -26,3 +26,14 @@
 {"ts":"2026-08-20T22:40:45.277Z","run":"2026-08-20-1","event":"mark","section":"7","elapsedPct":83.79}
 {"ts":"2026-08-20T22:40:45.346Z","run":"2026-08-20-1","event":"mark","section":"8","elapsedPct":83.79}
 {"ts":"2026-08-20T22:45:06.745Z","run":"2026-08-20-1","event":"finish","outcome":"abort","blocker":"four unfixed BLOCKERs at round 2 and a REFUTED skeptic verdict: OSMD engraves 2 of 8 tuplet numerals (T.8), the round-1 fix reverts setBpm via same-tick setter staleness in useMetronome (T.9), the click ran 180/min on a memory drill marked crotchet=60, and the run's own artifacts do not evidence the triplet reading. Implementation reverted in 1120597, spec kept and RED at HEAD (exit 1)."}
+{"ts":"2026-08-21T09:56:34.327Z","run":"2026-08-21-1","event":"start","commit":"10db5f07e5a5078828a316219476fda139c42189","budgetMin":240,"persona":"Total beginner (DRUMS)","personaIndex":1,"instrument":"drums","prevPickSource":"1d"}
+{"ts":"2026-08-21T09:56:42.159Z","run":"2026-08-21-1","event":"mark","section":"0","elapsedPct":0.05}
+{"ts":"2026-08-21T09:57:15.114Z","run":"2026-08-21-1","event":"mark","section":"1a","elapsedPct":0.28}
+{"ts":"2026-08-21T10:00:59.623Z","run":"2026-08-21-1","event":"mark","section":"1e","elapsedPct":1.84}
+{"ts":"2026-08-21T10:04:30.656Z","run":"2026-08-21-1","event":"mark","section":"1d","elapsedPct":3.31}
+{"ts":"2026-08-21T10:08:27.524Z","run":"2026-08-21-1","event":"mark","section":"1b","elapsedPct":4.95}
+{"ts":"2026-08-21T10:08:27.585Z","run":"2026-08-21-1","event":"mark","section":"1c","elapsedPct":4.95}
+{"ts":"2026-08-21T10:09:25.485Z","run":"2026-08-21-1","event":"mark","section":"2","elapsedPct":5.36}
+{"ts":"2026-08-21T10:11:26.156Z","run":"2026-08-21-1","event":"pick","source":"1d","instrument":"drums","class":"VOID","sum":10,"cost":"L","tier":"L","harm":0,"thread":"none","metric":"PersistedDrumsHistory.attempts","baseline":"0 events, newly instrumented"}
+{"ts":"2026-08-21T10:17:18.945Z","run":"2026-08-21-1","event":"mark","section":"3","elapsedPct":8.64}
+{"ts":"2026-08-21T10:24:48.406Z","run":"2026-08-21-1","event":"spec","sha":"8bc7e80c06f8b66fafb305c12abe0e2d77e74508","redExit":1}
