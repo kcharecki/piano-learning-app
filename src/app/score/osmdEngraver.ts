@@ -193,6 +193,52 @@ export function resolveOsmdOptions(
   return base
 }
 
+/**
+ * The subset of `EngravingRules` this app overrides. Structural, so the rules
+ * can be asserted against a plain object in a test — the real `EngravingRules`
+ * needs a browser (see this file's module doc) and carries ~400 other fields.
+ */
+export type EngravedRules = {
+  RenderTimeSignatures: boolean
+  TupletNumberLimitConsecutiveRepetitions: boolean
+  TupletNumberAlwaysDisableAfterFirstMax: boolean
+}
+
+/**
+ * The `EngravingRules` overrides for a presentation, applied in place to the
+ * live rules object right after construction. Split out of `defaultCreateOsmd`
+ * so it is testable without a browser; `EngravingRules` is the public accessor
+ * for the same object the protected `rules` field holds (see
+ * `OpenSheetMusicDisplay.d.ts`).
+ */
+export function applyEngravingRules(rules: EngravedRules, presentation: ScorePresentation): void {
+  // ROADMAP T.8. OSMD ships with `TupletNumberLimitConsecutiveRepetitions =
+  // true`, `TupletNumberMaxConsecutiveRepetitions = 2` and
+  // `TupletNumberAlwaysDisableAfterFirstMax = true` (read out of the shipped
+  // bundle, not assumed). Together those three mean: print the numeral over
+  // the first two identical consecutive tuplet groups, then STOP printing it
+  // for the rest of the score. On a drill that is nothing but triplets, that
+  // engraves 2 numerals out of 8 — and a group of three eighths with no "3"
+  // over it is, to anyone reading it, three plain eighths. Measured
+  // consequence: a 4/4 bar read as 5 beats.
+  //
+  // The defaults are a sensible choice for a printed edition, where the
+  // convention is that a numeral applies until contradicted and repeating it
+  // 40 times is clutter. This app is read by beginners who are learning what
+  // the numeral means, and who are never reading more than a few bars at a
+  // time. Every group gets its numeral.
+  rules.TupletNumberLimitConsecutiveRepetitions = false
+  rules.TupletNumberAlwaysDisableAfterFirstMax = false
+
+  // A scale has no meter. `ScaleStaff` sizes its single measure to the
+  // scale's own note count, so the engraved signature would read "8/4" for
+  // a seven-note scale plus its octave (or 5/4, 6/4, 12/4 for the
+  // pentatonics, whole tone and chromatic) — a meter claim no printed
+  // scale book makes and no learner should read as one. The KEY signature
+  // is left on: that one is real and is half the point of the reference.
+  if (presentation === 'reference') rules.RenderTimeSignatures = false
+}
+
 /** The only place the real OSMD library is constructed. */
 function defaultCreateOsmd(
   container: HTMLElement,
@@ -201,17 +247,7 @@ function defaultCreateOsmd(
 ): OsmdLike {
   const options = resolveOsmdOptions(presentation, chrome)
   const instance = new OpenSheetMusicDisplay(container, options)
-  if (presentation === 'reference') {
-    // A scale has no meter. `ScaleStaff` sizes its single measure to the
-    // scale's own note count, so the engraved signature would read "8/4" for
-    // a seven-note scale plus its octave (or 5/4, 6/4, 12/4 for the
-    // pentatonics, whole tone and chromatic) — a meter claim no printed
-    // scale book makes and no learner should read as one. The KEY signature
-    // is left on: that one is real and is half the point of the reference.
-    // `EngravingRules` is the public accessor for the same object the
-    // protected `rules` field holds (see `OpenSheetMusicDisplay.d.ts`).
-    instance.EngravingRules.RenderTimeSignatures = false
-  }
+  applyEngravingRules(instance.EngravingRules, presentation)
   return instance as unknown as OsmdLike
 }
 

@@ -29,6 +29,7 @@ import {
   type ScoreNoteInput,
   type StaffInfo,
   type TimeSignature,
+  type Tuplet,
 } from './score.ts'
 
 // ------------------------------------------------------------------- XML reader
@@ -277,6 +278,7 @@ type PendingNote = {
   readonly tiedFrom: boolean
   readonly tiedTo: boolean
   readonly fingering?: number
+  readonly tuplet?: Tuplet
 }
 
 type PendingTempo = { readonly measureIndex: number; readonly offset: number; readonly bpm: number }
@@ -351,8 +353,16 @@ function beatsOf(time: XmlNode): number | undefined {
   return total
 }
 
-/** `<duration>` in ticks, falling back to `<type>` + `<dot>` when it is missing. */
-function durationTicks(el: XmlNode, divisions: number): Result<number, string> {
+/**
+ * `<duration>` in ticks, falling back to `<type>` + `<dot>` when it is missing.
+ *
+ * The fallback path applies `tuplet`'s ratio, because `<type>` is the WRITTEN
+ * value: the three notes of an eighth triplet are each `<type>eighth</type>`,
+ * and each sounds for two thirds of one. Without the ratio the fallback would
+ * make a triplet group last half again as long as its beat and push every
+ * later onset in the bar off the grid.
+ */
+function durationTicks(el: XmlNode, divisions: number, tuplet?: Tuplet): Result<number, string> {
   const duration = numberOf(el, 'duration')
   if (duration !== undefined) {
     if (duration < 0) return err(`<duration> must not be negative, got ${duration}`)
@@ -363,7 +373,8 @@ function durationTicks(el: XmlNode, divisions: number): Result<number, string> {
   const type = TYPE_QUARTERS[childOf(el, 'type')?.text ?? '']
   if (type === undefined) return err(`<${el.tag}> has no <duration>`)
   const dots = childrenOf(el, 'dot').length
-  return ok(Math.round(type * dotFactor(dots) * TICKS_PER_QUARTER))
+  const ratio = tuplet === undefined ? 1 : tuplet.normal / tuplet.actual
+  return ok(Math.round(type * dotFactor(dots) * ratio * TICKS_PER_QUARTER))
 }
 
 /**
@@ -403,6 +414,34 @@ function tieFlags(note: XmlNode): { tiedFrom: boolean; tiedTo: boolean } {
     tiedFrom: marks.some((m) => m.attrs['type'] === 'stop'),
     tiedTo: marks.some((m) => m.attrs['type'] === 'start'),
   }
+}
+
+/**
+ * `<time-modification>` -> `Tuplet`, so a triplet survives the round trip as a
+ * triplet and not merely as three odd durations. `<duration>` already carries
+ * the sounding length, so nothing about PLAYBACK depends on this; what depends
+ * on it is the ENGRAVING, because a note's tick count cannot say what it is
+ * written as (roadmap T.8: 160 ticks is a triplet eighth, but read as a raw
+ * duration it is a 16th).
+ *
+ * The bracket edge comes from `<notations><tuplet type="...">`. A file that
+ * declares the ratio without ever bracketing it is common and legal, so a note
+ * with no tuplet element of its own reads as `inner` rather than being
+ * rejected; the writer's own output always brackets both edges.
+ */
+function tupletOf(note: XmlNode): Tuplet | undefined {
+  const tm = childOf(note, 'time-modification')
+  if (tm === undefined) return undefined
+  const actual = numberOf(tm, 'actual-notes')
+  const normal = numberOf(tm, 'normal-notes')
+  if (actual === undefined || normal === undefined) return undefined
+  if (!Number.isInteger(actual) || !Number.isInteger(normal) || actual < 1 || normal < 1) {
+    return undefined
+  }
+  const bracket = nodeAt(note, ['notations', 'tuplet'])?.attrs['type']
+  const position: Tuplet['position'] =
+    bracket === 'start' ? 'start' : bracket === 'stop' ? 'stop' : 'inner'
+  return { actual, normal, position }
 }
 
 /** Piano fingering is 1..5; there is no finger 0 and no sixth finger. */
@@ -493,7 +532,8 @@ function scanPart(part: XmlNode, partIndex: number, scan: Scan): string | undefi
         if (pitch === undefined && !rest) {
           return `${where}: <note> has neither <pitch> nor <rest> (<unpitched> is not supported)`
         }
-        const ticks = durationTicks(el, divisions)
+        const tuplet = tupletOf(el)
+        const ticks = durationTicks(el, divisions, tuplet)
         if (!ticks.ok) return `${where}: ${ticks.error}`
         // A <chord/> note sounds with the previous note: same onset, no advance.
         const chord = has(el, 'chord')
@@ -520,6 +560,7 @@ function scanPart(part: XmlNode, partIndex: number, scan: Scan): string | undefi
           staff: scan.staffOffset + localStaff,
           ...tieFlags(el),
           ...(fingering === undefined ? {} : { fingering }),
+          ...(tuplet === undefined ? {} : { tuplet }),
         })
       } else if (el.tag === 'backup' || el.tag === 'forward') {
         const ticks = durationTicks(el, divisions)
@@ -637,6 +678,7 @@ export function parseMusicXml(source: string, opts?: { id?: string }): Result<Sc
       tiedFrom: p.tiedFrom,
       tiedTo: p.tiedTo,
       ...(p.fingering === undefined ? {} : { fingering: p.fingering }),
+      ...(p.tuplet === undefined ? {} : { tuplet: p.tuplet }),
     })
   }
 

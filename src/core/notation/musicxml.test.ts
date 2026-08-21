@@ -578,6 +578,56 @@ describe('parseMusicXml: mid-score changes', () => {
   })
 })
 
+describe('parseMusicXml: tuplets (roadmap T.8)', () => {
+  const score = parse('triplets')
+
+  it('reads the ratio, so a triplet stays a triplet and not three odd durations', () => {
+    expect(score.notes.map((n) => n.tuplet)).toEqual([
+      { actual: 3, normal: 2, position: 'start' },
+      { actual: 3, normal: 2, position: 'inner' },
+      { actual: 3, normal: 2, position: 'stop' },
+      undefined,
+      { actual: 3, normal: 2, position: 'start' },
+      { actual: 3, normal: 2, position: 'inner' },
+      { actual: 3, normal: 2, position: 'stop' },
+    ])
+  })
+
+  it('applies the ratio to the <type> fallback, so a triplet with no <duration> still fits its beat', () => {
+    // Bar 1's triplet carries no <duration> at all. Read as three plain
+    // eighths it would be 720 ticks and push the dotted half off the grid;
+    // read through 3:2 it is 3 x 160 = one quarter, and the bar closes at 1920.
+    const bar1 = notesInMeasure(score, 0)
+    expect(durations(bar1)).toEqual([160, 160, 160, 1440])
+    expect(startTicks(bar1)).toEqual([0, 160, 320, 480])
+  })
+
+  it('keeps trusting <duration> when the file gives one, even a coarse one', () => {
+    // Bar 2's quarter triplet is written <duration>1</duration> at divisions 2
+    // — 240 ticks each, not the true 320. `<duration>` is what the format says
+    // is authoritative and what every other reader will use, so we follow it
+    // rather than silently re-deriving a different rhythm from <type>.
+    const bar2 = notesInMeasure(score, 1)
+    expect(durations(bar2)).toEqual([240, 240, 240])
+    expect(startTicks(bar2)).toEqual([1920, 2160, 2400])
+  })
+
+  it('reads an unbracketed middle note as inner rather than rejecting it', () => {
+    const inner = score.notes[1]
+    expect(inner?.tuplet?.position).toBe('inner')
+  })
+
+  it('ignores a <time-modification> that does not describe a ratio', () => {
+    const broken = load('triplets').replace(
+      '<actual-notes>3</actual-notes><normal-notes>2</normal-notes>',
+      '<actual-notes>0</actual-notes><normal-notes></normal-notes>',
+    )
+    const result = parseMusicXml(broken)
+    if (!result.ok) throw new Error(`expected a lenient parse, got: ${result.error}`)
+    expect(result.value.notes[0]?.tuplet).toBeUndefined()
+  })
+})
+
 describe('parseMusicXml: grace notes, voices, rests and <forward>', () => {
   const score = parse('grace-and-voices')
 

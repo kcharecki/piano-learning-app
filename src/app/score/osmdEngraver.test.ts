@@ -11,7 +11,9 @@ import { makeScore } from '@core/notation/score.ts'
 import { describe, expect, it, vi } from 'vitest'
 import {
   createOsmdEngraver,
+  applyEngravingRules,
   resolveOsmdOptions,
+  type EngravedRules,
   type ScoreEngraverWithMeasureLabels,
 } from './osmdEngraver.ts'
 import {
@@ -70,6 +72,44 @@ describe('resolveOsmdOptions (roadmap UI-06 — chrome.title)', () => {
   it('chrome.title: false suppresses drawTitle AND drawComposer, leaving other practice defaults untouched', () => {
     const options = resolveOsmdOptions('practice', { title: false })
     expect(options).toEqual(expect.objectContaining({ drawTitle: false, drawComposer: false, autoResize: false }))
+  })
+})
+
+describe('applyEngravingRules (roadmap T.8 — every tuplet gets its numeral)', () => {
+  // OSMD's own shipped defaults, read out of the bundle: numerals are limited
+  // to 2 consecutive repetitions and then permanently disabled.
+  const osmdDefaults = (): EngravedRules => ({
+    RenderTimeSignatures: true,
+    TupletNumberLimitConsecutiveRepetitions: true,
+    TupletNumberAlwaysDisableAfterFirstMax: true,
+  })
+
+  it('turns off both halves of the consecutive-repetition limit', () => {
+    // Either one left on is enough to lose numerals: the limit caps a run at
+    // 2, and `AlwaysDisableAfterFirstMax` turns the numeral off for the REST
+    // OF THE SCORE once that cap is first hit. A drill of 8 triplet groups
+    // engraved 2 numerals under these defaults.
+    const rules = osmdDefaults()
+    applyEngravingRules(rules, 'practice')
+    expect(rules.TupletNumberLimitConsecutiveRepetitions).toBe(false)
+    expect(rules.TupletNumberAlwaysDisableAfterFirstMax).toBe(false)
+  })
+
+  it('applies to the reference presentation too, not only to practice', () => {
+    const rules = osmdDefaults()
+    applyEngravingRules(rules, 'reference')
+    expect(rules.TupletNumberLimitConsecutiveRepetitions).toBe(false)
+    expect(rules.TupletNumberAlwaysDisableAfterFirstMax).toBe(false)
+  })
+
+  it('still drops the time signature for a reference staff, and only there', () => {
+    const reference = osmdDefaults()
+    applyEngravingRules(reference, 'reference')
+    expect(reference.RenderTimeSignatures).toBe(false)
+
+    const practice = osmdDefaults()
+    applyEngravingRules(practice, 'practice')
+    expect(practice.RenderTimeSignatures).toBe(true)
   })
 })
 

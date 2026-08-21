@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Triplets as another engraver writes them, which is not how our own writer
+  writes them (roadmap T.8).
+
+  Two 4/4 measures at <divisions>2</divisions> — one division is an eighth, so
+  an eighth-note triplet has NO exact <duration> in this file's own units.
+
+  Measure 1: an eighth triplet C-D-E (each written <type>eighth</type> with
+  <time-modification>3:2</time-modification> and NO <duration> at all, which is
+  legal and forces the reader through the type + ratio path), then a dotted
+  half F.
+
+  Measure 2: a quarter triplet G-A-B (3 in the time of 2 quarters, each
+  <duration>1</duration>... deliberately WRONG-by-rounding in this file's
+  coarse divisions, 1 division = 240 ticks where the true value is 320) then a
+  half rest. This is the case where <duration> alone cannot be trusted.
+-->
+<score-partwise version="4.0">
+  <part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>2</divisions>
+        <key><fifths>0</fifths></key>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
+        <clef number="1"><sign>G</sign><line>2</line></clef>
+      </attributes>
+      <note>
+        <pitch><step>C</step><octave>4</octave></pitch>
+        <voice>1</voice><type>eighth</type>
+        <time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification>
+        <staff>1</staff>
+        <notations><tuplet type="start" number="1"/></notations>
+      </note>
+      <note>
+        <pitch><step>D</step><octave>4</octave></pitch>
+        <voice>1</voice><type>eighth</type>
+        <time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification>
+        <staff>1</staff>
+      </note>
+      <note>
+        <pitch><step>E</step><octave>4</octave></pitch>
+        <voice>1</voice><type>eighth</type>
+        <time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification>
+        <staff>1</staff>
+        <notations><tuplet type="stop" number="1"/></notations>
+      </note>
+      <note>
+        <pitch><step>F</step><octave>4</octave></pitch>
+        <duration>6</duration><voice>1</voice><type>half</type><dot/><staff>1</staff>
+      </note>
+    </measure>
+    <measure number="2">
+      <note>
+        <pitch><step>G</step><octave>4</octave></pitch>
+        <duration>1</duration><voice>1</voice><type>quarter</type>
+        <time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification>
+        <staff>1</staff>
+        <notations><tuplet type="start" number="1"/></notations>
+      </note>
+      <note>
+        <pitch><step>A</step><octave>4</octave></pitch>
+        <duration>1</duration><voice>1</voice><type>quarter</type>
+        <time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification>
+        <staff>1</staff>
+      </note>
+      <note>
+        <pitch><step>B</step><octave>4</octave></pitch>
+        <duration>1</duration><voice>1</voice><type>quarter</type>
+        <time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification>
+        <staff>1</staff>
+        <notations><tuplet type="stop" number="1"/></notations>
+      </note>
+      <note><rest/><duration>4</duration><voice>1</voice><type>half</type><staff>1</staff></note>
+    </measure>
+  </part>
+</score-partwise>
