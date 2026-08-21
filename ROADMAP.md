@@ -211,7 +211,7 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
       as getting slower; the drill id is in a tooltip only and no legend node exists. Re-run live
       by the regression-hunter this session. Fix: one series per drill, or normalise each point
       against its own drill's target. *Proof: the seeded two-drill state, screenshotted.*
-- [ ] T.15 **A `tapClassifier` property test is flaky, so U.3's agreement claim has a hole.**
+- [x] T.15 **A `tapClassifier` property test is flaky, so U.3's agreement claim has a hole.**
       `src/core/rhythm/tapClassifier.test.ts:396` — "folding the live classifier over arbitrary
       taps at the clamped tolerance always agrees with gradeTapping exactly" — failed once in a
       full `npm test`, passed on re-run and in six isolated runs. Reproduced by a 24x background
@@ -222,6 +222,25 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
       seeding the run.
       *Proof: the counterexample above added as an explicit example test, RED before the fix and
       green after, plus 200 seeded property runs green.*
+      **Done (fa153ad).** Not a flaky test — a false guarantee. The live classifier compares integer
+      TICKS; `gradeTapping`/`gradeClapback` compare MILLISECONDS derived from those same ticks, and
+      the same exact rational reached by two routes is two different doubles
+      (`tickToMs(14) - tickToMs(13)` = 1.0416666666666679 vs `tickToMs(1)` = 1.0416666666666667).
+      A tap exactly on the tolerance boundary was claimed by one and called an extra by the other,
+      1.2e-15 ms apart. Both promise an INCLUSIVE boundary and neither could keep it in ms.
+      `src/core/timing/window.ts` now owns that boundary for both graders: `windowLimitMs` adds a
+      few ULPs of slack scaled to the magnitudes in play (~1e-14 ms over a bar, ~1e-11 ms over a
+      25-second run). A 50k-run sweep fails after 8378 runs with the slack removed and passes all
+      50k with it, surfacing a SECOND counterexample `[[0,1556,3073,3793,4360],[4355],5]`; both are
+      pinned as fast-check `examples` so the hardest case runs every time. `window.test.ts` pins
+      the knob from both sides — a tap exactly one tolerance away is always in, a tap one whole tick
+      beyond is never dragged in — so the slack provably cannot widen the window by anything the
+      domain can express. All five rhythm/clap-back e2e specs pass; Rhythm visual pass clean.
+      Found on the way: `npm run test:cov` had been failing outright on
+      `scripts/orphan-signals.test.mjs` (four repo-wide scans, ~2s bare but ~11s under v8
+      instrumentation, over the 5s default) and writing NO report, so the 90% gate had nothing to
+      check. Given a 30s timeout; coverage now reports 98.27% lines overall and 100% on
+      `timing/window.ts`, `rhythm/tapClassifier.ts`, `rhythm/clapback.ts`.
 - [ ] T.16 **`src/core/notation/score.ts` is over the 500-line cap and holds two concepts.**
       It is 503 lines, kept building only by an `eslint.config.js` `max-lines` override raising it
       to 520 — a cap raise is the thing AGENTS.md says to do only with a reason, and the reason on
