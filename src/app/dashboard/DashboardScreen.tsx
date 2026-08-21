@@ -35,6 +35,7 @@ import { levelAt } from '@core/curriculum/model.ts'
 import { CURRICULUM } from '@content/curriculum/curriculum.ts'
 import { useLevelStore } from '@app/state/levelStore.ts'
 import { TrendChart, type TrendChartPoint } from './TrendChart.tsx'
+import { TechniqueTempoCard } from './TechniqueTempoCard.tsx'
 import {
   useDashboard,
   type AssessmentTrendPoint,
@@ -76,11 +77,6 @@ export function DashboardScreen(props: DashboardScreenProps) {
   const sightReadingPoints: readonly TrendChartPoint[] = data.sightReadingTrend.map((p, i) => ({
     label: `Run ${i + 1}`,
     value: round(p.accuracy * 100),
-  }))
-
-  const techniquePoints: readonly TrendChartPoint[] = data.techniqueTrend.map((p) => ({
-    label: p.drillId,
-    value: round(p.bpm),
   }))
 
   const assessmentRunCounts: Record<string, number> = {}
@@ -170,21 +166,9 @@ export function DashboardScreen(props: DashboardScreenProps) {
             assessmentTrend={data.assessmentTrend}
           />
 
-          <TrendCard
-            title="Technique tempo"
-            icon={<Icon name="clock" />}
-            ariaLabel="Technique tempo trends"
-            isEmpty={data.techniqueAttempts.length === 0}
-            emptyTestId="dashboard-technique-empty"
-            emptyText="No technique attempts yet — run a drill on the Technique screen."
-          >
-            <TrendChart
-              points={techniquePoints}
-              kind="line"
-              ariaLabel="Technique clean tempo over time"
-              valueSuffix=" bpm"
-            />
-          </TrendCard>
+          {/* Roadmap T.14: one line per drill, not every drill's clean bpm
+              concatenated onto one. See TechniqueTempoCard's module doc. */}
+          <TechniqueTempoCard series={data.techniqueTempoSeries} />
 
           {/* Roadmap UI-24: `card` was missing here and on nothing else in
               this row, so Theory retention alone rendered with no surface,

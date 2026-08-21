@@ -111,7 +111,14 @@ import { TRACKS, type Track } from '@core/curriculum/types.ts'
 import { trackProgress, type CriterionStatus, type ProgressEvidence } from '@core/progress/levels.ts'
 import { computeMilestones, type Milestone } from '@core/progress/milestones.ts'
 import { levelAt } from '@core/curriculum/model.ts'
-import { tempoHistory, bestCleanBpm, type TechniqueAttempt, type TempoPoint } from '@core/technique/evenness.ts'
+import {
+  tempoHistory,
+  bestCleanBpm,
+  tempoSeriesByDrill,
+  type TechniqueAttempt,
+  type TempoPoint,
+} from '@core/technique/evenness.ts'
+import { techniqueDrillById } from '@core/technique/library.ts'
 import { maintenanceDue, type RepertoirePiece } from '@core/repertoire/repertoire.ts'
 import { CURRICULUM } from '@content/curriculum/curriculum.ts'
 import { useProgressStore, type StoredAssessment } from '@app/state/progressStore.ts'
@@ -168,6 +175,21 @@ export type DashboardTrackLevel = {
 
 export type TechniqueTrendPoint = TempoPoint & { readonly drillId: string }
 
+/**
+ * One drill's clean-tempo history, named and given the target it is aiming at
+ * (roadmap T.14). `title`/`targetBpm` come from the drill library; an id the
+ * library no longer knows (a renamed drill in an old export) keeps its id as
+ * its title and a target of 0, which the card renders as "of 0 bpm" rather
+ * than dropping a run the learner actually did.
+ */
+export type TechniqueTempoSeries = {
+  readonly drillId: string
+  readonly title: string
+  readonly targetBpm: number
+  readonly points: readonly TempoPoint[]
+  readonly bestBpm: number
+}
+
 export type DashboardData = {
   readonly now: number
   readonly streak: { readonly currentDays: number; readonly longestDays: number }
@@ -210,6 +232,12 @@ export type DashboardData = {
   readonly techniqueTrend: readonly TechniqueTrendPoint[]
   /** Best clean bpm reached per drill id, from `bestCleanBpm`. `{}` until `techniqueAttempts` has an entry. */
   readonly techniqueBestBpmByDrill: Readonly<Record<string, number>>
+  /**
+   * The same clean attempts as `techniqueTrend`, but kept apart per drill and
+   * named — one series per drill, most recently practised first (roadmap
+   * T.14). `[]` until some drill has been played clean.
+   */
+  readonly techniqueTempoSeries: readonly TechniqueTempoSeries[]
   /** `useRepertoireStore`'s persisted library, insertion order. `[]` until a piece has been added. */
   readonly repertoirePieces: readonly RepertoirePiece[]
   /** `maintenanceDue(repertoirePieces, now)` — 'maintained' pieces overdue for review, most overdue first. */
@@ -296,6 +324,22 @@ export function useDashboard(options: UseDashboardOptions = {}): DashboardData {
         tempoHistory(techniqueAttempts, drillId).map((p) => ({ ...p, drillId })),
       )
       .sort((a, b) => a.at - b.at)
+    // Roadmap T.14: `techniqueTrend` above flattens every drill onto one
+    // time-sorted line, which reads as a tempo going up and down when it is
+    // really two drills with two different targets taking turns. This keeps
+    // them apart and names them, and is what the card draws.
+    const techniqueTempoSeries: readonly TechniqueTempoSeries[] = tempoSeriesByDrill(
+      techniqueAttempts,
+    ).map((series) => {
+      const drill = techniqueDrillById(series.drillId)
+      return {
+        drillId: series.drillId,
+        title: drill?.title ?? series.drillId,
+        targetBpm: drill?.targetBpm ?? 0,
+        points: series.points,
+        bestBpm: series.bestBpm,
+      }
+    })
     const techniqueBestBpmByDrill: Readonly<Record<string, number>> = Object.fromEntries(
       techniqueDrillIds.map((drillId) => [drillId, bestCleanBpm(techniqueAttempts, drillId)]),
     )
@@ -409,6 +453,7 @@ export function useDashboard(options: UseDashboardOptions = {}): DashboardData {
       techniqueAttempts,
       techniqueTrend,
       techniqueBestBpmByDrill,
+      techniqueTempoSeries,
       repertoirePieces,
       repertoireDue: maintenanceDue(repertoirePieces, now),
       levels,

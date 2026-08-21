@@ -43,6 +43,7 @@ import { useLevelStore } from '@app/state/levelStore.ts'
 import { useEarTrainingStore } from '@app/state/earTrainingStore.ts'
 import type { RepertoirePiece } from '@core/repertoire/repertoire.ts'
 import type { TechniqueAttempt } from '@core/technique/evenness.ts'
+import { techniqueDrillById } from '@core/technique/library.ts'
 import type { StoredAssessment } from '@app/state/progressStore.ts'
 import type { AssessmentResult } from '@core/practice/assessment.ts'
 import {
@@ -477,6 +478,67 @@ describe('useDashboard — technique tempo trend', () => {
     expect(drillIds).toEqual(new Set(['scale-c-major', 'arpeggio-g-major']))
     expect(result.current.techniqueBestBpmByDrill['scale-c-major']).toBe(92)
     expect(result.current.techniqueBestBpmByDrill['arpeggio-g-major']).toBe(70)
+  })
+
+  it('keeps each drill in its own named series against its own target (roadmap T.14)', () => {
+    // The roadmap's reproduction: two real drills whose targets differ, so the
+    // old single flattened line drew 72 then 60 and read as slowing down.
+    const solid = techniqueDrillById('triad-sequence-c-major-solid-hands-right')
+    const broken = techniqueDrillById('triad-sequence-c-major-broken-hands-right')
+    if (solid === undefined || broken === undefined) {
+      throw new Error('fixture assumption failed: both triad sequence drills exist')
+    }
+    expect(solid.targetBpm).not.toBe(broken.targetBpm)
+
+    useTechniqueStore.setState({
+      attempts: [
+        { drillId: solid.id, at: NOW - 2 * DAY_MS, bpm: solid.targetBpm, evenness: 0.95, accuracy: 1, clean: true },
+        { drillId: broken.id, at: NOW - 1 * DAY_MS, bpm: broken.targetBpm, evenness: 0.95, accuracy: 1, clean: true },
+      ],
+    })
+
+    const { result } = setup()
+    const series = result.current.techniqueTempoSeries
+
+    // Most recently practised first, each with the library's own title and
+    // target rather than a bare id.
+    expect(series.map((s) => s.drillId)).toEqual([broken.id, solid.id])
+    expect(series.map((s) => s.title)).toEqual([broken.title, solid.title])
+    expect(series.map((s) => s.targetBpm)).toEqual([broken.targetBpm, solid.targetBpm])
+    // Both runs hit their own target, so both series read as at-target — where
+    // the flattened line showed one number falling to the other.
+    for (const one of series) {
+      expect(one.bestBpm).toBe(one.targetBpm)
+      expect(one.points).toHaveLength(1)
+    }
+  })
+
+  it('keeps a run whose drill the library no longer knows, under its id (roadmap T.14)', () => {
+    useTechniqueStore.setState({
+      attempts: [
+        { drillId: 'renamed-in-an-old-export', at: NOW, bpm: 84, evenness: 0.95, accuracy: 1, clean: true },
+      ],
+    })
+
+    const { result } = setup()
+    const [only] = result.current.techniqueTempoSeries
+
+    expect(only?.title).toBe('renamed-in-an-old-export')
+    expect(only?.targetBpm).toBe(0)
+    expect(only?.bestBpm).toBe(84)
+  })
+
+  it('has no series until some attempt was clean (roadmap T.14)', () => {
+    useTechniqueStore.setState({
+      attempts: [
+        { drillId: 'scale-c-major', at: NOW, bpm: 80, evenness: 0.4, accuracy: 1, clean: false },
+      ],
+    })
+
+    const { result } = setup()
+
+    expect(result.current.techniqueAttempts).toHaveLength(1)
+    expect(result.current.techniqueTempoSeries).toEqual([])
   })
 })
 

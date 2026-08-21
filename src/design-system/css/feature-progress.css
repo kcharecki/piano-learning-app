@@ -205,3 +205,30 @@
 .dashboard-row--footer .export-panel {
   height: 100%;
 }
+
+/* ---------- Technique tempo: one chart per drill (roadmap T.14) ---------- */
+/* `.list > li` is a one-line flex row (`align-items: center`), which is right
+   for a label-and-value row and wrong for a stacked title + best + chart —
+   the same trap that centred the technique verdict's corrections list. */
+.technique-tempo-series > li {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  padding: var(--space-3) 0;
+}
+.technique-tempo-series h3 {
+  margin: 0;
+  font-size: var(--text-md);
+}
+.technique-tempo-best {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.technique-tempo-more {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}

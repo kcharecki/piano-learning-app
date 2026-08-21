@@ -259,12 +259,23 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
       the new chord across three beats and scored a flawless run at 71%. They now group by
       `startTick` and advance by each group's real gap; that was a latent wrong model of the drill,
       not a cost of this change.*
-- [ ] T.14 **The Progress "Technique tempo" card flattens drills with different targets onto one
+- [x] T.14 **The Progress "Technique tempo" card flattens drills with different targets onto one
       unlabelled line.** Seeding one clean solid attempt (target 72) and one clean broken attempt
       (target 60) draws 72 → 60 under "Technique clean tempo over time", so two correct runs read
       as getting slower; the drill id is in a tooltip only and no legend node exists. Re-run live
       by the regression-hunter this session. Fix: one series per drill, or normalise each point
       against its own drill's target. *Proof: the seeded two-drill state, screenshotted.*
+      **Done.** `tempoSeriesByDrill` in `src/core/technique/evenness.ts` keeps each drill's clean
+      attempts apart, most recently practised first; `useDashboard` names each series from the
+      drill library and carries that drill's own `targetBpm`; the new
+      `src/app/dashboard/TechniqueTempoCard.tsx` draws one titled chart per drill and reads each
+      best against its own target — "Best 60 of 60 bpm" instead of a 60 sitting under a 72. The
+      drill name is a visible `h3`, not an SVG tooltip. Capped at 4 drills, most recent first,
+      with the remainder counted in words. A drill with one clean run shows the number and no
+      chart: a single point drew as a lone dot in an empty box, which read as broken. Seeded proof,
+      `e2e/dashboard-technique-tempo.spec.ts`, screenshotted at 1280/1024 x dark/light with no
+      console output. Flattening the series back onto one line turns the spec red ("element(s)
+      not found"), so it bites.
 - [x] T.15 **A `tapClassifier` property test is flaky, so U.3's agreement claim has a hole.**
       `src/core/rhythm/tapClassifier.test.ts:396` — "folding the live classifier over arbitrary
       taps at the clamped tolerance always agrees with gradeTapping exactly" — failed once in a

@@ -173,3 +173,47 @@ export function bestCleanBpm(attempts: readonly TechniqueAttempt[], drillId: str
   const history = tempoHistory(attempts, drillId)
   return history.reduce((max, p) => Math.max(max, p.bpm), 0)
 }
+
+/** One drill's clean-tempo history, ready to be drawn as its own line. */
+export type DrillTempoSeries = {
+  readonly drillId: string
+  /** Oldest first, one point per clean attempt of THIS drill. Never empty. */
+  readonly points: readonly TempoPoint[]
+  /** The best clean tempo in `points`. */
+  readonly bestBpm: number
+  /** When this drill was last played clean — what the list is ordered by. */
+  readonly lastAt: number
+}
+
+/**
+ * Every drill's clean-tempo history, one series each, most recently practised
+ * first.
+ *
+ * Roadmap T.14: the dashboard used to concatenate these histories into ONE
+ * line sorted by time, which is only meaningful if every drill shares a target
+ * tempo — and they do not. A clean solid triad run at its target of 72 followed
+ * by a clean broken run at its target of 60 drew 72 → 60, so two successes in a
+ * row read as getting slower. Splitting by drill is what makes a downward step
+ * on a line mean "this drill got slower" again.
+ *
+ * Drills with no clean attempt are absent rather than present-and-empty: a
+ * chart with no points is a chart that says nothing, and the empty state for
+ * "you have not been clean at this yet" is different from a trend.
+ */
+export function tempoSeriesByDrill(
+  attempts: readonly TechniqueAttempt[],
+): readonly DrillTempoSeries[] {
+  const drillIds = Array.from(new Set(attempts.filter((a) => a.clean).map((a) => a.drillId)))
+  return drillIds
+    .map((drillId) => {
+      const points = tempoHistory(attempts, drillId)
+      return {
+        drillId,
+        points,
+        bestBpm: points.reduce((max, p) => Math.max(max, p.bpm), 0),
+        lastAt: points.reduce((latest, p) => Math.max(latest, p.at), 0),
+      }
+    })
+    .filter((series) => series.points.length > 0)
+    .sort((a, b) => b.lastAt - a.lastAt)
+}

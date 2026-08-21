@@ -6,6 +6,7 @@ import {
   evennessOf,
   isClean,
   tempoHistory,
+  tempoSeriesByDrill,
   type TechniqueAttempt,
 } from './evenness.ts'
 
@@ -249,5 +250,95 @@ describe('bestCleanBpm', () => {
   it('is 0 when the drill has never been played clean', () => {
     expect(bestCleanBpm([attempt({ drillId: 'a', clean: false })], 'a')).toBe(0)
     expect(bestCleanBpm([], 'a')).toBe(0)
+  })
+})
+
+describe('tempoSeriesByDrill (roadmap T.14)', () => {
+  /** The roadmap's own reproduction: two drills, two targets, two clean runs. */
+  const twoDrills: readonly TechniqueAttempt[] = [
+    attempt({ drillId: 'triad-sequence-c-major-solid-hands-right', at: 1000, bpm: 72 }),
+    attempt({ drillId: 'triad-sequence-c-major-broken-hands-right', at: 2000, bpm: 60 }),
+  ]
+
+  it('does not put two drills on one line, which is what made 72 then 60 read as slowing down', () => {
+    const series = tempoSeriesByDrill(twoDrills)
+    expect(series).toHaveLength(2)
+    for (const s of series) {
+      expect(s.points).toHaveLength(1)
+    }
+    // Each drill's own bpm stayed with that drill.
+    const byId = Object.fromEntries(series.map((s) => [s.drillId, s.points.map((p) => p.bpm)]))
+    expect(byId['triad-sequence-c-major-solid-hands-right']).toEqual([72])
+    expect(byId['triad-sequence-c-major-broken-hands-right']).toEqual([60])
+  })
+
+  it('puts the drill practised most recently first', () => {
+    expect(tempoSeriesByDrill(twoDrills).map((s) => s.drillId)).toEqual([
+      'triad-sequence-c-major-broken-hands-right',
+      'triad-sequence-c-major-solid-hands-right',
+    ])
+  })
+
+  it('keeps one drill in time order however the attempts arrived', () => {
+    const series = tempoSeriesByDrill([
+      attempt({ drillId: 'a', at: 3000, bpm: 90 }),
+      attempt({ drillId: 'a', at: 1000, bpm: 70 }),
+      attempt({ drillId: 'a', at: 2000, bpm: 80 }),
+    ])
+    expect(series).toHaveLength(1)
+    expect(series[0]?.points.map((p) => p.bpm)).toEqual([70, 80, 90])
+    expect(series[0]?.bestBpm).toBe(90)
+    expect(series[0]?.lastAt).toBe(3000)
+  })
+
+  it('reports the best tempo reached, not the latest one', () => {
+    const series = tempoSeriesByDrill([
+      attempt({ drillId: 'a', at: 1000, bpm: 96 }),
+      attempt({ drillId: 'a', at: 2000, bpm: 60 }),
+    ])
+    expect(series[0]?.bestBpm).toBe(96)
+    expect(series[0]?.points.at(-1)?.bpm).toBe(60)
+  })
+
+  it('leaves out drills with no clean attempt rather than drawing an empty line', () => {
+    const series = tempoSeriesByDrill([
+      attempt({ drillId: 'clean-one', at: 1000, clean: true }),
+      attempt({ drillId: 'never-clean', at: 2000, clean: false }),
+    ])
+    expect(series.map((s) => s.drillId)).toEqual(['clean-one'])
+  })
+
+  it('has nothing to say about no attempts at all', () => {
+    expect(tempoSeriesByDrill([])).toEqual([])
+    expect(tempoSeriesByDrill([attempt({ clean: false })])).toEqual([])
+  })
+
+  it('property: every clean attempt lands in exactly one series, under its own drill', () => {
+    fc.assert(
+      fc.property(
+        fc.array(
+          fc.record({
+            drillId: fc.constantFrom('a', 'b', 'c'),
+            at: fc.integer({ min: 0, max: 10_000 }),
+            bpm: fc.integer({ min: 20, max: 300 }),
+            clean: fc.boolean(),
+          }),
+          { maxLength: 30 },
+        ),
+        (raw) => {
+          const attempts = raw.map((r) => attempt(r))
+          const series = tempoSeriesByDrill(attempts)
+          const cleanCount = attempts.filter((a) => a.clean).length
+          expect(series.reduce((n, s) => n + s.points.length, 0)).toBe(cleanCount)
+          // No drill id appears twice, and every point under an id belongs to it.
+          expect(new Set(series.map((s) => s.drillId)).size).toBe(series.length)
+          for (const s of series) {
+            const mine = attempts.filter((a) => a.clean && a.drillId === s.drillId)
+            expect(s.points).toHaveLength(mine.length)
+            expect(s.bestBpm).toBe(Math.max(...mine.map((a) => a.bpm)))
+          }
+        },
+      ),
+    )
   })
 })
