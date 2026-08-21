@@ -55,6 +55,17 @@
  * against `gradeTapping`, for every tap sequence, not only the well-separated
  * common case.
  *
+ * Roadmap T.15 found the one thing that proof did NOT cover, and it was not
+ * about matching at all: this classifier compares integer TICKS, while the
+ * batch graders compare MILLISECONDS derived from those same ticks, and the
+ * same exact rational reached by two routes is two different doubles. A tap
+ * sitting exactly on the tolerance boundary therefore read as inside here and
+ * a couple of ULPs outside there, and the two disagreed — rarely enough that
+ * the property only failed on about one seed in eighty, which is why it looked
+ * like a flaky test rather than an unproven claim. `core/timing/window.ts`
+ * fixes it in the batch graders' window test; both counterexamples are now
+ * pinned as `examples` on the property so the hardest case runs every time.
+ *
  * That proof is about MATCHING WINDOWS, not about which onset TICKS the two
  * matchers compare a tap against — it holds unconditionally for
  * `gradeTapping` (the sight-tap drill), which always matches against the

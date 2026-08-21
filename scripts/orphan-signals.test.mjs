@@ -390,5 +390,10 @@ describe('the real scan', () => {
     expect(hasVelocityDefault).toBe(true)
     expect(hasDurationTicks).toBe(true)
     expect(hasSustainDown).toBe(true)
-  })
+    // Four real scans over the whole repo. ~2s uninstrumented, ~11s under v8
+    // coverage — which is over the core project's 5s default, so `npm run
+    // test:cov` failed here and wrote no report at all, leaving the 90% gate
+    // AGENTS.md calls non-negotiable with nothing to check. Same shape of fix
+    // `pitchDetection.test.ts` already uses for its own slow property.
+  }, 30_000)
 })

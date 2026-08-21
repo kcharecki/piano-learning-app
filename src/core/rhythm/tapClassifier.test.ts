@@ -434,7 +434,27 @@ describe('tapClassifier — effectiveToleranceTicks (roadmap U.3 fix round, BLOC
           expect(liveGrade.extra).toBe(batch.extra)
         },
       ),
-      { numRuns: 300 },
+      {
+        numRuns: 300,
+        // Roadmap T.15. This property USED to fail on roughly one seed in
+        // eighty and pass on the rest, which read as flakiness and was not:
+        // both of these are boundary taps, sitting exactly `effTol` ticks
+        // from the onset they claim. The live classifier compares integer
+        // ticks and claims them; `gradeTapping` compares milliseconds derived
+        // from those same ticks, and `tickToMs(14) - tickToMs(13)` is 1.2e-15
+        // LARGER than `tickToMs(1)`, so it called the same tap an extra.
+        // Pinned as examples rather than left to the seed: a property that
+        // only sometimes exercises its own hardest case is not proving the
+        // guarantee its module doc claims. See `core/timing/window.ts`.
+        examples: [
+          [[ticks(0), ticks(9), ticks(13)], [14], 1],
+          [
+            [ticks(0), ticks(1556), ticks(3073), ticks(3793), ticks(4360)],
+            [4355],
+            5,
+          ],
+        ],
+      },
     )
   })
 })

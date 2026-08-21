@@ -61,6 +61,7 @@
 import { at, invariant } from '@core/shared/invariant.ts'
 import type { RhythmPattern } from '@core/generator/rhythm.ts'
 import { tickToMs, type TempoMap } from '@core/timing/tempo.ts'
+import { windowLimitMs } from '@core/timing/window.ts'
 import { EIGHTH, QUARTER, SIXTEENTH, ticks as asTicks, type Millis, type Ticks } from '@core/shared/units.ts'
 
 export type ClapbackLevel = 1 | 2 | 3 | 4 | 5
@@ -143,15 +144,19 @@ function matchOnsets(
   tapMs: readonly number[],
   toleranceMs: number,
 ): MatchResult {
+  // Not `toleranceMs`: both sides are derived from the same integer tick grid,
+  // and a tap exactly on the boundary lands a couple of ULPs outside it.
+  // Roadmap T.15 — see `core/timing/window.ts`.
+  const limit = windowLimitMs(toleranceMs, expectedMs, tapMs)
   type Candidate = { readonly ei: number; readonly ti: number; readonly dist: number }
   const candidates: Candidate[] = []
   let lo = 0
   for (let ei = 0; ei < expectedMs.length; ei++) {
     const e = at(expectedMs, ei)
-    while (lo < tapMs.length && at(tapMs, lo) < e - toleranceMs) lo += 1
+    while (lo < tapMs.length && at(tapMs, lo) < e - limit) lo += 1
     for (let ti = lo; ti < tapMs.length; ti++) {
       const t = at(tapMs, ti)
-      if (t > e + toleranceMs) break
+      if (t > e + limit) break
       candidates.push({ ei, ti, dist: Math.abs(t - e) })
     }
   }

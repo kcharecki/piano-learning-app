@@ -69,6 +69,7 @@ import {
   type Ticks,
 } from '@core/shared/units.ts'
 import { tickToMs, type TempoMap } from '@core/timing/tempo.ts'
+import { windowLimitMs } from '@core/timing/window.ts'
 
 export type { TimeSignature }
 
@@ -571,16 +572,20 @@ export function gradeTapping(
     .map((o) => Number(tickToMs(tempo, o.tick)))
     .sort((a, b) => a - b)
   const tapMs = [...taps].map(Number).sort((a, b) => a - b)
+  // Not `tolerance`: both sides of this comparison are derived from the same
+  // integer tick grid, and a tap exactly on the boundary lands a couple of
+  // ULPs outside it. Roadmap T.15 — see `core/timing/window.ts`.
+  const limit = windowLimitMs(tolerance, onsetMs, tapMs)
 
   type Candidate = { readonly oi: number; readonly ti: number; readonly dist: number }
   const candidates: Candidate[] = []
   let lo = 0
   for (let oi = 0; oi < onsetMs.length; oi++) {
     const o = at(onsetMs, oi)
-    while (lo < tapMs.length && at(tapMs, lo) < o - tolerance) lo += 1
+    while (lo < tapMs.length && at(tapMs, lo) < o - limit) lo += 1
     for (let ti = lo; ti < tapMs.length; ti++) {
       const t = at(tapMs, ti)
-      if (t > o + tolerance) break
+      if (t > o + limit) break
       candidates.push({ oi, ti, dist: Math.abs(t - o) })
     }
   }
