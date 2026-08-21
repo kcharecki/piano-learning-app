@@ -83,7 +83,7 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
       in both themes: identical engraving, tablet correctly re-laid-out to 2 measures per system,
       no horizontal scroll.
 
-- [ ] T.7 **The triad sequence itself is still missing, and there is a RED spec saying so.**
+- [x] T.7 **The triad sequence itself is still missing, and there is a RED spec saying so.**
       `/improve-app` run 2026-08-20-1 built it and aborted; 1120597 reverted the implementation
       and kept b8dd8dd's `e2e/improve-triad-sequence.spec.ts`, which fails at line 163 —
       `expect(offered).toContain('C major triad sequence, broken, right hand')` — because the
@@ -92,7 +92,17 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
       the ENGRAVING, not the MusicXML string. Full panel record: `runs/2026-08-20-1/panel-r2-*.md`.
       *Proof: that spec goes green without `test.fixme`, and a driven run writes a clean
       `TechniqueAttempt` at the drill's own target tempo.*
-- [ ] T.8 **OSMD engraves only 2 of 8 triplet groups with a numeral.** Found by the run's Skeptic
+      **Done (be8e853)** with T.8, which it gated. `src/core/technique/triadSequence.ts` builds
+      both forms; four level-1 drills are registered. `improve-triad-sequence.spec.ts` passes with
+      no `test.fixme` — it drives the drill, gets 'clean', and reads the persisted attempt back off
+      the Progress card. Its jitter moved 15ms -> 5ms because its own evenness arithmetic was wrong
+      twice (500ms assumed spacing vs the real 333.333ms, and `2J/gap` when 23 gaps alternating
+      short-first make the median the SHORT gap, so it is `4J/(gap-2J)`); measured sweep on the real
+      drill: J=15 scores 60.4%, under the 0.8 clean threshold, so the spec as written could never
+      have produced the verdict it asserts. J=5 scores 87.6%. Band and assertions unchanged.
+      What the syllabus capture actually records is 'Triad Sequence / broken', 'C major', 'HS',
+      '1 octave, ascending' — no note value, no tempo. Both are ours and argued in the module.
+- [x] T.8 **OSMD engraves only 2 of 8 triplet groups with a numeral.** Found by the run's Skeptic
       seat, driven in the running app: with every `<text>` in the drill score SVG hidden, 2 glyph
       numerals survive, both in bar 1, so 6 of 8 groups read as plain beamed eighths and the
       learner sees 5 beats in bar 1 and 6 in bar 2 of a 4/4 score. The written MusicXML is
@@ -103,6 +113,21 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
       drops `<time-modification>`, so our own written triplets do not round-trip.
       *Proof: a test that counts rendered tuplet numerals in the SVG (must equal the number of
       groups), plus a screenshot.*
+      **Done (7e42b99 mechanism, be8e853 proof).** Neither suspect was the cause. The real defaults,
+      read out of the shipped bundle, are `TupletNumberLimitConsecutiveRepetitions = true`,
+      `TupletNumberMaxConsecutiveRepetitions = 2`, `TupletNumberAlwaysDisableAfterFirstMax = true`.
+      `applyEngravingRules` in `src/app/score/osmdEngraver.ts` turns both limits off.
+      `e2e/technique-triad-sequence-engraving.spec.ts` counts the numerals in the live SVG and
+      requires one per group. Measured A/B on the running app: **2 numerals with the defaults, 8
+      with them off**; total `<path>` count 74 vs 80. Reverting the engraver fails the spec with
+      'Received length: 2', so it gates rather than describes. Note a numeral is a music-font glyph
+      `<path>` under `g.vf-measure`, NOT a `<text>` — the previous attempt's suite hid every
+      `<text>` and the numerals stayed on screen, which is exactly why it proved nothing.
+      The reader half is done too: `parseMusicXml` now reads `<time-modification>` into `Tuplet`,
+      applies the ratio when a note has `<type>` but no `<duration>`, and round-trips through the
+      writer byte-for-byte (`musicxml.test.ts`, `musicxmlwriter.test.ts`, fixture
+      `__fixtures__/triplets.musicxml`). Screenshots: Technique, broken drill, dark/light x
+      1280/1024, all eight numerals above the beams, console clean, visual-pass exit 0.
 - [x] T.9 **`useMetronome`: a second setter in the same tick silently undid the first.**
       `setSubdivision`, `setAccents` and `setTimeSignature` each rebuilt their draft from the
       render-closure `bpmState`, so `setBpm(72)` followed by `setSubdivision(3)` in one `act()`
@@ -186,6 +211,25 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
       as getting slower; the drill id is in a tooltip only and no legend node exists. Re-run live
       by the regression-hunter this session. Fix: one series per drill, or normalise each point
       against its own drill's target. *Proof: the seeded two-drill state, screenshotted.*
+- [ ] T.15 **A `tapClassifier` property test is flaky, so U.3's agreement claim has a hole.**
+      `src/core/rhythm/tapClassifier.test.ts:396` — "folding the live classifier over arbitrary
+      taps at the clamped tolerance always agrees with gradeTapping exactly" — failed once in a
+      full `npm test`, passed on re-run and in six isolated runs. Reproduced by a 24x background
+      loop: **counterexample `[[0,9,13],[14],1]`** (expected onsets, taps, tolerance). fast-check
+      only surfaces it on some seeds, which is why the suite is usually green. The property is the
+      whole basis for claiming the live classifier and the batch grader agree, so a flake here is
+      not a test-hygiene problem, it is an unproven claim. Do NOT fix by widening the tolerance or
+      seeding the run.
+      *Proof: the counterexample above added as an explicit example test, RED before the fix and
+      green after, plus 200 seeded property runs green.*
+- [ ] T.16 **`src/core/notation/score.ts` is over the 500-line cap and holds two concepts.**
+      It is 503 lines, kept building only by an `eslint.config.js` `max-lines` override raising it
+      to 520 — a cap raise is the thing AGENTS.md says to do only with a reason, and the reason on
+      record is "restoring a revert mid-slice", which is not one. The file is the score MODEL
+      (`Score`, `ScoreNote`, `buildNotes`, `makeScore`) plus a set of QUERIES over it. Split by
+      that concept and drop the override; do not split by line count.
+      *Proof: both files under the default cap, the override deleted from `eslint.config.js`, and
+      `npm run verify` green with no import-cycle warning.*
 
 ## Phases 0-2 — Foundation, M1 playable core, M2 feedback & reading — all done
 
