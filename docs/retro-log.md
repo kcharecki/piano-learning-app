@@ -16,6 +16,84 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
+## 2026-08-21 (fourth session) — T.17: the groove trainer rebuilt from the two frozen specs, and the visual pass made into a gate
+
+- **user-reported defects since last session:** 0
+- **slices proven / started:** 1 / 1. `T.17` — the drums groove trainer that run 2026-08-21-1
+  built, failed on eight faults and reverted, rebuilt starting from the two RED specs it left
+  behind (`d6e1af9`). `npm run verify` green (236 files, 4783 tests), coverage 98.33% lines,
+  core suite 3.3s, `improve-DR-09` 4 passed and `improve-DR-09-heldout` 2 passed with no
+  `test.fixme`, full e2e 174 passed, and a driven run at `/drums/groove` whose attempt survived
+  a reload and a fresh tab. Each of the eight faults has a test that was red before the rebuild;
+  `ROADMAP.md` maps them one by one.
+- **gate catches before commit:** 6.
+  1. `visual-pass.mjs Groove` — the run-state line is a `[role="status"]`, which
+     `primitives.css` draws as a bordered chip. Sitting directly under the primary button, the
+     learner-facing "Ready when you are" read as a second, disabled button. Chip unset, live
+     region kept.
+  2. Same pass — Previous/Next groove wore the `minus`/`plus` glyphs, the same pair the tempo
+     stepper uses ~100px below, so one screen used one glyph for two meanings. `chevron-left`
+     joined the icon set.
+  3. Same pass — the persisted "Last run:" line sat above a fresh result panel: two verdicts on
+     screen at once, saying "not there yet" twice a paragraph apart. Gated on `run.result`.
+  4. Copy: "hits within 100 ms count" is a garden path (a hit *within* 100ms of what?). Now
+     "a hit counts within 100 ms".
+  5. Copy: drums Today still said "once there is one to show", which stopped being true the
+     moment the same slice gave it a CTA.
+  6. `e2e/improve-triad-sequence.spec.ts` and `e2e/m4-acceptance-dashboard-sections.spec.ts`
+     red since `feb0b9c` — they addressed the technique tempo chart by an accessible name that
+     commit changed. Nothing caught it because `verify` has no e2e step (that is `T.18`, still
+     open). Fixed in its own commit, `34d0b88`.
+- **docs budget (ROADMAP+CLAUDE+PROCESS lines):** 1410 — `npm run docs:budget` green.
+- **cost note:** the largest single line item bought nothing. The interactive Browser pane never
+  composited, so I spent a long stretch measuring the tool instead of the app: a frame counter
+  proving rAF was frozen (0 frames in 2000ms), a `requestAnimationFrame`→`setTimeout` shim to
+  drive the run at all, a phantom light-theme token bug that turned out to be the pane's stale
+  computed-style cache (`.drum-pad` reporting the dark `rgb(35,39,47)` while a freshly created
+  element with the same class computed the light `rgb(253,252,249)`), and a CSSOM walk that
+  returned `[]` because CSS nesting hides plain rules under `cssRules`. Then one
+  `visual-pass.mjs` invocation found three real defects in about forty seconds.
+- **hypothesis:** the weakest part of the process is that **the experience gate's visual step is
+  the only step with no artefact.** `verify` checks conflict markers, CSS, the docs budget, the
+  improve log, types, lint and 4783 tests; "visual pass against `DESIGN.md`, both widths, both
+  themes" has been a sentence since 2026-08-08. And the sentence was not even the weak part —
+  `docs/PROCESS.md` step 3 *already* said, in as many words, that when the pane will not
+  composite you go straight to `visual-pass.mjs` rather than troubleshooting the pane. I walked
+  past a rule that was already correct, and nothing could notice. Prose that is right and prose
+  that is wrong fail identically when nothing reads it.
+- **change:** the visual pass now leaves evidence, and the commit reads it. A clean
+  `visual-pass.mjs` run writes `visual-pass/receipt.json` stamped with a SHA-256 content hash of
+  the visual surface — every `src/app/**/*.tsx` that is not a test, plus every
+  `src/design-system/**/*.css` (`scripts/visual-surface.mjs` owns that definition so the writer
+  and the reader cannot drift). Narrow on purpose and knowingly incomplete: a `.ts` module that
+  holds visible copy — `padLabels.ts` names every pad on screen — falls outside it, because
+  widening to every `.ts` under `src/app` would demand a pass for a store change and the gate
+  would be routinely skipped inside a week. `scripts/check-visual-pass.mjs` runs first in
+  `.githooks/pre-commit`
+  and fails any commit that stages a surface file without a matching receipt. Content hash, not
+  mtimes: a checkout or a rebase rewrites mtimes without changing a pixel, and a gate that fired
+  on those would teach the session to route around it. A run that found problems writes no
+  receipt, and the previous receipt is deleted before each run, so it can never outlive its
+  evidence. The escape hatch is `VISUAL_PASS_SKIP="<reason>"`, deliberately auditable, because
+  the alternative a blocked session actually reaches for is `--no-verify`, which skips typecheck,
+  lint and the core suite too.
+  **A/B'd with real data**, four arms, not asserted: with a CSS edit staged and no receipt →
+  exit 1 naming the file and the command; after `visual-pass.mjs Groove` on that same tree →
+  exit 0, "visual-pass receipt: Groove"; one further edit to a component after the pass → exit 1,
+  "receipt is stale: it covers a different tree"; and `VISUAL_PASS_SKIP` → exit 0 printing the
+  reason. Fifteen tests in `scripts/check-visual-pass.test.mjs` pin those arms plus the silent
+  case (a commit touching no screen says nothing at all), a corrupt receipt, and the surface
+  definition itself.
+  **Review by 2026-10-05 (or 4 sessions):** keep if it fires at least once on a commit that
+  would otherwise have shipped a screen nobody looked at; revert if `VISUAL_PASS_SKIP` becomes
+  routine — a skip used more than once in a session means the surface definition is wrong, not
+  that the session is.
+- **experiment verdicts due:** none. No `/improve-app` run this session, so the BLOCKER-count
+  ratchet (review-by 2026-10-05 or 4 runs) has still not met a live run, and the innovation quota
+  remains at 2 of its 4. Nearest calendar review-by is 2026-08-29 (measure-before-you-brief).
+
+---
+
 ## 2026-08-21 (third session) — `/improve-app` DR-09: the second consecutive abort, and the fix round that made it worse
 
 - **user-reported defects since last session:** 0

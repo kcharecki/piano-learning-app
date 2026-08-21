@@ -67,6 +67,10 @@ over a dozen "tests green, feature dead in the browser" defects. The browser dri
    `document.hidden` reads true) — go straight to `visual-pass.mjs` for the screenshots and a
    driven Playwright e2e spec for the interaction proof, rather than troubleshooting the pane.
    It is a real Playwright browser and does not share the pane's compositing dependency.
+   A clean run stamps `visual-pass/receipt.json` with a content hash of every component and
+   stylesheet, and `.githooks/pre-commit` refuses a commit that stages one of those without a
+   matching receipt — so this step is a gate, not a checklist line. Auditable escape:
+   `VISUAL_PASS_SKIP="<reason>"`, never `--no-verify`.
 4. **Console clean** during the proof drive — no errors, no React warnings.
 5. **States handled** — empty, loading, error, and no-MIDI each handled or explicitly N/A.
 6. **No perf regression** — `e2e/perf-large-score.spec.ts` budgets still green when the slice

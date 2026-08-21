@@ -4,6 +4,11 @@
 # fails, fix the code, do not route around it.
 set -e
 
+# First, because it is the cheapest and the one a session is most likely to
+# have skipped. Silent unless the commit stages a component or a stylesheet.
+echo "pre-commit: visual pass receipt"
+npm run --silent check:visual
+
 echo "pre-commit: typecheck"
 npm run --silent typecheck
 

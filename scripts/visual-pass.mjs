@@ -40,9 +40,17 @@
  *
  * Exits 1 if any console/page error was seen, so "console clean" is a check
  * rather than a claim. Requires `npm run dev` to be running.
+ *
+ * A clean pass leaves `<out>/receipt.json` behind, stamped with a content hash
+ * of the visual surface (`scripts/visual-surface.mjs`). `.githooks/pre-commit`
+ * reads it, so "visual pass at both widths and both themes" is a gate a commit
+ * has to satisfy rather than a line in a checklist. A run that found problems
+ * writes NO receipt — and the stale one from the previous run is removed
+ * before this one starts, so the receipt can never outlive its own evidence.
  */
 import { chromium } from '@playwright/test'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { surfaceHash } from './visual-surface.mjs'
 
 /**
  * The layout audit — the one defect class the screenshots kept catching that
@@ -148,6 +156,8 @@ if (opts.destination === undefined) {
 }
 
 mkdirSync(opts.out, { recursive: true })
+const receiptPath = `${opts.out}/receipt.json`
+rmSync(receiptPath, { force: true })
 const slug = opts.destination.toLowerCase().replace(/[^a-z0-9]+/g, '-')
 const problems = []
 const browser = await chromium.launch()
@@ -233,7 +243,17 @@ for (const theme of THEMES) {
 await browser.close()
 
 if (problems.length === 0) {
+  const receipt = {
+    destination: opts.destination,
+    at: new Date().toISOString(),
+    widths: WIDTHS,
+    themes: THEMES,
+    surfaceHash: surfaceHash(process.cwd()),
+  }
+  writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}
+`)
   console.log('console clean in all four configurations')
+  console.log(`wrote ${receiptPath}`)
   process.exit(0)
 }
 console.error(`\n${problems.length} console/page problems:`)

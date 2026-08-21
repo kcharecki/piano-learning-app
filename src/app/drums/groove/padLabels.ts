@@ -20,7 +20,7 @@
  * below it, and it is one ordering rather than two: a second, screen-only pad
  * order would be a thing to keep in sync for no musical reason.
  */
-import { MAPPED_PADS, padOrderIndex, type DrumPad, type MappedDrumPad } from '@core/drums/model/pad.ts'
+import { padOrderIndex, type DrumPad, type MappedDrumPad } from '@core/drums/model/pad.ts'
 
 export const GROOVE_PAD_LABEL: Readonly<Record<DrumPad, string>> = {
   kick: 'Kick',
@@ -53,10 +53,6 @@ export const GROOVE_PAD_KEY: Partial<Readonly<Record<MappedDrumPad, string>>> = 
 /** How a key reads on screen. */
 export function keyLabel(key: string): string {
   return key === ' ' ? 'Space' : key.toUpperCase()
-}
-
-export function allMappedPads(): readonly MappedDrumPad[] {
-  return MAPPED_PADS
 }
 
 /** Sort `pads` into trainer display order — see the module comment. */
