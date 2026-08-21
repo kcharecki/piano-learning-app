@@ -515,13 +515,71 @@ purpose is reading and playing.
       route until reload, and one who reloads straight into Practice without revisiting Settings
       gets Web Audio until they do (Settings reconnects on mount, same pattern `useMidiConnection`
       already uses for the input side).*
-- [ ] U.3 `core/rhythm`: no per-tap early/late feedback, and no manual Stop. Neither
+- [x] U.3 `core/rhythm`: no per-tap early/late feedback, and no manual Stop. Neither
       `useRhythmDrill` nor `useClapbackDrill` classifies a tap in real time — both produce one
       batch grade at run end — so UI-14 shipped a generic hit flash and deliberately refused to
       add real-time onset matching to correctness-critical timing code. Wiring `engine.stop()`
       naively would fire the run-ended path mid-pattern and grade every unplayed onset as
       missed. This is a **core task with property tests**, not a UI task.
-      *Proof: property tests over the tap classifier, then the pad shows early/late/hit per tap.*
+      *Proof: new pure module `core/rhythm/tapClassifier.ts` — a FIFO-cursor live classifier
+      (deliberately not the batch graders' global-nearest matching; see the module doc for why
+      a live single-tap classifier needs strictly monotonic attribution) — 15 tests incl.
+      `fast-check` property tests: every tap classified against exactly one onset or rejected,
+      hit window symmetric, monotonic taps never reclaim an earlier onset, and classification
+      agrees with `gradeTapping` on a clean run. `closeExpiredOnsets(onsetTicks, state, atTick,
+      opts)` settles which onsets have a decided verdict as of `atTick` — an onset is decided
+      once `onsetTick + effectiveToleranceTicks < atTick` (strict: a tap arriving exactly on
+      that boundary tick is still claimable) — leaving future onsets pending — property-tested:
+      stop never marks a future onset missed. Stop re-grades the decided prefix with the *same*
+      batch grader (`gradeTapping`/`gradeClapback`) the natural end-of-run path uses, not the
+      live classifier's own running tally, so a Stop and a natural finish at the same point
+      always agree; stopping once every onset satisfies that same strict inequality now
+      produces exactly the natural run-ended grade by construction, not by coincidence.
+      `effectiveToleranceTicks` clamps the live tolerance (and, roadmap U.3 fix round 2, the
+      derived hit-window band, always exactly 1/3 of it — a prior bug left the hit window
+      keyed off the *unclamped* tolerance, so at complexity 5 the hit window was 81% of the
+      matching tolerance instead of the intended ~33%, making early/late verdicts nearly
+      unreachable) to at most half the pattern's own minimum onset gap. For `gradeTapping`
+      (the sight-tap drill), which always matches against the pattern's own raw onset grid
+      exactly like the live classifier does, this guarantees the live per-tap verdict and the
+      end-of-run/Stop summary can never disagree about which onset a tap belongs to. This does
+      **not** extend to `gradeClapback` (the clap-back drill) once it fits a non-1 tempo scale
+      (`fitTempoScale`): a tempo-fitted batch grade matches taps against a *scaled* onset grid
+      while the live classifier always matches against the raw one, so the two can legitimately
+      disagree on the same run (measured: live 43% vs. a tempo-fitted batch grade of 100% at
+      `tempoScale` 1.1199) — known and accepted for clap-back this round; the live verdict there
+      is a rehearsal-time hint, not a promise the summary will match it. The clamp also
+      tightens the sight-tap drill's own matching tolerance at higher complexities — 150ms
+      unclamped down to ~124ms at complexity 3-4 and ~61.5ms at complexity 5 — so practice-log
+      accuracies recorded before and after this fix round are not directly comparable at those
+      complexities.
+      Stop has three outcomes: `aborted` (nothing
+      decided yet — no grade, nothing logged), `partial` (some onsets decided — graded and
+      shown, but purely informational), and `natural` (the run finished on its own). Only
+      `natural` ever logs accuracy to the practice log or adapts an ear-training level —
+      `aborted` and `partial` never do, closing the gap where a learner could game the adaptive
+      level or the practice log by stopping early on a run that was going badly. A stopped
+      clap-back run keeps the same tempo-scale fitting (`fitTempoScale`) the natural grade
+      uses; Stop never hardcodes `tempoScale: 1`. Wired into both drill hooks (`lastTapVerdict`,
+      `stop`) and both screens (`RhythmScreen.tsx`/`RhythmClapback.tsx`): a per-tap flash now
+      shows hit/early/late/extra using the app's existing `--fb-*` tokens and their own
+      documented glyphs (✓/‹/›/+ — no new vocabulary), and a Stop control next to the tap pad
+      calls the safe path. `npx vitest run src/core/rhythm src/app/rhythm` and `npm run verify`
+      both green (4156/4156). Driven via `e2e/rhythm-live-feedback.spec.ts` (2 new specs, run
+      3x clean against a real dev server): a tap exactly on onset 0 shows 'hit'; a tap shifted
+      +90/-130ms off whichever mark is structurally guaranteed to be onset 1 shows 'late'/
+      'early'; and, for both drills, a Stop at a controlled mid-pattern checkpoint leaves
+      `missed` far below what the identical run graded naturally end-to-end — proving Stop never
+      grades the unplayed remainder. Visual pass (both widths, both themes, dark+light) on the
+      idle, tapping (both drills) and completed states: console clean but for the pre-existing
+      headless-only `[createWebMidi] requestMIDIAccess` warning, unrelated to this change.
+      Ambiguities, not resolved silently: (1) the live classifier's FIFO matching is a
+      deliberate departure from the batch graders' global-nearest matching, justified in
+      `tapClassifier.ts`'s own module doc; (2) `useClapbackDrill.ts`'s manual Stop always
+      reports `tempoScale: 1` rather than running `fitTempoScale`, because that fit needs the
+      complete tap list a mid-run Stop does not have; (3) the clap-back Stop control is rendered
+      only during the `'tapping'` phase, not `'listening'` (nothing to grade yet) — a reasonable
+      scope boundary the brief did not specify explicitly.
 ### Proposed by UI-24's final pass — measured, none of it done
 
 Rule 2 (~6 visible controls before disclosure) is missed on three screens. UI-24 settled
