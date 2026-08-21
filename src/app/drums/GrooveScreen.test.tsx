@@ -314,6 +314,6 @@ describe('GrooveScreen', () => {
 
     expect(screen.getByRole('region', { name: 'Result' })).toBeInTheDocument()
     expect(screen.getByText('Steady run')).toBeInTheDocument()
-    expect(screen.queryByText(/try it slower/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /try it at d+ bpm/i })).not.toBeInTheDocument()
   })
 })

@@ -468,17 +468,22 @@ export function GrooveScreen(props: GrooveScreenProps) {
               numbers it explains, every time those numbers are on screen. */}
           <p className="groove-key-hint groove-timing-caveat">{TIMING_CAVEAT}</p>
           {!drill.performance.steady && (
-            <p className="groove-last-run groove-slow-down">
-              Try it slower —{' '}
+            /* A sentence and then a button, never a button wedged inside a
+               sentence: the advice has to read as advice even if the control
+               is never pressed, and a mid-sentence control wraps badly at
+               375px. The tempo is the first thing a teacher changes. */
+            <div className="groove-slow-down">
+              <p className="groove-last-run">
+                An uneven pulse is a tempo problem before it is anything else.
+              </p>
               <button
                 type="button"
                 className="btn-ghost groove-slow-down-btn"
                 onClick={() => drill.setBpm(slowerBpm(drill.bpm))}
               >
-                {slowerBpm(drill.bpm)} bpm
+                Try it at {slowerBpm(drill.bpm)} bpm
               </button>
-              ?
-            </p>
+            </div>
           )}
         </section>
       )}

@@ -211,3 +211,15 @@
     font-size: var(--text-xs);
   }
 }
+
+/* The advice under a not-steady verdict: a sentence, then the control that
+   acts on it. Stacked rather than inline so the button never wraps into the
+   middle of the sentence at 375px. */
+.groove-slow-down {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.groove-slow-down p { margin: 0; }

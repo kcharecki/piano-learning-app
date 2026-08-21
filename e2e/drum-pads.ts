@@ -34,11 +34,14 @@ import type { Page } from '@playwright/test'
  */
 
 /** The three pads this driver can hit, keyed the way a spec wants to read. */
-export type DrumPadKey = 'hihat' | 'snare' | 'kick'
+export type DrumPadKey = 'hihat' | 'openhat' | 'snare' | 'kick'
 
 /** Accessible names of the pad buttons, as rendered by the Groove screen. */
 const PAD_LABEL: Readonly<Record<DrumPadKey, string>> = {
   hihat: 'Hi-hat',
+  // Its own pad, not a mode of the closed hat: the grader times every pad
+  // separately, so a groove that opens the hat has four rows, not three.
+  openhat: 'Open hi-hat',
   snare: 'Snare',
   kick: 'Kick',
 }
