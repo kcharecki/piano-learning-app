@@ -16,6 +16,69 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
+## 2026-08-21 (third session) — `/improve-app` DR-09: the second consecutive abort, and the fix round that made it worse
+
+- **user-reported defects since last session:** 0
+- **slices proven / started:** 0 / 1. Run 2026-08-21-1 picked DR-09 (a drums groove trainer),
+  built it, fixed it twice, and reverted it. Four implementation commits gone at `a9e87a8`; both
+  spec commits kept, deliberately RED, as `T.17`. Full record: `docs/improve-log.md`.
+- **gate catches before commit:** 5.
+  1. `npm run verify` red on lint after the revert — 43 errors / 77 warnings, every one in panel-seat
+     scratch `.ts` under `runs/2026-08-21-1/rival3/`. `.gitignore` has `runs/*/`; `eslint.config.js`
+     did not. Fixed by adding it to the ignores, not by deleting the scratch — three seats' reports
+     cite those paths as evidence.
+  2. `tsc -b --noEmit` after stripping the drums rows out of `persistedShapes.ts`:
+     `persistedShapes.test.ts` still imported the removed validators, and `isFiniteNumber` went
+     unused (TS6133). Its ear-training coverage had already moved to `persistedEarShapes.test.ts`
+     during the same refactor, so the file was `git rm`'d rather than patched.
+  3. `check-improve-log.mjs` on the metric field. A/B'd: with the run's declared
+     `PersistedDrumsHistory.attempts` it exits 1 — "does not name a field declared in
+     `src/app/state/persistedShapes.ts` or `src/core/progress/export.ts`" — because the revert took
+     the type with it. That is the checker doing its job and also showing its hole: it cannot say
+     "the type this metric named was reverted", so the only accepted spelling is the bare
+     `attempts`, which resolves through a *different feature's* type. The entry says so in full.
+  4. Independently re-running the claim spec at HEAD on an isolated port instead of trusting a
+     seat's report: `E2E_PORT=5392 npx playwright test e2e/improve-DR-09.spec.ts` → 3 failed,
+     1 passed, exit 1. That single command is what turned "re-panel round 3" into ABORT.
+  5. Earlier in the run, the RED-at-spec-commit check reported "4 passed" at a commit where the
+     screen did not exist — `playwright.config.ts` defaults to 5173 with
+     `reuseExistingServer: !process.env.CI`, and a stale dev server was answering there.
+- **docs budget (ROADMAP+CLAUDE+PROCESS lines):** 1357 — `npm run docs:budget` green, though
+  `docs/commands/improve-app.md` needed real compression (four paragraphs) to fit this session's
+  three new lines under its own 200-line cap.
+- **cost note:** 214% of a 240-minute budget, and the overrun bought nothing. Round 2's fix
+  (`5f972a8`) closed four BLOCKERs and **created five of the eight** that killed the run at round 3
+  — one of them re-opening the round-1 skeptic's window BLOCKER that round 2 had closed. The
+  session's second-largest cost was verifying each round-3 finding against the source before
+  accepting it, which was worth it: it is how the nine reported BLOCKERs resolved to eight distinct
+  faults with the authorship of each established.
+- **hypothesis:** the weakest part of the process is that **nothing stops a fix loop that is
+  diverging.** Every gate in `improve-run.mjs` is a floor — did the panel run, did the spec go red,
+  is the seat sweep complete — and none of them reads the *trend*. This run's BLOCKER totals went
+  5 → 6 → 9 and it kept going, because "re-panel up to the tier's cap" is written as a budget, so
+  three rounds reads as three chances rather than as three pieces of evidence. The previous run
+  went 3 → 6 and also aborted. Two runs, same shape, both times a human called it. A number that
+  rises across rounds is a stop condition, not a mood.
+- **change:** `improve-run.mjs` now carries a **BLOCKER-count ratchet**. `blockerRatchet()` sums
+  BLOCKERs per panel round per run; if any round returns as many as the round before it, `panel`
+  says so on the event that raised it ("RATCHET: … the count did not fall … this run can now only
+  finish as `abort`"), `status` previews it, and `finish` refuses `clean` and `shipped-not-clean`
+  while still allowing `abort`. Deliberately one-directional: an incomplete round sums fewer seats
+  and therefore looks like a fall, so the rule is only ever asserted on a count that **rose**.
+  **A/B'd against this run's own ledger**, not asserted: with the `finish` event stripped,
+  `finish --outcome shipped-not-clean` exits 1 naming round 2 (6 across 3 seats) against round 1
+  (5 across 4) — so it would have ended the run one whole round earlier, before the fix that
+  created five faults was ever written. With every panel event's count rewritten to fall (8 → 3 →
+  0), the same ledger reports "gates that would currently fail: none". Five tests in
+  `scripts/improve-run.test.mjs` pin both arms plus the round-1-only case, the incomplete-round
+  case, and per-run scoping.
+  **Review by 2026-10-05 (or 4 `/improve-app` runs):** keep if it fires once on a run a human
+  would otherwise have let continue; revert if it fires on a run that was genuinely converging and
+  a seat simply found a new class of thing late, which is the failure mode a count cannot see.
+- **experiment verdicts due:** none. The innovation quota (review-by 2026-09-05 / 4 runs) has now
+  seen 2 of its 4 real picks — both aborted, neither on quota grounds, so there is still nothing to
+  keep or revert. Nearest calendar review-by is 2026-08-29 (measure-before-you-brief).
+
 ## 2026-08-21 (second session) — Triage emptied; the roadmap has no open box left
 
 - **user-reported defects since last session:** 0

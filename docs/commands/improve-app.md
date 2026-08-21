@@ -6,18 +6,18 @@ from evidence, and holds the result to a bar above "done".
 **Read now:** this file, then `docs/improve/method.md` — classes, axes, ranking, severity,
 personas, the register. That is the whole up-front load. **Read when you reach it:** `ROADMAP.md`
 at §2 and not before, `docs/efficiency-guide.md` Appendix A at §4, `docs/panel/*` at §5,
-`docs/PROCESS.md` at §3 and §7 (it carries `docs/DESIGN.md`'s screen rules), `retro-log.md` at §8. Front-loading the rest
-is how a run spends its budget reading. `docs/PROCESS.md` applies in full and is not restated —
-its experience gate is the **floor**, not the target.
+`docs/PROCESS.md` at §3 and §7 (it carries `docs/DESIGN.md`'s screen rules), `retro-log.md` at §8.
+Front-loading the rest is how a run spends its budget reading. `docs/PROCESS.md` applies in full
+and is not restated — its experience gate is the **floor**, not the target.
 
-**Main checkout only.** This command writes `ROADMAP.md`'s Triage section and
-`docs/retro-log.md`, which `docs/WORKTREES.md` forbids to worktree sessions. `/next`'s step 0
-routes a refused claim into a worktree; **this command stops and reports instead.**
+**Main checkout only.** It writes `ROADMAP.md`'s Triage and `docs/retro-log.md`, which
+`docs/WORKTREES.md` forbids to worktree sessions. `/next`'s step 0 routes a refused claim into a
+worktree; **this command stops and reports instead.**
 
-**Great means**, for a run: the slice names one metric in the learner's persisted history with
-its pre-ship baseline (`0 events, newly instrumented` is valid); the refutation condition ran and
-did **not** refute the claim; at M+ the Teacher endorses it against a cited syllabus. That
-metric's verdict is due at the **next** run — no run observes its own effect on human playing.
+**Great means**, for a run: the slice names one metric in the learner's persisted history with its
+pre-ship baseline (`0 events, newly instrumented` is valid); the refutation condition ran and did
+**not** refute the claim; at M+ the Teacher endorses it against a cited syllabus. That metric's
+verdict is due at the **next** run — no run observes its own effect on human playing.
 
 ## The loop
 
@@ -27,8 +27,8 @@ mark <section>` on entering each section; that is what the budget stops read.
 **Five rules no script can check, and the process is worth nothing if you fake them:** the 1a
 answer is the learner's real words, the §1c drive happened, the panel seats were real agents given
 the real templates, a citation's quote is genuine, and a severity is graded against the rubric
-rather than against how hard the fix looks. Every other gate is scripted so attention is free
-for these five.
+rather than against how hard the fix looks. Every other gate is scripted so attention is free for
+these five.
 
 ### 0. START
 
@@ -42,15 +42,13 @@ node scripts/worktrees.mjs claim main-checkout      # refused → stop and repor
 node scripts/improve-run.mjs start                  # → run id, persona, instrument, prev source
 ```
 
-`start` refuses a dirty tree, a worktree, and a previous run with no metric verdict. It stamps
-the start commit and a 240-minute budget (every percentage below is of that), creates
-`runs/<id>/`, and advances the persona rotation once — it **alternates piano and drums**, and the
-persona's instrument **binds this run's pick** (method doc, rule 3). `runs/<id>/` is git-ignored
-scratch, `runs/ledger.ndjson` committed; without that split run 2's `start` sees a dirty tree.
+`start` refuses a dirty tree, a worktree, and a previous run with no metric verdict. It stamps the
+start commit and a 240-minute budget (every percentage below is of that), creates `runs/<id>/`, and
+advances the persona rotation — **piano and drums alternate** and the persona's instrument **binds
+this run's pick**. `runs/<id>/` is git-ignored scratch, `runs/ledger.ndjson` committed.
 
 ### 1. DISCOVER — five sources. **Do not open `ROADMAP.md` yet.** Cap: 25% of budget
 
-The roadmap records what somebody already noticed; this finds what nobody has.
 `docs/improve-log.md`'s **idea** and **cannot-sense** registers are sources too (`--source idea|reg`).
 
 | | Source | How |
@@ -76,10 +74,10 @@ node scripts/improve-run.mjs pick --source <1a-1e|reg|idea> --instrument <piano|
 `--instrument` must match the persona or `pick` refuses; 1b and 1e are repo-wide and the top row
 is usually piano, without which the alternation is decorative. `--harm 1` and `--class HARMFUL`
 must agree; `VOID` forces tier L; one `pick` per run. `pick` enforces, in order: **harm gate**,
-**prerequisites win**, **innovation quota**, **continue-then-rotate**, refusing the call that
-breaks them. The **quota** — no instrument goes three consecutive runs of its own without a
-`VOID`, `THIN`, `reg` or `idea` pick — outranks the thread rule, because the other two overrides
-can only ever be won by a repair. A thread the quota defers waits one run of its own, cap frozen.
+**prerequisites win**, **innovation quota**, **continue-then-rotate**. The **quota** — no
+instrument goes three consecutive runs of its own without a `VOID`, `THIN`, `reg` or `idea` pick —
+outranks the thread rule, since the other two overrides can only be won by a repair. A thread the
+quota defers waits one run of its own, cap frozen.
 
 | Tier | Set by | Panel | Adds |
 |---|---|---|---|
@@ -88,26 +86,25 @@ can only ever be won by a repair. A thread the quota defers waits one run of its
 | **L** | cost L, HARMFUL, or VOID | + Rival, 3 re-panels | second and third drive (here, not §1), held-out goal |
 
 **Budget stops**, enforced by `mark`: no `slice` by 40% → **shed the tier's added obligations**
-(extra drives, extra panel rounds), keeping the same gap; none by 60% → ABORT. **The held-out
-goal is never shed** — the only test that a new capability *generalises*, and VOID forces L, so
-shedding it strips the proof from the picks needing it most. Nor is shedding a trade-down.
+(extra drives, extra panel rounds), keeping the same gap; none by 60% → ABORT. **The held-out goal
+is never shed** — the only test that new capability *generalises*, and VOID forces L, so shedding
+it strips the proof from the picks needing it most. Nor is shedding a trade-down.
 
-*Now* cross-check `ROADMAP.md` — already a task → take its id; contradicts one → resolve it
-there. Then `node scripts/worktrees.mjs claim <id>`, the **bare** id (or `improve-<slug>`), never
-`task/<id>` — the script adds that prefix, and passing it defeats the collision guard that stops
-two sessions claiming the same work.
+*Now* cross-check `ROADMAP.md` — already a task → take its id; contradicts one → resolve it there.
+Then `node scripts/worktrees.mjs claim <id>`, the **bare** id (or `improve-<slug>`), never
+`task/<id>` — the script adds that prefix, and passing it defeats the collision guard.
 
 ### 3. DESIGN, then commit the claim before the code
 
 M and L: three materially different designs, the axis they trade on, two killed in writing.
 Floor: one design and the named alternative it beat. L runs its extra drives here. Then:
 
-> After this ships, a learner who **\<state\>** will be able to **\<do what\>**, and we will
-> know because **\<observable in the running app\>**.
+> After this ships, a learner who **\<state\>** will be able to **\<do what\>**, and we will know
+> because **\<observable in the running app\>**.
 
-State the **refutation condition** with it — the observation that would prove it false; the
-Skeptic runs it at §5. Name the §1b metric and record its pre-ship baseline. "A test passes" is
-not an observable, nor is "a hint appears" — `check-improve-log.mjs` rejects both.
+State the **refutation condition** with it — the observation that would prove it false; the Skeptic
+runs it at §5. Name the §1b metric and its pre-ship baseline. "A test passes" is not an observable,
+nor is "a hint appears" — `check-improve-log.mjs` rejects both.
 
 Write `e2e/improve-<id>.spec.ts` asserting the observable, run it **RED**, commit it alone:
 
@@ -115,22 +112,22 @@ Write `e2e/improve-<id>.spec.ts` asserting the observable, run it **RED**, commi
 node scripts/improve-run.mjs spec --id <id> --red-exit <code>
 ```
 
-It refuses a spec commit that touches anything else, and refuses a spec that was never red.
-Three sentences of screen design per `docs/PROCESS.md`, and what the screen demotes.
+It refuses a spec commit touching anything else, and one that was never red. Three sentences of
+screen design per `docs/PROCESS.md`, and what the screen demotes.
 
 ### 4. BUILD
 
 Vertical slice; module work to Sonnet builders with the pasted brief (`docs/efficiency-guide.md`
 Appendix A); main thread owns integration and `verify`. **Exactly one gap, taken all the way, in
-exactly one implementation commit** — `improve-run.mjs slice --sha <sha>` takes one sha and
-refuses a second, so a slice that wants five commits wants two gaps. A second build attempt with
-no green committed slice → ABORT.
+exactly one implementation commit** — `slice --sha` takes one sha and refuses a second, so a slice
+wanting five commits wants two gaps. A second build attempt with no green committed slice → ABORT.
 
 ### 5. PANEL — parallel, prompts rendered from `docs/panel/`, never rewritten
 
 Verbatim output to `runs/<id>/panel-rN-<role>.md`; the orchestrator may append a named refutation
 under a reviewer's text but may not edit a severity. `panel --round n --role r --file <path>
---blockers/--majors/--minors <n>` hashes `docs/panel/<role>.md` and refuses a drifted round 2.
+--blockers/--majors/--minors <n>` hashes `docs/panel/<role>.md` and refuses a drifted round 2, and
+reports the BLOCKER-count ratchet below.
 
 | Seat | From | Model | Duty |
 |---|---|---|---|
@@ -153,14 +150,17 @@ earlier repros, attacks the fix diff, and is void if it makes no attempt an earl
 At the cap it is **not** a pass: each unresolved MAJOR becomes a `T.<n>` in `ROADMAP.md`'s
 Triage, the roadmap box stays `[~]` naming those ids, outcome logged `shipped-not-clean`.
 
+**The BLOCKER count must fall every round.** A round returning as many as the one before it means
+the fixing is creating faults faster than it closes them; `finish` then refuses every outcome but
+`abort`. Do not start the next fix round.
+
 **An unfixed BLOCKER cannot ship** — not as `shipped-not-clean`, not deferred to a `T.<n>`. It
-exits through ABORT, as does a refuted claim. Shipping a slice whose own claim was disproved is
-the one outcome this command never permits.
+exits through ABORT, as does a refuted claim. Shipping a slice whose own claim was disproved is the one outcome this command never permits.
 
 ### 7. PROVE
 
-1. `e2e/improve-<id>.spec.ts` **RED at the spec commit, GREEN on HEAD**, both exit codes pasted.
-   That proves the gap closed; `visual-pass` only proves the screen is not broken.
+1. `e2e/improve-<id>.spec.ts` **RED at the spec commit, GREEN on HEAD**, both exit codes pasted on
+   an explicit unique `E2E_PORT` — a stale server on 5173 grades the wrong tree and reports a pass.
 2. The refutation condition, run, with its result.
 3. **L**: the held-out goal — a second goal in the same skill, written *before* the build, driven
    once, unaided. Never shed; an L slice that cannot afford it aborts.
@@ -173,16 +173,16 @@ the one outcome this command never permits.
 Append the run to `docs/improve-log.md` in the schema that file documents and
 `check-improve-log.mjs` enforces inside `verify`. It includes **the verdict on the previous run's
 metric** — the point of the whole ledger — and the pick's **Class**, without which the log cannot
-say whether ten runs in a row were all repairs. Then:
+say whether ten runs running were all repairs. Then:
 
 ```bash
 node scripts/improve-run.mjs verdict --value <n>|--none
 node scripts/improve-run.mjs finish --outcome <clean|shipped-not-clean|abort> [--clean-round <n>]
 ```
 
-`finish` refuses without the marks, the verdict, the spec, the slice, and a full seat sweep at
-the declared clean round. Then the `docs/PROCESS.md` retro in `docs/retro-log.md`, then release
-every claim taken at §0 and §2:
+`finish` refuses without the marks, the verdict, the spec, the slice, a full seat sweep at the
+declared clean round, and a falling BLOCKER count. Then the `docs/PROCESS.md` retro in
+`docs/retro-log.md`, then release every claim taken at §0 and §2:
 
 ```bash
 node scripts/worktrees.mjs release <id>
@@ -191,9 +191,9 @@ node scripts/worktrees.mjs release main-checkout
 
 ### ABORT — a valid, successful outcome
 
-No qualifying gap, a build blocked past a budget stop, an unfixed BLOCKER, or a refuted claim:
-revert the implementation commits, **keep the spec commit** — the run's one durable artefact, a
-failing test naming what the app still cannot do. File the blocker as a `T.<n>`, run §8 with
-`--outcome abort` and a `### Proof` section evidencing it, release the claims, end.
+No qualifying gap, a budget stop, an unfixed BLOCKER, a ratchet, or a refuted claim: revert the
+implementation commits, **keep the spec commit** — the run's one durable artefact, a failing test
+naming what the app still cannot do. File the blocker as a `T.<n>`, run §8 with `--outcome abort`
+and a `### Proof` section evidencing it, release the claims, end.
 
 A run that ships nothing and says why is a pass. Downgrading to a cosmetic gap to report success is not.

@@ -403,6 +403,44 @@ const tierForRun = (events, runId) => pickEventFor(events, runId)?.tier
 const roundOnePanel = (events, runId, role) =>
   eventsForRun(events, runId).find((e) => e.event === 'panel' && e.round === 1 && e.role === role)
 
+/**
+ * BLOCKER counts per panel round for one run, oldest round first, plus the first round (if any)
+ * where the count failed to fall. A re-panel exists to check a fix; a round that comes back with
+ * as many BLOCKERs as the one before it is evidence the fixing is producing faults faster than it
+ * closes them, and the run has stopped converging. Run 2026-08-21-1 went 5 -> 6 -> 9 across three
+ * rounds and spent 214% of its budget before a human called it: five of round 3's eight distinct
+ * faults were CREATED by the round-2 fix, one of them re-opening a BLOCKER round 2 had closed.
+ *
+ * Deliberately conservative in one direction: an incomplete round sums fewer seats and so looks
+ * like a fall, which lets it through. The rule is only ever asserted on a count that ROSE, never
+ * inferred from one that dropped.
+ */
+function blockerRatchet(events, runId) {
+  const byRound = new Map()
+  for (const e of eventsForRun(events, runId)) {
+    if (e.event !== 'panel' || !Number.isInteger(e.round)) continue
+    const row = byRound.get(e.round) ?? { round: e.round, blockers: 0, seats: 0 }
+    row.blockers += Number.isInteger(e.blockers) ? e.blockers : 0
+    row.seats += 1
+    byRound.set(e.round, row)
+  }
+  const rounds = [...byRound.values()].sort((a, b) => a.round - b.round)
+  let rising
+  for (let i = 1; i < rounds.length; i++) {
+    if (rounds[i].blockers >= rounds[i - 1].blockers) {
+      rising = { prev: rounds[i - 1], curr: rounds[i] }
+      break
+    }
+  }
+  return { rounds, rising }
+}
+
+/** The sentence both `panel` and `finish` print for a run whose BLOCKER count stopped falling. */
+const describeRatchet = ({ prev, curr }) =>
+  `round ${curr.round} reported ${curr.blockers} BLOCKER(s) across ${curr.seats} seat(s) and ` +
+  `round ${prev.round} reported ${prev.blockers} across ${prev.seats} — the count did not fall, ` +
+  `so the fixing is not converging`
+
 const sha256File = (path) => createHash('sha256').update(readFileSync(path)).digest('hex')
 
 // ---- git (injectable) -----------------------------------------------------------------------
@@ -884,9 +922,19 @@ const cmdPanel = runCommand((args, ctx) => {
     ctx.ledgerPath,
     buildEvent(ctx.now, run, 'panel', { round, role, templateSha, renderedSha, blockers, majors, minors }),
   )
-  return ok(
+  const lines = [
     `panel round ${round} (${role}) recorded, tier ${tier}, ${blockers} blocker(s)/${majors} major(s)/${minors} minor(s)`,
-  )
+  ]
+  // Said HERE, not only at `finish`: the point of the ratchet is to stop the NEXT fix round from
+  // being started, and by `finish` that budget is already spent.
+  const { rising } = blockerRatchet(loadLedger(ctx.ledgerPath), run)
+  if (rising) {
+    lines.push(
+      `RATCHET: ${describeRatchet(rising)}. This run can now only finish as \`abort\` — ` +
+        `revert the implementation commits, keep the spec commit, file the BLOCKERs as \`T.<n>\`.`,
+    )
+  }
+  return { exitCode: 0, stdout: lines, stderr: [] }
 })
 
 const cmdSlice = runCommand((args, ctx) => {
@@ -994,6 +1042,17 @@ const cmdFinish = runCommand((args, ctx) => {
 
   if (missing.length > 0) {
     throw new RuleViolation(`finish refused: run ${run} is missing ${missing.join(', ')}.`)
+  }
+
+  if (outcome !== 'abort') {
+    const { rising } = blockerRatchet(events, run)
+    if (rising) {
+      throw new RuleViolation(
+        `finish refused: --outcome ${outcome} is not available on a run whose BLOCKER count stopped ` +
+          `falling — ${describeRatchet(rising)}. Finish as \`abort\`: revert the implementation ` +
+          `commits, keep the spec commit, and file the BLOCKERs as \`T.<n>\` triage items.`,
+      )
+    }
   }
 
   if (outcome === 'clean') {
@@ -1228,6 +1287,10 @@ const cmdStatus = runCommand((args, ctx) => {
     }
   }
   if (need.length > 0) failing.push(`finish --outcome clean|shipped-not-clean would be refused: missing ${need.join(', ')}`)
+  const ratchet = blockerRatchet(events, run)
+  if (ratchet.rising) {
+    failing.push(`finish --outcome clean|shipped-not-clean would be refused: ${describeRatchet(ratchet.rising)}`)
+  }
 
   return {
     exitCode: 0,

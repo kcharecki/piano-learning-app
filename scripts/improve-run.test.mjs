@@ -560,6 +560,120 @@ describe('audit', () => {
   })
 })
 
+describe('blocker ratchet', () => {
+  /** Same shape as `finish`'s `fullySetUpRun`, but reusable from outside that describe block:
+   * mark 0, a Floor-tier pick, slice, verdict, spec and mark 8 — everything a non-abort `finish`
+   * needs EXCEPT the panel sweeps, which each test records at its own severities. */
+  function runReadyForPanels() {
+    const ledger = tempLedger()
+    const panelDir = panelFixtureDir()
+    const file = panelOutputFile()
+    const now = '2026-08-20T09:00:00.000Z'
+    const specId = 'DR-99'
+    const git = cleanGit({ headChangedPaths: () => [`e2e/improve-${specId}.spec.ts`] })
+
+    runCli(['start', '--ledger', ledger, '--now', now], { git })
+    runCli(['mark', '0', '--ledger', ledger, '--now', now], { git })
+    runCli(
+      ['pick', '--source', '1a', '--instrument', 'piano', '--sum', '5', '--cost', 'S', '--leader-gap', '9',
+        '--harm', '0', '--class', 'THIN', '--thread', 'none', '--metric', 'm', '--baseline', '1', '--ledger', ledger, '--now', now],
+      { git },
+    )
+    runCli(['slice', '--sha', 'abc123', '--ledger', ledger, '--now', now], { git })
+    runCli(['verdict', '--none', '--ledger', ledger, '--now', now], { git })
+    runCli(['spec', '--id', specId, '--red-exit', '1', '--ledger', ledger, '--now', now], { git })
+    runCli(['mark', '8', '--ledger', ledger, '--now', now], { git })
+
+    return { ledger, now, panelDir, file, git }
+  }
+
+  it('lets a converging run finish: round 2 with fewer BLOCKERs than round 1 is not a ratchet', () => {
+    const { ledger, now, panelDir, file, git } = runReadyForPanels()
+
+    floorPanelSweep(ledger, now, git, panelDir, file, 1, { blockers: 3 })
+    floorPanelSweep(ledger, now, git, panelDir, file, 2, { blockers: 0 })
+
+    expect(runCli(['status', '--ledger', ledger, '--now', now], { git }).stdout.join(' ')).not.toMatch(/did not fall/)
+    expectExit(
+      runCli(['finish', '--outcome', 'clean', '--clean-round', '2', '--ledger', ledger, '--now', now], { git }),
+      0,
+    )
+  })
+
+  it('refuses clean AND shipped-not-clean when the BLOCKER count did not fall, and still allows abort', () => {
+    const { ledger, now, panelDir, file, git } = runReadyForPanels()
+
+    // Round 1 totals 4 across two seats; round 2 totals 4 again — equal is enough, the count has
+    // to FALL. This is run 2026-08-21-1's shape (5 -> 6 -> 9) with the numbers made minimal.
+    floorPanelSweep(ledger, now, git, panelDir, file, 1, { blockers: 2 })
+    floorPanelSweep(ledger, now, git, panelDir, file, 2, { blockers: 2 })
+
+    const clean = runCli(['finish', '--outcome', 'clean', '--clean-round', '2', '--ledger', ledger, '--now', now], { git })
+    expectExit(clean, 1)
+    expect(clean.stderr.join(' ')).toMatch(/did not fall/)
+
+    const shipped = runCli(['finish', '--outcome', 'shipped-not-clean', '--ledger', ledger, '--now', now], { git })
+    expectExit(shipped, 1)
+    expect(shipped.stderr.join(' ')).toMatch(/did not fall/)
+
+    expectExit(runCli(['finish', '--outcome', 'abort', '--blocker', 'the fixing stopped converging', '--ledger', ledger, '--now', now], { git }), 0)
+  })
+
+  it('says so on the panel event that raised it, not only at finish', () => {
+    const { ledger, now, panelDir, file, git } = runReadyForPanels()
+
+    floorPanelSweep(ledger, now, git, panelDir, file, 1, { blockers: 1 })
+    expectExit(runPanel(ledger, now, git, { round: 2, role: 'skeptic', panelDir, file, blockers: 1 }), 0)
+    const second = runPanel(ledger, now, git, { round: 2, role: 'regression-hunter', panelDir, file, blockers: 1 })
+    expectExit(second, 0)
+    expect(second.stdout.join(' ')).toMatch(/RATCHET/)
+    expect(second.stdout.join(' ')).toMatch(/only finish as `abort`/)
+  })
+
+  it('does not fire on a round-1-only run, and treats a missing later round as no evidence', () => {
+    const { ledger, now, panelDir, file, git } = runReadyForPanels()
+
+    floorPanelSweep(ledger, now, git, panelDir, file, 1, { blockers: 5 })
+    expect(runCli(['status', '--ledger', ledger, '--now', now], { git }).stdout.join(' ')).not.toMatch(/did not fall/)
+
+    // One seat short of a full round 2, summing lower than round 1 purely because a seat is
+    // absent: the rule is deliberately one-directional and must NOT read that as convergence
+    // evidence either way — it simply does not fire.
+    expectExit(runPanel(ledger, now, git, { round: 2, role: 'skeptic', panelDir, file, blockers: 4 }), 0)
+    expect(runCli(['status', '--ledger', ledger, '--now', now], { git }).stdout.join(' ')).not.toMatch(/did not fall/)
+  })
+
+  it('scopes the comparison to one run — the rounds of an earlier run cannot ratchet a later one', () => {
+    const { ledger, now, panelDir, file, git } = runReadyForPanels()
+
+    floorPanelSweep(ledger, now, git, panelDir, file, 1, { blockers: 9 })
+    floorPanelSweep(ledger, now, git, panelDir, file, 2, { blockers: 9 })
+    expectExit(runCli(['finish', '--outcome', 'abort', '--blocker', 'x', '--ledger', ledger, '--now', now], { git }), 0)
+
+    const later = isoAt(now, 600)
+    const specId = 'DR-98'
+    const git2 = cleanGit({ headChangedPaths: () => [`e2e/improve-${specId}.spec.ts`] })
+    runCli(['start', '--ledger', ledger, '--now', later], { git: git2 })
+    runCli(['mark', '0', '--ledger', ledger, '--now', later], { git: git2 })
+    runCli(
+      ['pick', '--source', '1b', '--instrument', 'drums', '--sum', '5', '--cost', 'S', '--leader-gap', '9',
+        '--harm', '0', '--class', 'THIN', '--thread', 'none', '--metric', 'm', '--baseline', '1', '--ledger', ledger, '--now', later],
+      { git: git2 },
+    )
+    runCli(['slice', '--sha', 'abc123', '--ledger', ledger, '--now', later], { git: git2 })
+    runCli(['verdict', '--none', '--ledger', ledger, '--now', later], { git: git2 })
+    runCli(['spec', '--id', specId, '--red-exit', '1', '--ledger', ledger, '--now', later], { git: git2 })
+    runCli(['mark', '8', '--ledger', ledger, '--now', later], { git: git2 })
+    floorPanelSweep(ledger, later, git2, panelDir, file, 1, { blockers: 1 })
+    floorPanelSweep(ledger, later, git2, panelDir, file, 2, { blockers: 0 })
+
+    expectExit(
+      runCli(['finish', '--outcome', 'clean', '--clean-round', '2', '--ledger', ledger, '--now', later], { git: git2 }),
+      0,
+    )
+  })
+})
+
 describe('finish', () => {
   /** A run with every prerequisite `finish` (for a non-abort outcome) now needs EXCEPT
    * mark 8 and the panel sweep: mark 0, an S-cost/harm=0 (Floor tier) pick, a slice, a verdict,

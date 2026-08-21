@@ -99,6 +99,7 @@ declares unbuildable.
 | Posture, grip, hand shape | **PHYSICAL** — no sensor | None known. Re-file only if a camera or sensor enters scope | *(not yet disclosed)* |
 | Drum sticking / hand assignment | **PHYSICAL** — a pad hit does not report which hand made it | Alternation inferred from inter-onset intervals is the nearest proxy and is **not** admissible for grading; the honesty rule forbids a verdict on the inference | *(not yet disclosed)* |
 | Chord roll direction and spread | **OURS** — the note-ons carry real times and `MATCHER_DEFAULTS.chordWindowMs = 80` collapses everything inside the window into one onset, so whether a blocked triad was struck as one sound or rolled bottom-to-top is discarded before grading. Not a fact about MIDI | Keep the per-chord spread: the signed low-to-high span in ms is the proxy for blocked-vs-rolled, and it stands in if chords a teacher calls rolled show a larger span than the ones they call blocked | *(not yet disclosed)* |
+| Where the learner's own timing sits, once device latency is taken out | **OURS** — every instant this app grades has already been through a keyboard scan, a browser event queue and an audio output buffer, and none of that is measured, so a signed mean offset is the learner's placement plus an unknown constant. A drummer laying the snare back 25 ms and a rig 25 ms slow produce the same number | A calibration pass — one pad, one bar against the click, take the median offset as the rig's constant and report bias relative to it; it stands in if two rigs with known different output latency produce the same corrected bias for the same learner | *(not yet disclosed)* |
 
 **Not on this register**, and never admissible on it: note-off times, sustain-pedal events,
 velocity, release times. They are captured, on disk and unread — `orphan-signals` business, not
@@ -120,6 +121,7 @@ write-only queue with a timer, and every entry has a legal exit that is not "bui
 |---|---|---|
 | **Grade the eight triads as eight objects, not the run as one number.** Each triad tests something nameable — the roll of a solid block measured low-to-high onset (the exam wants one sound), the hand-shift gap between triad n and n+1 (a different skill from evenness inside a triad), and the diminished triad on degree 7 where the hand shape changes. The even pulse that matters is the triad-onset pulse, one per beat, not the inter-note one the app measures. | 2026-08-20-1 (Rival, r1) | open |
 | **Make the tempo mark an output of the measurement, not an input to it.** Instead of asking "was this run clean at 60?", solve for the tempo at which this learner's timing noise crosses the bar and report a clean-tempo ceiling with an interval, split into systematic drift (a fault practice can move) and random jitter (the floor). Per triad, not per run, so the drill loops the weak triad at its own tempo. | 2026-08-20-1 (Rival, r2) | open |
+| **Make the primary output a row per *coincidence*, not a row per limb.** At every instant the notation asks two or more limbs to sound together, print the signed gap between them with the beat named — "kick 34 ms behind the hat on the 1 of bar 6" — and show how that gap moves across the run, so a habit (a constant lean) reads differently from fatigue (a gap that opens). Every product on the market measures a drummer against the click; this is the one measurement immune to device latency, because a constant added to every hit cancels in the difference between two of them. | 2026-08-21-1 (Rival, r1 and r3) | open |
 
 ## Learner-said (standing)
 
@@ -135,6 +137,218 @@ struck out when the learner's own later answer contradicts it, never because it 
 
 ## Runs
 
+## Run 2026-08-21-1
+
+- **Persona:** Total beginner, no e-kit, wants to play a rock beat with hats on eighths at 80 bpm for a minute (drums)
+- **Tier:** L
+- **Pick source:** 1d
+- **Pick gap:** A drums learner cannot practise a groove at all — the whole drums surface is a "coming soon" placeholder, while moneyBeat() encodes Rockschool Debut's own backbeat and is read only by a MusicXML round-trip test
+- **Previous pick source:** 1d
+- **Class:** VOID
+- **Claim:** After this ships, a learner who is on the drums side of the app with no e-kit and no drum experience will be able to practise the Rockschool Debut rock groove — closed hi-hat on every eighth, kick on 1 and 3, snare on 2 and 4 — at their own tempo and be told which limb was off, and we will know because the learner sees a "Groove" destination in the drums nav where there was none, plays the money beat on the three pads, and the screen then shows one result line per pad naming that pad's own mean offset in milliseconds (for example "Hi-hat — 16 of 16, 12 ms late"), which is still shown as the last attempt when they come back to the screen.
+- **Refutation condition:** Two-armed at 80 bpm with all 24 hit instants hardcoded in the spec, so nothing is read out of the app's own score and a grader that agrees with itself cannot pass. Positive arm: hi-hat at 0/375/750/1125/1500/1875/2250/2625 ms, kick at 0 and 1500, snare at 750 and 2250, bar two the same plus 3000 — must grade clean, show 16 of 16 hi-hat, 4 of 4 snare, 4 of 4 kick, and persist an attempt that survives a reload. Negative arm: the same 24 instants and the same per-pad counts with the snare hits moved to 0 and 1500 and the kicks to 750 and 2250 — must not grade clean, and the snare line must read "Snare — 0 of 4" with its notes missed. Onset spacing is identical between the arms, so a grader that only measures spacing returns the same verdict for both and is caught — the failure mode that voided run 2026-08-20-1's condition.
+- **Metric:** attempts
+- **Baseline:** 0 events, newly instrumented
+- **Endorsement:** no
+- **Outcome:** abort
+- **Thread:** drums-groove-then-velocity, run 1 of 2
+
+  *On the Metric field.* §3 declared it as `PersistedDrumsHistory.attempts`. That type existed
+  only between `de2de98` and the revert `a9e87a8` and is gone from `persistedShapes.ts`, so the
+  name `check-improve-log.mjs` accepts is the bare `attempts` — which resolves through
+  `PersistedTechniqueHistory.attempts`, a **different feature**. The metric is therefore void and
+  the next run must not read it. The checker cannot currently express "the type this metric named
+  was reverted"; that hole is real and is filed in the retro, not papered over here.
+
+  *On the Thread field.* The §2 pick was a **prerequisites-win** redirect (`method.md` rule 2):
+  the ledger leader is G5 at 11, G5 needs a hit to grade, its prerequisite G1 is itself a ledger
+  row, so the ranking took the upstream row at 10. `method.md` says such a thread declares its
+  payoff at run 1 with a cap of prereq-count plus one — here payoff G5, one prerequisite, cap 2.
+  **The pick event recorded `thread: "none"` and no `--payoff`**, so `runs/ledger.ndjson` does not
+  carry the thread this line names. That is a §2 defect of this run, disclosed rather than hidden;
+  the thread is closed as abandoned in the same ledger at §8.
+
+### Ledger
+
+| Gap | Source | Class | Blocked | Reach | Teacherliness | Unmatchable | Sum | Cost |
+|---|---|---|---|---|---|---|---|---|
+| Hit velocity reaches no learner-visible output on either instrument — velocityClassOf() already turns a velocity into accent / normal / ghost and nothing calls it, so the app cannot tell a ghost note from an accent | 1e | BLIND | 1 | 3 | 3 | 1 | 8 +3 | M |
+| A drums learner cannot practise a groove at all — the whole drums surface is a "coming soon" placeholder, while moneyBeat() encodes Rockschool Debut's own backbeat and is read only by a MusicXML round-trip test | 1d | VOID | 3 | 3 | 3 | 1 | 10 | L |
+| Debut's Fill Playback ear test — one bar of snare fill, quarters and eighths, heard twice then reproduced — has no surface; clapback.ts grades exactly this shape and is wired to the piano side only | 1d | VOID | 2 | 2 | 2 | 1 | 7 | M |
+| First-run setup cannot represent a drums learner: three experience options and four goals, every one piano-phrased, and OnboardingGateway renders only inside the piano Today route | 1c | MIS-GATED | 1 | 2 | 2 | 1 | 6 | S |
+| The two things nearest the persona's goal are filed under the other instrument: DRUMS_NAV_GROUPS is empty, so Metronome and Rhythm need a switch back to Piano, and Rhythm is hard-locked to 120 bpm so the 80 bpm goal is unreachable there in principle | 1c | MIS-GATED | 2 | 2 | 1 | 1 | 6 | S |
+
+Full table with the raw/age split: `runs/2026-08-21-1/ledger.md`. It carries a sixth row, `P1` —
+the ten piano 1e rows from run 2026-08-20-1, carried unscored at age 3 because rule 3 binds this
+run's pick to the persona's instrument. It has no axis scores, so it is not reproduced above.
+
+### Interview
+
+no answer this run
+
+The four questions were posted at §1a and no answer arrived before §8. `no answer this run` is the
+only permitted substitute and no answer was simulated. The Learner-said table is still empty, so
+there were no prior verbatim rows to fall back to either.
+
+### Orphan signals
+
+Captured verbatim to `runs/2026-08-21-1/orphan-signals.txt` (8 rows shown under the top-N cap;
+`orphan-signals-all.txt` holds every finding). The `evidence` column is long enough to swamp this
+entry, so it lives in those files; the identifying columns are reproduced here unaltered:
+
+```
+scan  signal                                           declared at                          confidence  age
+[C] no findings
+A     EarSessionState.cards                            src/core/eartraining/session.ts:107  HIGH        3
+B     PersistedAnnotations.byScoreId                   src/app/state/persistedShapes.ts:56  HIGH        3
+D     ScoreNoteInput.velocity ?? DEFAULT_VELOCITY      src/core/notation/score.ts:163       HIGH        3
+A     EarItem.contextKey                               src/core/eartraining/item.ts:86      HIGH        3
+B     EarTrainingSnapshot.itemsById                    src/core/progress/export.ts:172      HIGH        3
+A     EarItem.contextTonicMidi                         src/core/eartraining/item.ts:56      HIGH        3
+B     PersistedInstrument.lastInstrument               src/app/state/persistedShapes.ts:86  HIGH        3
+A     AssessmentResult.counts                          src/core/practice/assessment.ts:70   HIGH        3
+```
+
+Every row is age 3 — the same eight signals run 2026-08-20-1 reported at age 2. None was closed in
+between. The `D` row is the same signal as the ledger's top row.
+
+### Panel
+
+Full verbatim reports: `runs/2026-08-21-1/panel-r{1,2,3}-*.md`. Prompts: `prompt-r{1,2,3}-*.md`,
+rendered by `render-prompts.mjs` / `render-prompts-r2.mjs` / `render-prompts-r3.mjs`. Per
+`docs/panel/README.md`, `DIFF_REF` and `BASE_SHA` stay pinned to the slice sha across all three
+rounds; only `ROUND`, `PRIOR_FINDINGS` and `FIX_DIFF_REF` change.
+
+**Round 1**, against the slice `de2de98` — teacher 3 BLOCKER / 5 MAJOR / 4 MINOR; rival 1/2/4;
+regression-hunter 0/1/2; skeptic 1/4/2.
+
+- *All four BLOCKERs answered in `19358f2`.* (a) The per-pad number was the **signed mean**, so
+  early and late cancelled: 16 hi-hats dispatched alternately 80 ms early and 80 ms late,
+  peak-to-peak 160 ms on a 375 ms eighth, returned `Clean run` and `Hi-hat — 16 of 16, 4 ms late`.
+  The grader already computed `worstOffsetMs` per pad and the screen threw it away. (b) The
+  tolerance was a fixed 100 ms that never consulted tempo or the grid, so at 200 bpm the window
+  was 1.33 sixteenths wide: the teacher displaced a whole hi-hat line by one sixteenth and got
+  `31 of 32, 4 ms late`; the skeptic played straight quarters against Ghost Funk's notated kick
+  and got `Clean run / Kick — 8 of 8`. Raised independently by two seats. (c) The millisecond
+  figure is the learner's timing plus their machine's keyboard and audio-output delay, with no
+  calibration anywhere in `src/` and no word of it on screen, while the verdict read `Clean run` —
+  a verdict on the pocket the app cannot earn. (d) The rival's market read: every product keeps
+  accuracy **and** consistency as two numbers; the slice kept one.
+- The fix renamed the verdict `clean` to `steady`, derived the window from the pad's own gaps, and
+  added a spread figure and a disclosure sentence.
+
+**Round 2**, against `19358f2` (+ `19e76a7`) — rival 1/3/8; teacher 3/5/2; regression-hunter
+2/9/11. The skeptic seat was **not run**. Four BLOCKERs, answered in `5f972a8`.
+
+- A kick 66 ms behind the hi-hat on 1 and 3 — a flam, not a beat — was certified `Steady run`,
+  because round 1's fix made the verdict never come from the mean and judged each limb only
+  against itself. Raised by the teacher and, from the market side, by the rival (a uniform 60 ms
+  kick lag returned `Steady run` with `Kick — 4 of 4, 69 ms late`).
+- The screen advertised that Ghost Funk Bar teaches ghost notes while `PRESS_VELOCITY = 90` was
+  hardcoded and the grader read pad and time only — an advertised skill the rig cannot sense.
+- A hi-hat line a whole sixteenth behind the click still reported `3 ms late`.
+- The regression-hunter showed the round-1 window fix did not hold: the module doc claimed a
+  neighbour match was "arithmetically impossible" and it was not.
+
+**Round 3**, against `5f972a8` — teacher 2/7/4 with **ENDORSE: NO**; rival 3/5/3;
+regression-hunter 4/7/13. The skeptic seat was **not run** in this round either. This is the round
+that ended the run.
+
+Nine BLOCKERs across three seats, consolidated to **eight distinct faults**, and **five of them
+were created by `5f972a8`, the round-2 fix**:
+
+1. The per-pad window derives from that pad's own smallest gap rather than the score's
+   subdivision, so Ghost Funk's kick gets a window 1.2 sixteenths wide and straight quarters grade
+   `8 of 8`. This **re-opens the round-1 skeptic's BLOCKER that round 2 had closed.**
+2. `detectPhaseSlip` claims a slip whenever a shifted match beats a zero baseline, so 120 ms is
+   reported as "two steps of the pattern behind the click".
+3. The new flam sentence names pads the score never sounds together — it takes max-minus-min of
+   each pad's run-long mean without ever asking whether the score puts two pads on a shared tick.
+   On the money beat, kick and snare share no tick at all.
+4. The Space-key exemption added for the pads has no run-phase check, so a run started with the
+   mouse leaves Stop focused and the learner's first kick aborts it.
+5. `isValidPadResult` gained required fields with no migration, so a stored attempt from the
+   previous commit fails validation.
+6. The tempo ramp reads evenness only, so six presses walk a beginner 80 to 200 bpm.
+7. Both new gates are run-long averages, so a limb offset that grows across the run dilutes into
+   them.
+8. A rig 150 ms slow grades every pad `0 of n` and prints "Nothing registered on any pad" — the
+   emptiness check tests **matches**, not hits, so 16 recorded strokes read as silence.
+
+I verified each of these against the source before accepting it, per this run's own integrity
+rule, rather than taking a seat's report at face value.
+
+**Integrity notes this run carries** (recorded, not papered over):
+
+1. **The skeptic seat ran in round 1 only.** Tier L calls for four seats; rounds 2 and 3 ran
+   three. Round 3's outcome was already decided by the three that did run, and a fourth could only
+   add findings at further budget cost — but the round-3 verdict is a three-seat verdict and is
+   recorded as one.
+2. `design.md`'s metric line says "whose verdict is clean". The field was renamed `clean` to
+   `steady` at §6 in answer to the round-1 BLOCKERs. The frozen claim was not edited mid-run.
+3. `design.md` cites Rockschool Debut as "closed hi-hat on every eighth". Debut's own stylistic
+   line is a **quarter-note** hi-hat. The round-1 teacher raised this as a MAJOR and it was
+   answered in the tree, not in the citation, which stands as written and wrong.
+4. `design.md` maps hi-hat to `KeyF` and snare to `KeyJ`; the shipped mapping was the reverse,
+   changed at §6 so the keys matched the hands the pads name.
+5. The three round-2 seats were told "the working tree is clean at commit `19358f2`". That stopped
+   being literally true once `19e76a7` landed on top, after they were launched.
+6. The §2 pick did not open the prerequisites-win thread it should have (see the Thread note
+   above).
+
+### Proof
+
+This is an ABORT, so the proof is of the blocker, not of the claim.
+
+- **The kept spec is RED at HEAD.** `E2E_PORT=5392 npx playwright test e2e/improve-DR-09.spec.ts`
+  → **3 failed, 1 passed, exit 1**. I ran this myself on an isolated port rather than trusting the
+  regression-hunter's report, because the run had already been burned once by port reuse (below).
+  The claim spec cannot pass at HEAD, so PROVE's GREEN arm does not exist.
+- **RED at the spec commit.** Checked out `8bc7e80` in an isolated worktree: exit 1, 4 failed,
+  every failure waiting for the `Groove` button in the main nav. Log:
+  `runs/2026-08-21-1/red-at-spec-commit.txt`. The **first** attempt at this check reported
+  "4 passed", which is impossible at a commit where `GrooveScreen.tsx` does not exist:
+  `playwright.config.ts` defaults to port 5173 with `reuseExistingServer: !process.env.CI`, and a
+  stale dev server on the main checkout was answering there, so the worktree run graded the main
+  tree. Every port in this run's proof is therefore explicit and unique.
+- **The green run recorded mid-run is superseded.** `runs/2026-08-21-1/green-at-head.txt` and
+  `heldout-goal.txt` record exit 0 against `19358f2`/`19e76a7`. Both describe code that no longer
+  exists. They are kept as the record of what was true then, not as proof of anything now.
+- **The revert is green.** `a9e87a8` reverted the four implementation commits and kept both spec
+  commits. `npm run verify` exit 0 — 227 files, 4678 tests; the pre-commit core suite is 88 files,
+  2772 tests in 3.60 s. Driven in the running app on port 5273: `/drums/groove` returns the
+  pre-run "coming soon" landing and `/practice` renders Twinkle Twinkle, console clean on both.
+- **The revert was surgical, on the learner's instruction.** `de2de98` was not drums-only — it
+  also carried a persistence refactor. `persistedEarShapes.ts` (0 drums references) and
+  `writeQueue.ts` (0) survive whole; `persistenceHarness.ts` (2) and
+  `persistence.collections.test.ts` (13) had their drums rows stripped. About 1500 lines of
+  unrelated, working, unfaulted code was kept rather than thrown away with the fault.
+- **Held-out goal:** written before the build and never shed — the same screen grading
+  `moneyBeatOpenHat()` at 70 bpm. It **was** reached at `19e76a7` (exit 0, 2 passed, including a
+  generalisation trap that a trainer treating the hi-hat as one limb would pass) and that code is
+  now reverted, so it is recorded as reached-then-withdrawn, not as reached.
+- **Not run because the slice no longer exists:** the §7 experience gate on the feature itself.
+- **What `npm run verify` did not catch.** 4860 unit tests were green over a claim spec that was
+  red, because `verify` is `docs:budget && typecheck && lint && test:all` and **contains no e2e
+  step**. That is a repo-wide gate hole, not a drums one; filed as `T.18`.
+
+### Previous run's metric verdict
+
+**none.** Run 2026-08-20-1 declared `PersistedTechniqueHistory.attempts` — attempts whose
+`drillId` is `triad-sequence-c-major-broken-hands-right` and whose `clean` is true — and voided it
+in the same entry, because its abort reverted the drill that writes that id. The id exists again:
+`T.7` shipped it at `be8e853` and `triadSequenceDrill(1, C, 'right', 'broken', 60)` is back in
+`ALL_DRILLS`. That restoration happened in a `/next` session, outside the improve loop, so it
+produced no baseline and no reading. Recorded as `verdict --none`, not as zero: zero would claim
+the store was read and found empty, and this session cannot read the learner's IndexedDB. This
+run's own metric is void for the same reason a run later — two consecutive aborts have now left
+the metric column empty twice running, which is itself the signal.
+
+### Cannot-sense register
+
+**Where the learner's own timing sits, once device latency is taken out** (screen: Drums > Groove, not shipped this run) — `OURS`. Every instant this app grades has already been through a keyboard scan, a browser event queue and an audio output buffer, and none of that is measured, so a signed mean offset is the learner's placement plus an unknown constant: a drummer laying the snare back 25 ms and a rig 25 ms slow produce the same number, and nothing in the data separates them. Countability challenge: a calibration pass — one pad, one bar against the click, take the median offset as the rig's constant and report bias relative to it. It stands in if two rigs with known different output latency produce the same corrected bias for the same learner. Added to the standing table, undisclosed, because the screen that would have carried the disclosure sentence was reverted with the rest of the slice.
+
+**The pocket, phrasing does not leave** (screen: Drums > Groove, not shipped this run) — the proxy this run built for it, a signed mean offset per limb, was reverted, so the row is exactly where run 2026-08-20-1 left it. Worth writing down anyway: the round-3 rival argued the proxy was aimed at the wrong quantity. A per-limb offset against the click is contaminated by the row above; the **difference between two limbs at an instant the score makes them coincide** is not, because a constant added to every hit cancels in the difference. That reframing is now the standing idea-register entry, and it is what this row's next proxy should be.
 
 ## Run 2026-08-20-1
 

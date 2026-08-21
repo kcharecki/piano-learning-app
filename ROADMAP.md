@@ -334,6 +334,60 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
       the score-query-heavy specs pass — including the 1603-note perf specs at p95 frame gap 18ms
       and a Practice re-show in 108ms, so the extra module boundary costs nothing.
 
+- [ ] T.17 **The drums groove trainer is still missing, and there are two RED specs saying so.**
+      `/improve-app` run 2026-08-21-1 (DR-09) built it and aborted; `a9e87a8` reverted the four
+      implementation commits and kept both spec commits, so `e2e/improve-DR-09.spec.ts` (from
+      `8bc7e80`) and `e2e/improve-DR-09-heldout.spec.ts` (from `19e76a7`) **fail on purpose** at
+      HEAD — 3 failed / 1 passed on the first, waiting for a `Groove` button in the drums nav that
+      does not exist. Do not delete them and do not `test.fixme` them; they are the record that
+      Rockschool Debut's core stylistic content ("Backbeat, quarter-note hi-hat, unison bass and
+      snare work") has no surface at all, while `moneyBeat()` already encodes it and is read only
+      by a MusicXML round-trip test. `DRUMS_NAV_GROUPS` is still `[]`.
+      The reverted attempt died on eight distinct BLOCKERs at round 3, five of them **created by**
+      the round-2 fix that was meant to close round 2's. A rebuild must clear all eight, and the
+      first three are the ones that killed it twice:
+      1. **Derive the match window from the score's own subdivision, never from the played pad's
+         smallest gap.** Getting this wrong gave Ghost Funk's kick a window 1.2 sixteenths wide, so
+         straight quarters against a notated "1 a 3 a" graded `Kick — 8 of 8`. Round 1 raised it,
+         round 2 "fixed" it, round 3 found it re-opened.
+      2. **A flam sentence may only name two pads the score actually puts on a shared tick.** The
+         reverted `padAlignment()` took max-minus-min of each pad's run-long mean and never
+         consulted the score, so it named kick and snare on the money beat, where they share no
+         tick at all.
+      3. **A phase slip must be measured against the grid, not against "a shift beat a zero
+         baseline".** `detectPhaseSlip` reported a 120 ms lag as "two steps of the pattern behind
+         the click", and elsewhere a whole-sixteenth displacement as "3 ms late".
+      4. A run-phase check on the Space-key pad exemption — without it, starting with the mouse
+         leaves Stop focused and the learner's first kick aborts the run.
+      5. A migration for any persisted attempt shape that gains required fields.
+      6. A tempo ramp that reads more than evenness — six presses walked a beginner 80 to 200 bpm.
+      7. Gates that are not run-long averages, or a growing limb offset dilutes into them.
+      8. An emptiness check that tests **hits**, not matches — 16 recorded strokes on a 150 ms rig
+         read as "Nothing registered on any pad".
+      Two things the reverted attempt got right and a rebuild should keep: the paced pad driver
+      (`e2e/drum-pads.ts`, still at `c7105c9`, paces clicks against `performance.now()` so a driven
+      run lands inside the window without a production test hook), and the two-armed refutation
+      condition in `runs/2026-08-21-1/design.md`, whose arms share onset spacing exactly so a
+      spacing-only grader cannot pass it. Full panel record: `runs/2026-08-21-1/panel-r{1,2,3}-*.md`.
+      *Proof: both DR-09 specs go green with no `test.fixme`; a driven run on the three pads writes
+      a persisted attempt that survives a reload; and the eight faults above each have a test that
+      was RED before the rebuild.*
+
+- [ ] T.18 **`npm run verify` has no e2e step, so a red claim spec passes the commit gate.**
+      `verify` is `docs:budget && typecheck && lint && test:all`. During run 2026-08-21-1 that went
+      green — 4860 tests — over `e2e/improve-DR-09.spec.ts` failing 3 of 4, and it is green today
+      over two deliberately-red specs (T.17). The same hole let run 2026-08-20-1 ship a dozen inert
+      features under green suites, which is the sentence `AGENTS.md` already carries. A related
+      trap sits next to it: `playwright.config.ts` uses `const port = Number(process.env.E2E_PORT ??
+      5173)` with `reuseExistingServer: !process.env.CI`, so a stale dev server on 5173 silently
+      grades the wrong tree — run 2026-08-21-1's first RED check reported "4 passed" at a commit
+      where the screen did not exist. Whatever shape the fix takes, it has to survive T.17's
+      intentionally-red specs: a gate that cannot express "this spec is expected to fail until the
+      feature lands" will just be switched off the first time it is inconvenient.
+      *Proof: a spec made to fail turns the gate red in a fresh checkout with no dev server running
+      and with a stale server on 5173, and the two DR-09 specs are recorded as expected-red by the
+      gate itself rather than by a comment.*
+
 ## Phases 0-2 — Foundation, M1 playable core, M2 feedback & reading — all done
 
 Every box in these three phases is `[x]`. Moved to
