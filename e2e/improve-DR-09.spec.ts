@@ -48,8 +48,19 @@ import { playGrooveHits, worstDriverDriftMs, type TimedHit } from './drum-pads.t
  *
  * A screen that prints a hardcoded "dead on" would satisfy both arms. The
  * third run shifts every hit +55 ms — still inside the stated ±100 ms window,
- * so the verdict must stay clean — and requires the pad lines to say so. A
- * constant passes the arms and fails this.
+ * and shifted by the same constant, so the verdict must stay positive — and
+ * requires the pad lines to say "late" with a real number. A constant passes
+ * the arms and fails this.
+ *
+ * ## Updated at §6 (polish), and why that is not moving the goalposts
+ *
+ * The panel's round-1 BLOCKERs renamed the verdict (`clean` certified
+ * placement the app cannot measure; `steady` is judged on spread), reordered
+ * the picker so it opens on the easier quarter-note groove, and swapped the
+ * hi-hat and snare keys onto the correct hands. Every hit instant, every
+ * count, and the shape of both arms are untouched — only the words the screen
+ * uses and the two clicks it takes to reach the money beat changed. The spec
+ * is still RED at the commit it was written at.
  */
 
 /**
@@ -123,16 +134,30 @@ async function openGrooveTrainer(page: Page): Promise<void> {
   expect(new URL(page.url()).pathname).toBe('/drums/groove')
 }
 
+/**
+ * The picker is ordered easiest-first and opens on Quarter-Note Rock, so the
+ * money beat every instant below is written against has to be selected the
+ * way a learner selects it. Asserting the starting title first means this
+ * helper fails loudly if the ordering changes under it, rather than silently
+ * grading a different groove.
+ */
+async function selectMoneyBeat(page: Page): Promise<void> {
+  await expect(page.getByText('Quarter-Note Rock', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Next groove' }).click()
+  await expect(page.getByText('Money Beat', { exact: true })).toBeVisible()
+}
+
 test('the drums nav offers a Groove destination that teaches the Debut rock groove on three pads (roadmap DR-09)', async ({
   page,
 }) => {
   const errors = collectErrors(page)
 
   await openGrooveTrainer(page)
+  await selectMoneyBeat(page)
 
   // The groove itself is named, and it is the money beat — not a generic
   // "practice" screen that happens to have pads on it.
-  await expect(page.getByText('Money Beat')).toBeVisible()
+  await expect(page.getByText('Money Beat', { exact: true })).toBeVisible()
 
   // Three pads, one per limb the groove uses, each reachable by its own name.
   for (const pad of ['Hi-hat', 'Snare', 'Kick']) {
@@ -141,7 +166,8 @@ test('the drums nav offers a Groove destination that teaches the Debut rock groo
 
   // The persona has no e-kit: the keyboard fallback is part of the feature,
   // so the screen has to say what the keys are.
-  const keyHint = page.getByText(/F.*J.*[Ss]pace/)
+  // J before F: the hi-hat is the right hand's, the snare the left's.
+  const keyHint = page.getByText(/J.*F.*[Ss]pace/)
   await expect(keyHint).toBeVisible()
 
   // The tolerance is a teaching decision, not an implementation detail, so
@@ -155,12 +181,13 @@ test('the drums nav offers a Groove destination that teaches the Debut rock groo
   expect(errors).toEqual([])
 })
 
-test('refutation condition, positive arm: the money beat played correctly at 80 bpm grades clean per pad and persists (roadmap DR-09)', async ({
+test('refutation condition, positive arm: the money beat played correctly at 80 bpm grades steady per pad and persists (roadmap DR-09)', async ({
   page,
 }) => {
   const errors = collectErrors(page)
 
   await openGrooveTrainer(page)
+  await selectMoneyBeat(page)
   await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeEnabled()
 
   const dispatched = await playGrooveHits(page, CORRECT)
@@ -168,7 +195,11 @@ test('refutation condition, positive arm: the money beat played correctly at 80 
   expect(worstDriverDriftMs(dispatched)).toBeLessThan(MAX_DRIVER_DRIFT_MS)
 
   await expect(result(page)).toBeVisible()
-  await expect(result(page).getByText('Clean run')).toBeVisible()
+  await expect(result(page).getByText('Steady run')).toBeVisible()
+
+  // Every millisecond figure on this screen includes the machine's own
+  // latency, and the screen has to say so where the figures are.
+  await expect(result(page).getByText(/keyboard and speakers/i)).toBeVisible()
 
   // One line per pad, each naming that pad's own count and its own offset.
   await expect(result(page).getByText(/^Hi-hat — 16 of 16, /)).toBeVisible()
@@ -198,7 +229,7 @@ test('refutation condition, positive arm: the money beat played correctly at 80 
   expect(errors).toEqual([])
 })
 
-test('refutation condition, negative arm: the same 24 instants with snare and kick swapped is not clean, and the snare is named (roadmap DR-09)', async ({
+test('refutation condition, negative arm: the same 24 instants with snare and kick swapped is not steady, and the snare is named (roadmap DR-09)', async ({
   page,
 }) => {
   const errors = collectErrors(page)
@@ -213,13 +244,14 @@ test('refutation condition, negative arm: the same 24 instants with snare and ki
   expect(countByPad(LIMBS_SWAPPED)).toEqual(countByPad(CORRECT))
 
   await openGrooveTrainer(page)
+  await selectMoneyBeat(page)
 
   const dispatched = await playGrooveHits(page, LIMBS_SWAPPED)
   expect(worstDriverDriftMs(dispatched)).toBeLessThan(MAX_DRIVER_DRIFT_MS)
 
   await expect(result(page)).toBeVisible()
-  await expect(result(page).getByText('Clean run')).toHaveCount(0)
-  await expect(result(page).getByText('Not clean yet')).toBeVisible()
+  await expect(result(page).getByText('Steady run')).toHaveCount(0)
+  await expect(result(page).getByText('Not there yet')).toBeVisible()
 
   // The verdict has to name the limb, not just fail. A learner who is told
   // "not clean" and nothing else is exactly the BLIND class this pick exists
@@ -227,26 +259,30 @@ test('refutation condition, negative arm: the same 24 instants with snare and ki
   await expect(result(page).getByText(/^Snare — 0 of 4, .*missed/)).toBeVisible()
   await expect(result(page).getByText(/^Kick — 0 of 4, .*missed/)).toBeVisible()
 
-  // And the hi-hat, which played correctly in both arms, is still clean —
+  // And the hi-hat, which played correctly in both arms, is still whole —
   // so the failure is attributed to the limbs that actually failed.
   await expect(result(page).getByText(/^Hi-hat — 16 of 16, /)).toBeVisible()
 
   expect(errors).toEqual([])
 })
 
-test('a run that is uniformly 55 ms late is still clean, and every pad line says late (roadmap DR-09)', async ({
+test('a run that is uniformly 55 ms late is still steady, and every pad line says late (roadmap DR-09)', async ({
   page,
 }) => {
   const errors = collectErrors(page)
 
   await openGrooveTrainer(page)
+  await selectMoneyBeat(page)
 
   const dispatched = await playGrooveHits(page, UNIFORMLY_LATE)
   expect(worstDriverDriftMs(dispatched)).toBeLessThan(MAX_DRIVER_DRIFT_MS)
 
   await expect(result(page)).toBeVisible()
-  // 55 ms is inside the stated +/-100 ms window, so the run is clean...
-  await expect(result(page).getByText('Clean run')).toBeVisible()
+  // 55 ms is inside the stated +/-100 ms window and every hit is shifted by
+  // the SAME constant, so the pulse is perfectly even and the verdict stays
+  // positive. That is the design: a constant delay is what a laptop adds, and
+  // the app must not read it back to the learner as their own unevenness.
+  await expect(result(page).getByText('Steady run')).toBeVisible()
   await expect(result(page).getByText(/^Hi-hat — 16 of 16, /)).toBeVisible()
 
   // ...and the offsets are measured, not printed. A screen showing a

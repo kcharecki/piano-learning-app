@@ -422,10 +422,18 @@ export function isValidPadResult(value: unknown): value is PadResult {
     isFiniteNumber(p.missed) &&
     isFiniteNumber(p.extra) &&
     isOptionalFiniteNumber(p.meanOffsetMs) &&
-    isOptionalFiniteNumber(p.worstOffsetMs)
+    isOptionalFiniteNumber(p.worstOffsetMs) &&
+    isOptionalFiniteNumber(p.spreadMs) &&
+    typeof p.steady === 'boolean'
   )
 }
 
+/**
+ * No migration for the `clean` -> `steady` rename: `drumsHistory` was first written this
+ * same release cycle with zero recorded events, so no stored run in the world carries the
+ * old key. A record still in the previous shape is therefore correctly rejected as
+ * malformed, not migrated.
+ */
 export function isValidDrumsGrooveAttempt(value: unknown): value is DrumsGrooveAttempt {
   if (typeof value !== 'object' || value === null) return false
   const a = value as Record<string, unknown>
@@ -435,7 +443,7 @@ export function isValidDrumsGrooveAttempt(value: unknown): value is DrumsGrooveA
     isFiniteNumber(a.bpm) &&
     isFiniteNumber(a.repeats) &&
     isFiniteNumber(a.at) &&
-    typeof a.clean === 'boolean' &&
+    typeof a.steady === 'boolean' &&
     Array.isArray(a.pads) &&
     a.pads.every(isValidPadResult)
   )

@@ -11,13 +11,15 @@
  * a learner at this level reads a grid faster than drum notation anyway. When
  * the renderer lands, this is where it goes.
  *
- * **The tolerance is on screen.** "Within 100 ms counts as on the beat" is
- * the difference between a trainer that teaches and one that just judges, so
- * it is stated where the learner reads it, not left in the grader.
+ * **The tolerance is on screen.** It is stated where the learner reads it,
+ * not left in the grader — and it is *this* groove's own number, not a
+ * constant borrowed from a different pattern at a different tempo. See "The
+ * tolerance is derived" below.
  *
  * **Every pad answers for itself.** One line per limb, each naming that pad's
  * own count and its own offset — the point of the whole feature is that a
- * learner is told WHICH limb was off, not that a run "was not clean".
+ * learner is told WHICH limb was off, not that a run "was not clean". See
+ * "The verdict is a word, not a green light" below.
  *
  * ## The pads make no sound
  *
@@ -32,14 +34,75 @@
  * A click fires on release. A drummer's hit is the moment the stick lands, so
  * the timestamp has to come from `pointerdown` — and the same for the keys,
  * which is the fallback for the (typical) learner with no e-kit.
+ *
+ * ## The hands are assigned, not just the keys (panel review defect #2)
+ *
+ * `PAD_KEY` puts the hi-hat on the RIGHT index finger's home key and the
+ * snare on the LEFT — see that constant's own comment for why the opposite
+ * assignment (the first cut of this screen) trained the wrong motor habit.
+ * Naming the key is not enough to teach that on its own, so every pad also
+ * carries a small visible label — "right hand", "left hand", "right foot" —
+ * doubling as that pad's accessible description (`PAD_HAND`,
+ * `aria-describedby` below), so a learner reads the assignment instead of
+ * just absorbing it by repetition.
+ *
+ * ## Why `padKeyDown` never handles Space (panel review defect #1)
+ *
+ * A pad button takes DOM focus on `pointerdown` (browsers do this for any
+ * clicked button). If a button's own keydown handler treated Space as an
+ * activation key — the normal thing a `<button>` does — then one mouse click
+ * on, say, the Hi-hat pad would silently rebind every later Space press to
+ * the hi-hat, because a focused button's own handler runs first. `PAD_KEY`
+ * puts the kick on Space specifically because a foot is a GLOBAL binding, not
+ * a per-element one: it has to fire no matter which pad the mouse last
+ * touched. So `padKeyDown` only ever answers to Enter; the window-level
+ * `keydown` listener below already owns Space (and already calls
+ * `preventDefault()` on it), so leaving Space unhandled here is not a gap in
+ * this handler, it is what keeps the kick from being stolen by focus.
+ *
+ * ## The tolerance is derived, never a constant here
+ *
+ * The old subtitle said "100 ms" unconditionally. `useGrooveDrill` now
+ * derives `toleranceMs` from the selected score, the tempo and the repeat
+ * count (`grooveToleranceMs`), because a flat 100 ms is too wide for a
+ * groove written in sixteenths at speed — see that hook's own module
+ * comment. Printing anything other than `drill.toleranceMs` here would go
+ * straight back to the bug: a number on screen that is not the number the
+ * grader is actually using.
+ *
+ * ## The verdict is a word, not a green light
+ *
+ * `drill.performance.clean` does not exist any more (`GroovePerformance` was
+ * `complete`/`steady` from the start of this rewrite — see
+ * `grooveGrader.ts`). The verdict shown here is always `verdictText`'s own
+ * output, never a hand-written ternary re-deriving the same judgement with a
+ * different vocabulary. "Clean" is gone from this screen on purpose: it
+ * implied a certainty (perfect placement) this app has never been able to
+ * measure once `TIMING_CAVEAT` is taken seriously — see that constant's own
+ * comment in `attempt.ts`. It is rendered wherever this screen shows a
+ * millisecond figure, in the Result section, sitting with the numbers rather
+ * than filed away as a footnote.
+ *
+ * ## Repeats are a setting now, and an unsteady run gets one line of advice
+ *
+ * `drill.repeatChoices`/`drill.setRepeats` make the run length a control next
+ * to tempo, built the same way tempo's own field sits in `.groove-setup` — a
+ * `.field` wrapping a control, not a bespoke shape. And when a finished run
+ * comes back `!steady`, the single most useful thing a teacher says is
+ * "slower" — so this screen offers one concrete number (`slowerBpm`, 20%
+ * down, floored at the same `MIN_BPM` the tempo field itself enforces) as a
+ * button that sets the tempo directly, rather than leaving the learner to do
+ * that arithmetic themselves. It never appears after a steady run — there is
+ * nothing to advise.
  */
 import { useEffect, useId, useRef, useState } from 'react'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { Icon } from '@app/ui/Icon.tsx'
 import type { AudioOutput, Clock, DateSource } from '@core/ports/index.ts'
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
-import { lastRunSummary, padLabel, padLineText } from '@core/drums/practice/attempt.ts'
-import { GRADED_REPEATS, useGrooveDrill } from './useGrooveDrill.ts'
+import type { GrooveScore } from '@core/drums/model/groove.ts'
+import { lastRunSummary, padLabel, padLineText, TIMING_CAVEAT, verdictText } from '@core/drums/practice/attempt.ts'
+import { useGrooveDrill } from './useGrooveDrill.ts'
 
 export type GrooveScreenProps = {
   /** Injection seams for tests; each defaults to the real browser adapter. */
@@ -53,32 +116,55 @@ const MIN_BPM = 40
 const MAX_BPM = 200
 
 /**
- * One key per pad, chosen by hand position rather than by mnemonic: F and J
- * are the two index fingers' home keys (hands = hi-hat and snare) and the
- * space bar is the thumb (foot = kick). G sits under the same finger as F,
- * which is what an open hi-hat is on a real kit — the same limb, opened.
+ * One key per pad, chosen by hand position AND by which hand actually leads
+ * on a kit — not by mnemonic alone. A right-handed drummer's right hand
+ * leads the hi-hat (crossing over the snare to reach it) while the left hand
+ * plays the snare backbeat. The first cut of this screen put the hi-hat on
+ * the LEFT index finger (`KeyF`) and the snare on the RIGHT (`KeyJ`) —
+ * exactly backwards — which trains the mirror-image habit in the very week
+ * it forms (panel review defect #2). Swapped here: hi-hat on the right
+ * index finger's home key, snare on the left. The open hi-hat used to sit on
+ * `KeyG`, next to the closed hi-hat's old `KeyF`, so "the same limb, opened"
+ * still reads correctly on the keyboard — now that the closed hi-hat lives
+ * on `KeyJ`, the open hi-hat follows it to `KeyK`, still the very next key.
+ * The kick stays on Space: it is the thumb, and a foot has no "wrong side"
+ * to get backwards.
  */
 const PAD_KEY: Partial<Record<MappedDrumPad, string>> = {
-  hhClosed: 'KeyF',
-  hhOpen: 'KeyG',
-  snare: 'KeyJ',
+  hhClosed: 'KeyJ',
+  hhOpen: 'KeyK',
+  snare: 'KeyF',
   kick: 'Space',
 }
 
 /** The badge printed on the pad itself — a keycap, so the space bar gets its glyph. */
 const KEY_BADGE: Readonly<Record<string, string>> = {
   KeyF: 'F',
-  KeyG: 'G',
   KeyJ: 'J',
+  KeyK: 'K',
   Space: '␣',
 }
 
 /** The same keys spelled out, for the sentence under the pads. */
 const KEY_WORD: Readonly<Record<string, string>> = {
   KeyF: 'F',
-  KeyG: 'G',
   KeyJ: 'J',
+  KeyK: 'K',
   Space: 'Space',
+}
+
+/**
+ * The hand or foot each key trains — see the module comment's "hands are
+ * assigned" section on why this is shown, not just decided. Every pad
+ * `PAD_KEY` names a key for has an entry here; a pad this screen has no key
+ * for (never reached by the four bundled grooves) has none, and gets no
+ * label rather than a guessed one.
+ */
+const PAD_HAND: Partial<Record<MappedDrumPad, string>> = {
+  hhClosed: 'right hand',
+  hhOpen: 'right hand',
+  snare: 'left hand',
+  kick: 'right foot',
 }
 
 function keyHint(pads: readonly MappedDrumPad[]): string {
@@ -90,11 +176,42 @@ function keyHint(pads: readonly MappedDrumPad[]): string {
   return `Keys: ${parts.join(', ')}.`
 }
 
-function runStateText(phase: string, bar: number, beat: number): string {
+function runStateText(phase: string, bar: number, beat: number, repeats: number): string {
   if (phase === 'count-in') return `Count in — beat ${beat}`
-  if (phase === 'playing') return `Playing — bar ${bar} of ${GRADED_REPEATS}, beat ${beat}`
+  if (phase === 'playing') return `Playing — bar ${bar} of ${repeats}, beat ${beat}`
   if (phase === 'done') return 'Run finished'
   return 'Ready'
+}
+
+/**
+ * One line naming what the selected groove teaches, so the picker (ordered
+ * easiest-first — see `referenceGrooves`'s own comment) reads as a
+ * progression rather than an arbitrary list. Built from the score's own
+ * data — which pads it uses, how many notes it packs into a bar, and which
+ * notated features it introduces — rather than a hand-written sentence per
+ * groove id, so a fifth groove added to the bundle gets a true line for
+ * free instead of a silently missing one.
+ */
+function teachesLine(score: GrooveScore, pads: readonly MappedDrumPad[]): string {
+  const limbs = pads.map(padLabel).join(', ')
+  const usesOpenHat = score.notes.some((note) => note.pad === 'hhOpen')
+  const usesGhostNotes = score.notes.some((note) => note.dynamics === 'ghost')
+  const extras: string[] = []
+  if (usesOpenHat) extras.push('opening the hi-hat on cue')
+  if (usesGhostNotes) extras.push('ghost notes')
+  const extraTail = extras.length === 0 ? '' : ` — plus ${extras.join(' and ')}`
+  return `Teaches: ${limbs}, ${score.notes.length} notes a bar${extraTail}.`
+}
+
+/**
+ * A concrete slower tempo to suggest after a run that came back `!steady` —
+ * see the module comment's "one line of advice" section. 20% down, rounded
+ * to a whole bpm, never suggested below `MIN_BPM` — the same floor the tempo
+ * field itself enforces, so the suggestion is always one `setBpm` call away
+ * from being valid.
+ */
+function slowerBpm(bpm: number): number {
+  return Math.max(MIN_BPM, Math.round(bpm * 0.8))
 }
 
 export function GrooveScreen(props: GrooveScreenProps) {
@@ -110,6 +227,8 @@ export function GrooveScreen(props: GrooveScreenProps) {
   const transportLabel = running ? 'Stop' : drill.phase === 'done' ? 'Play again' : 'Start'
   const tempoId = useId()
   const grooveLabelId = useId()
+  const repeatsLabelId = useId()
+  const padHandBaseId = useId()
 
   // Same draft-string treatment as `MetronomeScreen`'s bpm cell, for the same
   // reason: typing "70" passes through "7", which is not a tempo, and an
@@ -152,8 +271,11 @@ export function GrooveScreen(props: GrooveScreenProps) {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
+  // Enter only — see the module comment's "why `padKeyDown` never handles
+  // Space" section. Handling Space here as well as globally is exactly the
+  // bug: a focused pad would steal every later kick.
   function padKeyDown(event: React.KeyboardEvent, pad: MappedDrumPad): void {
-    if (event.key !== 'Enter' && event.key !== ' ') return
+    if (event.key !== 'Enter') return
     event.preventDefault()
     if (!event.repeat) drill.hit(pad)
   }
@@ -164,13 +286,19 @@ export function GrooveScreen(props: GrooveScreenProps) {
     if (next !== undefined) drill.setGrooveId(next.id)
   }
 
+  const repeatIndex = drill.repeatChoices.indexOf(drill.repeats)
+  const stepRepeats = (delta: 1 | -1): void => {
+    const next = drill.repeatChoices[repeatIndex + delta]
+    if (next !== undefined) drill.setRepeats(next)
+  }
+
   return (
     <div className="page page--focus groove-screen">
       <div className="page-header">
         <h1>Groove trainer</h1>
         <p className="page-header-subtitle">
-          Play along on the pads. Each limb is timed on its own, and anything within 100 ms of the
-          beat counts as on the beat.
+          Play along on the pads. Each limb is timed on its own, and for {drill.score.title} at{' '}
+          {drill.bpm} bpm, anything within {drill.toleranceMs} ms of the beat counts as on the beat.
         </p>
       </div>
 
@@ -218,7 +346,38 @@ export function GrooveScreen(props: GrooveScreenProps) {
             }}
           />
         </div>
+
+        {/* Same primitive as the groove picker above it — a `.field` wrapping
+            a `.stepper` — because `repeatChoices` is a fixed, non-uniform
+            menu (2/4/8), exactly the shape the groove picker already steps
+            through, not a free number a plain numeric input would invite. */}
+        <div className="field groove-repeats">
+          <span className="field-label" id={repeatsLabelId}>
+            Repeats
+          </span>
+          <div className="stepper" role="group" aria-labelledby={repeatsLabelId}>
+            <button
+              type="button"
+              aria-label="Fewer repeats"
+              disabled={running || repeatIndex <= 0}
+              onClick={() => stepRepeats(-1)}
+            >
+              <Icon name="minus" />
+            </button>
+            <span className="stepper-value">{drill.repeats}</span>
+            <button
+              type="button"
+              aria-label="More repeats"
+              disabled={running || repeatIndex >= drill.repeatChoices.length - 1}
+              onClick={() => stepRepeats(1)}
+            >
+              <Icon name="plus" />
+            </button>
+          </div>
+        </div>
       </div>
+
+      <p className="groove-key-hint groove-teaches">{teachesLine(drill.score, drill.pads)}</p>
 
       {/* The pattern, one row per limb. Decorative: the pad buttons name
           themselves and the result names every count, so a screen reader is
@@ -242,26 +401,36 @@ export function GrooveScreen(props: GrooveScreenProps) {
       </div>
 
       <div className="groove-pads">
-        {drill.pads.map((pad) => (
-          <button
-            key={pad}
-            type="button"
-            className="groove-pad"
-            aria-label={padLabel(pad)}
-            onPointerDown={() => drill.hit(pad)}
-            onKeyDown={(event) => padKeyDown(event, pad)}
-          >
-            <span className="groove-pad-name" aria-hidden="true">
-              {padLabel(pad)}
-            </span>
-            <span className="groove-pad-key" aria-hidden="true">
-              {KEY_BADGE[PAD_KEY[pad] ?? ''] ?? '—'}
-            </span>
-            {(drill.flashes[pad] ?? 0) > 0 && (
-              <span key={drill.flashes[pad]} className="groove-pad-flash" aria-hidden="true" />
-            )}
-          </button>
-        ))}
+        {drill.pads.map((pad) => {
+          const hand = PAD_HAND[pad]
+          const handId = hand === undefined ? undefined : `${padHandBaseId}-${pad}-hand`
+          return (
+            <button
+              key={pad}
+              type="button"
+              className="groove-pad"
+              aria-label={padLabel(pad)}
+              {...(handId === undefined ? {} : { 'aria-describedby': handId })}
+              onPointerDown={() => drill.hit(pad)}
+              onKeyDown={(event) => padKeyDown(event, pad)}
+            >
+              <span className="groove-pad-name" aria-hidden="true">
+                {padLabel(pad)}
+              </span>
+              <span className="groove-pad-key" aria-hidden="true">
+                {KEY_BADGE[PAD_KEY[pad] ?? ''] ?? '—'}
+              </span>
+              {hand !== undefined && (
+                <span className="groove-pad-hand" id={handId}>
+                  {hand}
+                </span>
+              )}
+              {(drill.flashes[pad] ?? 0) > 0 && (
+                <span key={drill.flashes[pad]} className="groove-pad-flash" aria-hidden="true" />
+              )}
+            </button>
+          )
+        })}
       </div>
 
       <p className="groove-key-hint">{keyHint(drill.pads)}</p>
@@ -283,17 +452,34 @@ export function GrooveScreen(props: GrooveScreenProps) {
       </div>
 
       <p role="status" aria-label="Run state" className="groove-run-state">
-        {runStateText(drill.phase, drill.bar, drill.beat)}
+        {runStateText(drill.phase, drill.bar, drill.beat, drill.repeats)}
       </p>
 
       {drill.performance !== undefined && (
         <section aria-label="Result" className="card groove-result">
-          <p className="groove-verdict">{drill.performance.clean ? 'Clean run' : 'Not clean yet'}</p>
+          <p className="groove-verdict">{verdictText(drill.performance)}</p>
           <ul className="groove-result-lines">
             {drill.rows.map((row) => (
               <li key={row.pad}>{padLineText(row)}</li>
             ))}
           </ul>
+          {/* Not a tooltip and not optional — see the module comment's "the
+              verdict is a word, not a green light" section. It sits with the
+              numbers it explains, every time those numbers are on screen. */}
+          <p className="groove-key-hint groove-timing-caveat">{TIMING_CAVEAT}</p>
+          {!drill.performance.steady && (
+            <p className="groove-last-run groove-slow-down">
+              Try it slower —{' '}
+              <button
+                type="button"
+                className="btn-ghost groove-slow-down-btn"
+                onClick={() => drill.setBpm(slowerBpm(drill.bpm))}
+              >
+                {slowerBpm(drill.bpm)} bpm
+              </button>
+              ?
+            </p>
+          )}
         </section>
       )}
 

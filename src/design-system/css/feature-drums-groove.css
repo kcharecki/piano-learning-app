@@ -137,6 +137,16 @@
   background: var(--bg-1);
 }
 
+/* Which hand or foot this pad belongs to. Caption-sized and dimmed on
+   purpose: it teaches the assignment the first few times a learner reads a
+   pad, then stops competing with the pad's own name and keycap. It is also
+   the pad's `aria-describedby` target, so it has to be a real visible element
+   rather than a title attribute. */
+.groove-pad-hand {
+  font-size: var(--text-sm);
+  color: var(--text-3);
+}
+
 /* Fresh element per hit, keyed on that pad's own hit count, so the animation
    restarts even for hits closer together than one animation duration — the
    same guarantee (and the same keyframes) as `.rhythm-tap-pad-flash`. */

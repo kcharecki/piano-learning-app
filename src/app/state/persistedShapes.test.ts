@@ -31,6 +31,8 @@ const PAD_A: PadResult = {
   extra: 0,
   meanOffsetMs: 3,
   worstOffsetMs: 8,
+  spreadMs: 5,
+  steady: true,
 }
 
 const ATTEMPT_A: DrumsGrooveAttempt = {
@@ -39,7 +41,7 @@ const ATTEMPT_A: DrumsGrooveAttempt = {
   bpm: 80,
   repeats: 4,
   at: 1000,
-  clean: true,
+  steady: true,
   pads: [PAD_A],
 }
 
@@ -64,6 +66,8 @@ describe('isValidPadResult', () => {
       extra: 0,
       meanOffsetMs: undefined,
       worstOffsetMs: undefined,
+      spreadMs: undefined,
+      steady: false,
     }
     expect(isValidPadResult(unmatched)).toBe(true)
   })
@@ -75,6 +79,8 @@ describe('isValidPadResult', () => {
     ['an unknown pad value', { ...PAD_A, pad: 'tuba' }],
     ['a NaN meanOffsetMs', { ...PAD_A, meanOffsetMs: Number.NaN }],
     ['a NaN worstOffsetMs', { ...PAD_A, worstOffsetMs: Number.NaN }],
+    ['a NaN spreadMs', { ...PAD_A, spreadMs: Number.NaN }],
+    ['a missing steady flag', omit(PAD_A, 'steady')],
     ['a string where a count belongs (expected)', { ...PAD_A, expected: '16' }],
   ])('rejects %s', (_label, value) => {
     expect(isValidPadResult(value)).toBe(false)
@@ -91,7 +97,8 @@ describe('isValidDrumsGrooveAttempt', () => {
     ['a missing required field (grooveTitle)', omit(ATTEMPT_A, 'grooveTitle')],
     ['a non-finite bpm', { ...ATTEMPT_A, bpm: Number.NaN }],
     ['a non-finite at', { ...ATTEMPT_A, at: Number.NaN }],
-    ['a non-boolean clean', { ...ATTEMPT_A, clean: 'yes' }],
+    ['a non-boolean steady', { ...ATTEMPT_A, steady: 'yes' }],
+    ['the old pre-rename shape, carrying `clean` instead of `steady`', { ...omit(ATTEMPT_A, 'steady'), clean: true }],
     ['pads not an array', { ...ATTEMPT_A, pads: 'nope' }],
     [
       'a pad row with an unknown pad value',

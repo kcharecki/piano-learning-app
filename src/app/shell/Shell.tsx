@@ -388,10 +388,10 @@ function renderPianoScreen(
 }
 
 /** Drums' own screen renderer (roadmap DR-01, DR-09) — grows per phase. */
-function renderDrumsScreen(screen: DrumsScreenId) {
+function renderDrumsScreen(screen: DrumsScreenId, openGroove: () => void) {
   switch (screen) {
     case 'drums-today':
-      return <DrumsTodayScreen />
+      return <DrumsTodayScreen onOpenGroove={openGroove} />
     case 'drums-groove':
       return <GrooveScreen />
     case 'drums-notation-dev':
@@ -772,7 +772,7 @@ export function Shell() {
               deck,
               theoryDrill,
             )
-          : renderDrumsScreen(appRoute.route.screen)}
+          : renderDrumsScreen(appRoute.route.screen, () => goToDrums('drums-groove'))}
       </main>
       {/* Sibling AFTER app-main, never a wrapper around it and never a layout
           column (module doc + parallel-round-10.md Q2) — position:fixed, so

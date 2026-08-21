@@ -20,7 +20,7 @@ function makeAttempt(overrides: Partial<DrumsGrooveAttempt> = {}): DrumsGrooveAt
     bpm: 80,
     repeats: 4,
     at: 1000,
-    clean: true,
+    steady: true,
     pads: [
       {
         pad: 'hhClosed',
@@ -30,6 +30,8 @@ function makeAttempt(overrides: Partial<DrumsGrooveAttempt> = {}): DrumsGrooveAt
         extra: 0,
         meanOffsetMs: 3,
         worstOffsetMs: 8,
+        spreadMs: 5,
+        steady: true,
       },
     ],
     ...overrides,
@@ -76,12 +78,12 @@ describe('useDrumsHistoryStore', () => {
   })
 
   it('makes no judgement of its own: a self-contradictory attempt is stored exactly as given', () => {
-    // clean: true even though the pad row shows a miss — a real caller would
+    // steady: true even though the pad row shows a miss — a real caller would
     // never produce this, but the store's job is to hold what it is handed,
     // not to recompute or veto it. See the module comment on why this is
     // "STATE ONLY".
     const contradictory = makeAttempt({
-      clean: true,
+      steady: true,
       pads: [
         {
           pad: 'snare',
@@ -91,6 +93,8 @@ describe('useDrumsHistoryStore', () => {
           extra: 0,
           meanOffsetMs: -6,
           worstOffsetMs: -12,
+          spreadMs: 6,
+          steady: true,
         },
       ],
     })
@@ -98,7 +102,7 @@ describe('useDrumsHistoryStore', () => {
     useDrumsHistoryStore.getState().addAttempt(contradictory)
 
     const [stored] = useDrumsHistoryStore.getState().attempts
-    expect(stored?.clean).toBe(true)
+    expect(stored?.steady).toBe(true)
     expect(stored?.pads).toEqual(contradictory.pads)
   })
 
@@ -113,6 +117,8 @@ describe('useDrumsHistoryStore', () => {
           extra: 0,
           meanOffsetMs: undefined,
           worstOffsetMs: undefined,
+          spreadMs: undefined,
+          steady: false,
         },
       ],
     })

@@ -50,6 +50,55 @@
  * position of, so it refuses instead of guessing. Grading swung grooves is
  * future work for whoever teaches `./grid.ts`'s swung-playback maths to this
  * module; until then, refusing is honest and guessing is not.
+ *
+ * ## Why the verdict is judged on spread and never on the mean
+ *
+ * The first version of this module reported one number per pad — the signed
+ * mean of (hit - expected) — and certified a run on counts alone. Both halves
+ * were wrong in the same way: they threw away the difference between a learner
+ * who is consistently *displaced* and a learner who is *uneven*. Hi-hat hits
+ * alternating 80 ms early and 80 ms late average to a mean of zero, so a run
+ * that lurched a fifth of a second either side of the click read as perfectly
+ * placed; and a run in which every single hit sat 95 ms behind the beat still
+ * matched every note, so it read as a clean run.
+ *
+ * Bias and spread are two different measurements and they want opposite
+ * advice. A learner uniformly 45 ms late needs "you are behind the click"; a
+ * learner scattered +/-45 ms needs "your pulse is uneven", and telling that
+ * second learner they are late is useless, because on average they are not.
+ * The tie-breaker is the machine: audio output latency plus e-kit input
+ * latency adds the *same constant* to every hit that ever reaches this module.
+ * A constant moves the mean and cannot touch the spread. So the mean is not a
+ * quantity this module is entitled to fail anyone on — it may be measuring the
+ * sound card. `spreadMs`, the largest departure from that pad's own mean, is,
+ * because no constant can change it. Hence `steady`: something matched, and
+ * the spread is within `STEADY_SPREAD_MS`, never consulting the mean. The mean
+ * is still reported as a fact, for `attempt.ts` to disclose with the latency
+ * caveat attached.
+ *
+ * The rejected alternative was to subtract a calibrated latency estimate from
+ * every offset and judge the corrected mean. That needs a calibration step
+ * this app does not have, and the corrected mean would still be a guess;
+ * measuring the one quantity latency cannot touch needs no calibration at all.
+ *
+ * ## Why the tolerance is capped by the score's own smallest gap
+ *
+ * `DEFAULT_GROOVE_TOLERANCE_MS` is a flat 100 ms, and a flat window becomes a
+ * bug the moment the grid is finer than it. At 80 bpm consecutive sixteenths
+ * are 187.5 ms apart, so a +/-100 ms window is wider than half that gap: one
+ * hit can sit within tolerance of two different notes on its own pad, and
+ * Ghost Funk Bar played a whole sixteenth late matched the *next* note every
+ * time and graded as very nearly perfect. `grooveToleranceMs` derives the
+ * ceiling from the score rather than from a constant — no wider than
+ * `TOLERANCE_GAP_FRACTION` of the smallest gap any single pad asks for, which
+ * keeps twice the window under one gap and makes that two-note ambiguity
+ * arithmetically impossible instead of merely unlikely.
+ *
+ * Gaps are measured per pad, never across the whole groove. Kick and hi-hat
+ * both land on beat 1, so the smallest *global* gap is zero and a global rule
+ * would collapse the window to nothing on every real groove ever written. A
+ * hit is only ever matched against its own pad's onsets (see above), so its
+ * own pad's spacing is the only spacing that can confuse it.
  */
 import { at, invariant } from '@core/shared/invariant.ts'
 import { TICKS_PER_QUARTER } from '@core/shared/units.ts'
@@ -58,6 +107,12 @@ import type { RawDrumHit } from '@core/drums/model/hit.ts'
 import { padOrderIndex, type DrumPad, type MappedDrumPad } from '@core/drums/model/pad.ts'
 
 export const DEFAULT_GROOVE_TOLERANCE_MS = 100
+
+/** A hit may be no further from its note than this fraction of the gap to the neighbouring note on the same pad. */
+export const TOLERANCE_GAP_FRACTION = 0.4
+
+/** The largest departure-from-own-mean, in ms, that still counts as an even pulse. */
+export const STEADY_SPREAD_MS = 35
 
 export type GrooveOnset = { readonly pad: MappedDrumPad; readonly atMs: number }
 
@@ -101,6 +156,48 @@ export function grooveOnsetsMs(
   return onsets
 }
 
+/**
+ * The matching window this score actually admits at this tempo: the requested
+ * window (or the default), capped at TOLERANCE_GAP_FRACTION of the smallest
+ * inter-onset gap any single pad asks for. Always >= 1.
+ *
+ * The cap applies to an explicitly requested window too. A caller asking for
+ * +/-150 ms on a groove whose sixteenths are 187.5 ms apart is asking for the
+ * bug — see the module doc — so the ceiling is not something a caller can opt
+ * out of, only something they can ask for less than.
+ */
+export function grooveToleranceMs(
+  score: GrooveScore,
+  bpm: number,
+  repeats: number,
+  requestedMs?: number,
+): number {
+  const requested = requestedMs ?? DEFAULT_GROOVE_TOLERANCE_MS
+  invariant(requested > 0, `toleranceMs must be > 0, got ${requested}`)
+
+  const onsetsByPad = new Map<DrumPad, number[]>()
+  for (const onset of grooveOnsetsMs(score, bpm, repeats)) {
+    const list = onsetsByPad.get(onset.pad)
+    if (list === undefined) onsetsByPad.set(onset.pad, [onset.atMs])
+    else list.push(onset.atMs)
+  }
+
+  // Infinity means no pad has two onsets to be confused between, so nothing
+  // caps the requested window: a single note per pad cannot be mismatched
+  // against a neighbour that does not exist.
+  let smallestGapMs = Infinity
+  for (const times of onsetsByPad.values()) {
+    const sorted = [...times].sort((a, b) => a - b)
+    for (let i = 1; i < sorted.length; i++) {
+      smallestGapMs = Math.min(smallestGapMs, at(sorted, i) - at(sorted, i - 1))
+    }
+  }
+  if (!Number.isFinite(smallestGapMs)) return requested
+
+  const cap = Math.floor(TOLERANCE_GAP_FRACTION * smallestGapMs)
+  return Math.max(1, Math.min(requested, cap))
+}
+
 export type PadResult = {
   readonly pad: DrumPad
   readonly expected: number
@@ -111,14 +208,21 @@ export type PadResult = {
   readonly meanOffsetMs: number | undefined
   /** The matched pair with the largest absolute offset, sign preserved; `undefined` when nothing matched. */
   readonly worstOffsetMs: number | undefined
+  /** Largest |offset - meanOffsetMs| over matched pairs; `undefined` when nothing matched. */
+  readonly spreadMs: number | undefined
+  /** `matched > 0` and `spreadMs <= STEADY_SPREAD_MS`. Never consults the mean. */
+  readonly steady: boolean
 }
 
 export type GroovePerformance = {
   readonly perPad: readonly PadResult[]
-  readonly clean: boolean
   readonly toleranceMs: number
   readonly expectedTotal: number
   readonly matchedTotal: number
+  /** Every expected note matched and nothing extra was played. */
+  readonly complete: boolean
+  /** `complete` and every pad's pulse was even. This is the verdict the learner is shown. */
+  readonly steady: boolean
 }
 
 type MatchedPair = { readonly expectedTime: number; readonly hitTime: number }
@@ -176,7 +280,9 @@ function matchPad(
 
 /**
  * Grade a recorded performance against the score's expected onsets. Tolerance
- * defaults to `DEFAULT_GROOVE_TOLERANCE_MS`. Each pad is matched independently
+ * comes from `grooveToleranceMs`, so a window this score's own spacing cannot
+ * support is narrowed whether it was requested or defaulted. Each pad is
+ * matched independently
  * — see the module doc for why — so `perPad` has one row for every pad that
  * appears in either the expected onsets or the hits, including a pad the
  * groove never asks for at all (`expected: 0`, its hits all `extra`).
@@ -188,7 +294,12 @@ export function gradeGroovePerformance(input: {
   readonly hits: readonly RawDrumHit[]
   readonly toleranceMs?: number
 }): GroovePerformance {
-  const toleranceMs = input.toleranceMs ?? DEFAULT_GROOVE_TOLERANCE_MS
+  const toleranceMs = grooveToleranceMs(
+    input.score,
+    input.bpm,
+    input.repeats,
+    input.toleranceMs,
+  )
   invariant(toleranceMs > 0, `toleranceMs must be > 0, got ${toleranceMs}`)
 
   const expected = grooveOnsetsMs(input.score, input.bpm, input.repeats)
@@ -217,6 +328,7 @@ export function gradeGroovePerformance(input: {
 
     let meanOffsetMs: number | undefined
     let worstOffsetMs: number | undefined
+    let spreadMs: number | undefined
     if (matched.length > 0) {
       let sum = 0
       let worst = 0
@@ -230,8 +342,17 @@ export function gradeGroovePerformance(input: {
           worst = offset
         }
       }
-      meanOffsetMs = sum / matched.length
+      const mean = sum / matched.length
+      // Second pass, because spread is measured from the mean and the mean is
+      // only known once the first pass has finished. Spelling it as its own
+      // loop reads as what it is; folding it into the first would not.
+      let spread = 0
+      for (const pair of matched) {
+        spread = Math.max(spread, Math.abs(pair.hitTime - pair.expectedTime - mean))
+      }
+      meanOffsetMs = mean
       worstOffsetMs = worst
+      spreadMs = spread
     }
 
     return {
@@ -242,12 +363,17 @@ export function gradeGroovePerformance(input: {
       extra: hitTimes.length - matched.length,
       meanOffsetMs,
       worstOffsetMs,
+      spreadMs,
+      steady: spreadMs !== undefined && spreadMs <= STEADY_SPREAD_MS,
     }
   })
 
   const expectedTotal = perPad.reduce((sum, row) => sum + row.expected, 0)
   const matchedTotal = perPad.reduce((sum, row) => sum + row.matched, 0)
-  const clean = expectedTotal > 0 && perPad.every((row) => row.missed === 0 && row.extra === 0)
+  const complete = expectedTotal > 0 && perPad.every((row) => row.missed === 0 && row.extra === 0)
+  // A row that matched nothing has no pulse to judge; `complete` has already
+  // failed the run in that case, so it cannot smuggle a bad performance past.
+  const steady = complete && perPad.every((row) => row.matched === 0 || row.steady)
 
-  return { perPad, clean, toleranceMs, expectedTotal, matchedTotal }
+  return { perPad, toleranceMs, expectedTotal, matchedTotal, complete, steady }
 }

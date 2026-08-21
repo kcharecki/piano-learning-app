@@ -37,3 +37,8 @@
 {"ts":"2026-08-21T10:11:26.156Z","run":"2026-08-21-1","event":"pick","source":"1d","instrument":"drums","class":"VOID","sum":10,"cost":"L","tier":"L","harm":0,"thread":"none","metric":"PersistedDrumsHistory.attempts","baseline":"0 events, newly instrumented"}
 {"ts":"2026-08-21T10:17:18.945Z","run":"2026-08-21-1","event":"mark","section":"3","elapsedPct":8.64}
 {"ts":"2026-08-21T10:24:48.406Z","run":"2026-08-21-1","event":"spec","sha":"8bc7e80c06f8b66fafb305c12abe0e2d77e74508","redExit":1}
+{"ts":"2026-08-21T11:13:56.313Z","run":"2026-08-21-1","event":"slice","sha":"de2de98"}
+{"ts":"2026-08-21T11:30:44.706Z","run":"2026-08-21-1","event":"panel","round":1,"role":"teacher","templateSha":"dd202b28a0860662f99e2299b8f150928e805e33836ced5abb80c6967334802c","renderedSha":"b1f2dd273e8feddfc79970fa42b23cc3a62b0b007d690a5a8c4b19452b47fa52","blockers":3,"majors":5,"minors":4}
+{"ts":"2026-08-21T11:32:45.437Z","run":"2026-08-21-1","event":"panel","round":1,"role":"rival","templateSha":"e18bd067c434bd6b3871e7c0cebede489163fb4aadba502fcb49c0d076024f15","renderedSha":"9af4630476eafcfd3975b8e479cde81422667b5d85097f76a9b7713a2914a3c1","blockers":1,"majors":2,"minors":4}
+{"ts":"2026-08-21T11:34:43.369Z","run":"2026-08-21-1","event":"panel","round":1,"role":"regression-hunter","templateSha":"ac31f8bc944f8ff176e8e945d089166d6e3b5d5a0e4569448084ebd1a1b2e25c","renderedSha":"e0380ec5ec74b98a74c5ee32c585482491a4237c8b9667807866be212d886e87","blockers":0,"majors":1,"minors":2}
+{"ts":"2026-08-21T11:51:06.897Z","run":"2026-08-21-1","event":"panel","round":1,"role":"skeptic","templateSha":"634b4f660794aab2b50d64fcd8155b01a10da3bd52a5bd4e2852d8dcc98bb673","renderedSha":"40250e191bc00f4026216b5ec57beb1d05801864e3f35e62c72220697d3f9cd8","blockers":1,"majors":4,"minors":2}
