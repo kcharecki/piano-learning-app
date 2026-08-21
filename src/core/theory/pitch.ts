@@ -102,6 +102,14 @@ function accidentalText(alter: Alter): string {
   return alter < 0 ? 'b'.repeat(-alter) : '#'.repeat(alter)
 }
 
+function accidentalGlyphs(alter: Alter): string {
+  // Doubles are written as two singles rather than as U+1D12A/U+1D12B: the
+  // double-sharp and double-flat glyphs live outside the BMP and are missing
+  // from most UI font stacks, where they render as a replacement box. Two
+  // sharps is legible everywhere and unambiguous.
+  return alter < 0 ? '♭'.repeat(-alter) : '♯'.repeat(alter)
+}
+
 /** Build a pitch. Throws on a non-integer octave (programmer error). */
 export function spell(letter: Letter, alter: Alter, octave: number): SpelledPitch {
   if (!Number.isInteger(octave)) {
@@ -151,6 +159,23 @@ export function fromMidi(note: Midi, preferFlats = false): SpelledPitch {
 /** `'C#4'`, `'Bb3'`, `'F##2'`, `'Ebb5'`. Inverse of {@link parsePitch}. */
 export function pitchName(p: SpelledPitch): string {
   return `${p.letter}${accidentalText(p.alter)}${p.octave}`
+}
+
+/**
+ * The same name written for a HUMAN to read: real accidental glyphs rather
+ * than the ASCII stand-ins.
+ *
+ * `pitchName` is the machine form — it round-trips through `parsePitch`, so it
+ * has to stay ASCII, and `Bb3` is what belongs in an id, a fixture or a log.
+ * Anything a learner reads should say `B♭3`, because that is the character
+ * printed on their score. Keeping the two apart means neither has to
+ * compromise: this one is free to be unparseable, and that one is free to be
+ * ugly.
+ *
+ * @see pitchName for the parseable form.
+ */
+export function pitchDisplayName(p: SpelledPitch): string {
+  return `${p.letter}${accidentalGlyphs(p.alter)}${p.octave}`
 }
 
 /**

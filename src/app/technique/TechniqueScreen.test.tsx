@@ -192,6 +192,57 @@ describe('TechniqueScreen', () => {
     expect(screen.getByTestId('technique-best-bpm')).toHaveTextContent(String(drill.targetBpm))
   })
 
+  it('names the wrong note in the result, not just a percentage (roadmap T.12)', async () => {
+    const user = userEvent.setup()
+    const clock = new FakeClock()
+    const midiInput = new FakeMidiInput()
+    const audioOutput = new RecordingAudioOutput(clock)
+
+    render(
+      <TechniqueScreen
+        clock={clock}
+        date={clock}
+        midiInput={midiInput}
+        audioOutput={audioOutput}
+        frameDriver={manualDriver()}
+      />,
+    )
+
+    const drill = techniqueLibrary(1)[0]
+    if (drill === undefined) throw new Error('expected at least one level-1 drill')
+
+    clock.advance(5_000)
+    await user.click(screen.getByRole('button', { name: 'Start' }))
+
+    const score = techniqueScore(drill, drill.targetBpm)
+    const msPerBeat = 60000 / drill.targetBpm
+    const countInMs = 4 * msPerBeat
+    // Perfect timing, flat third — so nothing but the wrong note can explain
+    // what the screen says.
+    const isThird = (m: number): boolean => m % 12 === 4
+    for (const note of score.notes) {
+      act(() =>
+        midiInput.emit({
+          type: 'noteOn',
+          note: (isThird(note.midi) ? note.midi - 1 : note.midi) as typeof note.midi,
+          velocity: 80,
+          time: millis(5_000 + countInMs + note.startTick * (msPerBeat / 480)),
+        }),
+      )
+    }
+
+    await user.click(screen.getByRole('button', { name: 'Stop' }))
+
+    const result = screen.getByTestId('technique-result')
+    expect(result).toHaveTextContent('E♭4')
+    expect(result).toHaveTextContent('3rd')
+    expect(result).toHaveTextContent('E4')
+    // The correction lives inside the same status region as the score, so a
+    // screen reader announces one update rather than two unrelated ones.
+    expect(result).toHaveAttribute('role', 'status')
+    expect(result).toContainElement(screen.getByTestId('technique-mistakes'))
+  })
+
   it('always states what MIDI cannot see, whether or not a run has ever happened (REQ-5.23)', () => {
     const neverResolves = (): Promise<never> => new Promise(() => {})
     render(<TechniqueScreen connectMidi={neverResolves} />)

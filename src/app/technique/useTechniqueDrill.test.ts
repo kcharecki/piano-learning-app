@@ -188,6 +188,106 @@ describe('useTechniqueDrill', () => {
     },
   )
 
+  it('names the wrong note when the run is played with a flat third (roadmap T.12)', () => {
+    // The case T.12 was filed for, one note wide: everything on time, every
+    // E played as E-flat. The accuracy figure alone would say "88%" and stop;
+    // the diagnosis has to say WHICH note, spelled the way the learner played
+    // it (E-flat, not the enharmonic D-sharp) and placed on its degree.
+    const drill = techniqueDrillById('five-finger-c-major-hands-right')
+    if (drill === undefined) throw new Error('expected the C major five-finger drill')
+    const clock = new FakeClock()
+    const midiInput = new FakeMidiInput()
+    const audioOutput = new RecordingAudioOutput(clock)
+
+    const { result } = renderHook(() =>
+      useTechniqueDrill({
+        level: drill.level,
+        initialDrillId: drill.id,
+        clock,
+        date: clock,
+        midiInput,
+        audioOutput,
+        frameDriver: manualDriver(),
+      }),
+    )
+
+    runStart(clock)
+    act(() => result.current.start())
+    const score = result.current.score
+    if (score === undefined) throw new Error('expected a score once started')
+
+    const msPerBeat = 60000 / result.current.bpm
+    const countInMs = COUNT_IN_BEATS * msPerBeat
+    const isThird = (m: number): boolean => m % 12 === 4
+    expect(score.notes.some((n) => isThird(n.midi))).toBe(true)
+    for (const note of score.notes) {
+      act(() =>
+        midiInput.emit({
+          type: 'noteOn',
+          note: (isThird(note.midi) ? note.midi - 1 : note.midi) as ScoreMidi,
+          velocity: 80,
+          time: millis(RUN_START_MS + countInMs + note.startTick * (msPerBeat / 480)),
+        }),
+      )
+    }
+
+    act(() => result.current.stop())
+
+    const mistakes = result.current.lastDiagnosis?.mistakes ?? []
+    expect(mistakes).toHaveLength(1)
+    expect(mistakes[0]?.expectedName).toBe('E4')
+    expect(mistakes[0]?.playedName).toBe('E♭4')
+    expect(mistakes[0]?.degree).toBe(3)
+    // Non-degeneracy: the run really was scored as wrong, not silently clean.
+    expect(result.current.lastAttempt?.accuracy).toBeLessThan(1)
+  })
+
+  it('says nothing about wrong notes after a correct run', () => {
+    const drill = techniqueDrillById('five-finger-c-major-hands-right')
+    if (drill === undefined) throw new Error('expected the C major five-finger drill')
+    const clock = new FakeClock()
+    const midiInput = new FakeMidiInput()
+    const audioOutput = new RecordingAudioOutput(clock)
+
+    const { result } = renderHook(() =>
+      useTechniqueDrill({
+        level: drill.level,
+        initialDrillId: drill.id,
+        clock,
+        date: clock,
+        midiInput,
+        audioOutput,
+        frameDriver: manualDriver(),
+      }),
+    )
+
+    runStart(clock)
+    act(() => result.current.start())
+    const score = result.current.score
+    if (score === undefined) throw new Error('expected a score once started')
+
+    const msPerBeat = 60000 / result.current.bpm
+    const countInMs = COUNT_IN_BEATS * msPerBeat
+    for (const note of score.notes) {
+      act(() =>
+        midiInput.emit({
+          type: 'noteOn',
+          note: note.midi,
+          velocity: 80,
+          time: millis(RUN_START_MS + countInMs + note.startTick * (msPerBeat / 480)),
+        }),
+      )
+    }
+
+    act(() => result.current.stop())
+
+    expect(result.current.lastDiagnosis).toEqual({ mistakes: [], missed: 0, extra: 0 })
+    // And the next run clears it, so a stale correction cannot outlive the
+    // attempt it was about.
+    act(() => result.current.start())
+    expect(result.current.lastDiagnosis).toBeUndefined()
+  })
+
   it('scores a bursty, uneven run well below the clean threshold (REQ-3.7.2)', () => {
     const drill = firstDrillOf(1)
     const clock = new FakeClock()

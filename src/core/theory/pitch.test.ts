@@ -13,6 +13,7 @@ import {
   octaveOf,
   parsePitch,
   pitchClass,
+  pitchDisplayName,
   pitchName,
   spell,
   type SpelledPitch,
@@ -280,6 +281,57 @@ describe('pitchName', () => {
   it('writes negative octaves', () => {
     expect(pitchName(spell('C', 0, -1))).toBe('C-1')
     expect(pitchName(spell('A', -1, -1))).toBe('Ab-1')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// pitchDisplayName
+// ---------------------------------------------------------------------------
+
+describe('pitchDisplayName', () => {
+  it('writes real accidental glyphs, not the ASCII stand-ins', () => {
+    expect(pitchDisplayName(spell('C', 0, 4))).toBe('C4')
+    expect(pitchDisplayName(spell('C', 1, 4))).toBe('C♯4')
+    expect(pitchDisplayName(spell('B', -1, 3))).toBe('B♭3')
+  })
+
+  it('writes doubles as two singles, which every font stack can render', () => {
+    // Not U+1D12A/U+1D12B: those are outside the BMP and show as a box in
+    // most UI fonts, which is worse than an unambiguous pair.
+    expect(pitchDisplayName(spell('F', 2, 2))).toBe('F♯♯2')
+    expect(pitchDisplayName(spell('E', -2, 5))).toBe('E♭♭5')
+  })
+
+  it('property: differs from pitchName exactly when there is an accidental', () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...LETTERS),
+        fc.constantFrom<Alter>(-2, -1, 0, 1, 2),
+        fc.integer({ min: -1, max: 9 }),
+        (letter, alter, octave) => {
+          const p = spell(letter, alter, octave)
+          expect(pitchDisplayName(p) === pitchName(p)).toBe(alter === 0)
+        },
+      ),
+    )
+  })
+
+  it('property: keeps the letter and the octave the machine name has', () => {
+    // The glyph swap must not touch anything else — a stub that returned a
+    // fixed string, or one that dropped the octave, dies here.
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...LETTERS),
+        fc.constantFrom<Alter>(-2, -1, 0, 1, 2),
+        fc.integer({ min: -1, max: 9 }),
+        (letter, alter, octave) => {
+          const shown = pitchDisplayName(spell(letter, alter, octave))
+          expect(shown.startsWith(letter)).toBe(true)
+          expect(shown.endsWith(String(octave))).toBe(true)
+          expect(shown).not.toMatch(/[b#]/)
+        },
+      ),
+    )
   })
 })
 

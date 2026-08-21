@@ -69,6 +69,11 @@ import { useTechniqueStore } from '@app/state/techniqueStore.ts'
 import { measureDurationTicks, scoreDurationTicks, type Score, type TimeSignature } from '@core/notation/score.ts'
 import type { AudioOutput, Clock, DateSource, MidiInput } from '@core/ports/index.ts'
 import { MATCHER_DEFAULTS, NoteMatcher } from '@core/practice/matcher.ts'
+import {
+  diagnoseTechnique,
+  type TechniqueDiagnosis,
+  type TechniqueKey,
+} from '@core/technique/verdict.ts'
 import { bpm as asBpm, millis as asMillis, type Bpm, type Midi } from '@core/shared/units.ts'
 import { MAX_BPM, MIN_BPM } from '@core/timing/metronome.ts'
 import { makeTempoMap, tickToMs, type TempoMap } from '@core/timing/tempo.ts'
@@ -116,6 +121,9 @@ export type TechniqueDrillApi = {
   readonly midi: MidiConnection
   /** The attempt this run's `stop()` just produced; cleared by the next `start()`. */
   readonly lastAttempt: TechniqueAttempt | undefined
+  /** What went wrong in that same attempt, in named notes (roadmap T.12).
+   *  Cleared by the next `start()`, and empty for a run with no wrong notes. */
+  readonly lastDiagnosis: TechniqueDiagnosis | undefined
   /** REQ-3.7.3: this drill's clean-tempo history, oldest first. */
   readonly history: readonly TempoPoint[]
   readonly bestBpm: number
@@ -143,6 +151,9 @@ type Run = {
   readonly tempo: TempoMap
   readonly score: Score
   readonly matcher: NoteMatcher
+  /** The drill's key, kept on the run so a mid-run drill switch cannot make
+   *  the verdict name degrees from a key the learner was not playing in. */
+  readonly key: TechniqueKey
   /** The clock instant onsets are measured relative to. */
   readonly anchorMs: number
   readonly onsets: number[]
@@ -228,6 +239,7 @@ export function useTechniqueDrill(options: UseTechniqueDrillOptions): TechniqueD
   )
 
   const [lastAttempt, setLastAttempt] = useState<TechniqueAttempt | undefined>(undefined)
+  const [lastDiagnosis, setLastDiagnosis] = useState<TechniqueDiagnosis | undefined>(undefined)
   const runRef = useRef<Run | undefined>(undefined)
 
   // REQ-5.23: the posture-prompt schedule (`posturePromptSchedule.ts`) is
@@ -307,12 +319,17 @@ export function useTechniqueDrill(options: UseTechniqueDrillOptions): TechniqueD
       tempo,
       score,
       matcher: new NoteMatcher(score, tempo),
+      // `?? 'major'`: the drills that omit a scale type — five-finger patterns,
+      // triad sequences — are all built on a major tonic, and their degrees
+      // are what the learner is being asked to hear. See `library.ts`.
+      key: { tonic: drill.tonic, scaleType: drill.scaleType ?? 'major' },
       anchorMs,
       onsets: [],
       startedAtMs,
     }
     practiceLogRef.current.start('technique', drill.title)
     setLastAttempt(undefined)
+    setLastDiagnosis(undefined)
   }
 
   function stop(): void {
@@ -355,6 +372,11 @@ export function useTechniqueDrill(options: UseTechniqueDrillOptions): TechniqueD
     }
     addAttempt(attempt)
     setLastAttempt(attempt)
+    // The same match results the accuracy figure was reduced from, kept as
+    // named notes this time: "Evenness 88%" told the learner a run went wrong
+    // without telling them WHICH note, which was the one thing they asked for.
+    // Roadmap T.12.
+    setLastDiagnosis(diagnoseTechnique(run.matcher.results, run.key))
     // REQ-5.23: a completed, scored attempt is one rep toward the
     // repetition-count half of the posture schedule.
     setPostureSchedule((prev) => addPostureAttempt(prev))
@@ -377,6 +399,7 @@ export function useTechniqueDrill(options: UseTechniqueDrillOptions): TechniqueD
     running: metronome.running,
     midi,
     lastAttempt,
+    lastDiagnosis,
     history,
     bestBpm,
     posturePromptDue,

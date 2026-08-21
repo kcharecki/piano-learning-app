@@ -152,7 +152,7 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
       real MIDI keyboard) plus `session-technique`, `technique-safety` and both merged U.3
       rhythm specs, 5/5. Visual pass on Metronome at 1280/1024 × dark/light: exit 0, no console
       errors (only the headless-only `requestMIDIAccess` warning present on every screen).*
-- [ ] T.10 **Technique evenness has no absolute tolerance floor, so the bar moves with the note
+- [x] T.10 **Technique evenness has no absolute tolerance floor, so the bar moves with the note
       rate.** `evennessOf` divides by the median gap and is compared to a fixed
       `CLEAN_EVENNESS_THRESHOLD` of 0.8, which is ±5% of the gap with no floor: measured ±25.0ms
       at 500ms spacing, ±16.7ms at 333ms, ±10.4ms at 208ms, ±83.3ms on the solid drill. Two seats
@@ -162,6 +162,20 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
       gate is a standard the syllabus does not set. Fix: judge against
       `max(tolerance × median, FLOOR_MS)`. *Proof: a property test that a fixed absolute jitter
       keeps its verdict when the same pattern is re-notated at a different note value.*
+      **Done (6547d90).** The floor is on the SCALING GAP, not on the allowance:
+      `EVENNESS_REFERENCE_GAP_MS = 500` (one quarter at the app's default ♩=120) and the score is
+      `1 - maxDeviation / (tolerance × max(medianGap, 500))`. Flooring the gap rather than the
+      allowance keeps every verdict at or above 500ms spacing byte-identical — the existing
+      scale-invariance property still holds up there and is now stated over that range — while
+      below it the judgement depends only on absolute deviation. The required property is in
+      `evenness.test.ts`: same `deviationMs` of wobble, two different gaps in [60, 500], equal
+      scores AND equal `isClean` verdicts. Two examples pin both sides: a 25ms wobble scores the
+      same in the triad sequence's 333.33ms triplets as in 500ms quarters (and is clean in both),
+      and at 2000ms spacing the same wobble still scores strictly better, so this is not "absolute
+      everywhere". Measured on screen rather than derived: `improve-triad-sequence.spec.ts`'s
+      simulated J=5 run read 88% before and reads 92% after — narrowed the spec's band to 91..93,
+      watched it pass, restored 84..94. That 4-point move is the notation bias, visible in the
+      app's own readout. 18 evenness tests green, full `npm run verify` green.
 - [ ] T.11 **`MATCHER_DEFAULTS.chordWindowMs` (80ms) is a cliff at both ends.** Below it a rolled
       blocked triad is graded perfect; above it the same roll scores 0% — measured on the solid
       drill: 30ms/note roll gives 8 onsets, 100%, clean; 45ms/note gives 16 onsets and 0%. The
@@ -171,12 +185,37 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
       scored "Evenness 100% — Clean at 300bpm". Fix: a beat-relative window, and report the
       measured spread in words instead of folding it into evenness.
       *Proof: driven runs at both ends of the window with the verdict text pasted.*
-- [ ] T.12 **The technique verdict cannot name a wrong note.** `TechniqueScreen.tsx:244` renders
+- [x] T.12 **The technique verdict cannot name a wrong note.** `TechniqueScreen.tsx:244` renders
       `Evenness {n}% — Clean at {bpm}bpm | Not yet clean` and nothing else; accuracy is computed
       (`useTechniqueDrill.ts:358`) and persisted in the `TechniqueAttempt`, then dropped. Playing
       all eight triads minor returns "Evenness 88% — Not yet clean", and a beginner reads the 88%
       as near-success. The learner's own stated goal that week was knowing which note was wrong.
       *Proof: a driven wrong-third run whose result line names the pitch and the degree.*
+      **Done (this session).** `src/core/technique/verdict.ts` turns the matcher's own
+      `MatchResult[]` — which already carried both the expected `ScoreNote` and the played MIDI
+      number — into named substitutions, and `describeTechniqueMistake` into one sentence:
+      "You played E♭4 where the 3rd (E4) belongs." The degree comes from the DRILL's key, not from
+      an assumed C (`verdict.test.ts` pins that with an E-flat major counterexample where the same
+      wrong note is degree 1 rather than 3), and the played note is spelled as an ALTERATION of the
+      expected one where it is one — `fromMidi(63)` is D♯4, and "you played D♯4 where E4 belongs"
+      is a sentence about two unrelated notes. Three tests kill the mutant that drops that
+      spelling rule. The accuracy figure that was computed and thrown away is now on screen beside
+      the evenness ("Evenness 100% · Notes 67% — Not yet clean"). `pitchDisplayName` is new in
+      `core/theory/pitch.ts` so the sentence can say E♭4 while `pitchName` stays ASCII and
+      round-trips through `parsePitch`.
+      Driven proof: `e2e/technique-wrong-note.spec.ts` plays the RCM Preparatory A triad sequence
+      with every triad turned minor, perfectly in time, through the fake MIDI device, and asserts
+      the three rendered list items verbatim plus "And 5 other wrong notes." (eight substitutions,
+      capped at three by `MAX_SHOWN_MISTAKES` — a learner who cannot hold three corrections cannot
+      hold eight). Deleting the `<TechniqueMistakes>` render makes that spec fail, so it proves the
+      screen and not the hook. Perfect timing with 67% notes is also what separates the two halves
+      of the verdict: evenness reads 100% and the run is still "not yet clean".
+      Visual pass: driven screenshots at 1280 and 1024, light and dark, console clean in all four.
+      The first pass exposed a real defect — `[role="status"]` (primitives.css) is a one-line chip
+      with `align-items: center`, so every line shrank to its content and floated to the middle,
+      leaving the bullets ragged and the trailing count out of line with the list it counted; the
+      block now sets `flex-direction: column; align-items: flex-start` and lifts the corrections
+      back to `--text-1` from the chip's dimmed `--text-2`.
 - [x] T.13 **`fiveFingerRun` omitted the closing blocked triad the syllabus puts in that row.**
       It returned `[...degrees, ...degrees.slice(0,-1).reverse()]` = 9 single notes; RCM Prep A p.9's
       Scales row reads "Legato Pentascales (five-finger patterns) ... tonic to dominant, ascending and

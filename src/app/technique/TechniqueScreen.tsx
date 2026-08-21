@@ -23,6 +23,13 @@
  * transport collapse into one compact `.card`, and the clean-tempo history
  * becomes a flex row of dot tokens instead of `TrendChart` (no chart
  * library needed for a handful of points).
+ *
+ * Roadmap T.12: the result line names the wrong notes. It used to read
+ * "Evenness 88% — Not yet clean" and nothing else, so a learner who played
+ * all eight triads minor saw a number close to 90 and no way to find the
+ * note. The sentence itself is built in `@core/technique/verdict.ts` — which
+ * note stands in for which degree is music theory, not presentation — and
+ * this file only decides how many of them fit on screen at once.
  */
 import { PracticeKeyboard } from '@app/practice/PracticeKeyboard.tsx'
 import type { ConnectMidi } from '@app/practice/useMidiConnection.ts'
@@ -30,10 +37,66 @@ import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { ExerciseScore } from '@app/sightreading/ExerciseScore.tsx'
 import { Icon } from '@app/ui/Icon.tsx'
 import { MAX_LEVEL, MIN_LEVEL } from '@core/curriculum/types.ts'
+import {
+  describeTechniqueMistake,
+  type TechniqueDiagnosis,
+} from '@core/technique/verdict.ts'
 import type { AudioOutput, Clock, DateSource, MidiInput } from '@core/ports/index.ts'
 import { MAX_BPM, MIN_BPM } from '@core/timing/metronome.ts'
-import { useState } from 'react'
+import { type ReactElement, useState } from 'react'
 import { useTechniqueDrill } from './useTechniqueDrill.ts'
+
+/**
+ * How many named wrong notes fit on screen before the list stops being a
+ * correction and starts being a report card. Three is what a teacher says out
+ * loud after a run; the rest are counted, not spelled out, because a learner
+ * who cannot hold three corrections cannot hold nine.
+ */
+const MAX_SHOWN_MISTAKES = 3
+
+function TechniqueMistakes({
+  diagnosis,
+}: {
+  readonly diagnosis: TechniqueDiagnosis | undefined
+}): ReactElement | null {
+  if (diagnosis === undefined) return null
+  const shown = diagnosis.mistakes.slice(0, MAX_SHOWN_MISTAKES)
+  const rest = diagnosis.mistakes.length - shown.length
+  const uncounted = diagnosis.missed + diagnosis.extra
+  if (shown.length === 0 && uncounted === 0) return null
+  return (
+    <>
+      {shown.length > 0 && (
+        <ul className="technique-result-mistakes" data-testid="technique-mistakes">
+          {shown.map((mistake) => (
+            <li key={`${String(mistake.expectedMidi)}:${String(mistake.playedMidi)}`}>
+              {describeTechniqueMistake(mistake)}
+            </li>
+          ))}
+        </ul>
+      )}
+      {rest > 0 && (
+        <p className="technique-result-aside">
+          {rest === 1 ? 'And 1 other wrong note.' : `And ${String(rest)} other wrong notes.`}
+        </p>
+      )}
+      {uncounted > 0 && (
+        <p className="technique-result-aside" data-testid="technique-uncounted">
+          {countedText(diagnosis.missed, diagnosis.extra)}
+        </p>
+      )}
+    </>
+  )
+}
+
+/** "2 notes missed, 1 extra." — the part of the accuracy figure that has no
+ *  wrong note to name, said in words rather than left inside the percentage. */
+function countedText(missed: number, extra: number): string {
+  const parts: string[] = []
+  if (missed > 0) parts.push(`${String(missed)} ${missed === 1 ? 'note' : 'notes'} missed`)
+  if (extra > 0) parts.push(`${String(extra)} extra`)
+  return `${parts.join(', ')}.`
+}
 
 export type TechniqueScreenProps = {
   readonly initialLevel?: number
@@ -240,10 +303,14 @@ export function TechniqueScreen(props: TechniqueScreenProps) {
       </div>
 
       {drill.lastAttempt !== undefined && (
-        <p role="status" data-testid="technique-result">
-          Evenness {(drill.lastAttempt.evenness * 100).toFixed(0)}% —{' '}
-          {drill.lastAttempt.clean ? `Clean at ${drill.lastAttempt.bpm}bpm` : 'Not yet clean'}
-        </p>
+        <div role="status" data-testid="technique-result" className="technique-result">
+          <p className="technique-result-score">
+            Evenness {(drill.lastAttempt.evenness * 100).toFixed(0)}% · Notes{' '}
+            {(drill.lastAttempt.accuracy * 100).toFixed(0)}% —{' '}
+            {drill.lastAttempt.clean ? `Clean at ${drill.lastAttempt.bpm}bpm` : 'Not yet clean'}
+          </p>
+          <TechniqueMistakes diagnosis={drill.lastDiagnosis} />
+        </div>
       )}
 
       {/* roadmap UI-15: "Clean runs" replaces the old "Clean tempo history —

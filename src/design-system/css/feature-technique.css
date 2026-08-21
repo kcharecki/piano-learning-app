@@ -5,7 +5,9 @@
  * screen-specific needed there. What lives here: the drill card's footer
  * (target tempo beside the Start/Stop transport) and the clean-tempo
  * history's flex row of dot tokens, which replaces `TrendChart` (no chart
- * library needed for a handful of points — see TechniqueScreen.tsx).
+ * library needed for a handful of points — see TechniqueScreen.tsx), and
+ * (roadmap T.12) the run result block, which is now a score line plus a list
+ * of named wrong notes rather than a single line of percentages.
  */
 
 /* ---------- Drill card footer: tempo field + transport ---------- */
@@ -34,6 +36,49 @@
    width. */
 .technique-transport-btn {
   min-width: 8ch;
+}
+
+/* ---------- Run result: the score line, then the named wrong notes ---------- */
+
+/* Roadmap T.12. The result used to be one <p> of percentages; it now leads
+   with the score and follows with the corrections, which is the order a
+   teacher says them in. The whole block is one `role="status"` region so a
+   screen reader announces the score AND the corrections as a single update
+   rather than as two unrelated ones. */
+/* `[role="status"]` (primitives.css) is a one-LINE chip: `display: flex` with
+   `align-items: center`, which is right for "Saved" and wrong for a score
+   line followed by a list. Left as it was, every child shrank to its own
+   content width and floated to the middle of the box, so the bullets sat
+   under a ragged centre and the trailing count did not line up with the list
+   it was counting. Column direction plus `flex-start` puts every line on the
+   box's own left padding, which is where the eye goes back to for the next
+   correction. */
+.technique-result {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.technique-result-score {
+  margin: 0;
+}
+
+/* The corrections are the point of the block, so they come back up to full
+   reading colour — the primitive dims its whole chip to --text-2, which is
+   right for a status word and wrong for the sentence the learner is meant to
+   act on. */
+.technique-result-mistakes {
+  margin: 0;
+  padding-left: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  color: var(--text-1);
+}
+
+/* The counts that name no note keep the primitive's quieter colour. */
+.technique-result-aside {
+  margin: 0;
 }
 
 /* ---------- Clean-tempo history: dot tokens, not a chart ---------- */
