@@ -424,15 +424,21 @@ export function isValidPadResult(value: unknown): value is PadResult {
     isOptionalFiniteNumber(p.meanOffsetMs) &&
     isOptionalFiniteNumber(p.worstOffsetMs) &&
     isOptionalFiniteNumber(p.spreadMs) &&
+    isFiniteNumber(p.toleranceMs) &&
+    isFiniteNumber(p.steadyBarMs) &&
+    isOptionalFiniteNumber(p.gridTicks) &&
+    isOptionalFiniteNumber(p.phaseSlipSteps) &&
     typeof p.steady === 'boolean'
   )
 }
 
 /**
- * No migration for the `clean` -> `steady` rename: `drumsHistory` was first written this
- * same release cycle with zero recorded events, so no stored run in the world carries the
- * old key. A record still in the previous shape is therefore correctly rejected as
- * malformed, not migrated.
+ * No migration, for either shape change this store has had: the `clean` -> `steady` rename,
+ * and the per-pad window / grid / phase-slip fields that came with judging a run on how the
+ * drums line up with each other rather than on one global number. `drumsHistory` was first
+ * written this same release cycle with zero recorded events, so no stored run in the world
+ * carries either older shape. A record still in a previous shape is therefore correctly
+ * rejected as malformed, not migrated.
  */
 export function isValidDrumsGrooveAttempt(value: unknown): value is DrumsGrooveAttempt {
   if (typeof value !== 'object' || value === null) return false
@@ -449,10 +455,21 @@ export function isValidDrumsGrooveAttempt(value: unknown): value is DrumsGrooveA
   )
 }
 
+/**
+ * Only the wrapper is judged here, deliberately. The previous version was
+ * `attempts.every(isValidDrumsGrooveAttempt)`, so a single unreadable row threw away the
+ * whole practice history: the store then started from `attempts: []` and the next finished
+ * run wrote over the key, taking every good row with it. That is learner data lost to a
+ * neighbour's corruption. The rows are filtered individually where they are restored
+ * (`persistence.ts`), so a bad row now costs exactly one row.
+ *
+ * `value is PersistedDrumsHistory` is therefore a claim about the wrapper's shape, not a
+ * promise that every element is well formed. The restore path may not skip the filter.
+ */
 export function isValidDrumsHistory(value: unknown): value is PersistedDrumsHistory {
   if (typeof value !== 'object' || value === null) return false
   const v = value as Record<string, unknown>
-  return Array.isArray(v.attempts) && v.attempts.every(isValidDrumsGrooveAttempt)
+  return Array.isArray(v.attempts)
 }
 
 export function isValidRepertoirePiece(value: unknown): value is RepertoirePiece {

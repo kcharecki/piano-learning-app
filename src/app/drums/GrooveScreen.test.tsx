@@ -260,15 +260,45 @@ describe('GrooveScreen', () => {
     expect(screen.getByText('Not there yet')).toBeInTheDocument()
   })
 
-  it('defect 5a: the subtitle prints the tolerance the hook actually derived, not a hardcoded 100', () => {
+  it('defect 5a: the subtitle prints the tolerance the hook actually derived, not a hardcoded 100 — as the finest drum\'s own window', () => {
     renderScreen()
 
     const defaultGroove = referenceGrooves()[0]
     if (defaultGroove === undefined) throw new Error('no default groove bundled')
     const expectedToleranceMs = grooveToleranceMs(defaultGroove, 80, 2)
 
-    const subtitle = screen.getByText(/anything within/i)
+    const subtitle = screen.getByText(/finest drum in this pattern/i)
     expect(subtitle).toHaveTextContent(`${expectedToleranceMs} ms`)
+  })
+
+  it('the subtitle says each DRUM is timed on its own, not "limb" — two hi-hat rows are one hand, and the hi-hat pedal has no pad at all', () => {
+    renderScreen()
+
+    const subtitle = screen.getByText(/each drum is timed on its own/i)
+    expect(subtitle).not.toHaveTextContent(/limb/i)
+  })
+
+  it('the ghost-note disclosure renders only for a groove that notates ghost notes, and says plainly they are not graded', () => {
+    renderScreen()
+
+    // Quarter-Note Rock (the default groove) has no ghost notes.
+    expect(
+      screen.queryByText('This trainer hears when you hit, not how hard — the ghost notes are notated but not graded.'),
+    ).not.toBeInTheDocument()
+
+    // Step to Ghost Funk Bar: quarter-hat-rock -> money-beat -> money-beat-open-hat -> ghost-funk-bar.
+    const nextGroove = screen.getByRole('button', { name: 'Next groove' })
+    fireEvent.click(nextGroove)
+    fireEvent.click(nextGroove)
+    fireEvent.click(nextGroove)
+    expect(screen.getByText('Ghost Funk Bar')).toBeInTheDocument()
+
+    // The notation still says ghost notes are taught — that mention is not deleted.
+    expect(screen.getByText(/teaches:.*ghost notes/i)).toBeInTheDocument()
+    // But right below it, in the learner's own words, the app admits it cannot grade them.
+    expect(
+      screen.getByText('This trainer hears when you hit, not how hard — the ghost notes are notated but not graded.'),
+    ).toBeInTheDocument()
   })
 
   it('defect 5b: a repeats control offers repeatChoices and calls setRepeats', () => {
@@ -285,13 +315,15 @@ describe('GrooveScreen', () => {
     expect(within(group).getByRole('button', { name: 'More repeats' })).toBeDisabled()
   })
 
-  it('defect 5c: an unsteady run suggests a concrete slower tempo, and the suggestion sets it', () => {
+  it('defect 5c: an unsteady run that was actually played suggests a concrete slower tempo, and the suggestion sets it', () => {
     const { clock, manual } = renderScreen()
 
     fireEvent.click(screen.getByRole('button', { name: 'Start' }))
+    act(() => clock.advance(3000))
+    // One on-time hi-hat hit — attempted, but nowhere near complete, so !steady.
+    fireEvent.keyDown(window, { code: 'KeyJ' })
     act(() => {
-      // No hits at all: nothing matched, so the run is not steady.
-      clock.advance(RUN_LENGTH_MS)
+      clock.advance(RUN_LENGTH_MS - 3000)
       manual.pump()
     })
 
@@ -302,7 +334,25 @@ describe('GrooveScreen', () => {
     expect(screen.getByRole('spinbutton', { name: /tempo/i })).toHaveValue(64)
   })
 
-  it('defect 5c: the slow-down suggestion does not appear after a steady run', () => {
+  it('teacher-seat finding: a run with NOTHING played says so, instead of prescribing "slower" — and offers no tempo control', () => {
+    const { clock, manual } = renderScreen()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }))
+    act(() => {
+      // No hits at all: nothing matched on any pad.
+      clock.advance(RUN_LENGTH_MS)
+      manual.pump()
+    })
+
+    expect(screen.getByText('Not there yet')).toBeInTheDocument()
+    expect(
+      screen.getByText('Nothing registered on any pad this run — try the pattern before changing the tempo.'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/uneven pulse/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /bpm/i })).not.toBeInTheDocument()
+  })
+
+  it('defect 5c: a steady run offers a faster tempo instead of a slow-down suggestion', () => {
     const { clock, manual } = renderScreen()
 
     fireEvent.click(screen.getByRole('button', { name: 'Start' }))
@@ -314,6 +364,28 @@ describe('GrooveScreen', () => {
 
     expect(screen.getByRole('region', { name: 'Result' })).toBeInTheDocument()
     expect(screen.getByText('Steady run')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /try it at d+ bpm/i })).not.toBeInTheDocument()
+    expect(screen.queryByText(/uneven pulse/i)).not.toBeInTheDocument()
+
+    // 80bpm, 20% faster, rounded: 96bpm.
+    const suggestion = screen.getByRole('button', { name: /96 bpm/i })
+    fireEvent.click(suggestion)
+
+    expect(screen.getByRole('spinbutton', { name: /tempo/i })).toHaveValue(96)
+  })
+
+  it('teacher-seat finding: Space does not get stolen from a focused non-pad button — Start still activates on it', () => {
+    renderScreen()
+    const startButton = screen.getByRole('button', { name: 'Start' })
+    const kickPad = screen.getByRole('button', { name: 'Kick' })
+    startButton.focus()
+    expect(startButton).toHaveFocus()
+
+    // Dispatched on the focused button itself (not window) so `event.target`
+    // is what it would be in a real browser — bubbling preserves the target,
+    // it does not rewrite it to `window`.
+    const notPrevented = fireEvent.keyDown(startButton, { code: 'Space', key: ' ' })
+
+    expect(notPrevented).toBe(true)
+    expect(kickPad.querySelector('.groove-pad-flash')).toBeNull()
   })
 })

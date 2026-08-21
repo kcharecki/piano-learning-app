@@ -39,19 +39,52 @@
  * their own hardware. A learner scattered either side of the beat has a motor
  * problem, fixed by practising slower, and telling them their average is fine
  * is useless — they were never playing to the average. `verdictText`
- * therefore reads only `steady` (built from spread — see `grooveGrader.ts`'s
- * own module comment) and never the mean.
+ * therefore reads only `steady` and the pad-alignment gap below (never a
+ * single pad's mean — see the next section for why the gap is different).
+ *
+ * ## A whole pad shifted by a grid step is not "late" — it is a phase slip
+ *
+ * A third fault looks like bias at first but is not: a pad played consistently
+ * one grid position away from where it was written (Ghost Funk Bar's hi-hat
+ * line played a whole sixteenth late is the case that exposed it) matches the
+ * *next* onset every time under a tolerance window sized for jitter, not for
+ * a full note value. The resulting "matched" pairs are real hits paired with
+ * the wrong note, so their mean offset is a fact about the mismatch, not
+ * about the learner's timing, and printing it — "11 ms late" — is worse than
+ * useless: the learner never once played where it was written, and the one
+ * number they are given says otherwise. `grooveGrader.ts` detects this
+ * (`PadResult.phaseSlipSteps`) and hands over the shift in grid units and the
+ * grid's own name (`gridTicks`); `phaseSlipPhrase` is the sentence that names
+ * it instead of measuring it, and `padLineText` prefers it over any offset
+ * whenever it applies.
+ *
+ * ## A flam is not an uneven pulse — it is two even pulses, unaligned
+ *
+ * A fourth fault also used to collapse into "the pulse is uneven": kick and
+ * hi-hat each individually dead steady, but the kick consistently 60-70 ms
+ * behind the hi-hat they share a beat with — a flam. Every pad's own spread
+ * is fine, so blaming "the pulse" is a false diagnosis with the wrong fix
+ * (practising slower does nothing for a limb that is already even). What is
+ * actually wrong is cross-pad: `GroovePerformance.padAlignmentMs` (from
+ * `grooveGrader.ts`) is the gap between the latest and earliest pad's own
+ * means, and unlike a single pad's mean it survives the undisclosed-latency
+ * problem below — see `FLAM_GAP_NOTE`'s own comment for why a *difference* of
+ * two means cancels a constant that neither mean alone can. `verdictText`
+ * names the limb (`laggingPad`/`leadingPad`) precisely because this is the
+ * one number in the whole module trustworthy enough to hang a sentence on.
  *
  * ## The undisclosed proxy
  *
  * Nothing under `src/` reads `outputLatency` or `baseLatency`, and there is
- * no calibration step, so every millisecond this module prints is the
- * learner's true timing *plus* an unmeasured, unremovable constant. Printing
- * that number as if it were the learner's timing alone would be a false
- * claim of precision, not a rounding nicety, so `TIMING_CAVEAT` says what the
- * figure actually is everywhere a figure is shown, and `verdictText` — the
- * only text with any certifying weight — is built so it never needs the
- * number at all.
+ * no calibration step, so every millisecond this module prints about a
+ * *single* pad is the learner's true timing *plus* an unmeasured, unremovable
+ * constant. Printing that number as if it were the learner's timing alone
+ * would be a false claim of precision, not a rounding nicety, so
+ * `TIMING_CAVEAT` says what the figure actually is everywhere a single-pad
+ * figure is shown. `verdictText` is built so its certifying word never needs
+ * one of those single-pad numbers — the one number it does sometimes print,
+ * the pad-alignment gap, is the one this proxy cannot touch, and it says so
+ * via `FLAM_GAP_NOTE` rather than relying on `TIMING_CAVEAT` to cover it.
  *
  * ## The stored attempt
  *
@@ -77,7 +110,7 @@
  * up front, and each pad's extra count where it has one.
  */
 import type { MappedDrumPad, DrumPad } from '@core/drums/model/pad.ts'
-import type { GroovePerformance, PadResult } from './grooveGrader.ts'
+import { PAD_ALIGNMENT_MS, type GroovePerformance, type PadResult } from './grooveGrader.ts'
 
 /**
  * What the learner calls each pad. Kit vocabulary, not MusicXML instrument
@@ -147,6 +180,57 @@ export function offsetPhrase(meanOffsetMs: number | undefined, spreadMs: number 
 }
 
 /**
+ * The note-value vocabulary a beginner already has for their own part —
+ * "sixteenth", not "120 ticks" — for the grid spacings `phaseSlipPhrase`
+ * actually has to name. Deliberately not exhaustive: a spacing this map does
+ * not know, and `gridTicks === undefined` (fewer than two notes on the pad,
+ * so there is no spacing to name), both fall through to `UNNAMED_GRID_STEP`
+ * rather than a guessed name — see that constant's own comment.
+ */
+const GRID_STEP_NAMES: Record<number, { readonly singular: string; readonly plural: string }> = {
+  480: { singular: 'quarter', plural: 'quarters' },
+  320: { singular: 'dotted quarter', plural: 'dotted quarters' },
+  240: { singular: 'eighth', plural: 'eighths' },
+  160: { singular: 'eighth triplet', plural: 'eighth triplets' },
+  120: { singular: 'sixteenth', plural: 'sixteenths' },
+  60: { singular: 'thirty-second', plural: 'thirty-seconds' },
+}
+
+/**
+ * What `phaseSlipPhrase` says when it cannot name the grid it slipped by. A
+ * wrong name (e.g. calling a quintuplet gap a "sixteenth") would be a false
+ * statement about the learner's part; a vague-but-true one is not.
+ */
+const UNNAMED_GRID_STEP = { singular: 'step of the pattern', plural: 'steps of the pattern' }
+
+const SMALL_COUNT_WORDS = [
+  'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve',
+]
+
+/** A small positive count in words — "two", not "2" — the way a teacher says it out loud. */
+function spellCount(n: number): string {
+  return SMALL_COUNT_WORDS[n - 1] ?? String(n)
+}
+
+/**
+ * The sentence for a pad whose whole line landed one or more grid positions
+ * away from where it was written — see the module comment's "why the mean is
+ * never enough" section for the sibling reasoning on bias vs. spread; this is
+ * the third shape a systematic offset can take. It never prints a
+ * millisecond figure: every hit on this pad matched *some* note near it, just
+ * the wrong one, so a millisecond offset here would describe a phantom
+ * near-match rather than what actually happened, which is that the learner
+ * played a nameable, different position in the pattern throughout.
+ */
+function phaseSlipPhrase(pad: DrumPad, phaseSlipSteps: number, gridTicks: number | undefined): string {
+  const steps = Math.abs(phaseSlipSteps)
+  const name = (gridTicks === undefined ? undefined : GRID_STEP_NAMES[gridTicks]) ?? UNNAMED_GRID_STEP
+  const noun = steps === 1 ? name.singular : name.plural
+  const direction = phaseSlipSteps > 0 ? 'behind' : 'ahead of'
+  return `your ${padLabel(pad).toLowerCase()} is ${spellCount(steps)} ${noun} ${direction} the click`
+}
+
+/**
  * One pad's result as a sentence: `Hi-hat — 16 of 16, 12 ms late`, or
  * `Snare — 0 of 4, 4 missed, 4 extra` when the limb went wrong.
  *
@@ -154,6 +238,22 @@ export function offsetPhrase(meanOffsetMs: number | undefined, spreadMs: number 
  * a learner who played the snare on 1 and 3 does not need to know how evenly
  * they did it. When nothing is missing and nothing is spurious, the offset —
  * mean and spread both, from `offsetPhrase` — is the only thing left to say.
+ *
+ * Two refinements on top of that, both from the same evidence rule — an
+ * offset is only ever printed about the notes it was actually computed from:
+ *
+ * - A phase slip (`phaseSlipSteps`) takes priority over everything else. The
+ *   "matched" pairs behind a slipped pad's offset are hits paired with the
+ *   *wrong* note, so the offset they would produce is not a fact about the
+ *   learner's timing at all; `phaseSlipPhrase` replaces it, even when misses
+ *   or extras are also present (a slipped line commonly has both, at the
+ *   pattern's edges).
+ * - Otherwise, the offset is printed only when the pad matched every note it
+ *   was asked for and nothing more (`missed === 0 && extra === 0`). A pad
+ *   that is missing notes or has spurious ones has an offset computed from
+ *   only the subset that happened to land — not evidence about the pad as a
+ *   whole, and stating it invites exactly the false "8 of 20 ... dead on"
+ *   reading this rule exists to rule out.
  */
 export function padLineText(row: PadResult): string {
   const label = padLabel(row.pad)
@@ -164,14 +264,63 @@ export function padLineText(row: PadResult): string {
   const problems: string[] = []
   if (row.missed > 0) problems.push(`${row.missed} missed`)
   if (row.extra > 0) problems.push(`${row.extra} extra`)
-  if (row.matched === 0) return `${counts}, ${problems.join(', ')}`
+
+  if (row.phaseSlipSteps !== undefined && row.phaseSlipSteps !== 0) {
+    return `${counts}, ${[...problems, phaseSlipPhrase(row.pad, row.phaseSlipSteps, row.gridTicks)].join(', ')}`
+  }
+  if (row.matched === 0 || row.missed > 0 || row.extra > 0) {
+    return `${counts}, ${problems.join(', ')}`
+  }
   return `${counts}, ${[...problems, offsetPhrase(row.meanOffsetMs, row.spreadMs)].join(', ')}`
 }
 
-/** The one word for the whole run, from counts and spread — never from the mean. */
-export function verdictText(performance: Pick<GroovePerformance, 'complete' | 'steady'>): string {
+/**
+ * The one extra sentence the flam verdict in `verdictText` earns. A single
+ * pad's own milliseconds carry an unmeasured device-latency constant (see the
+ * module comment's "undisclosed proxy" section), but the *gap between two
+ * pads'* means does not: the same constant is added to both, so it cancels
+ * out of their difference. This sentence is the only place that distinction
+ * is spelled out for the learner, kept to one line on purpose.
+ */
+export const FLAM_GAP_NOTE =
+  'That gap is real: a slow keyboard or speakers would delay every drum by the same amount, not just one.'
+
+/**
+ * The one word — or, for a flam, one short named sentence — for the whole
+ * run. Reads counts, spread, and now cross-pad alignment, but never any
+ * single pad's mean — see the module comment.
+ *
+ * `padAlignmentMs`/`laggingPad`/`leadingPad` are optional here, not merely
+ * defaulted: `lastRunSummary` calls this from `DrumsGrooveAttempt`, the
+ * persisted shape, which does not carry them (see that type's own doc — a
+ * stored run holds plain data only). When they are missing, this function
+ * cannot tell a flam (every pad's own pulse fine, two pads not together)
+ * apart from a genuinely uneven pad, so it must not guess at either fault by
+ * name; `'Every note, but not together yet'` is the sentence that stays true
+ * regardless of which one it was. When the caller does have live
+ * `GroovePerformance` alignment figures, the more specific sentence — naming
+ * the limb, the way a teacher would — is used instead, but only when
+ * alignment is in fact the failure (`padAlignmentMs > PAD_ALIGNMENT_MS`); if
+ * alignment is fine and the run is still unsteady, the fault can only be a
+ * pad's own spread, so the uneven-pulse sentence is still the true one there.
+ */
+export function verdictText(
+  performance: Pick<GroovePerformance, 'complete' | 'steady'> &
+    Partial<Pick<GroovePerformance, 'padAlignmentMs' | 'laggingPad' | 'leadingPad'>>,
+): string {
   if (!performance.complete) return 'Not there yet'
-  return performance.steady ? 'Steady run' : 'Every note, but the pulse is uneven'
+  if (performance.steady) return 'Steady run'
+
+  const { padAlignmentMs, laggingPad, leadingPad } = performance
+  if (padAlignmentMs !== undefined && laggingPad !== undefined && leadingPad !== undefined) {
+    if (padAlignmentMs > PAD_ALIGNMENT_MS) {
+      const lagging = padLabel(laggingPad).toLowerCase()
+      const leading = padLabel(leadingPad).toLowerCase()
+      return `Your ${lagging} is ${Math.round(padAlignmentMs)} ms behind your ${leading}. ${FLAM_GAP_NOTE}`
+    }
+    return 'Every note, but the pulse is uneven'
+  }
+  return 'Every note, but not together yet'
 }
 
 /**

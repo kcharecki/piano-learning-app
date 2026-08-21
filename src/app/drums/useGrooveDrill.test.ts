@@ -25,6 +25,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { useDrumsHistoryStore } from '@app/state/drumsHistoryStore.ts'
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
+import type { DrumsGrooveAttempt } from '@core/drums/practice/attempt.ts'
 import { grooveToleranceMs } from '@core/drums/practice/grooveGrader.ts'
 import {
   GRADED_REPEATS,
@@ -72,6 +73,37 @@ function setup(overrides: Partial<UseGrooveDrillOptions> = {}) {
     initialProps: options,
   })
   return { result, clock, audioOutput, manual, unmount }
+}
+
+/**
+ * Unlike `setup()`, this does not pin `initialGrooveId` — its callers are the
+ * groove-seeding tests below, which need `grooveTouchedRef` to start
+ * `false` the way a real learner who has never touched the picker does. The
+ * same reasoning as the existing "opens on the easiest groove" test, pulled
+ * out because the groove-seeding tests below need it more than once.
+ */
+function freshHook(overrides: Partial<UseGrooveDrillOptions> = {}) {
+  const clock = new FakeClock()
+  const audioOutput = new RecordingAudioOutput(clock)
+  const manual = manualDriver()
+  const { result } = renderHook((p: UseGrooveDrillOptions) => useGrooveDrill(p), {
+    initialProps: { clock, audioOutput, frameDriver: manual.driver, date: clock, ...overrides },
+  })
+  return { result, clock, audioOutput, manual }
+}
+
+/** A minimal, valid `DrumsGrooveAttempt` for seeding the store directly, without driving a run. */
+function fakeAttempt(overrides: Partial<DrumsGrooveAttempt> = {}): DrumsGrooveAttempt {
+  return {
+    grooveId: 'money-beat',
+    grooveTitle: 'Money Beat',
+    bpm: 80,
+    repeats: GRADED_REPEATS,
+    at: 0,
+    steady: true,
+    pads: [],
+    ...overrides,
+  }
 }
 
 type TimedHit = { readonly at: number; readonly pad: MappedDrumPad }
@@ -225,6 +257,30 @@ describe('useGrooveDrill — grading a finished run', () => {
     expect(rows.find((r) => r.pad === 'hhClosed')).toMatchObject({ expected: 16, matched: 16, missed: 0, extra: 0 })
     expect(rows.find((r) => r.pad === 'snare')).toMatchObject({ expected: 4, matched: 4, missed: 0, extra: 0 })
     expect(rows.find((r) => r.pad === 'kick')).toMatchObject({ expected: 4, matched: 4, missed: 0, extra: 0 })
+  })
+
+  // The Result card belongs to the run that produced it. The subtitle above it recomputes
+  // off the tempo the moment it changes, so a card left standing sits under a window and a
+  // tempo that did not produce it — and the screen's own "try it slower" button did exactly
+  // that, twice in a row, with no run in between.
+  it.each([
+    ['a tempo change', (r: { current: { setBpm(n: number): void } }) => r.current.setBpm(64)],
+    ['a repeat change', (r: { current: { setRepeats(n: number): void } }) => r.current.setRepeats(4)],
+  ])('%s clears the result of the previous run', (_label, change) => {
+    const { result, clock, manual } = setup()
+
+    act(() => result.current.start())
+    playEvents(clock, result, correctRunEvents())
+    act(() => {
+      clock.setTime(END_MS)
+      manual.pump()
+    })
+    expect(result.current.performance).toBeDefined()
+
+    act(() => change(result))
+
+    expect(result.current.performance).toBeUndefined()
+    expect(result.current.rows).toEqual([])
   })
 
   it('swapping the snare and kick hits fails those two pads while the hi-hat stays complete', () => {
@@ -423,6 +479,79 @@ describe('useGrooveDrill — tempo remembers the last run (defect 5)', () => {
 
     const learner = setup({ initialBpm: 60 })
     expect(learner.result.current.bpm).toBe(60)
+  })
+})
+
+describe('useGrooveDrill — groove remembers the last run', () => {
+  it('seeds grooveId from the last attempt once the history store hydrates it', () => {
+    const producer = setup({ initialGrooveId: 'ghost-funk-bar' })
+    act(() => producer.result.current.start())
+    act(() => {
+      // Comfortably past any groove's end at 80bpm/2 repeats — this test only
+      // needs the run to finish, not to be graded correctly.
+      producer.clock.setTime(100_000)
+      producer.manual.pump()
+    })
+    expect(producer.result.current.phase).toBe('done')
+    expect(useDrumsHistoryStore.getState().attempts[0]?.grooveId).toBe('ghost-funk-bar')
+
+    const learner = freshHook()
+    expect(learner.result.current.score.id).toBe('ghost-funk-bar')
+  })
+
+  it('does not overwrite a groove the learner already picked when a later attempt arrives', () => {
+    const learner = freshHook()
+    act(() => learner.result.current.setGrooveId('ghost-funk-bar'))
+
+    const producer = setup({ initialGrooveId: 'quarter-hat-rock' })
+    act(() => producer.result.current.start())
+    act(() => {
+      producer.clock.setTime(100_000)
+      producer.manual.pump()
+    })
+    expect(useDrumsHistoryStore.getState().attempts[0]?.grooveId).toBe('quarter-hat-rock')
+
+    expect(learner.result.current.score.id).toBe('ghost-funk-bar')
+  })
+
+  it('an explicit initialGrooveId always wins over a seeded attempt', () => {
+    const producer = setup({ initialGrooveId: 'ghost-funk-bar' })
+    act(() => producer.result.current.start())
+    act(() => {
+      producer.clock.setTime(100_000)
+      producer.manual.pump()
+    })
+    expect(useDrumsHistoryStore.getState().attempts[0]?.grooveId).toBe('ghost-funk-bar')
+
+    const learner = freshHook({ initialGrooveId: 'quarter-hat-rock' })
+    expect(learner.result.current.score.id).toBe('quarter-hat-rock')
+  })
+
+  it('an unknown persisted grooveId falls back to the default, but bpm still seeds', () => {
+    useDrumsHistoryStore.setState({
+      attempts: [fakeAttempt({ grooveId: 'no-longer-bundled', grooveTitle: 'Vanished Groove', bpm: 140 })],
+    })
+
+    const learner = freshHook()
+
+    // quarter-hat-rock is grooves[0] — the easiest-first default this
+    // trainer opens on when nothing else applies.
+    expect(learner.result.current.score.id).toBe('quarter-hat-rock')
+    expect(learner.result.current.bpm).toBe(140)
+  })
+
+  it('does not seed grooveId (or bpm) once a run is already in progress when history hydrates', () => {
+    const learner = freshHook()
+
+    act(() => learner.result.current.start())
+    expect(learner.result.current.phase).toBe('count-in')
+
+    act(() => {
+      useDrumsHistoryStore.setState({ attempts: [fakeAttempt({ grooveId: 'ghost-funk-bar', bpm: 140 })] })
+    })
+
+    expect(learner.result.current.score.id).toBe('quarter-hat-rock')
+    expect(learner.result.current.bpm).toBe(80)
   })
 })
 

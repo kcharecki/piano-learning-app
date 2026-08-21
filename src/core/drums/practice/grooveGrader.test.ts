@@ -10,9 +10,13 @@ import {
   DEFAULT_GROOVE_TOLERANCE_MS,
   gradeGroovePerformance,
   grooveOnsetsMs,
+  groovePadTolerancesMs,
   grooveToleranceMs,
+  PAD_ALIGNMENT_MS,
+  STEADY_SPREAD_FRACTION,
   STEADY_SPREAD_MS,
   TOLERANCE_GAP_FRACTION,
+  type GroovePerformance,
   type PadResult,
 } from './grooveGrader.ts'
 
@@ -663,6 +667,365 @@ describe('property: spread is immune to a constant offset', () => {
             // The mean is the half that DOES move — that asymmetry is the
             // reason the verdict is judged on the other one.
             expect(mean).toBeCloseTo(baselineMean + shiftMs)
+          }
+        },
+      ),
+    )
+  })
+})
+
+// ------------------------------------------------------------- pad alignment
+
+describe('the flam case', () => {
+  /** Driven at 80 bpm on Money Beat: hi-hat and snare exact, kick uniformly
+   * behind. The kick then lands 60 ms after the hi-hat on every beat 1 and 3,
+   * where the notation puts them in unison — a flam, the most audible fault a
+   * beginner has, and the run this module used to certify as `Steady run`. */
+  const KICK_LAG_MS = 60
+
+  const kickBehindBy = (lagMs: number): GroovePerformance => {
+    const score = moneyBeat()
+    const onsets = grooveOnsetsMs(score, BPM, REPEATS)
+    const hits = onsets.map((o) => hit(o.pad, o.pad === 'kick' ? o.atMs + lagMs : o.atMs))
+    return gradeGroovePerformance({ score, bpm: BPM, repeats: REPEATS, hits })
+  }
+
+  it('fails on alignment, not on any one pad\'s pulse', () => {
+    const result = kickBehindBy(KICK_LAG_MS)
+
+    // Nothing any single pad measures objects: every note matched, and every
+    // pad's own pulse is perfectly even. That is exactly why the old verdict
+    // said `Steady run`.
+    expect(result.complete).toBe(true)
+    for (const row of result.perPad) {
+      expect(row.spreadMs).toBeCloseTo(0)
+      expect(row.steady).toBe(true)
+    }
+
+    // Latency cancels in the difference between two pads' means, so this is a
+    // number we are entitled to fail someone on — one machine cannot add 0 ms
+    // to the hands and 60 ms to the foot.
+    expect(result.padAlignmentMs).toBeCloseTo(KICK_LAG_MS)
+    expect(KICK_LAG_MS).toBeGreaterThan(PAD_ALIGNMENT_MS)
+    expect(result.laggingPad).toBe('kick')
+    const leading = result.leadingPad
+    invariant(leading !== undefined, 'two pads matched, so leadingPad must be defined')
+    expect(rowFor(result.perPad, leading).meanOffsetMs).toBeCloseTo(0)
+    expect(result.steady).toBe(false)
+  })
+
+  it('a correct run — and one inside PAD_ALIGNMENT_MS — stays steady', () => {
+    // The refutation condition for the check above: if this ever goes red, the
+    // alignment bar is failing runs that are actually fine.
+    const exact = kickBehindBy(0)
+    expect(exact.padAlignmentMs).toBeCloseTo(0)
+    expect(exact.laggingPad).toBe('kick')
+    expect(exact.steady).toBe(true)
+
+    // The e2e driver's own dispatch drift lives down here (up to 17 ms), so
+    // this band must stay passable.
+    const nearlyExact = kickBehindBy(25)
+    expect(nearlyExact.padAlignmentMs).toBeCloseTo(25)
+    expect(nearlyExact.steady).toBe(true)
+  })
+
+  it('has no alignment figure at all when fewer than two pads matched', () => {
+    const score = makeGrooveScore({
+      id: 'one-pad',
+      measureCount: 1,
+      notes: [{ pad: 'kick', tick: 0, durationTicks: 240 }],
+    })
+    const result = gradeGroovePerformance({ score, bpm: 125, repeats: 1, hits: [hit('kick', 0)] })
+
+    expect(result.padAlignmentMs).toBeUndefined()
+    expect(result.laggingPad).toBeUndefined()
+    expect(result.leadingPad).toBeUndefined()
+    // One pad has nothing to be aligned WITH, so the run is judged on its
+    // pulse alone and passes.
+    expect(result.steady).toBe(true)
+    expect(rowFor(result.perPad, 'kick').gridTicks).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------- phase slip
+
+describe('a whole line displaced by one grid unit', () => {
+  /** 120 ticks at 80 bpm — ghostFunkBar's whole grid. */
+  const SIXTEENTH_MS = 187.5
+
+  const hatsDisplacedBy = (shiftMs: number): GroovePerformance => {
+    const score = ghostFunkBar()
+    const onsets = grooveOnsetsMs(score, BPM, 1)
+    const hits = onsets.map((o) => hit(o.pad, o.pad === 'hhClosed' ? o.atMs + shiftMs : o.atMs))
+    return gradeGroovePerformance({ score, bpm: BPM, repeats: 1, hits })
+  }
+
+  it('is reported as +1 grid unit LATE, not as 15 of 16 played dead on the note', () => {
+    const hats = rowFor(hatsDisplacedBy(SIXTEENTH_MS).perPad, 'hhClosed')
+
+    // Each hit lands exactly ON the next notated onset, so its offset to the
+    // note it matched is zero. No window, however tight, can see that — which
+    // is why the displacement has to be detected as itself.
+    expect(hats.matched).toBe(15)
+    expect(hats.meanOffsetMs).toBeCloseTo(0)
+    expect(hats.spreadMs).toBeCloseTo(0)
+
+    expect(hats.gridTicks).toBe(120)
+    expect(hats.phaseSlipSteps).toBe(1)
+    expect(hats.steady).toBe(false)
+    expect(hatsDisplacedBy(SIXTEENTH_MS).steady).toBe(false)
+  })
+
+  it('is reported as -1 when the line is a grid unit early', () => {
+    const result = hatsDisplacedBy(-SIXTEENTH_MS)
+    const hats = rowFor(result.perPad, 'hhClosed')
+
+    expect(hats.matched).toBe(15)
+    expect(hats.phaseSlipSteps).toBe(-1)
+    expect(hats.steady).toBe(false)
+    expect(result.steady).toBe(false)
+    // The pads that were played where they are written keep their own verdict.
+    expect(rowFor(result.perPad, 'kick').phaseSlipSteps).toBeUndefined()
+    expect(rowFor(result.perPad, 'snare').phaseSlipSteps).toBeUndefined()
+  })
+
+  it('a merely-late line is never called a slip', () => {
+    // Half a grid unit is always outside the window (which is at most 0.4 of
+    // the grid), so nothing matches — and nothing FITS a shifted grid either.
+    // Claiming a slip here would be a guess, so it does not.
+    const half = rowFor(hatsDisplacedBy(SIXTEENTH_MS / 2).perPad, 'hhClosed')
+    expect(half.matched).toBe(0)
+    expect(half.phaseSlipSteps).toBeUndefined()
+
+    // The harder half: uniformly late by the entire window, every note
+    // matched, the mean's story to tell and not the slip detector's.
+    const edge = rowFor(hatsDisplacedBy(75).perPad, 'hhClosed')
+    expect(edge.toleranceMs).toBe(75)
+    expect(edge.matched).toBe(16)
+    expect(edge.meanOffsetMs).toBeCloseTo(75)
+    expect(edge.phaseSlipSteps).toBeUndefined()
+  })
+
+  it('an exactly correct run on a uniform line is never called a slip', () => {
+    // The refutation condition: a 16-hit uniform line shifted by one grid unit
+    // still lands on 15 real onsets, so an off-by-one hypothesis is always
+    // nearly as good as the truth. Only a STRICT improvement claims a slip.
+    const result = hatsDisplacedBy(0)
+    expect(result.complete).toBe(true)
+    for (const row of result.perPad) expect(row.phaseSlipSteps).toBeUndefined()
+    expect(result.steady).toBe(true)
+  })
+})
+
+// ----------------------------------------------------------- per-pad windows
+
+describe('per-pad windows', () => {
+  /** Hi-hat on sixteenths, kick on quarters. At 80 bpm the hat's own spacing
+   * admits 75 ms and the kick's admits 300 — and before the windows were
+   * per-pad the kick was held to the hat's 75. */
+  const sixteenthHatQuarterKick = makeGrooveScore({
+    id: 'sixteenth-hat-quarter-kick',
+    measureCount: 1,
+    notes: [
+      ...Array.from({ length: 16 }, (_, i) => ({
+        pad: 'hhClosed' as const,
+        tick: i * 120,
+        durationTicks: 120,
+      })),
+      ...[0, 480, 960, 1440].map((tick) => ({
+        pad: 'kick' as const,
+        tick,
+        durationTicks: 480,
+      })),
+    ],
+  })
+
+  it('gives the kick a strictly wider window than the hi-hat, from its own spacing', () => {
+    const windows = groovePadTolerancesMs(sixteenthHatQuarterKick, BPM, 1)
+    const hatWindow = windows.get('hhClosed')
+    const kickWindow = windows.get('kick')
+    invariant(hatWindow !== undefined && kickWindow !== undefined, 'both pads are in the score')
+
+    expect(hatWindow).toBe(75) // floor(0.4 * 187.5 ms sixteenth)
+    expect(kickWindow).toBe(DEFAULT_GROOVE_TOLERANCE_MS) // its 750 ms quarter admits 300; the request caps it at 100
+    expect(kickWindow).toBeGreaterThan(hatWindow)
+
+    // The one number the screen prints stays the strictest of the two.
+    expect(grooveToleranceMs(sixteenthHatQuarterKick, BPM, 1)).toBe(75)
+
+    // Ask for more and each pad's own spacing is still the ceiling.
+    const asked = groovePadTolerancesMs(sixteenthHatQuarterKick, BPM, 1, 300)
+    expect(asked.get('kick')).toBe(300)
+    expect(asked.get('hhClosed')).toBe(75)
+  })
+
+  it('a kick 120 ms late is matched, not 0 of 8 with 8 missed and 8 extra', () => {
+    const score = sixteenthHatQuarterKick
+    const onsets = grooveOnsetsMs(score, BPM, REPEATS)
+    const late = (lagMs: number): readonly RawDrumHit[] =>
+      onsets.map((o) => hit(o.pad, o.pad === 'kick' ? o.atMs + lagMs : o.atMs))
+
+    const result = gradeGroovePerformance({
+      score,
+      bpm: BPM,
+      repeats: REPEATS,
+      hits: late(120),
+      toleranceMs: 300,
+    })
+    const kick = rowFor(result.perPad, 'kick')
+    expect(kick).toMatchObject({
+      expected: 8,
+      matched: 8,
+      missed: 0,
+      extra: 0,
+      toleranceMs: 300,
+      gridTicks: 480,
+    })
+    expect(kick.meanOffsetMs).toBeCloseTo(120)
+    // The learner played all eight, in the right place, a sixth of a beat
+    // behind. The run still fails — but as the flam it is, naming the limb.
+    expect(result.padAlignmentMs).toBeCloseTo(120)
+    expect(result.laggingPad).toBe('kick')
+    expect(result.steady).toBe(false)
+
+    // Even at the default request the kick is no longer squeezed to the hat's
+    // 75 ms: 90 ms late used to read `0 of 8, 8 missed, 8 extra`.
+    const atDefault = gradeGroovePerformance({ score, bpm: BPM, repeats: REPEATS, hits: late(90) })
+    expect(rowFor(atDefault.perPad, 'kick')).toMatchObject({
+      matched: 8,
+      missed: 0,
+      extra: 0,
+      toleranceMs: DEFAULT_GROOVE_TOLERANCE_MS,
+    })
+    expect(rowFor(atDefault.perPad, 'hhClosed')).toMatchObject({ matched: 32, toleranceMs: 75 })
+  })
+})
+
+// ---------------------------------------------------- the tempo-blind bar
+
+describe('the steadiness bar bends with the grid', () => {
+  /** Every hi-hat driven to the very edge of its own window, alternating; kick
+   * and snare exact. The spread is then exactly one window wide, which is the
+   * shape that used to fail at 160 bpm and PASS at 172, 180 and 200. */
+  const edgeOfWindowRun = (tempo: number): GroovePerformance => {
+    const score = ghostFunkBar()
+    const onsets = grooveOnsetsMs(score, tempo, 1)
+    const window = groovePadTolerancesMs(score, tempo, 1).get('hhClosed')
+    invariant(window !== undefined, 'ghostFunkBar has a hi-hat line')
+    let hatIndex = 0
+    const hits = onsets.map((o) => {
+      if (o.pad !== 'hhClosed') return hit(o.pad, o.atMs)
+      const lurch = hatIndex % 2 === 0 ? window : -window
+      hatIndex += 1
+      return hit(o.pad, o.atMs + lurch)
+    })
+    return gradeGroovePerformance({ score, bpm: tempo, repeats: 1, hits })
+  }
+
+  it('the bar is strictly smaller at a high tempo than at a low one', () => {
+    const slow = rowFor(edgeOfWindowRun(80).perPad, 'hhClosed')
+    const fast = rowFor(edgeOfWindowRun(200).perPad, 'hhClosed')
+
+    expect(slow.steadyBarMs).toBeCloseTo(STEADY_SPREAD_FRACTION * 187.5) // 28.125
+    expect(fast.steadyBarMs).toBeCloseTo(STEADY_SPREAD_FRACTION * 75) // 11.25
+    expect(fast.steadyBarMs).toBeLessThan(slow.steadyBarMs)
+    // Both are inside the flat bar, which is what stopped meaning anything
+    // once the grid got tighter than about a 233 ms subdivision.
+    expect(slow.steadyBarMs).toBeLessThan(STEADY_SPREAD_MS)
+  })
+
+  it('a run at the edge of its own window is uneven at every tempo, including the ones that used to pass', () => {
+    for (const tempo of [80, 160, 172, 180, 200]) {
+      const result = edgeOfWindowRun(tempo)
+      const hats = rowFor(result.perPad, 'hhClosed')
+      const spread = hats.spreadMs
+      invariant(spread !== undefined, `hats matched at ${tempo} bpm, so spreadMs is defined`)
+
+      // The counts are clean and the pads are in line with each other, so the
+      // only thing left to fail on is the pulse — which is the point.
+      expect(result.complete).toBe(true)
+      expect(hats.matched).toBe(16)
+      expect(result.padAlignmentMs).toBeCloseTo(0)
+
+      expect(spread).toBeCloseTo(hats.toleranceMs)
+      expect(spread).toBeGreaterThan(hats.steadyBarMs)
+      expect(hats.steady).toBe(false)
+      expect(result.steady).toBe(false)
+    }
+  })
+})
+
+describe('property: one constant delay on every pad', () => {
+  it('moves every meanOffsetMs and leaves padAlignmentMs, every spreadMs and steady alone', () => {
+    // This property is the whole justification for judging a run on alignment
+    // and spread rather than on the mean: audio-out plus e-kit-in latency adds
+    // one constant to every hit on every pad, and a constant cannot touch
+    // either quantity. If it ever could, both verdicts would be measuring the
+    // sound card.
+    fc.assert(
+      fc.property(
+        fc.array(fc.integer({ min: -20, max: 20 }), { minLength: 24, maxLength: 24 }),
+        fc.integer({ min: -30, max: 30 }).filter((n) => n !== 0),
+        (jitter, delayMs) => {
+          // Jitter +-20 plus a delay +-30 keeps every hit at most 50 ms from
+          // its own note — inside moneyBeat's 100 ms window at 80 bpm, and far
+          // inside its 375 ms same-pad spacing — so the matched pairs are
+          // identical before and after. Only then does "nothing moved" mean
+          // anything.
+          const score = moneyBeat()
+          const onsets = grooveOnsetsMs(score, BPM, REPEATS)
+          expect(onsets.length).toBe(jitter.length)
+          const played = (extraMs: number): readonly RawDrumHit[] =>
+            onsets.map((o, i) => hit(o.pad, o.atMs + at(jitter, i) + extraMs))
+
+          const before = gradeGroovePerformance({
+            score,
+            bpm: BPM,
+            repeats: REPEATS,
+            hits: played(0),
+          })
+          const after = gradeGroovePerformance({
+            score,
+            bpm: BPM,
+            repeats: REPEATS,
+            hits: played(delayMs),
+          })
+
+          const alignment = before.padAlignmentMs
+          const delayedAlignment = after.padAlignmentMs
+          invariant(
+            alignment !== undefined && delayedAlignment !== undefined,
+            'three pads matched, so padAlignmentMs must be defined',
+          )
+          expect(delayedAlignment).toBeCloseTo(alignment)
+          expect(after.laggingPad).toBe(before.laggingPad)
+          expect(after.leadingPad).toBe(before.leadingPad)
+          expect(after.steady).toBe(before.steady)
+
+          for (const row of after.perPad) {
+            const baseline = rowFor(before.perPad, row.pad)
+            expect(row.matched).toBe(baseline.matched)
+
+            const spread = row.spreadMs
+            const baselineSpread = baseline.spreadMs
+            invariant(
+              spread !== undefined && baselineSpread !== undefined,
+              'every row matched, so spreadMs must be defined',
+            )
+            expect(spread).toBeCloseTo(baselineSpread)
+            expect(row.steady).toBe(baseline.steady)
+
+            const mean = row.meanOffsetMs
+            const baselineMean = baseline.meanOffsetMs
+            invariant(
+              mean !== undefined && baselineMean !== undefined,
+              'every row matched, so meanOffsetMs must be defined',
+            )
+            // The half that DOES move, on every pad — and it moves by exactly
+            // the same amount on every pad, which is why the difference
+            // between two of them survives untouched.
+            expect(mean).toBeCloseTo(baselineMean + delayMs)
+            expect(mean).not.toBeCloseTo(baselineMean)
           }
         },
       ),

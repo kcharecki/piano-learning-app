@@ -93,16 +93,26 @@
  * than a value closed over at render, since the ref is what `start()` just
  * populated.
  *
- * ## The tempo remembers the last run, but never argues with the learner
+ * ## The tempo and groove remember the last run, but never argue with the learner
  *
- * After a finished run the screen prints the tempo that run was graded at,
- * so a reload that leaves the tempo field at the hardcoded default of 80
- * while `lastAttempt` says 200 is a screen actively lying about what Start
- * will do. Seeding `bpm` from `lastAttempt` has to happen after mount (see
- * the effect below) because the store hydrates from IndexedDB
- * asynchronously. It must never fire twice, and never once the learner has
- * typed their own value — overwriting a tempo someone just chose because a
- * store finished loading would be worse than the stale default it replaces.
+ * After a finished run the screen prints the groove and tempo that run was
+ * graded at, so a reload that leaves the picker on the hardcoded default
+ * (`grooves[0]`) and the tempo at 80 while `lastAttempt` says "Money Beat at
+ * 200" is a screen actively lying about what Start will do — the printed line
+ * names one groove while Start would grade whichever one the picker, still on
+ * the default, happens to be sitting on. Seeding `bpm` and `grooveId` from
+ * `lastAttempt` has to happen after mount (see the effect below) because the
+ * store hydrates from IndexedDB asynchronously. Neither must ever fire twice,
+ * and neither once the learner has made their own choice — including via
+ * `options.initialBpm` / `options.initialGrooveId`, a caller's instruction
+ * that counts as the learner having chosen — because overwriting a value
+ * someone just set would be worse than the stale default it replaces. The two
+ * seeds share one effect: both key off the same event (the first
+ * `lastAttempt` to arrive) and differ only in which "touched" ref they check
+ * and which setter they call, so one `seededRef` marks the single shot both
+ * take together. A persisted groove id naming a groove no longer offered
+ * (removed from the bundle, or filtered out by `playableGrooves()`) is
+ * ignored rather than selected, so the picker never lands on nothing.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AudioOutput, Clock, DateSource } from '@core/ports/index.ts'
@@ -246,6 +256,10 @@ export function useGrooveDrill(options: UseGrooveDrillOptions = {}): GrooveDrill
   // The picker is ordered easiest-first (`referenceGrooves`), so the trainer
   // opens on `grooves[0]` rather than a hardcoded id.
   const [grooveId, setGrooveIdState] = useState(options.initialGrooveId ?? grooves[0]?.id ?? 'money-beat')
+  // True once the learner has explicitly picked a groove — including via
+  // `options.initialGrooveId`. Read by the seeding effect below, the same
+  // discipline `bpmTouchedRef` applies to `bpm`.
+  const grooveTouchedRef = useRef(options.initialGrooveId !== undefined)
   const selected = useMemo(() => grooves.find((g) => g.id === grooveId) ?? grooves[0], [grooves, grooveId])
   // The groove list is a static bundled one, so an empty one is a build
   // mistake rather than a state the screen has to render. Re-bound to a
@@ -260,10 +274,6 @@ export function useGrooveDrill(options: UseGrooveDrillOptions = {}): GrooveDrill
   // by the seeding effect below so a freshly hydrated attempt never clobbers
   // a tempo someone already set.
   const bpmTouchedRef = useRef(options.initialBpm !== undefined)
-  // Seeding from history is one-shot: only the *first* `lastAttempt` to
-  // arrive gets to propose a tempo, never a later one (the run the learner
-  // just finished).
-  const bpmSeededRef = useRef(false)
 
   const [repeats, setRepeatsState] = useState(GRADED_REPEATS)
 
@@ -304,14 +314,25 @@ export function useGrooveDrill(options: UseGrooveDrillOptions = {}): GrooveDrill
   const lastAttempt = useDrumsHistoryStore((state) => state.attempts[0])
   const addAttempt = useDrumsHistoryStore((state) => state.addAttempt)
 
+  // Seeding from history is one-shot: only the *first* `lastAttempt` to
+  // arrive gets to propose values, never a later one (the run the learner
+  // just finished) — see the module comment for why bpm and grooveId share
+  // this one effect and this one latch.
+  const seededRef = useRef(false)
+
   useEffect(() => {
-    if (bpmSeededRef.current) return
+    if (seededRef.current) return
     if (lastAttempt === undefined) return
-    bpmSeededRef.current = true
-    if (bpmTouchedRef.current) return
+    seededRef.current = true
     if (phaseRef.current !== 'idle') return
-    setBpmState(lastAttempt.bpm)
-  }, [lastAttempt])
+    if (!bpmTouchedRef.current) setBpmState(lastAttempt.bpm)
+    // An unknown persisted id — a groove no longer bundled, or filtered out
+    // by `playableGrooves()` — is left alone rather than selected, so the
+    // picker keeps its default instead of landing on nothing.
+    if (!grooveTouchedRef.current && grooves.some((groove) => groove.id === lastAttempt.grooveId)) {
+      setGrooveIdState(lastAttempt.grooveId)
+    }
+  }, [lastAttempt, grooves])
 
   const cellsPerBeat = cellsPerBeatOf(score)
   const cellsPerBar = timing.beatsPerBar * cellsPerBeat
@@ -462,6 +483,7 @@ export function useGrooveDrill(options: UseGrooveDrillOptions = {}): GrooveDrill
     toleranceMs: timing.toleranceMs,
     setGrooveId: (id) => {
       if (phaseRef.current === 'count-in' || phaseRef.current === 'playing') return
+      grooveTouchedRef.current = true
       setGrooveIdState(id)
       setPerformance(undefined)
     },
@@ -470,11 +492,17 @@ export function useGrooveDrill(options: UseGrooveDrillOptions = {}): GrooveDrill
       if (!Number.isFinite(next)) return
       bpmTouchedRef.current = true
       setBpmState(Math.min(200, Math.max(40, Math.round(next))))
+      // The Result card is about the run that produced it, and the subtitle above it
+      // recomputes off the new tempo immediately. Leaving the card standing put a window
+      // and a tempo over numbers they did not produce — and the screen's own "try it
+      // slower" button did exactly that, twice in a row, with no run in between.
+      setPerformance(undefined)
     },
     setRepeats: (next) => {
       if (phaseRef.current === 'count-in' || phaseRef.current === 'playing') return
       if (!REPEAT_CHOICES.includes(next)) return
       setRepeatsState(next)
+      setPerformance(undefined)
     },
     start,
     stop,

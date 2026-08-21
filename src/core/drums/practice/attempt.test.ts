@@ -4,6 +4,7 @@ import { MAPPED_PADS } from '@core/drums/model/pad.ts'
 import type { PadResult } from './grooveGrader.ts'
 import {
   DEAD_ON_MS,
+  FLAM_GAP_NOTE,
   GROOVE_PAD_LABEL,
   TIMING_CAVEAT,
   lastRunSummary,
@@ -25,6 +26,10 @@ function row(over: Partial<PadResult> = {}): PadResult {
     worstOffsetMs: 0,
     spreadMs: 0,
     steady: true,
+    toleranceMs: 40,
+    steadyBarMs: 35,
+    gridTicks: undefined,
+    phaseSlipSteps: undefined,
     ...over,
   }
 }
@@ -104,8 +109,12 @@ describe('verdictText', () => {
     expect(verdictText({ complete: false, steady: true })).toBe('Not there yet')
   })
 
-  it('says every note but uneven when complete and scattered', () => {
-    expect(verdictText({ complete: true, steady: false })).toBe('Every note, but the pulse is uneven')
+  it('says every note but not together when complete and unsteady with no alignment data to tell the fault apart', () => {
+    // Without padAlignmentMs/laggingPad/leadingPad this function cannot tell
+    // a genuinely uneven pad from a flam (see the flam-split tests below), so
+    // it must not guess at either by name — this is the sentence that is
+    // true regardless of which one it was.
+    expect(verdictText({ complete: true, steady: false })).toBe('Every note, but not together yet')
   })
 
   it('says steady run when complete and even', () => {
@@ -116,6 +125,55 @@ describe('verdictText', () => {
     expect(verdictText({ complete: false, steady: false })).not.toMatch(/clean/i)
     expect(verdictText({ complete: true, steady: false })).not.toMatch(/clean/i)
     expect(verdictText({ complete: true, steady: true })).not.toMatch(/clean/i)
+  })
+
+  describe('the flam split', () => {
+    it('the panel blocker: every pad even, but two pads not together, names the limb instead of blaming the pulse', () => {
+      // Hats and snare exact, kick 60-70 ms behind the hi-hat it shares beat
+      // 1 with. The old two-way split called this "the pulse is uneven",
+      // which is false — every pad's own pulse was fine.
+      const text = verdictText({
+        complete: true,
+        steady: false,
+        padAlignmentMs: 61,
+        laggingPad: 'kick',
+        leadingPad: 'hhClosed',
+      })
+      expect(text).toBe(
+        'Your kick is 61 ms behind your hi-hat. ' +
+          'That gap is real: a slow keyboard or speakers would delay every drum by the same amount, not just one.',
+      )
+      expect(text).not.toMatch(/pulse is uneven/i)
+    })
+
+    it('rounds the alignment gap to whole milliseconds', () => {
+      const text = verdictText({
+        complete: true,
+        steady: false,
+        padAlignmentMs: 60.6,
+        laggingPad: 'kick',
+        leadingPad: 'hhClosed',
+      })
+      expect(text).toContain('Your kick is 61 ms behind your hi-hat.')
+    })
+
+    it('when alignment is known and fine, an unsteady run is still the pulse — that fault is real too', () => {
+      const text = verdictText({
+        complete: true,
+        steady: false,
+        padAlignmentMs: 10,
+        laggingPad: 'kick',
+        leadingPad: 'hhClosed',
+      })
+      expect(text).toBe('Every note, but the pulse is uneven')
+    })
+
+    it('when alignment is unknown, the fallback names neither fault — it only claims what is true of both', () => {
+      const text = verdictText({ complete: true, steady: false })
+      expect(text).toBe('Every note, but not together yet')
+      expect(text).not.toMatch(/pulse is uneven/i)
+      expect(text).not.toMatch(/\d+ ms/)
+    })
   })
 })
 
@@ -130,11 +188,93 @@ describe('padLineText', () => {
     )
   })
 
-  it('names the misses and extras before the offset, because they are the bigger fact', () => {
+  it('names the misses and extras, but not an offset — a partial match is not evidence about the whole pad', () => {
     const line = padLineText(
       row({ pad: 'snare', expected: 4, matched: 2, missed: 2, extra: 1, meanOffsetMs: 30, spreadMs: 1, steady: true }),
     )
-    expect(line).toBe('Snare — 2 of 4, 2 missed, 1 extra, 30 ms late')
+    expect(line).toBe('Snare — 2 of 4, 2 missed, 1 extra')
+  })
+
+  it('the panel minor: "12 missed, 12 extra, dead on" — an offset built from wrong-note matches must not be printed', () => {
+    // Ghost Funk Bar, whole performance one sixteenth late: the 8 "matched"
+    // pairs are hits paired with a *different* notated snare, so the mean
+    // they produce is not a fact about this pad and must be withheld, not
+    // rounded down to "dead on".
+    const line = padLineText(
+      row({ pad: 'snare', expected: 20, matched: 8, missed: 12, extra: 12, meanOffsetMs: 0.4, spreadMs: 1, steady: true }),
+    )
+    expect(line).toBe('Snare — 8 of 20, 12 missed, 12 extra')
+    expect(line).not.toMatch(/dead on/i)
+  })
+
+  it('an offset is still printed once a pad matches every note it was asked for, with nothing spurious', () => {
+    const line = padLineText(row({ meanOffsetMs: 5, spreadMs: 1, steady: true }))
+    expect(line).toBe('Hi-hat — 16 of 16, 5 ms late')
+  })
+
+  describe('phase slip', () => {
+    it('the panel blocker: a whole line one grid step late reads as a named shift, not a millisecond lie', () => {
+      // Ghost Funk Bar, hi-hat played a whole sixteenth (gridTicks: 120)
+      // behind the click. The screen used to say "11 ms late, ±4 ms" — a
+      // false statement about a learner who never once played on the beat.
+      const line = padLineText(
+        row({
+          pad: 'hhClosed',
+          expected: 32,
+          matched: 31,
+          missed: 1,
+          extra: 1,
+          meanOffsetMs: 11,
+          spreadMs: 4,
+          steady: true,
+          gridTicks: 120,
+          phaseSlipSteps: 1,
+        }),
+      )
+      expect(line).toBe('Hi-hat — 31 of 32, 1 missed, 1 extra, your hi-hat is one sixteenth behind the click')
+      expect(line).not.toMatch(/\d+ ms/)
+    })
+
+    it('a negative phaseSlipSteps reads as ahead of the click, not behind it', () => {
+      const line = padLineText(
+        row({ pad: 'snare', expected: 4, matched: 4, gridTicks: 240, phaseSlipSteps: -1 }),
+      )
+      expect(line).toBe('Snare — 4 of 4, your snare is one eighth ahead of the click')
+    })
+
+    it('two grid steps spells "two" and pluralises the grid name', () => {
+      const line = padLineText(row({ pad: 'kick', expected: 4, matched: 4, gridTicks: 60, phaseSlipSteps: 2 }))
+      expect(line).toBe('Kick — 4 of 4, your kick is two thirty-seconds behind the click')
+    })
+
+    it.each([
+      [480, 'quarter'],
+      [320, 'dotted quarter'],
+      [240, 'eighth'],
+      [160, 'eighth triplet'],
+      [120, 'sixteenth'],
+      [60, 'thirty-second'],
+    ])('names gridTicks %i as %s', (gridTicks, name) => {
+      const line = padLineText(row({ expected: 4, matched: 4, gridTicks, phaseSlipSteps: 1 }))
+      expect(line).toBe(`Hi-hat — 4 of 4, your hi-hat is one ${name} behind the click`)
+    })
+
+    it('a gridTicks value with no name reads as a step of the pattern, never a guessed name', () => {
+      const line = padLineText(row({ expected: 4, matched: 4, gridTicks: 90, phaseSlipSteps: 1 }))
+      expect(line).toBe('Hi-hat — 4 of 4, your hi-hat is one step of the pattern behind the click')
+    })
+
+    it('gridTicks undefined also reads as a step of the pattern', () => {
+      const line = padLineText(row({ expected: 4, matched: 4, gridTicks: undefined, phaseSlipSteps: 1 }))
+      expect(line).toBe('Hi-hat — 4 of 4, your hi-hat is one step of the pattern behind the click')
+    })
+
+    it('takes priority over the minor fix above — misses and extras still show, but so does the named shift', () => {
+      const line = padLineText(
+        row({ pad: 'snare', expected: 20, matched: 8, missed: 12, extra: 12, gridTicks: 120, phaseSlipSteps: 1 }),
+      )
+      expect(line).toBe('Snare — 8 of 20, 12 missed, 12 extra, your snare is one sixteenth behind the click')
+    })
   })
 
   it('a limb that played nowhere near its notes still names the limb', () => {
@@ -284,6 +424,30 @@ describe('lastRunSummary', () => {
       'Last run: Money Beat at 80 bpm — Steady run: Hi-hat 16 of 16, Snare 4 of 4, Kick 2 of 4',
     )
   })
+
+  it('a stored flam run does not claim the pulse is uneven — the pulse was fine, the drums were not together', () => {
+    // DrumsGrooveAttempt never stores padAlignmentMs/laggingPad/leadingPad
+    // (see the type's own doc), so a flam read back from history has no way
+    // to be named by limb. It must not fall back to "the pulse is uneven"
+    // either — that is just as false here as it was on the live screen.
+    const flamAttempt: DrumsGrooveAttempt = {
+      grooveId: 'money-beat',
+      grooveTitle: 'Money Beat',
+      bpm: 80,
+      repeats: 2,
+      at: 1_700_000_000_000,
+      steady: false,
+      pads: [
+        row({ pad: 'hhClosed', expected: 16, matched: 16, missed: 0, extra: 0, meanOffsetMs: 8, spreadMs: 3, steady: true }),
+        row({ pad: 'kick', expected: 4, matched: 4, missed: 0, extra: 0, meanOffsetMs: 69, spreadMs: 4, steady: true }),
+      ],
+    }
+    const summary = lastRunSummary(flamAttempt)
+    expect(summary).toBe(
+      'Last run: Money Beat at 80 bpm — Every note, but not together yet: Hi-hat 16 of 16, Kick 4 of 4',
+    )
+    expect(summary).not.toMatch(/uneven/i)
+  })
 })
 
 describe('TIMING_CAVEAT', () => {
@@ -291,5 +455,12 @@ describe('TIMING_CAVEAT', () => {
     expect(TIMING_CAVEAT.length).toBeGreaterThan(0)
     expect(TIMING_CAVEAT).toMatch(/keyboard/i)
     expect(TIMING_CAVEAT).toMatch(/speaker/i)
+  })
+})
+
+describe('FLAM_GAP_NOTE', () => {
+  it('is non-empty and says the gap survives device delay, unlike a single pad mean', () => {
+    expect(FLAM_GAP_NOTE.length).toBeGreaterThan(0)
+    expect(FLAM_GAP_NOTE).toMatch(/real/i)
   })
 })

@@ -16,9 +16,9 @@
  * constant borrowed from a different pattern at a different tempo. See "The
  * tolerance is derived" below.
  *
- * **Every pad answers for itself.** One line per limb, each naming that pad's
+ * **Every pad answers for itself.** One line per drum, each naming that pad's
  * own count and its own offset — the point of the whole feature is that a
- * learner is told WHICH limb was off, not that a run "was not clean". See
+ * learner is told WHICH drum was off, not that a run "was not clean". See
  * "The verdict is a word, not a green light" below.
  *
  * ## The pads make no sound
@@ -68,7 +68,21 @@
  * groove written in sixteenths at speed — see that hook's own module
  * comment. Printing anything other than `drill.toleranceMs` here would go
  * straight back to the bug: a number on screen that is not the number the
- * grader is actually using.
+ * grader is actually using. And now that `grooveToleranceMs` caps the
+ * window per pad (each drum's own note spacing), `toleranceMs` is the
+ * tightest of those windows, not one blanket rule — the subtitle says so
+ * ("the finest drum in this pattern") instead of implying every drum shares
+ * the same window, which would be false for anything but the finest one.
+ *
+ * ## The teaches line never oversells what the app can hear
+ *
+ * `PRESS_VELOCITY` (`useGrooveDrill.ts`) is a hardcoded constant, and
+ * `gradeGroovePerformance` reads pad and time only — dynamics are notated
+ * but never sensed. `teachesLine` still names ghost notes when the score has
+ * them, because the notation genuinely contains them and hiding that would
+ * be its own lie, but `GHOST_NOTE_CAVEAT` sits right under it, in the
+ * learner's own words, saying plainly that they are not graded. A skill the
+ * app cannot measure must never be advertised as measured content.
  *
  * ## The verdict is a word, not a green light
  *
@@ -83,17 +97,30 @@
  * millisecond figure, in the Result section, sitting with the numbers rather
  * than filed away as a footnote.
  *
- * ## Repeats are a setting now, and an unsteady run gets one line of advice
+ * ## Repeats are a setting now, and every finished run gets one line of advice
  *
  * `drill.repeatChoices`/`drill.setRepeats` make the run length a control next
  * to tempo, built the same way tempo's own field sits in `.groove-setup` — a
- * `.field` wrapping a control, not a bespoke shape. And when a finished run
- * comes back `!steady`, the single most useful thing a teacher says is
- * "slower" — so this screen offers one concrete number (`slowerBpm`, 20%
- * down, floored at the same `MIN_BPM` the tempo field itself enforces) as a
- * button that sets the tempo directly, rather than leaving the learner to do
- * that arithmetic themselves. It never appears after a steady run — there is
- * nothing to advise.
+ * `.field` wrapping a control, not a bespoke shape.
+ *
+ * A finished run earns exactly one of three lines, chosen off `steady` and
+ * whether anything was matched at all — never off which sentence
+ * `verdictText` happened to pick, because that keeps splitting (phase slip,
+ * flam, plain uneven pulse) and every one of those is still "attempted, not
+ * steady":
+ *
+ * - `!steady` and something matched: the single most useful thing a teacher
+ *   says is "slower" — one concrete number (`slowerBpm`, 20% down, floored at
+ *   the same `MIN_BPM` the tempo field itself enforces) as a button that sets
+ *   the tempo directly, rather than leaving the learner to do that
+ *   arithmetic themselves.
+ * - `!steady` and *nothing* matched on any pad: "slower" is the wrong advice
+ *   — a learner who never played is not told to play the same nothing again
+ *   more slowly. `NOTHING_PLAYED_MESSAGE` says what actually happened
+ *   instead, and no tempo control appears under it.
+ * - `steady`: the mirror advice, `fasterBpm` (20% up, capped at `MAX_BPM`) —
+ *   a shipping drum trainer ramps the tempo on a good take rather than
+ *   leaving the learner to retype it by hand.
  */
 import { useEffect, useId, useRef, useState } from 'react'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
@@ -192,16 +219,29 @@ function runStateText(phase: string, bar: number, beat: number, repeats: number)
  * groove id, so a fifth groove added to the bundle gets a true line for
  * free instead of a silently missing one.
  */
+function scoreHasGhostNotes(score: GrooveScore): boolean {
+  return score.notes.some((note) => note.dynamics === 'ghost')
+}
+
 function teachesLine(score: GrooveScore, pads: readonly MappedDrumPad[]): string {
-  const limbs = pads.map(padLabel).join(', ')
+  const drumNames = pads.map(padLabel).join(', ')
   const usesOpenHat = score.notes.some((note) => note.pad === 'hhOpen')
-  const usesGhostNotes = score.notes.some((note) => note.dynamics === 'ghost')
   const extras: string[] = []
   if (usesOpenHat) extras.push('opening the hi-hat on cue')
-  if (usesGhostNotes) extras.push('ghost notes')
+  if (scoreHasGhostNotes(score)) extras.push('ghost notes')
   const extraTail = extras.length === 0 ? '' : ` — plus ${extras.join(' and ')}`
-  return `Teaches: ${limbs}, ${score.notes.length} notes a bar${extraTail}.`
+  return `Teaches: ${drumNames}, ${score.notes.length} notes a bar${extraTail}.`
 }
+
+/**
+ * Shown only under a `teachesLine` that just named ghost notes — see the
+ * module comment's "teaches line never oversells" section. Deleting the
+ * mention instead would be its own lie: the notation really does contain
+ * ghost notes, this line just says, in the learner's own words, that hitting
+ * them is not what is being scored.
+ */
+const GHOST_NOTE_CAVEAT =
+  'This trainer hears when you hit, not how hard — the ghost notes are notated but not graded.'
 
 /**
  * A concrete slower tempo to suggest after a run that came back `!steady` —
@@ -213,6 +253,38 @@ function teachesLine(score: GrooveScore, pads: readonly MappedDrumPad[]): string
 function slowerBpm(bpm: number): number {
   return Math.max(MIN_BPM, Math.round(bpm * 0.8))
 }
+
+/**
+ * The mirror of `slowerBpm`, offered after a `steady` run instead — see the
+ * module comment's "every finished run gets one line of advice" section. 20%
+ * up, rounded to a whole bpm, capped at `MAX_BPM`, the same ceiling the tempo
+ * field itself enforces.
+ */
+function fasterBpm(bpm: number): number {
+  return Math.min(MAX_BPM, Math.round(bpm * 1.2))
+}
+
+/**
+ * True when not one pad in the run has a single matched hit — the "never
+ * played" case the module comment's advice section splits out from "played,
+ * but not steady". Structural rather than `PadResult`-typed on purpose: this
+ * only ever needs `expected`/`matched`, and typing it that narrowly means it
+ * keeps working unchanged if `PadResult` grows fields this screen does not
+ * read. A row the groove never asked for (`expected === 0`) has nothing to
+ * be "not attempted" about, so it is excluded rather than counted as absence.
+ */
+function nothingMatched(rows: readonly { readonly expected: number; readonly matched: number }[]): boolean {
+  const graded = rows.filter((row) => row.expected > 0)
+  return graded.length > 0 && graded.every((row) => row.matched === 0)
+}
+
+/**
+ * What a run says when it came back `!steady` because nothing landed on any
+ * pad at all — see the module comment. Naming the actual event rather than
+ * prescribing "slower" for a tempo that was never even tried.
+ */
+const NOTHING_PLAYED_MESSAGE =
+  'Nothing registered on any pad this run — try the pattern before changing the tempo.'
 
 export function GrooveScreen(props: GrooveScreenProps) {
   const drill = useGrooveDrill({
@@ -260,6 +332,21 @@ export function GrooveScreen(props: GrooveScreenProps) {
       if (event.defaultPrevented || event.repeat) return
       const target = event.target
       if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement) return
+      // Space is the one code a browser also treats as "activate the focused
+      // button". `PAD_KEY` puts the kick on Space (see the module comment),
+      // so without this check every bundled groove's kick pad would swallow
+      // that activation for every OTHER button too — Start, the groove
+      // stepper, the repeat stepper — because this listener ran first and
+      // already called preventDefault(). A focused *pad* button is exempt:
+      // Space must still reach the kick even when a pad has focus (that is
+      // the whole point of `padKeyDown` never handling Space itself).
+      if (
+        event.code === 'Space' &&
+        target instanceof HTMLButtonElement &&
+        !target.classList.contains('groove-pad')
+      ) {
+        return
+      }
       const pad = padsRef.current.find((candidate) => PAD_KEY[candidate] === event.code)
       if (pad === undefined) return
       // Space would otherwise scroll the page, and would activate whichever
@@ -297,8 +384,9 @@ export function GrooveScreen(props: GrooveScreenProps) {
       <div className="page-header">
         <h1>Groove trainer</h1>
         <p className="page-header-subtitle">
-          Play along on the pads. Each limb is timed on its own, and for {drill.score.title} at{' '}
-          {drill.bpm} bpm, anything within {drill.toleranceMs} ms of the beat counts as on the beat.
+          Play along on the pads. Each drum is timed on its own, and for {drill.score.title} at{' '}
+          {drill.bpm} bpm, the finest drum in this pattern allows {drill.toleranceMs} ms either side of
+          the beat.
         </p>
       </div>
 
@@ -378,8 +466,9 @@ export function GrooveScreen(props: GrooveScreenProps) {
       </div>
 
       <p className="groove-key-hint groove-teaches">{teachesLine(drill.score, drill.pads)}</p>
+      {scoreHasGhostNotes(drill.score) && <p className="groove-key-hint">{GHOST_NOTE_CAVEAT}</p>}
 
-      {/* The pattern, one row per limb. Decorative: the pad buttons name
+      {/* The pattern, one row per drum. Decorative: the pad buttons name
           themselves and the result names every count, so a screen reader is
           not walked through 24 empty cells. */}
       <div className="card groove-grid" aria-hidden="true">
@@ -467,21 +556,42 @@ export function GrooveScreen(props: GrooveScreenProps) {
               verdict is a word, not a green light" section. It sits with the
               numbers it explains, every time those numbers are on screen. */}
           <p className="groove-key-hint groove-timing-caveat">{TIMING_CAVEAT}</p>
-          {!drill.performance.steady && (
-            /* A sentence and then a button, never a button wedged inside a
-               sentence: the advice has to read as advice even if the control
-               is never pressed, and a mid-sentence control wraps badly at
-               375px. The tempo is the first thing a teacher changes. */
+          {!drill.performance.steady &&
+            (nothingMatched(drill.rows) ? (
+              // Nothing landed on any pad — "slower" is not the advice for a
+              // pattern that was never attempted. See the module comment.
+              <p className="groove-last-run">{NOTHING_PLAYED_MESSAGE}</p>
+            ) : (
+              /* A sentence and then a button, never a button wedged inside a
+                 sentence: the advice has to read as advice even if the
+                 control is never pressed, and a mid-sentence control wraps
+                 badly at 375px. The tempo is the first thing a teacher
+                 changes. */
+              <div className="groove-slow-down">
+                <p className="groove-last-run">
+                  An uneven pulse is a tempo problem before it is anything else.
+                </p>
+                <button
+                  type="button"
+                  className="btn-ghost groove-slow-down-btn"
+                  onClick={() => drill.setBpm(slowerBpm(drill.bpm))}
+                >
+                  Try it at {slowerBpm(drill.bpm)} bpm
+                </button>
+              </div>
+            ))}
+          {drill.performance.steady && (
+            // The mirror of the advice above: a good take earns a push
+            // forward, not silence. Same shape (sentence, then the control
+            // that acts on it) for the same reason.
             <div className="groove-slow-down">
-              <p className="groove-last-run">
-                An uneven pulse is a tempo problem before it is anything else.
-              </p>
+              <p className="groove-last-run">A steady run has room for a faster tempo.</p>
               <button
                 type="button"
                 className="btn-ghost groove-slow-down-btn"
-                onClick={() => drill.setBpm(slowerBpm(drill.bpm))}
+                onClick={() => drill.setBpm(fasterBpm(drill.bpm))}
               >
-                Try it at {slowerBpm(drill.bpm)} bpm
+                Try it at {fasterBpm(drill.bpm)} bpm
               </button>
             </div>
           )}

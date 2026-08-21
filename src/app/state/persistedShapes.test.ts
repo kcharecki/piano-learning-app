@@ -32,6 +32,10 @@ const PAD_A: PadResult = {
   meanOffsetMs: 3,
   worstOffsetMs: 8,
   spreadMs: 5,
+  toleranceMs: 100,
+  steadyBarMs: 35,
+  gridTicks: 240,
+  phaseSlipSteps: undefined,
   steady: true,
 }
 
@@ -67,6 +71,10 @@ describe('isValidPadResult', () => {
       meanOffsetMs: undefined,
       worstOffsetMs: undefined,
       spreadMs: undefined,
+      toleranceMs: 100,
+      steadyBarMs: 35,
+      gridTicks: 240,
+      phaseSlipSteps: undefined,
       steady: false,
     }
     expect(isValidPadResult(unmatched)).toBe(true)
@@ -82,6 +90,13 @@ describe('isValidPadResult', () => {
     ['a NaN spreadMs', { ...PAD_A, spreadMs: Number.NaN }],
     ['a missing steady flag', omit(PAD_A, 'steady')],
     ['a string where a count belongs (expected)', { ...PAD_A, expected: '16' }],
+    // The pre-per-pad-window shape. A run stored before each drum got its own
+    // matching window has no window to read back, so it is rejected rather than
+    // given a made-up one — see the no-migration note in persistedShapes.ts.
+    ['a missing toleranceMs (the pre-per-pad-window shape)', omit(PAD_A, 'toleranceMs')],
+    ['a missing steadyBarMs', omit(PAD_A, 'steadyBarMs')],
+    ['a NaN gridTicks', { ...PAD_A, gridTicks: Number.NaN }],
+    ['a NaN phaseSlipSteps', { ...PAD_A, phaseSlipSteps: Number.NaN }],
   ])('rejects %s', (_label, value) => {
     expect(isValidPadResult(value)).toBe(false)
   })
@@ -123,15 +138,25 @@ describe('isValidDrumsHistory', () => {
     expect(isValidDrumsHistory({ attempts: [] })).toBe(true)
   })
 
+  // The wrapper is all this guard judges. A bad row used to take the whole history down
+  // with it, and the next finished run then wrote over the key — so one corrupt attempt
+  // silently destroyed every good one. The rows are filtered where they are restored.
   it.each([
-    ['not an object', 'nope'],
-    ['attempts missing', {}],
-    ['attempts not an array', { attempts: 'nope' }],
     ['an attempt missing a required field', { attempts: [omit(ATTEMPT_A, 'grooveId')] }],
     [
       'an attempt whose pad row has a NaN offset',
       { attempts: [{ ...ATTEMPT_A, pads: [{ ...PAD_A, meanOffsetMs: Number.NaN }] }] },
     ],
+  ])('accepts a history carrying %s, leaving the row to the restore filter', (_label, value) => {
+    expect(isValidDrumsHistory(value)).toBe(true)
+    expect((value as { attempts: unknown[] }).attempts.every(isValidDrumsGrooveAttempt)).toBe(false)
+  })
+
+  it.each([
+    ['not an object', 'nope'],
+    ['null', null],
+    ['attempts missing', {}],
+    ['attempts not an array', { attempts: 'nope' }],
   ])('rejects %s', (_label, value) => {
     expect(isValidDrumsHistory(value)).toBe(false)
   })

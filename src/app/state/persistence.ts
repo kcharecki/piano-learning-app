@@ -183,6 +183,7 @@ import { useInstrumentStore } from '@app/state/instrumentStore.ts'
 import {
   isValidAnnotations,
   isValidAssessments,
+  isValidDrumsGrooveAttempt,
   isValidDrumsHistory,
   isValidFlashcards,
   isValidInstrument,
@@ -518,9 +519,14 @@ export async function restoreSession(store: Store): Promise<boolean> {
       applyingRestoredDrumsHistory = guarding
     },
     (data) =>
-      useDrumsHistoryStore
-        .getState()
-        .hydrate({ attempts: data.attempts.slice(0, MAX_STORED_GROOVE_ATTEMPTS) }),
+      useDrumsHistoryStore.getState().hydrate({
+        // Row-by-row, never all-or-nothing: `isValidDrumsHistory` checks the wrapper only,
+        // so one unreadable attempt costs one attempt instead of the whole history. See
+        // that function's comment for what the all-or-nothing version destroyed.
+        attempts: data.attempts
+          .filter(isValidDrumsGrooveAttempt)
+          .slice(0, MAX_STORED_GROOVE_ATTEMPTS),
+      }),
   )
 
   await restoreSlice(

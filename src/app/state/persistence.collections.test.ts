@@ -515,6 +515,10 @@ describe('persistence: saved collections', () => {
       meanOffsetMs: 2,
       worstOffsetMs: 5,
       spreadMs: 3,
+      toleranceMs: 100,
+      steadyBarMs: 35,
+      gridTicks: 240,
+      phaseSlipSteps: undefined,
       steady: true,
     }
 
@@ -528,6 +532,10 @@ describe('persistence: saved collections', () => {
       meanOffsetMs: undefined,
       worstOffsetMs: undefined,
       spreadMs: undefined,
+      toleranceMs: 100,
+      steadyBarMs: 35,
+      gridTicks: 240,
+      phaseSlipSteps: undefined,
       steady: false,
     }
 
@@ -598,6 +606,10 @@ describe('persistence: saved collections', () => {
                   meanOffsetMs: 2,
                   worstOffsetMs: 5,
                   spreadMs: 3,
+                  toleranceMs: 100,
+                  steadyBarMs: 35,
+                  gridTicks: 240,
+                  phaseSlipSteps: undefined,
                 },
               ],
             },
