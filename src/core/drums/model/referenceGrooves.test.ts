@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { validateGrooveScore } from './groove.ts'
-import { ghostFunkBar, moneyBeat, moneyBeatOpenHat, referenceGrooves } from './referenceGrooves.ts'
+import {
+  ghostFunkBar,
+  moneyBeat,
+  moneyBeatOpenHat,
+  quarterNoteRock,
+  referenceGrooves,
+} from './referenceGrooves.ts'
 
 /**
  * Domain-level facts about the three bundled example grooves — distinct from
@@ -9,14 +15,27 @@ import { ghostFunkBar, moneyBeat, moneyBeatOpenHat, referenceGrooves } from './r
  * in `src/core/**` needs one), and checks the musical content itself.
  */
 describe('referenceGrooves', () => {
-  it('has exactly three grooves, each with a distinct id and at least one note, all independently valid', () => {
+  it('has exactly four grooves, each with a distinct id and at least one note, all independently valid', () => {
     const grooves = referenceGrooves()
-    expect(grooves).toHaveLength(3)
-    expect(new Set(grooves.map((g) => g.id)).size).toBe(3)
+    expect(grooves).toHaveLength(4)
+    expect(new Set(grooves.map((g) => g.id)).size).toBe(4)
     for (const g of grooves) {
       expect(g.notes.length).toBeGreaterThan(0)
       expect(validateGrooveScore(g).ok).toBe(true)
     }
+  })
+
+  describe('quarterNoteRock', () => {
+    it('is the money beat with the hi-hat halved: one closed hat per beat', () => {
+      const score = quarterNoteRock()
+      expect(score.swingPercent).toBe(50)
+      expect(score.notes.filter((n) => n.pad === 'hhClosed').map((n) => n.tick)).toEqual([
+        0, 480, 960, 1440,
+      ])
+      expect(score.notes.filter((n) => n.pad === 'kick').map((n) => n.tick)).toEqual([0, 960])
+      expect(score.notes.filter((n) => n.pad === 'snare').map((n) => n.tick)).toEqual([480, 1440])
+      expect(score.notes).toHaveLength(8)
+    })
   })
 
   describe('moneyBeat', () => {

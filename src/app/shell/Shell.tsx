@@ -37,6 +37,7 @@ import { useRoute } from '@app/shell/routing.ts'
 import { useInstrumentStore } from '@app/state/instrumentStore.ts'
 import { DrumsTodayScreen } from '@app/drums/DrumsTodayScreen.tsx'
 import { NotationDevGallery } from '@app/drums/notation/NotationDevGallery.tsx'
+import { GrooveTrainerScreen } from '@app/drums/groove/GrooveTrainerScreen.tsx'
 import { ReferencePanel } from '@app/reference/ReferencePanel.tsx'
 import { SettingsScreen } from '@app/onboarding/SettingsScreen.tsx'
 import { ScoreScreen } from '@app/score/ScoreScreen.tsx'
@@ -132,14 +133,36 @@ const PIANO_NAV_GROUPS: readonly NavGroup<PianoScreenId>[] = [
 ]
 
 /**
- * Drums' own nav table (roadmap DR-01) — one destination so far
- * (`drums-today`, the placeholder home `DrumsTodayScreen` renders), no
- * groups yet. Grows per phase as drum features land; the type-level split
- * from `PIANO_NAV_ITEMS`/`PIANO_NAV_GROUPS` (see `route.ts`'s `DrumsScreenId`)
- * means adding a Drums screen can never accidentally collide with a piano one.
+ * What the topbar calls each Drums screen (roadmap DR-01, DR-09). Every screen
+ * is here, including `drums-notation-dev`, which is URL-only and has no nav
+ * button: the topbar names wherever the learner actually is, and reading that
+ * name off the nav table meant a screen with no nav entry was silently
+ * labelled "Today" — the wrong page name, not a missing one.
  */
-const DRUMS_NAV_PRIMARY: NavItem<DrumsScreenId> = { id: 'drums-today', label: 'Today', icon: 'target' }
-const DRUMS_NAV_GROUPS: readonly NavGroup<DrumsScreenId>[] = []
+const DRUMS_SCREEN_LABEL: Record<DrumsScreenId, string> = {
+  'drums-today': 'Today',
+  'drums-groove': 'Groove',
+  'drums-notation-dev': 'Notation gallery',
+}
+
+/**
+ * Drums' own nav table (roadmap DR-01) — Today plus, since DR-09, the groove
+ * trainer. The type-level split from `PIANO_NAV_ITEMS`/`PIANO_NAV_GROUPS` (see
+ * `route.ts`'s `DrumsScreenId`) means adding a Drums screen can never
+ * accidentally collide with a piano one.
+ */
+const DRUMS_NAV_PRIMARY: NavItem<DrumsScreenId> = {
+  id: 'drums-today',
+  label: DRUMS_SCREEN_LABEL['drums-today'],
+  icon: 'target',
+}
+
+const DRUMS_NAV_GROUPS: readonly NavGroup<DrumsScreenId>[] = [
+  {
+    label: 'Practice',
+    items: [{ id: 'drums-groove', label: DRUMS_SCREEN_LABEL['drums-groove'], icon: 'rhythm' }],
+  },
+]
 
 /**
  * Where a planned session item sends the learner (roadmap 4.7a). The plan is
@@ -380,11 +403,13 @@ function renderPianoScreen(
   }
 }
 
-/** Drums' own screen renderer (roadmap DR-01) — one case so far, grows per phase. */
-function renderDrumsScreen(screen: DrumsScreenId) {
+/** Drums' own screen renderer (roadmap DR-01), grows per phase. */
+function renderDrumsScreen(screen: DrumsScreenId, goToGroove: () => void) {
   switch (screen) {
     case 'drums-today':
-      return <DrumsTodayScreen />
+      return <DrumsTodayScreen onOpenGroove={goToGroove} />
+    case 'drums-groove':
+      return <GrooveTrainerScreen />
     case 'drums-notation-dev':
       return <NotationDevGallery />
   }
@@ -631,7 +656,7 @@ export function Shell() {
   const activeLabel =
     appRoute.instrument === 'piano'
       ? (PIANO_NAV_ITEMS.find((item) => item.id === appRoute.route.screen)?.label ?? '')
-      : DRUMS_NAV_PRIMARY.label
+      : DRUMS_SCREEN_LABEL[appRoute.route.screen]
 
   // Roadmap DR-01: the Piano/Drums switcher — shell chrome, not a nav item
   // (see the module comment). `.seg-control` (primitives.css) is the same
@@ -763,7 +788,7 @@ export function Shell() {
               deck,
               theoryDrill,
             )
-          : renderDrumsScreen(appRoute.route.screen)}
+          : renderDrumsScreen(appRoute.route.screen, () => goToDrums('drums-groove'))}
       </main>
       {/* Sibling AFTER app-main, never a wrapper around it and never a layout
           column (module doc + parallel-round-10.md Q2) — position:fixed, so

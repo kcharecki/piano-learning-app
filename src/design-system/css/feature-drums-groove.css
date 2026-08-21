@@ -1,0 +1,191 @@
+/* Groove trainer (roadmap DR-09/T.17). Layout scaffolding — `.page`,
+   `.page-header`, `.card`, `.field`, `.stepper`, `.btn-primary`, `.btn-icon`,
+   `.beat` — comes from base.css/primitives.css/feature-metronome.css; this
+   file holds only what those do not: the groove picker's three-column row, the
+   pad grid, and the result panel's typography.
+
+   `.beat` is deliberately the metronome's own dot, not a copy: this screen
+   shows the same thing (where in the bar the click is), and a second dot with
+   its own size and pulse would be two answers to one question. */
+
+/* ---------- Picker: [<] title/meta [>] ---------- */
+.groove-picker {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.groove-picker-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: center;
+}
+.groove-title {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--text-1);
+}
+.groove-meta {
+  font-size: var(--text-sm);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Stage: tempo, pulse, transport ---------- */
+.groove-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+}
+.groove-tempo-field {
+  align-items: center;
+}
+.groove-beats {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+.groove-start {
+  min-width: 160px;
+}
+/* The one line the learner reads mid-run, so it holds its height whether it
+   says "Ready when you are" or "Playing — bar 2 of 2": a line that appears and
+   disappears shifts the pads under the mouse between count-in and bar one.
+
+   It is a [role="status"], and primitives.css draws those as a bordered chip
+   (a label-plus-badge row). Directly under the primary button that is the
+   wrong shape entirely — the visual pass caught a learner-facing "Ready when
+   you are" that reads as a second, disabled button. Everything the chip adds
+   is unset here; only the live region survives. */
+.groove-run-state {
+  min-height: 1.5em;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  justify-content: center;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Pads ----------
+   A real touch surface, not a form button: `--touch-min` is the floor for a
+   finger, and 96px is what makes a pad a thing you aim a hand at. The grid is
+   `auto-fit` so three pads spread across a desktop row and stack to two-up on
+   a phone without a breakpoint of its own. */
+.groove-pads {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+.drum-pad {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 96px;
+  padding: var(--space-3);
+  background: var(--bg-2);
+  border: var(--border-w) solid var(--border-2);
+  border-radius: var(--radius-2);
+  color: var(--text-1);
+  cursor: pointer;
+  /* Only the lit state animates. A transition on the un-lit direction would
+     leave the previous stroke glowing into the next one at sixteenth notes. */
+  transition: background var(--dur-1) var(--ease-out);
+}
+.drum-pad:hover { background: var(--bg-3); }
+.drum-pad-name {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+}
+/* The key cap. Mono so J, K, F and Space read as keys rather than as words. */
+.drum-pad-key {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-3);
+  border: var(--border-w) solid var(--border-1);
+  border-radius: var(--radius-1);
+  padding: 0 var(--space-2);
+}
+/* Struck. Fill AND border together (DESIGN.md rule 8 — never colour alone at
+   the same shape), with no transition in, so the flash lands on the stroke
+   rather than a frame after it. */
+.drum-pad[data-lit="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  transition: none;
+}
+.drum-pad[data-lit="true"] .drum-pad-key {
+  color: var(--on-accent);
+  border-color: var(--on-accent);
+}
+
+/* ---------- Between the pads and the result ---------- */
+.groove-key-hint,
+.groove-last-run {
+  font-size: var(--text-sm);
+  color: var(--text-3);
+  margin-top: var(--space-3);
+}
+.groove-last-run {
+  color: var(--text-2);
+}
+
+/* ---------- Result ---------- */
+.groove-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+/* The verdict's own words are the cue ("Steady run" / "Not there yet"); the
+   colour and the rule beside it are reinforcement, never the only signal. */
+.groove-verdict {
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+  padding-left: var(--space-3);
+  border-left: var(--border-w-strong) solid var(--border-2);
+}
+.groove-verdict[data-steady="true"] {
+  color: var(--ok);
+  border-left-color: var(--ok);
+}
+.groove-verdict[data-steady="false"] {
+  color: var(--fb-wrong);
+  border-left-color: var(--fb-wrong);
+}
+
+/* One line per limb. Tabular numerals so the millisecond figures line up
+   column-wise down the list — that vertical alignment is what makes "which
+   limb is worst" readable at a glance instead of a sentence to parse. */
+.groove-pad-lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.groove-pad-lines li {
+  font-size: var(--text-md);
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+}
+
+.groove-diagnosis {
+  font-size: var(--text-md);
+  color: var(--text-2);
+  line-height: var(--leading-normal);
+}
+.groove-latency-note {
+  font-size: var(--text-sm);
+  color: var(--text-3);
+  line-height: var(--leading-normal);
+}

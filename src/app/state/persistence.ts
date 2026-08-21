@@ -170,6 +170,10 @@ import {
 } from '@app/state/progressStore.ts'
 import { useRepertoireStore, MAX_STORED_REPERTOIRE_PIECES } from '@app/state/repertoireStore.ts'
 import { useTechniqueStore, MAX_STORED_TECHNIQUE_ATTEMPTS } from '@app/state/techniqueStore.ts'
+import {
+  useDrumsHistoryStore,
+  MAX_STORED_DRUMS_ATTEMPTS,
+} from '@app/state/drumsHistoryStore.ts'
 import { useLevelStore } from '@app/state/levelStore.ts'
 import { useEarTrainingStore } from '@app/state/earTrainingStore.ts'
 import { useThemeStore } from '@app/state/themeStore.ts'
@@ -177,6 +181,7 @@ import { useInstrumentStore } from '@app/state/instrumentStore.ts'
 import {
   isValidAnnotations,
   isValidAssessments,
+  isValidDrumsHistory,
   isValidFlashcards,
   isValidInstrument,
   isValidLevelState,
@@ -189,6 +194,7 @@ import {
   isValidTheme,
   type PersistedAnnotations,
   type PersistedAssessments,
+  type PersistedDrumsHistory,
   type PersistedFlashcards,
   type PersistedInstrument,
   type PersistedLevelState,
@@ -208,6 +214,7 @@ import { isValidEarTraining, type PersistedEarTraining } from '@app/state/persis
 export type {
   PersistedAnnotations,
   PersistedAssessments,
+  PersistedDrumsHistory,
   PersistedFlashcards,
   PersistedInstrument,
   PersistedLevelState,
@@ -251,6 +258,16 @@ export const PRACTICE_LOG_KEY = 'practiceLog'
 /** Collection + key the technique drill tempo history lives under (roadmap 4.4b, REQ-3.7.2/3.7.3). */
 export const TECHNIQUE_COLLECTION = COLLECTIONS.techniqueHistory
 export const TECHNIQUE_KEY = 'techniqueHistory'
+
+/**
+ * Collection + key the groove trainer's finished runs live under (roadmap
+ * DR-09/T.17). Reuses `COLLECTIONS.settings` under its own key rather than
+ * declaring a new collection — same reasoning as `LEVELS_COLLECTION` below:
+ * a new key in an object store that already exists needs no IndexedDB
+ * migration, and this slice is small and written once per run.
+ */
+export const DRUMS_HISTORY_COLLECTION = COLLECTIONS.settings
+export const DRUMS_HISTORY_KEY = 'drumsHistory'
 
 /**
 /** Collection + key the repertoire library lives under (roadmap 2.33, REQ-3.8.2/3.8.3/3.8.4). */
@@ -307,6 +324,7 @@ let applyingRestoredAssessments = false
 let applyingRestoredRecordings = false
 let applyingRestoredPracticeLog = false
 let applyingRestoredTechniqueHistory = false
+let applyingRestoredDrumsHistory = false
 let applyingRestoredRepertoire = false
 let applyingRestoredLevels = false
 let applyingRestoredEarTraining = false
@@ -488,6 +506,20 @@ export async function restoreSession(store: Store): Promise<boolean> {
       useTechniqueStore
         .getState()
         .hydrate({ attempts: data.attempts.slice(0, MAX_STORED_TECHNIQUE_ATTEMPTS) }),
+  )
+
+  await restoreSlice(
+    store,
+    DRUMS_HISTORY_COLLECTION,
+    DRUMS_HISTORY_KEY,
+    isValidDrumsHistory,
+    (guarding) => {
+      applyingRestoredDrumsHistory = guarding
+    },
+    (data) =>
+      useDrumsHistoryStore
+        .getState()
+        .hydrate({ attempts: data.attempts.slice(0, MAX_STORED_DRUMS_ATTEMPTS) }),
   )
 
   await restoreSlice(
@@ -689,6 +721,21 @@ function persistTechniqueHistory(store: Store): PersistedSlice {
   return { unsubscribe, flush: write.flush }
 }
 
+/** Subscribes to the groove trainer's history and writes `attempts` on every change. */
+function persistDrumsHistory(store: Store): PersistedSlice {
+  const write = createWriteQueue<PersistedDrumsHistory>(
+    store,
+    DRUMS_HISTORY_COLLECTION,
+    DRUMS_HISTORY_KEY,
+  )
+  const unsubscribe = useDrumsHistoryStore.subscribe((state, prevState) => {
+    if (applyingRestoredDrumsHistory) return
+    if (state.attempts === prevState.attempts) return
+    write({ attempts: state.attempts })
+  })
+  return { unsubscribe, flush: write.flush }
+}
+
 /** Subscribes to the repertoire store and writes `pieces` on every change. */
 function persistRepertoire(store: Store): PersistedSlice {
   const write = createWriteQueue<PersistedRepertoire>(store, REPERTOIRE_COLLECTION, REPERTOIRE_KEY)
@@ -759,6 +806,7 @@ export function startPersisting(store: Store): () => void {
     persistRecordings(store),
     persistPracticeLog(store),
     persistTechniqueHistory(store),
+    persistDrumsHistory(store),
     persistRepertoire(store),
     persistLevels(store),
     persistEarTraining(store),

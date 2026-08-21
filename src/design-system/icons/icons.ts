@@ -57,6 +57,7 @@ export type IconName =
   | 'check'
   | 'x'
   | 'chevron-down'
+  | 'chevron-left'
   | 'chevron-right'
   | 'plus'
   | 'minus'
@@ -162,6 +163,8 @@ export const ICONS: Readonly<Record<IconName, readonly IconPrimitive[]>> = {
   ],
 
   'chevron-down': [{ kind: 'path', d: 'M6 9l6 6 6-6' }],
+
+  'chevron-left': [{ kind: 'path', d: 'M15 6l-6 6 6 6' }],
 
   'chevron-right': [{ kind: 'path', d: 'M9 6l6 6-6 6' }],
 

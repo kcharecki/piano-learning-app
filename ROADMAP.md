@@ -334,7 +334,7 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
       the score-query-heavy specs pass — including the 1603-note perf specs at p95 frame gap 18ms
       and a Practice re-show in 108ms, so the extra module boundary costs nothing.
 
-- [ ] T.17 **The drums groove trainer is still missing, and there are two RED specs saying so.**
+- [x] T.17 **The drums groove trainer is still missing, and there are two RED specs saying so.**
       `/improve-app` run 2026-08-21-1 (DR-09) built it and aborted; `a9e87a8` reverted the four
       implementation commits and kept both spec commits, so `e2e/improve-DR-09.spec.ts` (from
       `8bc7e80`) and `e2e/improve-DR-09-heldout.spec.ts` (from `19e76a7`) **fail on purpose** at
@@ -372,6 +372,55 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
       *Proof: both DR-09 specs go green with no `test.fixme`; a driven run on the three pads writes
       a persisted attempt that survives a reload; and the eight faults above each have a test that
       was RED before the rebuild.*
+      Done. Rebuilt from the two frozen specs outward rather than from the reverted code: the DOM
+      contract was read off `e2e/improve-DR-09.spec.ts` first, and the screen written to satisfy it.
+      Core is three new pure modules under `src/core/drums/practice/` — `plan.ts` (the grid and the
+      window), `grade.ts` (the verdict), `attempt.ts` (what gets persisted) — plus `library.ts`,
+      which returns a typed non-empty tuple so the picker needs no "curriculum shipped nothing"
+      branch. `quarterNoteRock()` is a new reference groove and the trainer's default: every limb on
+      a beat, and the widest window the trainer has. `ghostFunkBar()` is deliberately NOT offered —
+      half of what makes it that groove is ghost/accent dynamics, and a key press carries no
+      velocity to grade, so offering it would advertise a skill the app cannot sense.
+      The eight faults, each with a test that fails without the fix: (1) `subdivisionTicks(score)`
+      reads the smallest gap between distinct notated ticks **of the score**, wrap included, and
+      `windowMs = min(tolerance, subdivision / 2)` — nothing consults what was played; (2)
+      `unisonPairsOf(score)` builds the flam candidates from shared ticks, so on the money beat,
+      where kick and snare share none, no flam sentence about them can exist; (3) `runSlipSteps`
+      argmaxes total matches over integer grid steps and demands a unique winner, agreement across
+      every played pad, a non-zero step, more matches than at step 0, and >=75% coverage; (4) the
+      Space gate is phase-checked in `useKeyboardPads` and pinned from **both** sides — Space
+      activates the focused control when no run is on, and is the kick, not Stop, when one is;
+      (5) `DrumsGrooveAttempt` has five required identity fields and every later addition optional,
+      with a persistence test that restores a run saved before per-pad detail existed; (6) there is
+      no tempo ramp at all, stated in the screen's module doc rather than claimed as fixed; (7)
+      `drift()` returns `undefined` under 4 strokes and the gates read spread and drift per pad, not
+      a run-long average; (8) the "check your pads" sentence keys off `totalHits`, so a run that
+      registered 16 strokes in the wrong places is graded wrong, not called silent.
+      *Evidence:* `npm run verify` green — 236 files, 4783 tests; coverage 98.33% lines; core suite
+      3.13 s (the four new core files add 118 ms). Both frozen specs green with no `test.fixme`:
+      `improve-DR-09` 4 passed, `improve-DR-09-heldout` 2 passed, and the full e2e suite 174 passed.
+      Driven in the running app at `/drums/groove`: a paced 16-stroke run on Quarter-Note Rock
+      graded `Steady run` with `Kick — 4 of 4, 5 ms late` / `Snare — 4 of 4, 5 ms late` /
+      `Hi-hat — 8 of 8, 5 ms late`; the same run with the snare scattered +/-58 ms graded
+      `Not there yet` and named the limb — "Snare scattered 58 ms around its own average, against a
+      40 ms budget"; the attempt survived a reload **and** a brand-new tab as
+      `Last run: Quarter-Note Rock at 80 bpm — steady`.
+      Visual pass via `scripts/visual-pass.mjs Groove` (and `Today`), both widths, both themes,
+      console clean in all four configurations, plus a second pass with `--click Start --wait 11000`
+      so the result panel itself was judged rather than assumed. It caught three defects no test
+      could: (a) the run-state line is a `[role="status"]`, which primitives.css draws as a bordered
+      chip — directly under the primary button it read as a second, disabled button, so the chip is
+      unset; (b) Previous/Next groove were drawn with the `minus`/`plus` glyphs, the same pair the
+      tempo stepper uses 100 px below, so `chevron-left` joined the icon set and both buttons now
+      point; (c) the persisted "Last run:" line sat above a fresh result panel, putting two verdicts
+      on screen at once — it now yields to the run in progress. Checked by hand at 380 px too: no
+      horizontal overflow at any width, pads reflow 3-across to 2x2, no raw hex in
+      `feature-drums-groove.css`, and the verdict carries colour **and** a 2 px left rule, so it is
+      never colour alone.
+      Found on the way, unrelated to T.17 and committed separately: `feb0b9c` renamed the dashboard
+      technique chart and left two e2e specs asking for the old accessible name. They had been red
+      since that commit and nothing noticed, because `npm run verify` has no e2e step — which is
+      T.18, sitting directly below this entry.
 
 - [ ] T.18 **`npm run verify` has no e2e step, so a red claim spec passes the commit gate.**
       `verify` is `docs:budget && typecheck && lint && test:all`. During run 2026-08-21-1 that went

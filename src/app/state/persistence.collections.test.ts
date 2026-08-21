@@ -37,6 +37,8 @@ import {
   REPERTOIRE_COLLECTION,
   REPERTOIRE_KEY,
   restoreSession,
+  DRUMS_HISTORY_COLLECTION,
+  DRUMS_HISTORY_KEY,
   SESSION_COLLECTION,
   SESSION_KEY,
   SIGHT_READING_COLLECTION,
@@ -44,6 +46,7 @@ import {
   TECHNIQUE_COLLECTION,
   TECHNIQUE_KEY,
   type PersistedAssessments,
+  type PersistedDrumsHistory,
   type PersistedEarTraining,
   type PersistedFlashcards,
   type PersistedLevelState,
@@ -59,6 +62,8 @@ import { useFlashcardStore } from './flashcardStore.ts'
 import type { AssessmentResult } from '@core/practice/assessment.ts'
 import { useProgressStore, type StoredAssessment } from './progressStore.ts'
 import { useTechniqueStore } from './techniqueStore.ts'
+import { useDrumsHistoryStore } from './drumsHistoryStore.ts'
+import type { DrumsGrooveAttempt } from '@core/drums/practice/attempt.ts'
 import { useRepertoireStore, MAX_STORED_REPERTOIRE_PIECES } from './repertoireStore.ts'
 import { useLevelStore } from './levelStore.ts'
 import { useEarTrainingStore } from './earTrainingStore.ts'
@@ -896,6 +901,94 @@ describe('persistence: saved collections', () => {
         expect(useEarTrainingStore.getState().itemsById).toEqual({ [ITEM_A.id]: ITEM_A })
       },
     )
+  })
+
+  describe('groove trainer history persistence (roadmap DR-09/T.17)', () => {
+    const RUN: DrumsGrooveAttempt = {
+      grooveId: 'money-beat',
+      grooveTitle: 'Money Beat',
+      bpm: 80,
+      at: 1000,
+      steady: true,
+      pads: [
+        { pad: 'hhClosed', expected: 16, matched: 16, meanOffsetMs: 12 },
+        { pad: 'kick', expected: 4, matched: 4 },
+      ],
+    }
+
+    it('round-trips a scored run via startPersisting / restoreSession', async () => {
+      const store = new MemoryStore()
+      const unsubscribe = persist(store)
+
+      useDrumsHistoryStore.getState().addAttempt(RUN)
+      await flush()
+      unsubscribe()
+
+      resetStore()
+      expect(useDrumsHistoryStore.getState().attempts).toEqual([])
+
+      await restoreSession(store)
+      expect(useDrumsHistoryStore.getState().attempts).toEqual([RUN])
+    })
+
+    /**
+     * T.17.5, the whole point of `DrumsGrooveAttempt`'s optional fields: a run
+     * written before per-pad detail existed still restores. A validator that
+     * required `pads` would drop the learner's ENTIRE history — the slice is
+     * all-or-nothing — for one added field.
+     */
+    it('restores a run saved before per-pad detail existed', async () => {
+      const store = new MemoryStore()
+      const legacy = {
+        attempts: [{ grooveId: 'money-beat', grooveTitle: 'Money Beat', bpm: 80, at: 1, steady: false }],
+      }
+      await store.put(DRUMS_HISTORY_COLLECTION, DRUMS_HISTORY_KEY, legacy)
+
+      await restoreSession(store)
+
+      expect(useDrumsHistoryStore.getState().attempts).toHaveLength(1)
+      expect(useDrumsHistoryStore.getState().attempts[0]?.pads).toBeUndefined()
+    })
+
+    it.each([
+      ['not an object', 'nope'],
+      ['attempts missing', {}],
+      ['attempts not an array', { attempts: 'nope' }],
+      ['a run missing its verdict', { attempts: [{ grooveId: 'x', grooveTitle: 'X', bpm: 80, at: 1 }] }],
+      ['a run with a non-finite bpm', { attempts: [{ ...RUN, bpm: Number.NaN }] }],
+      ['a pad row naming a pad that does not exist', { attempts: [{ ...RUN, pads: [{ pad: 'cowbell', expected: 1, matched: 1 }] }] }],
+    ])('degrades to an empty history on a corrupt payload: %s', async (_label, payload) => {
+      const store = new MemoryStore()
+      await store.put(DRUMS_HISTORY_COLLECTION, DRUMS_HISTORY_KEY, payload)
+      // A sibling collection with a VALID payload, to prove the corrupt drums
+      // collection does not prevent it from restoring.
+      const entry: PracticeEntry = {
+        id: 'sibling-pe-drums',
+        startedAt: 1,
+        endedAt: 2,
+        kind: 'technique',
+        itemName: 'Sibling',
+      }
+      await store.put(PRACTICE_LOG_COLLECTION, PRACTICE_LOG_KEY, { practiceEntries: [entry] })
+
+      await restoreSession(store)
+
+      expect(useDrumsHistoryStore.getState().attempts).toEqual([])
+      expect(useProgressStore.getState().practiceEntries).toEqual([entry])
+    })
+
+    it('does not immediately re-save what it just restored (no write amplification)', async () => {
+      const store = new CountingStore()
+      const saved: PersistedDrumsHistory = { attempts: [RUN] }
+      await store.put(DRUMS_HISTORY_COLLECTION, DRUMS_HISTORY_KEY, saved)
+      store.putCount = 0
+
+      persist(store)
+      await restoreSession(store)
+      await flush()
+
+      expect(store.putCount).toBe(0)
+    })
   })
 })
 

@@ -21,6 +21,8 @@ import type { Recording } from '@core/practice/recorder.ts'
 import { ACTIVITY_KINDS, type ActivityKind, type PracticeEntry } from '@core/progress/log.ts'
 import { validateAnnotations, type ScoreAnnotations } from '@core/notation/annotations.ts'
 import type { TechniqueAttempt } from '@core/technique/evenness.ts'
+import type { DrumsGrooveAttempt } from '@core/drums/practice/attempt.ts'
+import { isMappedDrumPad } from '@core/drums/model/pad.ts'
 import { REPERTOIRE_STATUSES, type RepertoirePiece } from '@core/repertoire/repertoire.ts'
 import { MAX_LEVEL as MAX_TRACK_LEVEL, MIN_LEVEL as MIN_TRACK_LEVEL, TRACKS } from '@core/curriculum/types.ts'
 import type { Track } from '@core/curriculum/types.ts'
@@ -68,6 +70,10 @@ export type PersistedPracticeLog = {
 
 export type PersistedTechniqueHistory = {
   readonly attempts: readonly TechniqueAttempt[]
+}
+
+export type PersistedDrumsHistory = {
+  readonly attempts: readonly DrumsGrooveAttempt[]
 }
 
 export type PersistedLevelState = {
@@ -386,6 +392,50 @@ export function isValidTechniqueHistory(value: unknown): value is PersistedTechn
   if (typeof value !== 'object' || value === null) return false
   const v = value as Record<string, unknown>
   return Array.isArray(v.attempts) && v.attempts.every(isValidTechniqueAttempt)
+}
+
+/**
+ * One persisted groove run (roadmap DR-09/T.17). Required surface is the five
+ * identity fields and nothing more — see `@core/drums/practice/attempt.ts` on
+ * why every later addition to that type is optional. `pads` is validated when
+ * present and simply absent when not; a record that predates it still restores
+ * rather than taking the whole history down with it.
+ */
+export function isValidDrumsGroovePadAttempt(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false
+  const p = value as Record<string, unknown>
+  return (
+    typeof p.pad === 'string' &&
+    isMappedDrumPad(p.pad) &&
+    typeof p.expected === 'number' &&
+    Number.isFinite(p.expected) &&
+    typeof p.matched === 'number' &&
+    Number.isFinite(p.matched) &&
+    (p.meanOffsetMs === undefined ||
+      (typeof p.meanOffsetMs === 'number' && Number.isFinite(p.meanOffsetMs)))
+  )
+}
+
+export function isValidDrumsGrooveAttempt(value: unknown): value is DrumsGrooveAttempt {
+  if (typeof value !== 'object' || value === null) return false
+  const a = value as Record<string, unknown>
+  if (a.pads !== undefined && !(Array.isArray(a.pads) && a.pads.every(isValidDrumsGroovePadAttempt)))
+    return false
+  return (
+    typeof a.grooveId === 'string' &&
+    typeof a.grooveTitle === 'string' &&
+    typeof a.bpm === 'number' &&
+    Number.isFinite(a.bpm) &&
+    typeof a.at === 'number' &&
+    Number.isFinite(a.at) &&
+    typeof a.steady === 'boolean'
+  )
+}
+
+export function isValidDrumsHistory(value: unknown): value is PersistedDrumsHistory {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return Array.isArray(v.attempts) && v.attempts.every(isValidDrumsGrooveAttempt)
 }
 
 export function isValidRepertoirePiece(value: unknown): value is RepertoirePiece {

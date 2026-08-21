@@ -15,6 +15,33 @@
 import { makeGrooveScore, type GrooveScore } from './groove.ts'
 
 /**
+ * `moneyBeat` with the hi-hat halved to quarter notes — the same backbeat and
+ * the same kick, one stroke per beat instead of two. This is the groove a
+ * beginner meets first (Rockschool Debut works up to the eighth-note hat from
+ * here), and it is the trainer's default pick for that reason: every limb
+ * lands on a beat, so nothing has to be counted between beats.
+ *
+ * It is also the widest-windowed groove the trainer has. Its smallest notated
+ * gap is a quarter, so `planGrooveRun`'s window is the full stated tolerance
+ * at any sane tempo — see `@core/drums/practice/plan.ts`.
+ */
+export function quarterNoteRock(): GrooveScore {
+  const hihatTicks = [0, 480, 960, 1440]
+  return makeGrooveScore({
+    id: 'quarter-note-rock',
+    title: 'Quarter-Note Rock',
+    measureCount: 1,
+    notes: [
+      ...hihatTicks.map((tick) => ({ pad: 'hhClosed' as const, tick, durationTicks: 480 })),
+      { pad: 'kick' as const, tick: 0, durationTicks: 480 },
+      { pad: 'kick' as const, tick: 960, durationTicks: 480 },
+      { pad: 'snare' as const, tick: 480, durationTicks: 480 },
+      { pad: 'snare' as const, tick: 1440, durationTicks: 480 },
+    ],
+  })
+}
+
+/**
  * The basic rock "money beat": closed hi-hat on every 8th note, kick on 1
  * and 3, snare backbeat on 2 and 4. One 4/4 measure, straight (no swing).
  */
@@ -94,7 +121,7 @@ export function ghostFunkBar(): GrooveScore {
   })
 }
 
-/** All three, for tests that want to sweep every reference groove. */
+/** All four, for tests that want to sweep every reference groove. */
 export function referenceGrooves(): readonly GrooveScore[] {
-  return [moneyBeat(), moneyBeatOpenHat(), ghostFunkBar()]
+  return [quarterNoteRock(), moneyBeat(), moneyBeatOpenHat(), ghostFunkBar()]
 }
