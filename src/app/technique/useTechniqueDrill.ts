@@ -12,13 +12,21 @@
  * ## Reusing the metronome, not a second scheduler
  *
  * `useMetronome` (roadmap 2.28) is the standalone click track; this hook
- * drives it directly rather than building a third scheduler. Every drill note
- * sits on a beat (`techniqueScore` writes one `QUARTER` per note — see
- * `@core/technique/library.ts`), so the metronome's default 1-click-per-beat
- * subdivision is exactly the pulse the learner plays against, at whatever bpm
- * is currently selected: `techniqueScore(drill, metronome.bpm)` is
- * regenerated whenever that bpm changes, so the engraved score and the clicks
- * are always describing the same tempo.
+ * drives it directly rather than building a third scheduler. The click stays
+ * on the BEAT — one per quarter — for every drill, and that is a decision
+ * rather than an accident of the note values.
+ *
+ * Most drills write one `QUARTER` per note, so the beat and the note coincide.
+ * The broken triad sequence does not: it writes three triplet eighths to a
+ * quarter (`@core/technique/triadSequence.ts`). Clicking each of those three
+ * would remove the very thing the row trains — fitting a three-note harmony
+ * inside one pulse you are counting — and would triple the click rate on a
+ * drill the syllabus expects from memory. Because that drill puts exactly one
+ * triad per beat, every triad ROOT still lands on a click, so the quarter
+ * pulse marks the pattern correctly without marking every note of it.
+ *
+ * `techniqueScore(drill, metronome.bpm)` is regenerated whenever that bpm
+ * changes, so the engraved score and the clicks always describe one tempo.
  *
  * ## Scoring a run
  *

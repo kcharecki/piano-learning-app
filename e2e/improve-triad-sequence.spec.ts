@@ -39,9 +39,8 @@ import { makeTempoMap, tickToMs } from '../src/core/timing/tempo.ts'
  *
  * A drill registered at level 1 under the right title, playing a C major
  * scale, would satisfy every screen assertion below and teach none of the
- * skill. So the pitches are asserted first, against the sequence read off
- * the rendered syllabus page: C-E-G, D-F-A, E-G-B, F-A-C, G-B-D, A-C-E,
- * B-D-F, C-E-G, all root position, all ascending, no descent. Those are
+ * skill. So the pitches are asserted first: C-E-G, D-F-A, E-G-B, F-A-C,
+ * G-B-D, A-C-E, B-D-F, C-E-G, all root position, all ascending, no descent. Those are
  * *this* drill's notes, not a general property of the feature — the
  * generalisation to another key is the run's held-out goal and is
  * deliberately not named here.
@@ -51,12 +50,31 @@ import { makeTempoMap, tickToMs } from '../src/core/timing/tempo.ts'
  * As in `e2e/technique-drill.spec.ts`: every onset is nudged by an
  * alternating +/-`JITTER_MS`, so the evenness readout lands strictly inside
  * (0%, 100%) and a screen rendering a hardcoded 100% fails an assertion a
- * genuinely-computed one passes. At this drill's 60bpm an eighth note is
- * 500ms, consecutive gaps alternate 500+/-2*`JITTER_MS`, so the worst gap's
- * relative deviation is 30/500 = 0.06 and evenness is 1 - 0.06/0.5 = 0.88.
- * That is inside `MATCHER_DEFAULTS.toleranceMs` (150ms, so accuracy stays 1)
- * and above `CLEAN_EVENNESS_THRESHOLD` (0.8, so the run is clean and earns
- * its tempo-history point).
+ * genuinely-computed one passes.
+ *
+ * ### The jitter arithmetic, corrected
+ *
+ * The band below (84% < evenness < 94%) is this spec's original assertion and
+ * is unchanged. The arithmetic that justified it was wrong twice over, and
+ * `JITTER_MS` — which was derived FROM that arithmetic — is corrected here
+ * from 15 to 5. Both errors are demonstrable against `evennessOf` itself:
+ *
+ *  1. It assumed 500ms between onsets, an eighth note at 60bpm. A broken
+ *     triad is three notes to a beat (`@core/technique/triadSequence.ts`), so
+ *     the spacing is a triplet eighth: 333.333ms.
+ *  2. It took the worst gap's deviation as `2*JITTER_MS / gap`. That holds
+ *     only when the median gap is the nominal one. 24 onsets give 23 gaps —
+ *     an ODD count — which alternate long/short starting SHORT, so 12 of them
+ *     are the short gap and the median IS the short gap, not the nominal one.
+ *     The worst deviation is therefore `4*JITTER_MS / (gap - 2*JITTER_MS)`.
+ *
+ * So evenness is `1 - (4J/(gap-2J))/0.5` = `1 - 8J/(gap-2J)`. At J=15 that is
+ * 60.4% — under `CLEAN_EVENNESS_THRESHOLD` (0.8), so the original numbers
+ * could not have produced the "clean" verdict this spec asserts at all, at
+ * any tempo. At J=5 it is 87.6%, which renders as 88%: inside the band,
+ * inside `MATCHER_DEFAULTS.toleranceMs` (150ms, so accuracy stays 1), and
+ * above the clean threshold, so the run earns its tempo-history point.
+ * Measured, not derived: see the sweep in this run's retro entry.
  */
 
 const DB_NAME = 'piano-learning-app'
@@ -66,8 +84,16 @@ const SOLID_DRILL_TITLE = 'C major triad sequence, solid, right hand'
 
 /**
  * The eight root-position diatonic triads of C major, ascending one octave,
- * broken — read off the engraved Preparatory A page of the RCM Piano
- * Syllabus 2022 (p. 121), note by note, and written here as MIDI numbers.
+ * written out here as MIDI numbers rather than generated, so this spec fails
+ * if the generator's idea of the sequence drifts.
+ *
+ * These follow entirely from the verbatim requirement recorded in
+ * `runs/2026-08-20-1/syllabus.md` — "Triad Sequence / broken", "C major",
+ * "HS", "1 octave, ascending" — plus the definition of a diatonic triad: one
+ * root-position stack of thirds per degree of the scale. No engraved syllabus
+ * page is cited for them, because none was captured; note VALUE and tempo,
+ * which do not follow from the quote, are argued in
+ * `@core/technique/triadSequence.ts` and are ours.
  */
 const EXPECTED_MIDI: readonly number[] = [
   60, 64, 67, // C4 E4 G4
@@ -81,7 +107,7 @@ const EXPECTED_MIDI: readonly number[] = [
 ]
 
 const DEFAULT_TIME_SIGNATURE: TimeSignature = { beats: 4, beatType: 4 }
-const JITTER_MS = 15
+const JITTER_MS = 5
 const NOTE_HOLD_MS = 300
 
 function collectErrors(page: Page): string[] {
