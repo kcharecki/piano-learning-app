@@ -4,12 +4,18 @@ import { keySignatureForTonic, type Mode } from '@core/theory/keys.ts'
 import { unwrap } from '@core/shared/result.ts'
 import { at, invariant } from '@core/shared/invariant.ts'
 import { validateScore, type ScoreNote } from '@core/notation/score.ts'
+import { QUARTER, WHOLE } from '@core/shared/units.ts'
 import {
   techniqueDrillById,
   techniqueLibrary,
   techniqueScore,
   type TechniqueDrill,
 } from './library.ts'
+
+/** How many hands a drill's `hands` value actually engraves. */
+function handCount(hands: TechniqueDrill['hands']): number {
+  return hands === 'both' ? 2 : 1
+}
 
 /**
  * Independent re-derivation of "which mode does this drill's scaleType imply"
@@ -270,6 +276,78 @@ describe('techniqueScore', () => {
       const span = Math.max(...midis) - Math.min(...midis)
       expect(span).toBe(7)
     }
+  })
+
+  // roadmap T.13: RCM Preparatory A p.9's Scales row ends the pentascale with
+  // a solid (blocked) root-position triad. `fiveFingerRun` returned 9 single
+  // notes and stopped, so a Preparatory A learner's first chord was whichever
+  // drill they met next — and T.7's triad sequence had no on-ramp at all.
+  it('ends every five-finger drill with a blocked root-position triad', () => {
+    const drills = allDrills().filter((d) => d.kind === 'five-finger')
+    expect(drills.length).toBeGreaterThan(0)
+    for (const drill of drills) {
+      const score = techniqueScore(drill, drill.targetBpm)
+      const lastTick = Math.max(...score.notes.map((n) => n.startTick))
+      const closing = score.notes.filter((n) => n.startTick === lastTick)
+
+      // Three notes, one per hand in the drill, struck together.
+      expect(closing.length).toBe(3 * handCount(drill.hands))
+      for (const hand of ['right', 'left'] as const) {
+        const forHand = closing.filter((n) => n.hand === hand)
+        if (forHand.length === 0) continue
+        const midis = [...forHand.map((n) => n.midi)].sort((a, b) => a - b)
+        expect(midis).toHaveLength(3)
+        // Root position: a third then a third, major or minor, never an
+        // inversion — a fourth anywhere in the stack would be one.
+        const root = at(midis, 0)
+        const third = at(midis, 1)
+        const fifth = at(midis, 2)
+        expect(third - root).toBeGreaterThanOrEqual(3)
+        expect(third - root).toBeLessThanOrEqual(4)
+        expect(fifth - third).toBeGreaterThanOrEqual(3)
+        expect(fifth - third).toBeLessThanOrEqual(4)
+        expect(fifth - root).toBe(7)
+        // The tonic the run started on IS the chord's root.
+        const firstOfHand = score.notes
+          .filter((n) => n.hand === hand)
+          .reduce((a, b) => (a.startTick <= b.startTick ? a : b))
+        expect(root).toBe(firstOfHand.midi)
+        // Every note in the drill carries a fingering (REQ-3.7.1); the triad
+        // uses the root-position row the chord-inversions drill uses.
+        const fingers = forHand
+          .slice()
+          .sort((a, b) => a.midi - b.midi)
+          .map((n) => n.fingering)
+        expect(fingers).toEqual(hand === 'right' ? [1, 3, 5] : [5, 3, 1])
+      }
+    }
+  })
+
+  it('holds the closing triad to the end of its bar, adding no empty bar', () => {
+    const drill = allDrills().find((d) => d.kind === 'five-finger')
+    expect(drill).toBeDefined()
+    if (drill === undefined) return
+    const score = techniqueScore(drill, drill.targetBpm)
+    const lastTick = Math.max(...score.notes.map((n) => n.startTick))
+    const closing = score.notes.filter((n) => n.startTick === lastTick)
+    const end = lastTick + (closing[0]?.durationTicks ?? 0)
+
+    // Nine quarters + a dotted half = exactly three 4/4 bars.
+    expect(end).toBe(3 * WHOLE)
+    expect(end % WHOLE).toBe(0)
+    expect(score.measures.length).toBe(3)
+  })
+
+  it('leaves the closing triad one ordinary beat after the run, so evenness is untouched', () => {
+    const drill = allDrills().find((d) => d.kind === 'five-finger')
+    expect(drill).toBeDefined()
+    if (drill === undefined) return
+    const score = techniqueScore(drill, drill.targetBpm)
+    // Distinct onsets, in order: the gaps a player's evenness is judged on.
+    const onsets = [...new Set(score.notes.map((n) => n.startTick))].sort((a, b) => a - b)
+    const gaps = onsets.slice(1).map((t, i) => t - (onsets[i] ?? 0))
+    expect(new Set(gaps).size).toBe(1)
+    expect(gaps[0]).toBe(QUARTER)
   })
 
   it('plays all three inversions of the triad for chord-inversions drills', () => {

@@ -11,6 +11,10 @@ import { FakeClock, FakeMidiInput, RecordingAudioOutput } from '@test/fakes.ts'
 import { millis } from '@core/shared/units.ts'
 import { midiToName } from '@core/theory/pitch.ts'
 import { techniqueLibrary, techniqueScore } from '@core/technique/library.ts'
+import type { Score } from '@core/notation/score.ts'
+
+/** The branded MIDI type a score note carries, without a second import path for it. */
+type ScoreMidi = Score['notes'][number]['midi']
 import type { TechniqueAttempt } from '@core/technique/evenness.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -41,6 +45,24 @@ afterEach(() => {
   cleanup()
   resetStore()
 })
+
+/**
+ * The score's onsets grouped by tick, in time order — see roadmap T.13: a
+ * five-finger drill ends on a blocked triad, three notes at one startTick.
+ */
+function noteGroups(
+  score: Score,
+): readonly { readonly tick: number; readonly midis: readonly ScoreMidi[] }[] {
+  const byTick = new Map<number, ScoreMidi[]>()
+  for (const note of score.notes) {
+    const list = byTick.get(note.startTick)
+    if (list === undefined) byTick.set(note.startTick, [note.midi])
+    else list.push(note.midi)
+  }
+  return [...byTick.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([tick, midis]) => ({ tick, midis }))
+}
 
 describe('TechniqueScreen', () => {
   it('is fully usable with no MIDI keyboard connected — REQ-4.1', () => {
@@ -81,11 +103,20 @@ describe('TechniqueScreen', () => {
     const score = techniqueScore(drill, drill.targetBpm)
     const msPerBeat = 60000 / drill.targetBpm
     clock.advance(4 * msPerBeat)
-    for (const note of score.notes) {
-      const key = screen.getByRole('button', { name: midiToName(note.midi) })
-      await user.pointer({ target: key, keys: '[MouseLeft>]' })
-      await user.pointer({ target: key, keys: '[/MouseLeft]' })
-      clock.advance(msPerBeat)
+    // One tick at a time, not one note at a time: roadmap T.13 ends this drill
+    // on a blocked triad, and advancing the clock between its three notes
+    // would arpeggiate it. The clock is fake, so the three land together —
+    // what a single mouse pointer CANNOT do at a real keyboard is roadmap
+    // T.11's problem, and is deliberately not what this test is about.
+    const groups = noteGroups(score)
+    for (const [i, group] of groups.entries()) {
+      for (const midi of group.midis) {
+        const key = screen.getByRole('button', { name: midiToName(midi) })
+        await user.pointer({ target: key, keys: '[MouseLeft>]' })
+        await user.pointer({ target: key, keys: '[/MouseLeft]' })
+      }
+      const next = groups[i + 1]
+      clock.advance((next === undefined ? 480 : next.tick - group.tick) * (msPerBeat / 480))
     }
 
     await user.click(screen.getByRole('button', { name: 'Stop' }))
@@ -140,13 +171,16 @@ describe('TechniqueScreen', () => {
     const score = techniqueScore(drill, drill.targetBpm)
     const msPerBeat = 60000 / drill.targetBpm
     const countInMs = 4 * msPerBeat
-    for (const [i, note] of score.notes.entries()) {
+    // By the note's own startTick, not its array index: roadmap T.13's closing
+    // blocked triad is three notes at ONE tick, and an index-driven run would
+    // spread it over three beats — a flawless run scoring 71%.
+    for (const note of score.notes) {
       act(() =>
         midiInput.emit({
           type: 'noteOn',
           note: note.midi,
           velocity: 80,
-          time: millis(5_000 + countInMs + i * msPerBeat),
+          time: millis(5_000 + countInMs + note.startTick * (msPerBeat / 480)),
         }),
       )
     }

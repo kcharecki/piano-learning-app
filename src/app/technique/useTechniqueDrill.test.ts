@@ -9,6 +9,10 @@
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { FakeClock, FakeMidiInput, RecordingAudioOutput } from '@test/fakes.ts'
 import { millis } from '@core/shared/units.ts'
+import type { Score } from '@core/notation/score.ts'
+
+/** The branded MIDI type a score note carries, without a second import path for it. */
+type ScoreMidi = Score['notes'][number]['midi']
 import { techniqueDrillById, techniqueLibrary, type TechniqueDrill } from '@core/technique/library.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -44,7 +48,11 @@ function manualDriver(): FrameDriver {
 
 /**
  * Every run in this suite advances the clock past 0 before `start()` and
- * emits notes at `runStartMs + i * msPerBeat` (never at raw `i * msPerBeat`)
+ * emits notes at `runStartMs + <the note's own startTick>` (never at raw
+ * 0-based times, and never one-note-per-beat by array index — roadmap T.13
+ * gave the five-finger drills a closing BLOCKED triad, three notes sharing
+ * one startTick, and an index-driven run would arpeggiate it across three
+ * beats and score a flawless run at 71%)
  * — production onset timestamps are `performance.now()` values of order 1e5+
  * ms (`src/adapters/midi/webmidi.ts`), never 0-based. A prior version of this
  * suite started the clock at 0 and never advanced it, so the plausible
@@ -58,6 +66,26 @@ const COUNT_IN_BEATS = 4
 
 function runStart(clock: FakeClock): void {
   clock.advance(RUN_START_MS)
+}
+
+/**
+ * The score's onsets, grouped by tick: `[{ tick, midis }]` in time order. A
+ * drill is no longer one-note-per-beat — roadmap T.13's five-finger drills end
+ * on a blocked triad, three notes sharing one startTick — so anything driving
+ * a run by hand has to strike a group together or score a flawless run at 71%.
+ */
+function noteGroups(
+  score: Score,
+): readonly { readonly tick: number; readonly midis: readonly ScoreMidi[] }[] {
+  const byTick = new Map<number, ScoreMidi[]>()
+  for (const note of score.notes) {
+    const list = byTick.get(note.startTick)
+    if (list === undefined) byTick.set(note.startTick, [note.midi])
+    else list.push(note.midi)
+  }
+  return [...byTick.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([tick, midis]) => ({ tick, midis }))
 }
 
 describe('useTechniqueDrill', () => {
@@ -88,13 +116,13 @@ describe('useTechniqueDrill', () => {
     // Land on the downbeat after the hook's own one-bar count-in — the
     // clicked-out bar the learner needs before the first note is due.
     const countInMs = COUNT_IN_BEATS * msPerBeat
-    for (const [i, note] of score.notes.entries()) {
+    for (const note of score.notes) {
       act(() =>
         midiInput.emit({
           type: 'noteOn',
           note: note.midi,
           velocity: 80,
-          time: millis(RUN_START_MS + countInMs + i * msPerBeat),
+          time: millis(RUN_START_MS + countInMs + note.startTick * (msPerBeat / 480)),
         }),
       )
     }
@@ -254,10 +282,15 @@ describe('useTechniqueDrill', () => {
     const msPerBeat = 60000 / result.current.bpm
     const countInMs = COUNT_IN_BEATS * msPerBeat
     clock.advance(countInMs)
-    for (const note of score.notes) {
-      act(() => result.current.press(note.midi))
-      act(() => result.current.release(note.midi))
-      clock.advance(msPerBeat)
+    // Grouped by startTick, so roadmap T.13's closing blocked triad is struck
+    // as one chord rather than arpeggiated over three beats, and the clock
+    // advances by each group's real gap rather than a flat beat.
+    for (const [i, group] of noteGroups(score).entries()) {
+      for (const midi of group.midis) act(() => result.current.press(midi))
+      for (const midi of group.midis) act(() => result.current.release(midi))
+      const next = noteGroups(score)[i + 1]
+      const gapTicks = next === undefined ? 480 : next.tick - group.tick
+      clock.advance(gapTicks * (msPerBeat / 480))
     }
 
     act(() => result.current.stop())
@@ -345,13 +378,13 @@ describe('useTechniqueDrill', () => {
         const msPerBeat = 60000 / result.current.bpm
         const countInMs = COUNT_IN_BEATS * msPerBeat
         const base = clock.now()
-        for (const [i, note] of score.notes.entries()) {
+        for (const note of score.notes) {
           act(() =>
             midiInput.emit({
               type: 'noteOn',
               note: note.midi,
               velocity: 80,
-              time: millis(base + countInMs + i * msPerBeat),
+              time: millis(base + countInMs + note.startTick * (msPerBeat / 480)),
             }),
           )
         }

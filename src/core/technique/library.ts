@@ -60,7 +60,7 @@ import {
   type ScaleType,
 } from '@core/theory/scales.ts'
 import { makeScore, type Hand, type Score, type ScoreNoteInput } from '@core/notation/score.ts'
-import { QUARTER, WHOLE } from '@core/shared/units.ts'
+import { HALF, QUARTER, WHOLE } from '@core/shared/units.ts'
 
 export type TechniqueKind = 'five-finger' | 'scale' | 'arpeggio' | 'chord-inversions'
 
@@ -171,7 +171,18 @@ function fingeringFor(tonic: SpelledPitch, type: ScaleType): Fingering {
 // runs: a flat sequence of pitches with one finger per pitch
 // ---------------------------------------------------------------------------
 
-type Run = { readonly notes: readonly SpelledPitch[]; readonly fingers: readonly number[] }
+/** A blocked (simultaneous) chord sounded after a run's last sequential note. */
+type RunChord = {
+  readonly notes: readonly SpelledPitch[]
+  readonly fingers: readonly number[]
+  readonly durationTicks: number
+}
+
+type Run = {
+  readonly notes: readonly SpelledPitch[]
+  readonly fingers: readonly number[]
+  readonly closing?: RunChord
+}
 
 /**
  * Finger for position `i` of `total` in a continuous, possibly multi-octave
@@ -235,14 +246,42 @@ function scaleUpAndDown(tonic: SpelledPitch, type: ScaleType, octaves: number, h
 const RH_FIVE_FINGER = [1, 2, 3, 4, 5, 4, 3, 2, 1] as const
 const LH_FIVE_FINGER = [5, 4, 3, 2, 1, 2, 3, 4, 5] as const
 
-/** 1-2-3-4-5-4-3-2-1 under the hand, degrees 1..5 of the tonic's scale
- * (major, or natural minor when `type` is a minor-flavoured scale type). */
+/**
+ * The dotted half the closing triad is held for. Nine quarter notes fill two
+ * bars and one beat, so a three-beat chord completes the third bar exactly —
+ * no trailing rest, and no fourth bar holding one chord.
+ */
+const CLOSING_TRIAD_TICKS = HALF + QUARTER
+
+/**
+ * 1-2-3-4-5-4-3-2-1 under the hand, degrees 1..5 of the tonic's scale (major,
+ * or natural minor when `type` is a minor-flavoured scale type), **ending with
+ * the solid (blocked) root-position triad** the syllabus row asks for: RCM
+ * Preparatory A p.9's Scales row reads "Legato Pentascales (five-finger
+ * patterns) … tonic to dominant, ascending and descending (ending with
+ * solid/blocked root-position triad)" (roadmap T.13).
+ *
+ * The triad is taken from `degrees` rather than rebuilt with `buildChord`, so
+ * it is spelled by the same scale the run is and cannot land outside the
+ * five-finger span the drill is named for. Its fingering is the root-position
+ * row of the same table `chordInversionScore` uses — 1-3-5 right, 5-3-1 left —
+ * so a learner meets one convention, not two.
+ */
 function fiveFingerRun(tonic: SpelledPitch, hand: Hand, type: ScaleType): Run {
   const scaleForDegrees = qualityOf(type) === 'major' ? 'major' : 'naturalMinor'
   const degrees = scaleNotes(tonic, scaleForDegrees, 1).slice(0, 5)
   const notes = [...degrees, ...[...degrees].slice(0, -1).reverse()]
   const fingers = hand === 'right' ? RH_FIVE_FINGER : LH_FIVE_FINGER
-  return { notes, fingers: [...fingers] }
+  const triadFingers = hand === 'right' ? RH_TRIAD_FINGERS[0] : LH_TRIAD_FINGERS[0]
+  return {
+    notes,
+    fingers: [...fingers],
+    closing: {
+      notes: [at(degrees, 0), at(degrees, 2), at(degrees, 4)],
+      fingers: triadFingers,
+      durationTicks: CLOSING_TRIAD_TICKS,
+    },
+  }
 }
 
 /**
@@ -348,13 +387,33 @@ const TRIAD_INVERSIONS: readonly (0 | 1 | 2)[] = INVERSIONS.filter(isTriadInvers
 // ---------------------------------------------------------------------------
 
 function noteInputs(run: Run, hand: Hand, noteDuration: number): ScoreNoteInput[] {
-  return run.notes.map((p, i) => ({
+  const inputs: ScoreNoteInput[] = run.notes.map((p, i) => ({
     midi: toMidi(p),
     startTick: i * noteDuration,
     durationTicks: noteDuration,
     hand,
     fingering: at(run.fingers, i),
   }))
+  const closing = run.closing
+  if (closing !== undefined) {
+    const startTick = run.notes.length * noteDuration
+    closing.notes.forEach((p, i) => {
+      inputs.push({
+        midi: toMidi(p),
+        startTick,
+        durationTicks: closing.durationTicks,
+        hand,
+        fingering: at(closing.fingers, i),
+      })
+    })
+  }
+  return inputs
+}
+
+/** Total sounding length of a run, closing chord included. */
+function runTicks(run: Run, noteDuration: number): number {
+  const sequential = run.notes.length * noteDuration
+  return run.closing === undefined ? sequential : sequential + run.closing.durationTicks
 }
 
 function scoreFromRuns(
@@ -365,11 +424,14 @@ function scoreFromRuns(
   keyFifths: number,
 ): Score {
   const noteDuration = QUARTER
-  let maxLen = 0
-  for (const r of runs) maxLen = Math.max(maxLen, r.run.notes.length)
+  // Ticks, not note count: a run's closing blocked chord is one tick position
+  // but three notes and three beats long, so counting notes would both
+  // over-count the chord's width and lose the bar it needs.
+  let maxTicks = 0
+  for (const r of runs) maxTicks = Math.max(maxTicks, runTicks(r.run, noteDuration))
   const notes: ScoreNoteInput[] = []
   for (const { run, hand } of runs) notes.push(...noteInputs(run, hand, noteDuration))
-  const measureCount = Math.max(1, Math.ceil((maxLen * noteDuration) / WHOLE))
+  const measureCount = Math.max(1, Math.ceil(maxTicks / WHOLE))
   const measures = Array.from({ length: measureCount }, (_, i) => (i === 0 ? { keyFifths } : {}))
   return makeScore({ id, meta: { title }, measures, notes, tempos: [{ tick: 0, bpm }] })
 }

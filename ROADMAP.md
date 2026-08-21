@@ -152,12 +152,34 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
       all eight triads minor returns "Evenness 88% — Not yet clean", and a beginner reads the 88%
       as near-success. The learner's own stated goal that week was knowing which note was wrong.
       *Proof: a driven wrong-third run whose result line names the pitch and the degree.*
-- [ ] T.13 **`fiveFingerRun` omits the closing blocked triad the syllabus puts in that row.**
-      `src/core/technique/library.ts:244` returns `[...degrees, ...degrees.slice(0,-1).reverse()]`
-      = 9 single notes. RCM Prep A p.9 Scales row reads "Legato Pentascales (five-finger patterns)
-      … tonic to dominant, ascending and descending (ending with solid/blocked root-position
-      triad)". This is also the on-ramp T.7 needs: without it the triad sequence is the learner's
-      first chord ever. *Proof: the drill's note list ends with a three-note blocked triad, driven.*
+- [x] T.13 **`fiveFingerRun` omitted the closing blocked triad the syllabus puts in that row.**
+      It returned `[...degrees, ...degrees.slice(0,-1).reverse()]` = 9 single notes; RCM Prep A p.9's
+      Scales row reads "Legato Pentascales (five-finger patterns) ... tonic to dominant, ascending and
+      descending (ending with solid/blocked root-position triad)". `Run` gained an optional
+      `closing` blocked chord (three pitches, three fingers, its own duration), `noteInputs` emits
+      it at one shared `startTick`, and `scoreFromRuns` now counts bars from TICKS rather than note
+      count -- a chord is one tick position but three notes and three beats wide, so the old count
+      both over-counted its width and lost the bar it needs. Decisions worth naming: the triad is
+      taken from the run's own `degrees` (not rebuilt with `buildChord`), so it is spelled by the
+      drill's own scale and cannot leave the five-finger span; its fingering is the root-position
+      row of the table `chordInversionScore` already uses (1-3-5 right, 5-3-1 left), so a learner
+      meets one convention, not two; and it is a **dotted half**, which makes nine quarters plus the
+      chord exactly three 4/4 bars -- no trailing rest, no fourth bar holding one chord.
+      *Proof: 3 new cases in `library.test.ts` -- every five-finger drill ends on three simultaneous
+      notes stacked third-on-third with the run's own tonic as root and the right fingers per hand;
+      the chord ends exactly on a barline with `measures.length === 3`; and every gap between
+      distinct onsets is still one quarter, so evenness scoring is untouched (the triad sits one
+      ordinary beat after the run). New `e2e/technique-closing-triad.spec.ts` reads the real OSMD
+      SVG -- three noteheads inside a 6px column, the fourth-from-right deliberately outside it (so
+      "three in a column" cannot be satisfied by an engraving that stacked everything), three
+      distinct heights high-pitch-highest, and fingering digits reading 5/3/1 top-to-bottom above
+      the chord. `npm run verify` green (219 files / 4533 tests, +3). Driven: technique-drill (a
+      whole drill through a real MIDI keyboard), technique-fingering and session-technique, 3/3.
+      Visual pass on Technique at 1280/1024 x dark/light, exit 0, no console errors.
+      **Two test suites were driving runs by array index** -- one note per beat -- which arpeggiated
+      the new chord across three beats and scored a flawless run at 71%. They now group by
+      `startTick` and advance by each group's real gap; that was a latent wrong model of the drill,
+      not a cost of this change.*
 - [ ] T.14 **The Progress "Technique tempo" card flattens drills with different targets onto one
       unlabelled line.** Seeding one clean solid attempt (target 72) and one clean broken attempt
       (target 60) draws 72 → 60 under "Technique clean tempo over time", so two correct runs read
