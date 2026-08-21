@@ -270,7 +270,10 @@ test('a level-1 learner can practise the RCM Preparatory A triad sequence and ge
   // And the Progress card the claim names stops being empty.
   await nav(page, 'Progress').click()
   await expect(page.getByTestId('dashboard-technique-empty')).toHaveCount(0)
-  await expect(page.getByRole('img', { name: 'Technique clean tempo over time' })).toBeVisible()
+  // One series per drill since `feb0b9c` — this drill's own row, not a single
+  // card-wide chart. Addressed by the row's drill-id testid, so the assertion
+  // survives the next rename of the human-facing title.
+  await expect(page.getByTestId(`dashboard-technique-series-${DRILL_ID}`)).toBeVisible()
 
   expect(errors).toEqual([])
 })

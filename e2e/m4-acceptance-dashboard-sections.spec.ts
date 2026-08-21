@@ -221,13 +221,16 @@ test('REQ-3.10.1: the technique, retention and repertoire sections render the st
 
   // (1) Technique tempo trends (REQ-3.10.1, REQ-3.7.3).
   await expect(page.getByTestId('dashboard-technique-empty')).toHaveCount(0, { timeout: 10_000 })
-  const techniqueChart = page.getByRole('img', { name: 'Technique clean tempo over time' })
-  await expect(techniqueChart).toBeVisible()
-  const tempoTitles = await techniqueChart.locator('circle title').allTextContents()
-  expect(tempoTitles).toEqual([
-    `${DRILL_ID}: 52 bpm`,
-    `${DRILL_ID}: 58 bpm`,
-    `${DRILL_ID}: 63 bpm`,
+  // One series per drill since `feb0b9c`: the chart lives inside this drill's
+  // own row and its points are labelled by the drill's title and run number,
+  // not by the raw drill id.
+  const techniqueSeries = page.getByTestId(`dashboard-technique-series-${DRILL_ID}`)
+  await expect(techniqueSeries).toBeVisible()
+  const tempoTitles = await techniqueSeries.locator('circle title').allTextContents()
+  expect(tempoTitles.map((t) => t.replace(/^.* run /, 'run '))).toEqual([
+    'run 1: 52 bpm',
+    'run 2: 58 bpm',
+    'run 3: 63 bpm',
   ])
 
   // (2) Theory retention (REQ-3.10.1). Exact counts, and the non-theory card excluded.
