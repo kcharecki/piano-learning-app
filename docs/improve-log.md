@@ -100,6 +100,7 @@ declares unbuildable.
 | Drum sticking / hand assignment | **PHYSICAL** — a pad hit does not report which hand made it | Alternation inferred from inter-onset intervals is the nearest proxy and is **not** admissible for grading; the honesty rule forbids a verdict on the inference | *(not yet disclosed)* |
 | Chord roll direction and spread | **OURS** — the note-ons carry real times and `MATCHER_DEFAULTS.chordWindowMs = 80` collapses everything inside the window into one onset, so whether a blocked triad was struck as one sound or rolled bottom-to-top is discarded before grading. Not a fact about MIDI | Keep the per-chord spread: the signed low-to-high span in ms is the proxy for blocked-vs-rolled, and it stands in if chords a teacher calls rolled show a larger span than the ones they call blocked | *(not yet disclosed)* |
 | Where the learner's own timing sits, once device latency is taken out | **OURS** — every instant this app grades has already been through a keyboard scan, a browser event queue and an audio output buffer, and none of that is measured, so a signed mean offset is the learner's placement plus an unknown constant. A drummer laying the snare back 25 ms and a rig 25 ms slow produce the same number | A calibration pass — one pad, one bar against the click, take the median offset as the rig's constant and report bias relative to it; it stands in if two rigs with known different output latency produce the same corrected bias for the same learner | *(not yet disclosed)* |
+| Whether a learner read the note or copied the marked key | **PHYSICAL** — no sensor in this rig reports where the learner looked, and the flashcard reveal rings the correct key while the staff still shows the question | Press latency: a note read off the staff carries a reading cost that scales with how unfamiliar the note is, and a key copied off a highlight does not. It stands in if presses made while a key is marked cluster at a shorter latency that is flat across note difficulty, while presses made with nothing marked do not | *(not yet disclosed)* |
 
 **Not on this register**, and never admissible on it: note-off times, sustain-pedal events,
 velocity, release times. They are captured, on disk and unread — `orphan-signals` business, not
@@ -133,9 +134,153 @@ struck out when the learner's own later answer contradicts it, never because it 
 
 | Answered | Run | Verbatim | Struck |
 |---|---|---|---|
-| *(none yet)* | | | |
+| 2026-08-24 | 2026-08-24-1 | focus on having "flashcard" review styled learning. | |
 
 ## Runs
+
+## Run 2026-08-24-1
+
+- **Persona:** Rusty returner — played to about RCM Level 2 as a teenager, back at the keyboard this month, whose week's goal is to read a new elementary piece without stopping to work out the notes (piano)
+- **Tier:** M
+- **Pick source:** 1c
+- **Pick gap:** A wrong flashcard or theory answer is never told what the right answer was. `FlashcardScreen.tsx:127` renders exactly `'Correct'` or `'Not quite — it comes back for review'`; `TheoryDrillPanel.tsx:172` the same. `card.answer` exists for all four kinds and dies at `GradeResult = { correct, grade }` (`flashcards.ts:277`). Ear training, one directory away, already names it (`EarTrainingScreen.tsx:478`).
+- **Previous pick source:** 1d
+- **Class:** BLIND
+- **Claim:** After this ships, a learner who answers a flashcard or theory-drill question wrongly will be able to see what the right answer was, against the question that produced the error, and we will know because the Flashcards screen, on a wrong answer, keeps the missed card on the staff and shows a feedback line naming that card's own correct note (for example "Not quite — that was F3") with the matching key marked on the on-screen keyboard, until the learner presses Next.
+- **Refutation condition:** Four arms in `e2e/improve-flashcard-answer-reveal.spec.ts`, all driven in the running app, all with the expected answer computed in the spec from the seeded card id rather than read out of the app. (1) One card due (`staff-to-key-64`), answered wrongly: the feedback names E4 and the staff still carries the `data-step` it had before the answer. (2) A different card due (`staff-to-key-60`): the feedback names C4 and must not contain E4, so a literal or a reveal naming the played note dies. (3) A correct answer reveals nothing and moves on, so a screen that always shows the answer dies. (4) The class, not the instance: the theory drill, deep-linked to `build-scale` level 1 (one scale type, one key signature, so the item is C major every run), answered one degree at a time — a correct degree draws no verdict at all, a wrong one names all eight notes, and the prompt is held with the keys live under the reveal.
+- **Metric:** PersistedFlashcards.cardsById
+- **Baseline:** 0
+
+  *On the Metric field.* The checker takes a bare declared field, so the counting rule cannot
+  live on that line: read `cardsById` as the stored cards with `lapses >= 1 && reps >= 1` —
+  the recover-after-error the citation's mechanism predicts, not the raw card count, which
+  grows whenever a deck is opened and would read as progress on its own.
+- **Endorsement:** no
+- **Outcome:** shipped-not-clean
+
+### Ledger
+
+| Gap | Source | Class | Blocked | Reach | Teacherliness | Unmatchable | Sum | Cost |
+|---|---|---|---|---|---|---|---|---|
+| A wrong flashcard or theory answer is never told what the right answer was. `FlashcardScreen.tsx:127` renders exactly `'Correct'` or `'Not quite — it comes back for review'`; `TheoryDrillPanel.tsx:172` the same. `card.answer` exists for all four kinds and dies at `GradeResult = { correct, grade }` (`flashcards.ts:277`). Ear training, one directory away, already names it (`EarTrainingScreen.tsx:478`). | 1c | BLIND | 2 | 3 | 3 | 1 | 9 | M |
+| Hit velocity reaches no learner-visible output on either instrument — `velocityClassOf()` classifies accent/normal/ghost and nothing calls it (carried from run 2026-08-21-1, rescored for this persona) | 1e | BLIND | 0 | 1 | 2 | 2 | 5 +3 | M |
+| The level-1 decks are 9 / 9 / 3 / 20 cards, so three of the four are exhausted in under a minute against a 6-minute Today's-session flashcard segment | 1c | THIN | 1 | 3 | 2 | 1 | 7 | M |
+| An exhausted deck renders "No cards at this level yet — try a lower level or a different drill." at level 1, with 9 cards in the store — one string for two different states (`FlashcardScreen.tsx:213`) | 1c | BLIND | 1 | 3 | 2 | 0 | 6 | S |
+| RCM L1 lets a candidate sing or hum the interval instead of identifying it; nothing on the piano side accepts sung input, while `core/audio/pitchDetection.ts` sits unused by any drill | 1d | VOID | 1 | 1 | 2 | 2 | 6 | L |
+| `EarSessionState.cards` is carried into `earTrainingMilestone()` and never read | 1e | BLIND | 0 | 1 | 1 | 1 | 3 +3 | S |
+| `PersistedAnnotations.byScoreId` is persisted and matched by no `.tsx` under `src/app/**` — score annotations survive a reload and reach no screen | 1e | BLIND | 1 | 1 | 1 | 0 | 3 +3 | M |
+
+Leader G1 at 9, runner-up G7 at 8. Full table with the raw/age split and the four notes it
+cannot carry — the G7 rescore that moves G1 into the lead, why HARMFUL was available for G1
+and refused, the rotation check, and a HIGH-confidence orphan-signals row this run did not
+believe (`Card.ease`, which `scheduler.ts:181` does read) — is `runs/2026-08-24-1/ledger.md`.
+G2 and G3 are now `T.21` and `T.22` in `ROADMAP.md`.
+
+### Interview
+
+no answer this run
+
+The four questions were posted at §1a and no answer arrived before §2. What the learner did
+say, verbatim, in the turn that invoked the command:
+
+> focus on having "flashcard" review styled learning.
+
+That is a steer on the pick, not an answer to any of the four questions. It narrowed the
+search and was not allowed to substitute for evidence: every ledger row carries its own
+source. It is the first row of the Learner-said table above.
+
+### Orphan signals
+
+```
+A  EarSessionState.cards                        src/core/eartraining/session.ts:107  HIGH  age 3
+B  Tuplet.actual                                src/core/notation/tuplet.ts:21       HIGH  age 3
+D  ScoreNoteInput.velocity ?? DEFAULT_VELOCITY  src/core/notation/score.ts:163       HIGH  age 3
+A  EarItem.contextKey                           src/core/eartraining/item.ts:86      HIGH  age 3
+B  PersistedAnnotations.byScoreId               src/app/state/persistedShapes.ts:56  HIGH  age 3
+A  EarItem.contextTonicMidi                     src/core/eartraining/item.ts:56      HIGH  age 3
+B  EarTrainingSnapshot.itemsById                src/core/progress/export.ts:172      HIGH  age 3
+A  AssessmentResult.counts                      src/core/practice/assessment.ts:70   HIGH  age 3
+B  PersistedInstrument.lastInstrument           src/app/state/persistedShapes.ts:90  HIGH  age 3
+A  Card.ease                                    src/core/srs/scheduler.ts:65         HIGH  age 3   (false positive — see ledger.md)
+A  MatchResult.expected -> ScoreNote.durationTicks  src/core/notation/score.ts:60    LOW   age 3
+B  MidiSustain.down                             src/core/ports/midi.ts:24            LOW   age 3
+[C] no findings
+```
+
+Every row is age 3: the scan has reported the same set since run 2026-08-20-1 and no run has
+closed one. Two of them are ledger rows this run scored (G5, G6) and did not pick.
+
+### Panel
+
+Tier M: Skeptic (Opus, high effort), Regression hunter (Sonnet), Teacher (Opus). Two rounds —
+M's re-panel cap. Verbatim reports in `runs/2026-08-24-1/panel-r{1,2}-<seat>.md`.
+
+**Round 1 — 7 BLOCKER, 1 MAJOR, 4 MINOR.** Every BLOCKER and the MAJOR fixed in `9e09ef1`.
+
+| # | Seat(s) | Finding | Disposition |
+|---|---|---|---|
+| 1 | all three | `TheoryDrillPanel` rendered `gradeTheoryStep`'s not-yet-settled result, so one **correct** press of a multi-group item printed "Not quite — <the whole answer>" | fixed — `handleNote` returns on `!result.done` |
+| 2 | Skeptic, Teacher ×2 | `describeTheoryAnswer` re-spelled the answer from MIDI with `fromMidi`'s sharp table: F major named with A♯, a minor third above C as D♯ | fixed — `TheoryQuizItem.spelledAnswer`, with `answer` projected from it |
+| 3 | Skeptic (duty 0a) | the claim spec's class arm passed against sabotaged code — one press of C3 matched the C major tonic by pitch class and was satisfied by finding 1's leak | fixed — arm rewritten against `/theory/build-scale/1`, one degree at a time |
+| 4 | Teacher | neither reveal let the learner **play** the correction: `<fieldset disabled>` on Flashcards, `disabled={revealed}` on Theory, so the drill trained reading a marked rectangle and pressing Next | fixed — keys stay live, ungraded; three-state practice line and a counted echo |
+| 5 | Skeptic | "Correct — graded good" kept the SRS jargon the wrong-answer copy had dropped | fixed — reads "Correct" |
+| 6 | Regression hunter | the claim spec never exercised `gradeTheoryStep`'s `!done` branch | fixed by 3 |
+| 7 | Teacher | the reveal names the whole answer, never **which** note was wrong, though `matchedGroups` is computed | deferred → `T.19` |
+| 8 | Teacher | the flashcard reveal's black-key vocabulary is sharps only, in every key | deferred → `T.20` |
+
+**Round 2 — 0 BLOCKER, 4 MAJOR, 7 MINOR.** The BLOCKER count fell 7 → 0. Round 2 is the cap,
+and one MAJOR is unresolved, so this is **not clean**.
+
+| # | Seat(s) | Finding | Disposition |
+|---|---|---|---|
+| 9 | Skeptic, Teacher | the echo shipped in `9e09ef1` matched by **exact MIDI at an exact index** while the grader matches by pitch class, order-free per group — a complete C major scale played an octave up counted "0 of 8" while the same keys graded "Correct"; an F major chord entered top-note-first stalled at "2 of 3" | fixed in `213044e` — `src/core/drills/theoryEcho.ts` matches the way `groupsMatch` does |
+| 10 | Teacher | `name-key-signature` asks for a **count** of accidentals and revealed only a note: "How many flats has Bb major?" → "it was B♭4", with the number nowhere on screen | fixed in `213044e` — `answerSummary`, "2 flats, tonic B♭4" |
+| 11 | Skeptic, Hunter, Teacher | a press the echo refuses is completely silent, while the flashcard sibling shipped in the same commit answers the same event | fixed in `213044e` — "Not that one — still 1 of 8" |
+| 12 | Skeptic | the echo's only e2e cover was one press of its first target: replacing the body with an unconditional counter left the arm green | fixed in `213044e` — the arm now presses a note the echo must refuse and asserts the count holds, then presses the answer an octave away and asserts it moves |
+| 13 | Teacher | **every** perfect authentic cadence the drill draws is voiced with its leading tone falling a fifth to the third of the tonic chord | **unresolved** → `T.23`. Pre-existing: `git show 85df305` has identical voicing semantics, and the fix belongs in `finalChordPitches`, not in the reveal that prints it |
+| 14 | Skeptic | 73 of 770 items name a note above `KEYBOARD_HIGH` | half-answered — pitch-class matching makes them playable back and gradeable; the printed name is still off-keyboard → `T.25` |
+| 15 | Teacher | the prompt says "Play Bb major" and the verdict beneath it says "B♭4" | deferred → `T.24` — `scaleName`/`keyName` are ASCII app-wide, so it is a cross-screen slice |
+| 16 | Teacher | the flashcard reveal rings the correct key **before** the learner has produced it, so the practice press is copied off the ring rather than read off the staff | **not changed, by design.** The ring is the answer to the run's own claim — the correction has to be visible against the question that produced it, and a reveal that withholds it until a second wrong press is a different feature. What the seat is really naming is that this app cannot tell reading from copying at all; it is filed as this run's cannot-sense row instead |
+
+### Proof
+
+- **RED at the spec commit.** `31a3a99` checked out detached in an isolated worktree with
+  `node_modules` linked, HEAD's spec copied in over it, `E2E_PORT=5401`: **3 failed, 1 passed,
+  exit 1**. Log: `runs/2026-08-24-1/red-at-spec-commit.txt`. The one that passes is arm 3, which
+  asserts an absence ("a correct answer reveals nothing") and is true of the unbuilt app too —
+  that is what arms 1, 2 and 4 are for. Every port in this run is explicit and unique, per T.18.
+- **GREEN on HEAD.** `E2E_PORT=5402`, **4 passed, exit 0**. Log:
+  `runs/2026-08-24-1/green-at-head.txt`.
+- **Refutation condition:** run, not refuted. The Skeptic seat adjudicated it SOUND at both
+  rounds and returned `NOT REFUTED` at round 2 — with the note that the play-back counter added
+  to answer round 1's MAJOR was stricter than the grader it reported on, which is finding 9 and
+  is fixed.
+- **Experience gate.** `npm run verify` green at every commit (4848 tests). `npm run test:e2e`
+  at HEAD: **177 passed, 1 failed** — `osmd-teardown.spec.ts`, which passes alone in 49.2s
+  against a 60s timeout and only fails under full-suite parallel load; filed as `T.26`.
+  Two real regressions the e2e suite caught and `verify` did not, both this run's own copy
+  changes, fixed in `b7f9282`: `theory-quiz-routing` and `acceptance-m3` were still pinned to
+  the strings finding 5 and the reveal replaced. That is `T.18` charging rent for the second
+  run running. Visual pass clean at 1280/1024 × dark/light on Flashcards (default) and Theory
+  (driven into the reveal with a refused echo press), console clean in all four configurations
+  each time; receipt `visual-pass/receipt.json`. **States**: empty (a level with no due card)
+  and no-MIDI (every drive here is the on-screen keyboard) both exercised; loading and error
+  are N/A — both screens are synchronous over an in-memory store. **Perf**: N/A, nothing on
+  the score-rendering or playback path is touched. `verify:full` is red on `knip:prod:all`,
+  pre-existing since `d6e1af9` and confirmed at that commit; filed as `T.27`.
+
+### Previous run's metric verdict
+
+**none.** Run 2026-08-21-1 declared `attempts` and its own entry records the metric as **void**:
+the type it named existed only between `de2de98` and the revert `a9e87a8`, and the bare name
+resolves through `PersistedTechniqueHistory.attempts`, a different feature. There is nothing to
+read, so this run recorded `verdict --none`. It changes nothing about this pick — that run was
+drums and an abort, this one is piano and source 1c — but it does mean two consecutive runs have
+produced no metric reading, and the next drums run inherits `T.7`, not a number.
+
+### Cannot-sense register
+
+**Whether a learner read the note or copied the marked key** (screen: Flashcards) — PHYSICAL, no sensor in this rig reports where the learner looked, and this run's own reveal rings the correct key while the staff still shows the question, which is what the Teacher seat named at finding 16. Countability challenge: press latency — a note read off the staff carries a reading cost that scales with how unfamiliar the note is, and a key copied off a highlight does not; it stands in if presses made while a key is marked cluster at a shorter latency that is flat across note difficulty, while presses made with nothing marked do not. Until then the flashcard reveal cannot tell the two apart, and `T.20`'s deck-key work is the first place it would show.
 
 ## Run 2026-08-21-1
 

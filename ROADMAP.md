@@ -436,6 +436,10 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
       *Proof: a spec made to fail turns the gate red in a fresh checkout with no dev server running
       and with a stale server on 5173, and the two DR-09 specs are recorded as expected-red by the
       gate itself rather than by a comment.*
+      **Cost again, run 2026-08-24-1**: that run changed two feedback strings, `npm run verify`
+      stayed green over both commits, and `npm run test:e2e` then failed on
+      `theory-quiz-routing.spec.ts` and `acceptance-m3.spec.ts`, which were still pinned to the old
+      wording. Fixed in `b7f9282`, two commits after the copy landed.
 
 - [ ] T.19 **The theory reveal names the whole answer and never says which note was wrong.**
       Panel MINOR, /improve-app run 2026-08-24-1 (Teacher seat, round 1), deferred with reason:
@@ -508,6 +512,27 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
       range the item needs.
       *Proof: every item any kind and level can generate names only notes the panel draws - a
       property over the generator against the keyboard's own bounds.*
+
+- [ ] T.26 **`osmd-teardown.spec.ts` fails under full-suite load and passes alone.**
+      Found during /improve-app run 2026-08-24-1's experience gate. The spec throttles the CPU to
+      engrave a large score, then waits `SETTLE_MS`; alone on its own port it passes in **49.2s**
+      against a **60s** test timeout, and in the full `npm run test:e2e` run (6 workers) it times
+      out at line 121 — twice in a row, then passed once the other two real failures were fixed and
+      the suite re-ran. An 11-second margin under a variable load is not a margin. It is the only
+      spec in the suite whose pass depends on how many other specs are running.
+      *Proof: the spec's own timing is measured rather than waited out - it asserts the teardown
+      threw nothing without a wall-clock settle that competes with the rest of the suite.*
+
+- [ ] T.27 **`npm run verify:full` is red on `knip:prod:all`, and has been since `d6e1af9`.**
+      Found during /improve-app run 2026-08-24-1's experience gate. `knip --production` reports
+      1 unused file (`src/app/state/persistenceHarness.ts`) and 4 unused exports (`lastAttempt`,
+      `grooveById`, `writtenTicks`, `snapshotGrade`), exit 1 - so `verify:full` never reaches its
+      `test:e2e` step, which is the step T.18 is about. Confirmed pre-existing, not caused by that
+      run: the same command at `d6e1af9` in an isolated worktree with `node_modules` linked reports
+      the same set plus `allMappedPads`, exit 1. Each finding is either dead code to delete or a
+      seam knip cannot see; both answers are cheap, and leaving it red costs the whole gate.
+      *Proof: `npm run verify:full` exits 0 in the main checkout, and each of the five findings is
+      resolved by a deletion or by a recorded reason, not by widening the ignore list.*
 
 ## Phases 0-2 — Foundation, M1 playable core, M2 feedback & reading — all done
 

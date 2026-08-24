@@ -72,3 +72,8 @@
 {"ts":"2026-08-24T22:24:31.512Z","run":"2026-08-24-1","event":"panel","round":2,"role":"skeptic","templateSha":"634b4f660794aab2b50d64fcd8155b01a10da3bd52a5bd4e2852d8dcc98bb673","renderedSha":"007e49e962b69273c846504b0c7ea1f4641379b0d45da5e1a265b6b2ea0ff310","blockers":0,"majors":1,"minors":3}
 {"ts":"2026-08-24T22:24:31.596Z","run":"2026-08-24-1","event":"panel","round":2,"role":"regression-hunter","templateSha":"ac31f8bc944f8ff176e8e945d089166d6e3b5d5a0e4569448084ebd1a1b2e25c","renderedSha":"61a8f58eb5099a8a561c711c74f8e76cc958920251c07fc14aeffa0b0055d721","blockers":0,"majors":0,"minors":1}
 {"ts":"2026-08-24T22:24:31.667Z","run":"2026-08-24-1","event":"panel","round":2,"role":"teacher","templateSha":"dd202b28a0860662f99e2299b8f150928e805e33836ced5abb80c6967334802c","renderedSha":"5729108076a43a569bcdb511ac184b3edcfa6e9f556e02291be8357b3d65d87a","blockers":0,"majors":3,"minors":3}
+{"ts":"2026-08-24T22:39:24.561Z","run":"2026-08-24-1","event":"mark","section":"6","elapsedPct":82.91}
+{"ts":"2026-08-24T22:56:50.342Z","run":"2026-08-24-1","event":"mark","section":"7","elapsedPct":90.18}
+{"ts":"2026-08-24T22:56:50.407Z","run":"2026-08-24-1","event":"verdict","value":null}
+{"ts":"2026-08-24T22:56:50.469Z","run":"2026-08-24-1","event":"mark","section":"8","elapsedPct":90.18}
+{"ts":"2026-08-24T22:56:57.483Z","run":"2026-08-24-1","event":"finish","outcome":"shipped-not-clean"}

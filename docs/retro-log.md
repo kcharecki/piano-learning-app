@@ -16,6 +16,67 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
+## 2026-08-24 (/improve-app run 2026-08-24-1) — a wrong answer is finally told what the right one was, and the fix for that needed its own fix
+
+- **user-reported defects since last session:** 0. The one thing the learner said was a steer on
+  the pick, not a defect: "focus on having \"flashcard\" review styled learning." It is now the
+  first row of the Learner-said table in `docs/improve-log.md`.
+- **slices proven / started:** 1 / 1, outcome **shipped-not-clean**. Gap G1 (source 1c, class
+  BLIND): every wrong flashcard or theory answer was told only "Not quite — it comes back for
+  review" and the card was replaced before the learner was told what the answer was. Now both
+  screens name the missed card's own answer against the question that produced it, hold it until
+  Next, and let the keys be played under the reveal. RED at the spec commit `31a3a99` (3 failed,
+  1 passed, exit 1, port 5401), GREEN at HEAD (4 passed, exit 0, port 5402). Not clean because
+  the round-2 Teacher MAJOR on cadence voicing is unresolved and filed as `T.23` — it is
+  pre-existing (`git show 85df305` has identical semantics) and lives in `finalChordPitches`,
+  not in the reveal that prints it.
+- **gate catches before commit:** 5.
+  1. **Visual.** The practise/echo line I added rendered as a `[role="status"]`, which
+     `primitives.css` styles as a one-line boxed row — so it read as a second disabled button on
+     Flashcards and a second verdict on Theory. Four green suites had nothing to say about it.
+     Fixed with `.drill-practise-line` before the commit, both passes re-run.
+  2. **eslint `max-lines`.** The echo pushed `src/core/drills/theory.ts` to 512 against a ceiling
+     of 500. Split by concept, not by size: `theoryEcho.ts` with its own co-located tests, because
+     nothing in the echo grades an attempt.
+  3. **The full e2e suite**, run as part of the experience gate, caught two specs still pinned to
+     the copy this run replaced (`theory-quiz-routing` waiting for "Correct — graded good",
+     `acceptance-m3` for "Not quite — it comes back for review"). Both had been red since
+     `9e09ef1`; `npm run verify` was green over them because it has no e2e step (`T.18`).
+  4. **`verify:full` is red on `knip:prod:all`** — 1 unused file, 4 unused exports — and has been
+     since `d6e1af9`. Confirmed at that commit in an isolated worktree with `node_modules`
+     linked, so it is not this run's. Filed as `T.27`.
+  5. **`osmd-teardown.spec.ts` fails under full-suite load and passes alone** — 49.2s against a
+     60s timeout, an 11-second margin against a variable load. Filed as `T.26`.
+- **docs budget (ROADMAP+CLAUDE+PROCESS lines):** ROADMAP 1357 of 1500, CLAUDE 2 of 160, PROCESS
+  151 of 160 — sum 1510, `npm run docs:budget` green. Nine new roadmap rows this run (`T.19`
+  through `T.27`), all with proof lines.
+- **cost note:** the biggest line item was building the same feature twice. Round 1's Teacher
+  MAJOR said neither reveal let the learner *play* the correction; the fix added a counted
+  play-back echo, and round 2's Skeptic and Teacher both found that the echo matched by exact
+  MIDI at an exact index while the drill's own grader matches by pitch class, order-free per
+  group — so a complete C major scale played an octave up read "0 of 8" while the identical keys,
+  played as the answer, graded "Correct". The panel earned its cost, and the fix earned its
+  panel.
+- **hypothesis:** the weakest part of the process is that **`verify:full`'s step order lets a
+  cheap check hide the expensive one.** `T.18` has said for two runs that `verify` has no e2e
+  step and that the session-level answer is `verify:full`. That answer did not work here, and the
+  reason is mechanical rather than cultural: `verify:full` was `verify && knip && knip:prod:all &&
+  test:e2e`, npm chains on `&&`, and `knip:prod:all` had been exiting 1 since `d6e1af9` — so the
+  e2e step had not run at the end of a session for two sessions, and nobody could tell, because
+  the command reports one exit code for eight steps. The rule was right, followed, and inert.
+- **change:** reorder `verify:full` to `verify && test:e2e && knip && knip:prod:all`. One line in
+  `package.json`, no new machinery, and it makes the failure mode impossible in the direction
+  that matters: a dead export can no longer hide a red spec, while a red spec quite properly
+  stops the run before the tidiness checks. It does not fix `T.18` — the commit gate still has no
+  e2e — and it is not meant to; it makes the session-level gate that `T.18` points at actually
+  execute. **Review by 2026-09-24 (or 4 runs):** keep if `verify:full` reaches `test:e2e` on
+  every run; revisit if the real answer turns out to be running the e2e suite per commit, which
+  costs 1.4 minutes and is a different trade.
+- **experiment verdicts due:** the visual-pass receipt gate (set 2026-08-21, review by
+  2026-10-05) — **keep, and it has now fired for real**: the receipt was stale after the round-2
+  component and CSS changes and `.githooks/pre-commit` refused the commit until both passes were
+  re-run. `VISUAL_PASS_SKIP` was never used. Nothing else is due.
+
 ## 2026-08-21 (fourth session) — T.17: the groove trainer rebuilt from the two frozen specs, and the visual pass made into a gate
 
 - **user-reported defects since last session:** 0

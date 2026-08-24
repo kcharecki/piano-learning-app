@@ -32,7 +32,7 @@
     "check:visual": "node scripts/check-visual-pass.mjs",
     "check:improve-audit": "node scripts/improve-run.mjs audit",
     "verify": "npm run check:conflicts && npm run check:css && npm run docs:budget && npm run check:improve-log && npm run check:improve-audit && npm run typecheck && npm run lint && npm run test:all",
-    "verify:full": "npm run verify && npm run knip && npm run knip:prod:all && npm run test:e2e",
+    "verify:full": "npm run verify && npm run test:e2e && npm run knip && npm run knip:prod:all",
     "checkpoint": "node scripts/checkpoint.mjs",
     "check:css": "node scripts/check-css.mjs",
     "audit:a11y": "node scripts/a11y-contrast-audit.mjs"
