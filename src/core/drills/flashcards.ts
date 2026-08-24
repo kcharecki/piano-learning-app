@@ -52,6 +52,11 @@
  * which is exactly the "still shaky" case `'hard'` schedules a shorter
  * review for.
  *
+ * A `GradeResult` also carries `expected` — the card's own answer written for
+ * a learner (`describeAnswer`). Grading has always known it; dropping it left
+ * every caller able to say only "not quite", which is right/wrong feedback
+ * with the correct answer withheld.
+ *
  * ## Card selection
  *
  * `nextCard` is the bridge to `core/srs`: `cards` is the caller's SRS state
@@ -67,12 +72,15 @@ import { pick, type Rng } from '@core/ports/rng.ts'
 import { dueCards, type Card, type Grade } from '@core/srs/scheduler.ts'
 import {
   fromMidi,
+  letterAlterDisplayName,
+  pitchDisplayName,
   tryToMidi,
   type Alter,
   type Letter,
   type SpelledPitch,
 } from '@core/theory/pitch.ts'
 import {
+  intervalOrdinalName,
   SIMPLE_INTERVALS,
   tryTransposeSpelled,
   type IntervalQuality,
@@ -274,7 +282,49 @@ function buildKeySignatureDeck(level: number): readonly Flashcard[] {
 // gradeAnswer
 // ---------------------------------------------------------------------------
 
-export type GradeResult = { readonly correct: boolean; readonly grade: Grade }
+export type GradeResult = {
+  readonly correct: boolean
+  readonly grade: Grade
+  /**
+   * The card's own answer, written for a learner to read — see
+   * {@link describeAnswer}. Carried on every result, right or wrong, because
+   * the caller that needs it (the drill screen's reveal) has the result and
+   * not always the card; it is the caller's business whether a correct answer
+   * is worth showing back.
+   */
+  readonly expected: string
+}
+
+/**
+ * A card's correct answer as a learner would say it: `'E4'`, `'F♯'`,
+ * `'a perfect fifth'`, `'G major / E minor'`.
+ *
+ * This is deliberately in core rather than in the screen. Grading already
+ * knows the answer — `isCorrect` compares against it — and until now threw
+ * that away, leaving the UI able to say only "not quite"; a UI that
+ * re-derived the text would be a second reading of `card.answer`, free to
+ * disagree with the one grading used. Formatting, not music logic: it defers
+ * to `theory/pitch` and `theory/intervals` for every name it prints, exactly
+ * as `buildDeck` defers to them for every answer it builds.
+ */
+export function describeAnswer(card: Flashcard): string {
+  switch (card.kind) {
+    case 'note-name':
+      return letterAlterDisplayName(card.answer.letter, card.answer.alter)
+    case 'staff-to-key':
+      return pitchDisplayName(fromMidi(card.answer.midi))
+    case 'interval-on-staff':
+      // The very words on the answer pad's buttons — see `intervalOrdinalName`.
+      return intervalOrdinalName(card.answer)
+    case 'key-signature':
+      return (
+        `${letterAlterDisplayName(card.answer.majorTonic.letter, card.answer.majorTonic.alter)} major` +
+        ` / ${letterAlterDisplayName(card.answer.minorTonic.letter, card.answer.minorTonic.alter)} minor`
+      )
+    default:
+      return assertNever(card)
+  }
+}
 
 type AnyAnswer = NoteNameAnswer | StaffToKeyAnswer | IntervalAnswer | KeySignatureAnswer
 
@@ -300,7 +350,11 @@ export function gradeAnswer(
 ): GradeResult
 export function gradeAnswer(card: Flashcard, answer: AnyAnswer, elapsedMs: number): GradeResult {
   const correct = isCorrect(card, answer)
-  return { correct, grade: gradeFromTiming(correct, elapsedMs) }
+  return {
+    correct,
+    grade: gradeFromTiming(correct, elapsedMs),
+    expected: describeAnswer(card),
+  }
 }
 
 function sameLetterAlter(a: LetterAlter, b: LetterAlter): boolean {

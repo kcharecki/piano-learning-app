@@ -28,6 +28,19 @@
  * switching `kind` only changes which deck's cards `nextCard` considers — it
  * never touches, resets, or filters the stored SRS state itself.
  *
+ * ## The reveal (improve-app run 2026-08-24-1)
+ *
+ * A wrong answer does NOT advance the card. `commitAnswer` still schedules the
+ * SRS review immediately — the grade is never held hostage to the learner
+ * pressing anything — but `current` stays put and `revealed` goes true, so the
+ * screen can name the answer against the card that produced the error rather
+ * than against its replacement. The four `answerX` functions are inert while
+ * `revealed`, which covers the on-screen keyboard, the QWERTY fallback and a
+ * real MIDI press in one place. `next()` is the only way out: it clears the
+ * reveal and draws the next card from the SRS state as it stands then, which
+ * is fresher than the copy `commitAnswer` could have computed. A correct
+ * answer is unchanged — it advances immediately and never reveals.
+ *
  * ## Two different clocks (roadmap M2 defect fix — REQ-3.9.4)
  *
  * `scheduler.ts`'s `due`/`introducedAt` are epoch milliseconds — a `Card` is
@@ -111,6 +124,11 @@ export type UseFlashcardDrill = {
   readonly range: { readonly low: Midi; readonly high: Midi }
   readonly stats: RetentionStats
   readonly lastGrade: GradeResult | undefined
+  /** True while a missed card is held on screen with its answer shown. The
+   *  four `answerX` functions are no-ops until `next()` clears it. */
+  readonly revealed: boolean
+  /** Leaves the reveal and draws the next card. A no-op when not revealed. */
+  readonly next: () => void
   readonly midi: MidiConnection
   /** Answers a `'staff-to-key'` card — from the on-screen keyboard or a real MIDI press.
    *  A no-op while the current card is any other kind. */
@@ -195,6 +213,7 @@ export function useFlashcardDrill(options: UseFlashcardDrillOptions): UseFlashca
 
   const [current, setCurrent] = useState<DrillCard | undefined>(undefined)
   const [lastGrade, setLastGrade] = useState<GradeResult | undefined>(undefined)
+  const [revealed, setRevealed] = useState(false)
   const promptShownAtRef = useRef(0)
 
   // A fresh deck (the level or kind changed) always starts from whatever is
@@ -206,6 +225,7 @@ export function useFlashcardDrill(options: UseFlashcardDrillOptions): UseFlashca
     setCurrent(nextDrillCard(deck, cards, date.epochMillis(), rng))
     promptShownAtRef.current = clockNow
     setLastGrade(undefined)
+    setRevealed(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a deck change (level/kind) should reset the current card
   }, [deck])
 
@@ -246,14 +266,37 @@ export function useFlashcardDrill(options: UseFlashcardDrillOptions): UseFlashca
     upsertCard(updated)
     setLastGrade(result)
 
+    // A miss holds the card so the correction lands on the stimulus that
+    // caused it; the review above has already been scheduled either way.
+    if (!result.correct) {
+      setRevealed(true)
+      return
+    }
+
     const updatedCards = cards.some((c) => c.id === updated.id)
       ? cards.map((c) => (c.id === updated.id ? updated : c))
       : [...cards, updated]
     setCurrent(nextDrillCard(deck, updatedCards, dateNow, rng))
   }
 
+  /**
+   * Leaves the reveal. Draws from `cards` as the store has it now rather than
+   * from a list threaded through the reveal: the missed card's own review was
+   * committed at answer time and has been in the store ever since, so this
+   * needs no memory of it.
+   */
+  function next(): void {
+    if (!revealed) return
+    const clockNow = clock.now()
+    setRevealed(false)
+    setLastGrade(undefined)
+    setCurrent(nextDrillCard(deck, cards, date.epochMillis(), rng))
+    promptShownAtRef.current = clockNow
+  }
+
   function answerNote(note: Midi): void {
     const card = current
+    if (revealed) return
     if (card === undefined || card.kind !== 'staff-to-key') return
     const clockNow = clock.now()
     const dateNow = date.epochMillis()
@@ -265,6 +308,7 @@ export function useFlashcardDrill(options: UseFlashcardDrillOptions): UseFlashca
 
   function answerInterval(answer: IntervalAnswer): void {
     const card = current
+    if (revealed) return
     if (card === undefined || card.kind !== 'interval-on-staff') return
     const clockNow = clock.now()
     const dateNow = date.epochMillis()
@@ -276,6 +320,7 @@ export function useFlashcardDrill(options: UseFlashcardDrillOptions): UseFlashca
 
   function answerNoteName(answer: NoteNameAnswer): void {
     const card = current
+    if (revealed) return
     if (card === undefined || card.kind !== 'note-name') return
     const clockNow = clock.now()
     const dateNow = date.epochMillis()
@@ -287,6 +332,7 @@ export function useFlashcardDrill(options: UseFlashcardDrillOptions): UseFlashca
 
   function answerKeySignature(answer: KeySignatureAnswer): void {
     const card = current
+    if (revealed) return
     if (card === undefined || card.kind !== 'key-signature') return
     const clockNow = clock.now()
     const dateNow = date.epochMillis()
@@ -326,6 +372,8 @@ export function useFlashcardDrill(options: UseFlashcardDrillOptions): UseFlashca
     range,
     stats,
     lastGrade,
+    revealed,
+    next,
     midi,
     answerNote,
     answerInterval,

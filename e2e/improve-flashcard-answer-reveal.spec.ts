@@ -81,14 +81,18 @@ type SeedCard = {
   readonly introducedAt: number
 }
 
-/** Every level-1 card seeded, all parked in the future except `dueMidi`. */
-function deckWithOnlyOneDue(dueMidi: number, now: number): Record<string, SeedCard> {
+/** Every level-1 card seeded, all parked in the future except `dueMidis`. */
+function deckWithDue(dueMidis: readonly number[], now: number): Record<string, SeedCard> {
   const cardsById: Record<string, SeedCard> = {}
   for (const midi of LEVEL_1_MIDI) {
-    const isDue = midi === dueMidi
+    const position = dueMidis.indexOf(midi)
+    const isDue = position >= 0
     cardsById[`staff-to-key-${midi}`] = {
       id: `staff-to-key-${midi}`,
-      due: isDue ? now - 60_000 : now + 30 * DAY_MS,
+      // Earlier in `dueMidis` means more overdue, so the order the cards come
+      // up in is the order asked for rather than whatever the queue's tie-break
+      // happens to be.
+      due: isDue ? now - 60_000 * (dueMidis.length - position) : now + 30 * DAY_MS,
       intervalDays: isDue ? 1 : 30,
       ease: 2.5,
       reps: 1,
@@ -117,12 +121,12 @@ async function seedSrs(page: Page, cardsById: Record<string, SeedCard>): Promise
   )
 }
 
-/** Open Flashcards on a profile whose only due level-1 card is `dueMidi`. */
-async function openFlashcardsWithOneDue(page: Page, dueMidi: number): Promise<void> {
+/** Open Flashcards on a profile whose only due level-1 cards are `dueMidis`. */
+async function openFlashcardsWithDue(page: Page, dueMidis: readonly number[]): Promise<void> {
   await page.goto('/')
   // First visit creates the database; the seed then goes in and a reload
   // restores it, because `persistence.ts` hydrates on mount.
-  await seedSrs(page, deckWithOnlyOneDue(dueMidi, Date.now()))
+  await seedSrs(page, deckWithDue(dueMidis, Date.now()))
   await page.reload()
   await nav(page, 'Flashcards').click()
   await expect(page.getByRole('heading', { name: 'Flashcards' })).toBeVisible()
@@ -138,7 +142,7 @@ test('arm 1 — a wrong answer names that card own correct note, with the card s
   page,
 }) => {
   const errors = collectErrors(page)
-  await openFlashcardsWithOneDue(page, 64)
+  await openFlashcardsWithDue(page, [64])
 
   const staff = page.getByTestId('staff-note')
   const stepBefore = await staff.getAttribute('data-step')
@@ -169,7 +173,7 @@ test('arm 2 — a different due card names a different note, so the reveal is no
   page,
 }) => {
   const errors = collectErrors(page)
-  await openFlashcardsWithOneDue(page, 60)
+  await openFlashcardsWithDue(page, [60])
 
   const keyboard = page.getByRole('group', { name: 'On-screen keyboard' })
   await keyboard.getByRole('button', { name: wrongKeyName(60), exact: true }).click()
@@ -189,7 +193,10 @@ test('arm 2 — a different due card names a different note, so the reveal is no
 
 test('arm 3 — a correct answer reveals nothing and moves on', async ({ page }) => {
   const errors = collectErrors(page)
-  await openFlashcardsWithOneDue(page, 64)
+  // Two cards due, not one: answering correctly must leave the drill with a
+  // card still on screen, or "no reveal" would be indistinguishable from the
+  // empty-deck state, which shows no pill, no Next and no highlight either.
+  await openFlashcardsWithDue(page, [64, 60])
 
   const keyboard = page.getByRole('group', { name: 'On-screen keyboard' })
   await keyboard.getByRole('button', { name: 'E4', exact: true }).click()

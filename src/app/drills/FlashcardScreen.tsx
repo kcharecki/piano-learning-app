@@ -24,6 +24,7 @@
  * centered-card/left-hanging-keyboard mismatch.
  */
 import { Icon } from '@app/ui/Icon.tsx'
+import { RevealNext } from './RevealNext.tsx'
 import { QwertyHint } from '@app/keyboardInput/QwertyHint.tsx'
 import { defaultBaseNote } from '@app/keyboardInput/qwertyNoteMap.ts'
 import { useQwertyNoteInput } from '@app/keyboardInput/useQwertyNoteInput.ts'
@@ -82,7 +83,13 @@ function clampLevel(level: number): number {
 
 /**
  * The graded-answer pill (rule 5: feedback within 100ms; rule 8: color is
- * never the only signal). Always rendered — even before the first answer —
+ * never the only signal). A wrong answer NAMES the answer it wanted
+ * (`GradeResult.expected`, `core/drills/flashcards.ts`) rather than saying
+ * only "not quite" — right/wrong feedback with the correct answer withheld is
+ * the half of the testing effect that does not teach (improve-app run
+ * 2026-08-24-1). It stays below the answer input, not above it, so the marked
+ * key is read BEFORE the sentence naming it rather than after.
+ * Always rendered — even before the first answer —
  * so the stage never gains or loses this element's reserved line height; only
  * its content and the `is-ok`/`is-error` primitive class toggle, faded via
  * `--dur-1` (`feature-flashcards.css`). See `FlashcardScreen.test.tsx`'s
@@ -124,13 +131,27 @@ function AnswerFeedback({ grade }: { readonly grade: GradeResult | undefined }) 
       {grade !== undefined && (
         <>
           <Icon name={grade.correct ? 'check' : 'x'} />
-          {grade.correct ? 'Correct' : 'Not quite — it comes back for review'}
+          {grade.correct ? 'Correct' : `Not quite — that was ${grade.expected}`}
         </>
       )}
     </p>
   )
 }
 
+/**
+ * The reveal's exit control (improve-app run 2026-08-24-1). Mounted only while
+ * a missed card is being held on screen, and physically LAST — after the
+ * marked key and the sentence naming it — the same ordering
+ * `EarTrainingScreen.tsx` settled on under roadmap UI-28: what am I looking at
+ * → what it teaches → how I leave it.
+ *
+ * The wrapper, not the button, takes focus. Disabling the answer input while
+ * the reveal is up drops the learner's focus out of the DOM (the key they just
+ * pressed is now `disabled`), which would otherwise leave a keyboard user
+ * tabbing from the top of the document to reach "Next". Focusing the group
+ * rather than the button itself keeps the verdict — a `role="status"` live
+ * region that announces itself — from being tabbed straight past.
+ */
 export function FlashcardScreen(props: FlashcardScreenProps) {
   const [level, setLevel] = useState(clampLevel(props.initialLevel ?? MIN_DRILL_LEVEL))
   const [kind, setKind] = useState<DrillKind>(props.initialKind ?? 'staff-to-key')
@@ -226,13 +247,14 @@ export function FlashcardScreen(props: FlashcardScreenProps) {
           <p className="flashcard-prompt-text">
             Play the note shown, on the keyboard below or your MIDI keyboard.
           </p>
-          <div className="flashcard-answer">
+          <fieldset className="flashcard-answer" disabled={drill.revealed}>
             <OnScreenKeyboard
               low={drill.range.low}
               high={drill.range.high}
               onPress={drill.answerNote}
+              {...(drill.revealed ? { highlight: drill.card.answer.midi } : {})}
             />
-          </div>
+          </fieldset>
           <details className="flashcard-qwerty-hint">
             <summary>
               <Icon name="chevron-down" />
@@ -241,6 +263,7 @@ export function FlashcardScreen(props: FlashcardScreenProps) {
             <QwertyHint />
           </details>
           <AnswerFeedback grade={drill.lastGrade} />
+          {drill.revealed && <RevealNext onNext={drill.next} />}
         </section>
       ) : drill.card.kind === 'interval-on-staff' ? (
         <section className="flashcard-stage" aria-label="Flashcard">
@@ -253,10 +276,11 @@ export function FlashcardScreen(props: FlashcardScreenProps) {
             />
           </div>
           <p className="flashcard-prompt-text">Name the interval shown.</p>
-          <div className="flashcard-answer">
+          <fieldset className="flashcard-answer" disabled={drill.revealed}>
             <IntervalAnswerPad onAnswer={drill.answerInterval} />
-          </div>
+          </fieldset>
           <AnswerFeedback grade={drill.lastGrade} />
+          {drill.revealed && <RevealNext onNext={drill.next} />}
         </section>
       ) : drill.card.kind === 'note-name' ? (
         <section className="flashcard-stage" aria-label="Flashcard">
@@ -268,10 +292,11 @@ export function FlashcardScreen(props: FlashcardScreenProps) {
             />
           </div>
           <p className="flashcard-prompt-text">Name the note shown.</p>
-          <div className="flashcard-answer">
+          <fieldset className="flashcard-answer" disabled={drill.revealed}>
             <NoteNameAnswerPad onAnswer={drill.answerNoteName} />
-          </div>
+          </fieldset>
           <AnswerFeedback grade={drill.lastGrade} />
+          {drill.revealed && <RevealNext onNext={drill.next} />}
         </section>
       ) : (
         <section className="flashcard-stage" aria-label="Flashcard">
@@ -287,10 +312,11 @@ export function FlashcardScreen(props: FlashcardScreenProps) {
           <p className="flashcard-prompt-text">
             Name the major key and its relative minor for this key signature.
           </p>
-          <div className="flashcard-answer">
+          <fieldset className="flashcard-answer" disabled={drill.revealed}>
             <KeySignatureAnswerPad onAnswer={drill.answerKeySignature} />
-          </div>
+          </fieldset>
           <AnswerFeedback grade={drill.lastGrade} />
+          {drill.revealed && <RevealNext onNext={drill.next} />}
         </section>
       )}
 

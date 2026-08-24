@@ -9,6 +9,8 @@ import { intervalBetween } from '@core/theory/intervals.ts'
 import { keyFromFifths } from '@core/theory/keys.ts'
 import {
   buildDeck,
+  describeAnswer,
+  type Flashcard,
   FAST_THRESHOLD_MS,
   gradeAnswer,
   type IntervalOnStaffCard,
@@ -258,8 +260,9 @@ describe('gradeAnswer — timing thresholds', () => {
       letter: card.answer.letter,
       alter: (card.answer.alter + 1) as -1 | 0 | 1 | 2 | -2,
     }
-    expect(gradeAnswer(card, wrong, 0)).toEqual({ correct: false, grade: 'again' })
-    expect(gradeAnswer(card, wrong, 100_000)).toEqual({ correct: false, grade: 'again' })
+    const expected = describeAnswer(card)
+    expect(gradeAnswer(card, wrong, 0)).toEqual({ correct: false, grade: 'again', expected })
+    expect(gradeAnswer(card, wrong, 100_000)).toEqual({ correct: false, grade: 'again', expected })
   })
 
   it('correct at or under the fast threshold is "easy"', () => {
@@ -347,5 +350,114 @@ describe('nextCard', () => {
     expect(reviewed.due).toBeGreaterThan(T0)
     const picked = nextCard(deck, [reviewed], T0, scriptedRng([0]))
     expect(picked?.id).not.toBe(a.id) // not due yet, so a fresh card is offered instead
+  })
+})
+
+// ---------------------------------------------------------------------------
+// describeAnswer
+// ---------------------------------------------------------------------------
+
+describe('describeAnswer', () => {
+  const KINDS = ['note-name', 'staff-to-key', 'interval-on-staff', 'key-signature'] as const
+
+  /** The answer itself, flattened to a string, so two cards can be compared. */
+  function answerKey(card: Flashcard): string {
+    switch (card.kind) {
+      case 'note-name':
+        return `n:${card.answer.letter}:${card.answer.alter}`
+      case 'staff-to-key':
+        return `s:${card.answer.midi}`
+      case 'interval-on-staff':
+        return `i:${card.answer.number}:${card.answer.quality}`
+      case 'key-signature':
+        return (
+          `k:${card.answer.majorTonic.letter}:${card.answer.majorTonic.alter}` +
+          `:${card.answer.minorTonic.letter}:${card.answer.minorTonic.alter}`
+        )
+    }
+  }
+
+  it('names a note on the keyboard by pitch, octave included', () => {
+    const deck = buildDeck('staff-to-key', 1) as readonly StaffToKeyCard[]
+    const middleC = deck.find((c) => c.answer.midi === 60)
+    const e4 = deck.find((c) => c.answer.midi === 64)
+    expect(middleC && describeAnswer(middleC)).toBe('C4')
+    expect(e4 && describeAnswer(e4)).toBe('E4')
+  })
+
+  it('names a note-name card by letter and accidental, with no octave', () => {
+    const deck = buildDeck('note-name', 1) as readonly NoteNameCard[]
+    const natural = deck.find((c) => c.answer.letter === 'D' && c.answer.alter === 0)
+    const sharp = deck.find((c) => c.answer.alter === 1)
+    expect(natural && describeAnswer(natural)).toBe('D')
+    // The octave is deliberately absent: the card does not ask for one, and a
+    // learner told "that was F♯3" would reasonably think naming "F♯" was wrong.
+    expect(sharp && describeAnswer(sharp)).toMatch(/^[A-G]♯$/)
+  })
+
+  it('names an interval in the answer pad own wording, not in shorthand', () => {
+    const deck = buildDeck('interval-on-staff', 2) as readonly IntervalOnStaffCard[]
+    const fifth = deck.find((c) => c.answer.number === 5 && c.answer.quality === 'perfect')
+    // The pad prints 'Perfect 5th' on the button; being told the answer was
+    // 'perfect fifth' would make the learner check they mean the same thing.
+    expect(fifth && describeAnswer(fifth)).toBe('Perfect 5th')
+    // 'P5' is what `intervalName` produces and what an id carries; it is not
+    // what a learner is asked to recognise.
+    for (const card of deck) expect(describeAnswer(card)).not.toMatch(/^[PmMAd]\d/)
+  })
+
+  it('names both tonics of a key signature, in the answer pad own wording', () => {
+    const deck = buildDeck('key-signature', 1) as readonly KeySignatureCard[]
+    const oneSharp = deck.find((c) => c.prompt.fifths === 1)
+    expect(oneSharp && describeAnswer(oneSharp)).toBe('G major / E minor')
+  })
+
+  it('never returns an empty string, for any card any deck can build', () => {
+    for (const kind of KINDS) {
+      for (let level = 1; level <= 7; level++) {
+        for (const card of buildDeck(kind, level)) {
+          expect(describeAnswer(card).length).toBeGreaterThan(0)
+        }
+      }
+    }
+  })
+
+  it('never leaks internal vocabulary — no kind slug, no bare MIDI number', () => {
+    for (const kind of KINDS) {
+      for (const card of buildDeck(kind, 4)) {
+        const text = describeAnswer(card)
+        expect(text).not.toContain(kind)
+        expect(text).not.toContain('-')
+      }
+    }
+  })
+
+  it('property: two cards read the same if and only if their answers ARE the same', () => {
+    // The property that makes this usable as feedback. If two different
+    // answers could print the same sentence, a learner reading it could not
+    // tell which one was wanted; if one answer could print two sentences, the
+    // same mistake would be corrected differently on different days.
+    for (const kind of KINDS) {
+      for (let level = 1; level <= 7; level++) {
+        const byDescription = new Map<string, string>()
+        const byAnswer = new Map<string, string>()
+        for (const card of buildDeck(kind, level)) {
+          const description = describeAnswer(card)
+          const answer = answerKey(card)
+          expect(byDescription.get(description) ?? answer).toBe(answer)
+          expect(byAnswer.get(answer) ?? description).toBe(description)
+          byDescription.set(description, answer)
+          byAnswer.set(answer, description)
+        }
+      }
+    }
+  })
+
+  it('is the same string `gradeAnswer` reports as `expected`, right or wrong', () => {
+    const deck = buildDeck('staff-to-key', 1) as readonly StaffToKeyCard[]
+    const [card] = deck as [StaffToKeyCard, ...StaffToKeyCard[]]
+    const wrongNote = midi(card.answer.midi === 60 ? 61 : 60)
+    expect(gradeAnswer(card, { midi: wrongNote }, 0).expected).toBe(describeAnswer(card))
+    expect(gradeAnswer(card, card.answer, 0).expected).toBe(describeAnswer(card))
   })
 })

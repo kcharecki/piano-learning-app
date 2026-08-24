@@ -13,7 +13,7 @@ import { act, render, screen, cleanup, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FakeClock, FakeMidiInput, scriptedRng } from '@test/fakes.ts'
 import { midi as asMidi, type Midi } from '@core/shared/units.ts'
-import { midiToName } from '@core/theory/pitch.ts'
+import { fromMidi, midiToName, pitchDisplayName } from '@core/theory/pitch.ts'
 import { afterEach, describe, expect, it } from 'vitest'
 import { TheoryDrillPanel } from './TheoryDrillPanel.tsx'
 
@@ -172,8 +172,57 @@ describe('TheoryDrillPanel', () => {
     const keyboard = screen.getByRole('group', { name: 'On-screen keyboard' })
     await user.click(within(keyboard).getByRole('button', { name: midiToName(asMidi(wrongNote)) }))
 
-    expect(screen.getByTestId('theory-feedback')).toHaveTextContent(/not quite — graded again/i)
+    // The miss is corrected, not merely reported: the answer is named, in the
+    // pitch names the staff prints (improve-app run 2026-08-24-1).
+    const feedback = screen.getByTestId('theory-feedback')
+    expect(feedback).toHaveTextContent(/not quite/i)
+    expect(feedback).toHaveTextContent(pitchDisplayName(fromMidi(asMidi(firstNote))))
     expect(screen.getByTestId('theory-stats-total')).toHaveTextContent('1')
+  })
+
+  it('a miss holds the item up with the answer named on it, until Next (improve-app run 2026-08-24-1)', async () => {
+    const user = userEvent.setup()
+    render(<TheoryDrillPanel rng={scriptedRng([0])} midiInput={new FakeMidiInput()} />)
+
+    const expected = buildTheoryQuiz('build-scale', 1, scriptedRng([0]))
+    const firstNote = expected.answer[0]?.[0] as number
+    const wrongNote = firstNote + 1 <= 127 ? firstNote + 1 : firstNote - 1
+    const promptBefore = screen.getByTestId('theory-prompt').textContent
+
+    const keyboard = screen.getByRole('group', { name: 'On-screen keyboard' })
+    await user.click(within(keyboard).getByRole('button', { name: midiToName(asMidi(wrongNote)) }))
+
+    // Same prompt, still on screen: the correction lands on what caused it.
+    expect(screen.getByTestId('theory-prompt').textContent).toBe(promptBefore)
+    expect(screen.getByRole('button', { name: 'Next' })).toBeInTheDocument()
+    // The pad is inert, so the named answer cannot be played back for credit.
+    expect(
+      within(keyboard).getByRole('button', { name: midiToName(asMidi(firstNote)) }),
+    ).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+
+    expect(screen.queryByRole('button', { name: 'Next' })).toBeNull()
+    expect(screen.queryByTestId('theory-feedback')).toBeNull()
+    expect(
+      within(keyboard).getByRole('button', { name: midiToName(asMidi(firstNote)) }),
+    ).toBeEnabled()
+  })
+
+  it('a correct answer never reveals — it advances, as it always did', async () => {
+    const user = userEvent.setup()
+    render(<TheoryDrillPanel rng={scriptedRng([0])} midiInput={new FakeMidiInput()} />)
+
+    const expected = buildTheoryQuiz('build-scale', 1, scriptedRng([0]))
+    const keyboard = screen.getByRole('group', { name: 'On-screen keyboard' })
+    for (const group of expected.answer) {
+      for (const note of group) {
+        await user.click(within(keyboard).getByRole('button', { name: midiToName(asMidi(note)) }))
+      }
+    }
+
+    expect(screen.queryByRole('button', { name: 'Next' })).toBeNull()
+    expect(screen.getByTestId('theory-feedback')).toHaveTextContent(/correct/i)
   })
 
   it('progressively reports matched groups for a multi-note chord before it is settled', async () => {
@@ -325,7 +374,10 @@ describe('TheoryDrillPanel', () => {
     for (const note of wrongChord) {
       await user.click(within(keyboard).getByRole('button', { name: midiToName(asMidi(note)) }))
     }
-    expect(screen.getByTestId('theory-feedback')).toHaveTextContent(/not quite — graded again/i)
+    expect(screen.getByTestId('theory-feedback')).toHaveTextContent(/not quite/i)
+    // The miss now holds its item up with the answer named on it, so the next
+    // one is served on Next rather than instantly (improve-app run 2026-08-24-1).
+    await user.click(screen.getByRole('button', { name: 'Next' }))
 
     // Nothing is due yet (item1's relearning step is ~10 minutes out), so
     // this is the "draw fresh" branch — mirrors the panel's own fallback.
@@ -482,7 +534,10 @@ describe('TheoryDrillPanel', () => {
     for (const note of wrongChord) {
       await user.click(within(keyboard).getByRole('button', { name: midiToName(asMidi(note)) }))
     }
-    expect(screen.getByTestId('theory-feedback')).toHaveTextContent(/not quite — graded again/i)
+    expect(screen.getByTestId('theory-feedback')).toHaveTextContent(/not quite/i)
+    // The miss now holds its item up with the answer named on it, so the next
+    // one is served on Next rather than instantly (improve-app run 2026-08-24-1).
+    await user.click(screen.getByRole('button', { name: 'Next' }))
 
     // Nothing is due yet, so this is the "draw fresh" branch.
     const item2 = buildTheoryQuiz('build-chord', 1, mirror)

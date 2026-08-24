@@ -44,7 +44,7 @@
 import { assertNever, at, invariant } from '@core/shared/invariant.ts'
 import { midi, type Midi } from '@core/shared/units.ts'
 import { pick, type Rng } from '@core/ports/rng.ts'
-import { spell, toMidi, type Alter, type Letter, type SpelledPitch } from '@core/theory/pitch.ts'
+import { fromMidi, pitchDisplayName, spell, toMidi, type Alter, type Letter, type SpelledPitch } from '@core/theory/pitch.ts'
 import { buildScale, scaleName, scaleNotes, type ScaleType } from '@core/theory/scales.ts'
 import { buildChord, chordMidi, isTriad, type Chord, type ChordQuality, type Inversion } from '@core/theory/chords.ts'
 import { intervalLongName, makeInterval, SIMPLE_INTERVALS, transposeSpelled, tryTransposeSpelled, type Interval, type IntervalQuality } from '@core/theory/intervals.ts'
@@ -102,6 +102,12 @@ export type TheoryAnswerResult = {
   readonly matchedGroups: number
   /** Set once the attempt is settled, right or wrong. */
   readonly done: boolean
+  /**
+   * The item's own answer written for a learner — see
+   * {@link describeTheoryAnswer}. Carried on every result, right or wrong;
+   * whether a correct answer is worth echoing back is the caller's call.
+   */
+  readonly expected: string
 }
 
 // ---------------------------------------------------------------------------
@@ -720,25 +726,42 @@ function intervalMatches(
  * a caller re-derives the result from its own accumulated state each time
  * rather than trusting one carried forward.
  */
+/**
+ * The notes that answer an item, named for a learner: `'C4, D4, E4'` for a
+ * sequence, `'C4 + E4 + G4'` for a chord, both joined with `', '` when an
+ * item is several groups of several notes (a cadence).
+ *
+ * Octave-bearing on purpose. Grading is octave-insensitive, so this is not the
+ * *only* right answer — but "C, E, G" leaves a learner who played the chord
+ * two octaves down with nothing to check against, and the register the item
+ * was built in is the one its prompt implies.
+ */
+export function describeTheoryAnswer(item: TheoryQuizItem): string {
+  return item.answer
+    .map((group) => group.map((note) => pitchDisplayName(fromMidi(note))).join(' + '))
+    .join(', ')
+}
+
 export function gradeTheoryStep(
   item: TheoryQuizItem,
   playedSoFar: readonly (readonly Midi[])[],
 ): TheoryAnswerResult {
+  const expectedText = describeTheoryAnswer(item)
   let matchedGroups = 0
   for (const played of playedSoFar) {
     const expected = item.answer[matchedGroups]
     if (expected === undefined || !groupsMatch(item.kind, expected, played)) {
-      return { correct: false, matchedGroups, done: true }
+      return { correct: false, matchedGroups, done: true, expected: expectedText }
     }
     matchedGroups++
   }
   const done = matchedGroups === item.answer.length
-  if (!done) return { correct: false, matchedGroups, done }
+  if (!done) return { correct: false, matchedGroups, done, expected: expectedText }
   if (item.kind === 'build-scale' && !isStrictlyAscending(playedSoFar)) {
-    return { correct: false, matchedGroups, done: true }
+    return { correct: false, matchedGroups, done: true, expected: expectedText }
   }
   if (item.kind === 'build-interval' && !intervalMatches(item.answer, playedSoFar)) {
-    return { correct: false, matchedGroups, done: true }
+    return { correct: false, matchedGroups, done: true, expected: expectedText }
   }
-  return { correct: true, matchedGroups, done }
+  return { correct: true, matchedGroups, done, expected: expectedText }
 }

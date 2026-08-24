@@ -58,6 +58,14 @@ export type OnScreenKeyboardProps = {
    */
   readonly latch?: boolean
   readonly disabled?: boolean
+  /**
+   * Marks one key as the answer being shown to the learner — the flashcard
+   * reveal (improve-app run 2026-08-24-1). Carried as its own attribute
+   * rather than folded into `data-state`, which describes what the LEARNER is
+   * doing to a key (holding it down); this describes what the screen is
+   * telling them about it, and the two can be true of different keys at once.
+   */
+  readonly highlight?: Midi
   /** Overrides the group's accessible name. Defaults to "On-screen keyboard". */
   readonly label?: string
 }
@@ -80,6 +88,7 @@ export function OnScreenKeyboard({
   onRelease,
   latch = false,
   disabled = false,
+  highlight,
   label = 'On-screen keyboard',
 }: OnScreenKeyboardProps) {
   const clampedLow = Math.max(PIANO_LOWEST_MIDI, low)
@@ -155,6 +164,7 @@ export function OnScreenKeyboard({
           aria-label={midiToName(asMidi(note))}
           disabled={disabled}
           {...(held.has(note) ? { 'data-state': 'pressed' } : {})}
+          {...(highlight === note ? { 'data-highlighted': 'true' } : {})}
           {...(pressReleaseMode
             ? {
                 onPointerDown: (event) => {

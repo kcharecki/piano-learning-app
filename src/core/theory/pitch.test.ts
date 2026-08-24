@@ -13,6 +13,7 @@ import {
   octaveOf,
   parsePitch,
   pitchClass,
+  letterAlterDisplayName,
   pitchDisplayName,
   pitchName,
   spell,
@@ -281,6 +282,29 @@ describe('pitchName', () => {
   it('writes negative octaves', () => {
     expect(pitchName(spell('C', 0, -1))).toBe('C-1')
     expect(pitchName(spell('A', -1, -1))).toBe('Ab-1')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// letterAlterDisplayName
+// ---------------------------------------------------------------------------
+
+describe('letterAlterDisplayName', () => {
+  it('writes the accidental as a glyph and no octave at all', () => {
+    expect(letterAlterDisplayName('C', 0)).toBe('C')
+    expect(letterAlterDisplayName('F', 1)).toBe('F♯')
+    expect(letterAlterDisplayName('B', -1)).toBe('B♭')
+    expect(letterAlterDisplayName('G', 2)).toBe('G♯♯')
+    expect(letterAlterDisplayName('A', -2)).toBe('A♭♭')
+  })
+
+  it('is exactly the octave-less prefix of pitchDisplayName', () => {
+    fc.assert(
+      fc.property(arbLetter, arbAlter, fc.integer({ min: -1, max: 9 }), (letter, alter, octave) => {
+        const full = pitchDisplayName(spell(letter, alter, octave))
+        expect(full).toBe(`${letterAlterDisplayName(letter, alter)}${octave}`)
+      }),
+    )
   })
 })
 

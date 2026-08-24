@@ -29,6 +29,17 @@
  * which is why this panel takes no `clock` prop at all; there is no elapsed
  * time here for one to measure.
  *
+ * ## The reveal (improve-app run 2026-08-24-1)
+ *
+ * A wrong answer names the notes it wanted (`TheoryAnswerResult.expected`,
+ * `core/drills/theory.ts`) and HOLDS the prompt while it does — the SRS review
+ * is still committed at answer time, but the next item is not served until the
+ * learner presses Next, so the correction lands on the question that produced
+ * the error rather than on its replacement. `handleNote` is inert while the
+ * reveal is up, which covers the on-screen keyboard, the QWERTY fallback and a
+ * real MIDI press at once. A correct answer is unchanged: it serves the next
+ * item immediately.
+ *
  * ## Serving items (roadmap 3.20, REQ-3.5.6)
  *
  * Every id `buildTheoryQuiz` mints is derived purely from the content it
@@ -50,6 +61,7 @@ import { createBrowserClock } from '@app/practice/clock.ts'
 import { useMidiConnection, type ConnectMidi } from '@app/practice/useMidiConnection.ts'
 import { usePracticeLog } from '@app/practice/usePracticeLog.ts'
 import { OnScreenKeyboard } from '@app/drills/OnScreenKeyboard.tsx'
+import { RevealNext } from '@app/drills/RevealNext.tsx'
 import { QwertyHint } from '@app/keyboardInput/QwertyHint.tsx'
 import { defaultBaseNote } from '@app/keyboardInput/qwertyNoteMap.ts'
 import { useQwertyNoteInput } from '@app/keyboardInput/useQwertyNoteInput.ts'
@@ -164,16 +176,31 @@ function rangeFor(): { readonly low: Midi; readonly high: Midi } {
   }
 }
 
+/**
+ * The verdict. A wrong answer names the notes that answered the prompt
+ * (improve-app run 2026-08-24-1) — "Not quite — graded again" told a learner
+ * only that they were wrong, which is the half of the testing effect that does
+ * not teach. The grade is dropped from the wrong-answer copy: "again" is SRS
+ * vocabulary, not learner vocabulary (DESIGN.md rule 7), and the answer is
+ * what the sentence is now for.
+ */
 function AnswerFeedback({ result }: { readonly result: TheoryAnswerResult | undefined }) {
   if (result === undefined) return null
   const grade: Grade = result.correct ? 'good' : 'again'
   return (
     <p role="status" data-testid="theory-feedback">
-      {result.correct ? 'Correct' : 'Not quite'} — graded {grade}
+      {result.correct ? `Correct — graded ${grade}` : `Not quite — it was ${result.expected}`}
     </p>
   )
 }
 
+/**
+ * The reveal's exit control, mounted only while a missed prompt is held on
+ * screen. Same shape and the same focus reasoning as `FlashcardScreen`'s
+ * `RevealNext`: the answer keyboard goes inert under the reveal, so focus
+ * would otherwise fall out of the DOM and a keyboard user would tab from the
+ * top of the document to reach Next.
+ */
 export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
   const [level, setLevel] = useState(() => clampLevel(props.initialLevel ?? MIN_LEVEL))
   const [kind, setKind] = useState<TheoryQuizKind>(() => props.initialKind ?? 'build-scale')
@@ -211,6 +238,7 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
   const [playedGroups, setPlayedGroups] = useState<readonly (readonly Midi[])[]>([])
   const [, setPendingNotes] = useState<readonly Midi[]>([])
   const [lastResult, setLastResult] = useState<TheoryAnswerResult | undefined>(undefined)
+  const [revealed, setRevealed] = useState(false)
   const [nowMs, setNowMs] = useState<number>(() => date.epochMillis())
 
   // Accumulates presses within the current attempt; mirrored into
@@ -253,6 +281,7 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
     setPlayedGroups([])
     setPendingNotes([])
     setLastResult(undefined)
+    setRevealed(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only kind/level should reset the item
   }, [kind, level])
 
@@ -277,7 +306,12 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
     }
   }, [kind, level])
 
-  function commitAnswer(answered: TheoryQuizItem, correct: boolean): void {
+  /** Grades the settled attempt into the SRS store; returns the store as it
+   *  stands afterwards, so the caller can ask what is due without re-reading. */
+  function scheduleReview(
+    answered: TheoryQuizItem,
+    correct: boolean,
+  ): Readonly<Record<string, Card>> {
     const grade: Grade = correct ? 'good' : 'again'
     const dateNow = date.epochMillis()
     // Read fresh from the store rather than the closed-over `cardsById`: two
@@ -290,11 +324,14 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
     const updated = review(existing, grade, dateNow, rng)
     upsertCard(updated)
     setNowMs(dateNow)
-    const updatedCardsById = { ...currentCardsById, [updated.id]: updated }
+    return { ...currentCardsById, [updated.id]: updated }
+  }
 
+  /** Puts the next prompt up and clears the attempt. */
+  function serveNext(fromCardsById: Readonly<Record<string, Card>>): void {
     // The due card's OWN item comes back, not a fresh draw of its kind
     // (roadmap 3.20) — only when nothing is due does a fresh item get drawn.
-    const dueItem = dueTheoryItem(updatedCardsById, dateNow)
+    const dueItem = dueTheoryItem(fromCardsById, date.epochMillis())
     const nextItem = dueItem ?? buildTheoryQuiz(kind, level, rng)
     if (nextItem.kind !== kind) {
       suppressResetRef.current = true
@@ -307,7 +344,28 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
     setPendingNotes([])
   }
 
+  function commitAnswer(answered: TheoryQuizItem, correct: boolean): void {
+    const updatedCardsById = scheduleReview(answered, correct)
+    // A miss holds the prompt, with its answer named, until the learner
+    // leaves it — the review above is already scheduled either way.
+    if (!correct) {
+      setRevealed(true)
+      return
+    }
+    serveNext(updatedCardsById)
+  }
+
+  /** Leaves the reveal. Reads the store directly: the missed item's own review
+   *  was committed at answer time and has been in there ever since. */
+  function next(): void {
+    if (!revealed) return
+    setRevealed(false)
+    setLastResult(undefined)
+    serveNext(useFlashcardStore.getState().cardsById)
+  }
+
   function handleNote(note: Midi): void {
+    if (revealed) return
     if (item === undefined) return
     if (playedRef.current.length === 0) setLastResult(undefined)
     const expected = item.answer[playedRef.current.length]
@@ -428,9 +486,15 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
             </span>
             <span className="stat-label">Played</span>
           </div>
-          <OnScreenKeyboard low={range.low} high={range.high} onPress={handleNote} />
+          <OnScreenKeyboard
+            low={range.low}
+            high={range.high}
+            onPress={handleNote}
+            disabled={revealed}
+          />
           <QwertyHint />
           <AnswerFeedback result={lastResult} />
+          {revealed && <RevealNext onNext={next} />}
         </section>
       )}
 

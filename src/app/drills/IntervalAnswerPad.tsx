@@ -8,43 +8,22 @@
  * Every button is a real `<button>` with a readable label ("Major 3rd"), so
  * this is keyboard-reachable and screen-reader-friendly for free; the pad
  * itself is a labelled `role="group"`.
+ *
+ * The label comes from `intervalOrdinalName` in core rather than a table here,
+ * so that the reveal which corrects a miss (improve-app run 2026-08-24-1) names
+ * the answer in exactly the words printed on the button the learner pressed.
  */
-import { SIMPLE_INTERVALS, type IntervalQuality } from '@core/theory/intervals.ts'
+import { intervalOrdinalName, SIMPLE_INTERVALS } from '@core/theory/intervals.ts'
 import type { IntervalAnswer } from '@core/drills/flashcards.ts'
 
 export type IntervalAnswerPadProps = {
   readonly onAnswer: (answer: IntervalAnswer) => void
 }
 
-const QUALITY_LABEL: Record<IntervalQuality, string> = {
-  perfect: 'Perfect',
-  major: 'Major',
-  minor: 'Minor',
-  augmented: 'Augmented',
-  diminished: 'Diminished',
-  doublyAugmented: 'Doubly augmented',
-  doublyDiminished: 'Doubly diminished',
-}
-
-const NUMBER_ORDINAL: Record<number, string> = {
-  2: '2nd',
-  3: '3rd',
-  4: '4th',
-  5: '5th',
-  6: '6th',
-  7: '7th',
-  8: '8th',
-}
-
 /** Every interval `buildIntervalDeck` can draw — a unison is never among them. */
 const INTERVAL_BUTTONS: readonly IntervalAnswer[] = SIMPLE_INTERVALS.filter(
   (iv) => iv.number >= 2,
 ).map((iv) => ({ number: iv.number, quality: iv.quality }))
-
-function label(answer: IntervalAnswer): string {
-  const ordinal = NUMBER_ORDINAL[answer.number] ?? `${answer.number}th`
-  return `${QUALITY_LABEL[answer.quality]} ${ordinal}`
-}
 
 export function IntervalAnswerPad({ onAnswer }: IntervalAnswerPadProps) {
   return (
@@ -55,7 +34,7 @@ export function IntervalAnswerPad({ onAnswer }: IntervalAnswerPadProps) {
           type="button"
           onClick={() => onAnswer(answer)}
         >
-          {label(answer)}
+          {intervalOrdinalName(answer)}
         </button>
       ))}
     </div>

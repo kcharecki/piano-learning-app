@@ -18,6 +18,7 @@ import {
   intervalFromSemitones,
   intervalLongName,
   intervalName,
+  intervalOrdinalName,
   makeInterval,
   parseInterval,
   SIMPLE_INTERVALS,
@@ -545,6 +546,57 @@ describe('intervalLongName', () => {
 
   it('does not throw on a hand-built interval with a nonsense number', () => {
     expect(intervalLongName({ number: 0, quality: 'major', semitones: 0 })).toBe('major 0th')
+  })
+})
+
+describe('intervalOrdinalName', () => {
+  it('writes the quality capitalised and the number as an ordinal numeral', () => {
+    expect(intervalOrdinalName(iv(5, 'perfect'))).toBe('Perfect 5th')
+    expect(intervalOrdinalName(iv(3, 'minor'))).toBe('Minor 3rd')
+    expect(intervalOrdinalName(iv(2, 'major'))).toBe('Major 2nd')
+    expect(intervalOrdinalName(iv(4, 'augmented'))).toBe('Augmented 4th')
+    expect(intervalOrdinalName(iv(5, 'diminished'))).toBe('Diminished 5th')
+    // 'octave' and 'unison' are prose; this form is a grid label, so 8 is 8th.
+    expect(intervalOrdinalName(iv(8, 'perfect'))).toBe('Perfect 8th')
+    expect(intervalOrdinalName(iv(1, 'perfect'))).toBe('Perfect 1st')
+    expect(intervalOrdinalName(iv(3, 'doublyDiminished'))).toBe('Doubly diminished 3rd')
+    expect(intervalOrdinalName(iv(4, 'doublyAugmented'))).toBe('Doubly augmented 4th')
+  })
+
+  it('needs only the number and quality — a bare answer, with no semitone count', () => {
+    expect(intervalOrdinalName({ number: 6, quality: 'minor' })).toBe('Minor 6th')
+  })
+
+  it('keeps the ordinal suffix right past the teens, where naive rules break', () => {
+    expect(intervalOrdinalName(iv(11, 'perfect'))).toBe('Perfect 11th') // not 11st
+    expect(intervalOrdinalName(iv(12, 'perfect'))).toBe('Perfect 12th') // not 12nd
+    expect(intervalOrdinalName(iv(13, 'major'))).toBe('Major 13th') // not 13rd
+    expect(intervalOrdinalName(iv(21, 'major'))).toBe('Major 21st')
+  })
+
+  it('names every drawable interval distinctly — the reveal must not be ambiguous', () => {
+    const names = SIMPLE_INTERVALS.map(intervalOrdinalName)
+    expect(new Set(names).size).toBe(SIMPLE_INTERVALS.length)
+  })
+
+  it('is total over every legal number and quality', () => {
+    const qualityArb = fc.constantFrom<IntervalQuality>(
+      'perfect',
+      'major',
+      'minor',
+      'augmented',
+      'diminished',
+      'doublyAugmented',
+      'doublyDiminished',
+    )
+    fc.assert(
+      fc.property(fc.integer({ min: 1, max: 15 }), qualityArb, (number, quality) => {
+        const text = intervalOrdinalName({ number, quality })
+        expect(text).toMatch(/^[A-Z][a-z ]+ \d+(st|nd|rd|th)$/)
+        // The number in the label is the number asked for, not a near miss.
+        expect(text.split(' ').at(-1)).toMatch(new RegExp(`^${number}(st|nd|rd|th)$`))
+      }),
+    )
   })
 })
 

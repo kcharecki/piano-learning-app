@@ -39,6 +39,10 @@ function staffToKeyMidi(card: DrillCard | undefined): number {
   return card.prompt.midi
 }
 
+/** Sharp-spelled pitch classes, so a test can name the answer it expects
+ *  without asking the code under test what it thinks the answer is. */
+const NAME_OF = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'] as const
+
 beforeEach(resetStore)
 afterEach(() => {
   cleanup()
@@ -87,7 +91,11 @@ describe('useFlashcardDrill — answering', () => {
 
     act(() => result.current.answerNote(midi(answer)))
 
-    expect(result.current.lastGrade).toEqual({ correct: true, grade: 'easy' })
+    expect(result.current.lastGrade).toEqual({
+      correct: true,
+      grade: 'easy',
+      expected: expect.any(String),
+    })
     expect(useFlashcardStore.getState().cardsById[firstId!]).toBeDefined()
     expect(result.current.stats.total).toBe(1)
     expect(result.current.card?.id).not.toBe(firstId)
@@ -100,7 +108,11 @@ describe('useFlashcardDrill — answering', () => {
 
     act(() => result.current.answerNote(midi(wrongMidi)))
 
-    expect(result.current.lastGrade).toEqual({ correct: false, grade: 'again' })
+    expect(result.current.lastGrade).toEqual({
+      correct: false,
+      grade: 'again',
+      expected: expect.any(String),
+    })
   })
 
   it('a slow correct answer (over 8s) grades hard', () => {
@@ -110,7 +122,11 @@ describe('useFlashcardDrill — answering', () => {
 
     act(() => result.current.answerNote(midi(answer)))
 
-    expect(result.current.lastGrade).toEqual({ correct: true, grade: 'hard' })
+    expect(result.current.lastGrade).toEqual({
+      correct: true,
+      grade: 'hard',
+      expected: expect.any(String),
+    })
   })
 
   it('a real MIDI press answers the current card exactly like an on-screen key press', () => {
@@ -121,7 +137,92 @@ describe('useFlashcardDrill — answering', () => {
       midiInput.emit({ type: 'noteOn', note: midi(answer), velocity: 80, time: clock.now() }),
     )
 
-    expect(result.current.lastGrade).toEqual({ correct: true, grade: 'easy' })
+    expect(result.current.lastGrade).toEqual({
+      correct: true,
+      grade: 'easy',
+      expected: expect.any(String),
+    })
+  })
+})
+
+describe('useFlashcardDrill — the reveal (improve-app run 2026-08-24-1)', () => {
+  it('a wrong answer HOLDS the card and reveals, instead of advancing past it', () => {
+    const { result } = setup()
+    const missedId = result.current.card?.id
+    const correctMidi = staffToKeyMidi(result.current.card)
+    const wrongMidi = correctMidi === 56 ? correctMidi + 1 : correctMidi - 1
+
+    act(() => result.current.answerNote(midi(wrongMidi)))
+
+    expect(result.current.revealed).toBe(true)
+    // The card that caused the error is what the correction lands on.
+    expect(result.current.card?.id).toBe(missedId)
+  })
+
+  it('still schedules the missed card immediately — the grade does not wait for Next', () => {
+    const { result } = setup()
+    const missedId = result.current.card?.id
+    const correctMidi = staffToKeyMidi(result.current.card)
+    const wrongMidi = correctMidi === 56 ? correctMidi + 1 : correctMidi - 1
+
+    act(() => result.current.answerNote(midi(wrongMidi)))
+
+    const stored = useFlashcardStore.getState().cardsById[missedId!]
+    expect(stored).toBeDefined()
+    expect(stored!.lapses + stored!.reps).toBeGreaterThan(0)
+  })
+
+  it('ignores every answer input while the reveal is up', () => {
+    const { result, midiInput, clock } = setup()
+    const correctMidi = staffToKeyMidi(result.current.card)
+    const wrongMidi = correctMidi === 56 ? correctMidi + 1 : correctMidi - 1
+    act(() => result.current.answerNote(midi(wrongMidi)))
+    const heldId = result.current.card?.id
+    const scheduledByTheMiss = useFlashcardStore.getState().cardsById[heldId!]
+
+    // The right answer, arriving while the reveal is up, must not be graded:
+    // it would credit the learner for reading the answer off the screen.
+    act(() => result.current.answerNote(midi(correctMidi)))
+    act(() =>
+      midiInput.emit({ type: 'noteOn', note: midi(correctMidi), velocity: 80, time: clock.now() }),
+    )
+
+    expect(result.current.lastGrade?.correct).toBe(false)
+    expect(result.current.card?.id).toBe(heldId)
+    // Byte-identical: the miss scheduled it once, and nothing since.
+    expect(useFlashcardStore.getState().cardsById[heldId!]).toEqual(scheduledByTheMiss)
+  })
+
+  it('next() clears the reveal and moves on; a correct answer never reveals at all', () => {
+    const { result } = setup()
+    const correctMidi = staffToKeyMidi(result.current.card)
+    const wrongMidi = correctMidi === 56 ? correctMidi + 1 : correctMidi - 1
+    act(() => result.current.answerNote(midi(wrongMidi)))
+    const missedId = result.current.card?.id
+
+    act(() => result.current.next())
+
+    expect(result.current.revealed).toBe(false)
+    expect(result.current.lastGrade).toBeUndefined()
+    expect(result.current.card?.id).not.toBe(missedId)
+
+    const nextAnswer = staffToKeyMidi(result.current.card)
+    act(() => result.current.answerNote(midi(nextAnswer)))
+    expect(result.current.revealed).toBe(false)
+  })
+
+  it('carries the missed card own answer, not a constant', () => {
+    const { result } = setup()
+    const correctMidi = staffToKeyMidi(result.current.card)
+    const wrongMidi = correctMidi === 56 ? correctMidi + 1 : correctMidi - 1
+
+    act(() => result.current.answerNote(midi(wrongMidi)))
+
+    // `expected` names the card that was on screen — the same fact the
+    // screen prints. Derived here from the prompt, never read back out of
+    // the result it is checking.
+    const octave = Math.floor(correctMidi / 12) - 1
+    expect(result.current.lastGrade?.expected).toBe(`${NAME_OF[correctMidi % 12]}${octave}`)
   })
 })
 
@@ -243,7 +344,11 @@ describe('useFlashcardDrill — answering an interval card', () => {
 
     act(() => result.current.answerInterval(expected.answer))
 
-    expect(result.current.lastGrade).toEqual({ correct: true, grade: 'easy' })
+    expect(result.current.lastGrade).toEqual({
+      correct: true,
+      grade: 'easy',
+      expected: expect.any(String),
+    })
     expect(result.current.stats.total).toBe(1)
     expect(result.current.card?.id).not.toBe(expected.id)
   })
@@ -254,7 +359,11 @@ describe('useFlashcardDrill — answering an interval card', () => {
 
     act(() => result.current.answerInterval({ number: 8, quality: 'perfect' }))
 
-    expect(result.current.lastGrade).toEqual({ correct: false, grade: 'again' })
+    expect(result.current.lastGrade).toEqual({
+      correct: false,
+      grade: 'again',
+      expected: expect.any(String),
+    })
   })
 
   it('answerNote is a no-op while an interval card is showing', () => {
@@ -315,7 +424,11 @@ describe('useFlashcardDrill — answering a note-name card (roadmap 3.11)', () =
 
     // Kills a mutant that always grades a note-name answer wrong (or always
     // 'again'), and one that fails to advance `current` after grading.
-    expect(result.current.lastGrade).toEqual({ correct: true, grade: 'easy' })
+    expect(result.current.lastGrade).toEqual({
+      correct: true,
+      grade: 'easy',
+      expected: expect.any(String),
+    })
     expect(result.current.stats.total).toBe(1)
     expect(result.current.card?.id).not.toBe(expected.id)
   })
@@ -332,7 +445,11 @@ describe('useFlashcardDrill — answering a note-name card (roadmap 3.11)', () =
       result.current.answerNoteName({ letter: wrongLetter, alter: expected.answer.alter }),
     )
 
-    expect(result.current.lastGrade).toEqual({ correct: false, grade: 'again' })
+    expect(result.current.lastGrade).toEqual({
+      correct: false,
+      grade: 'again',
+      expected: expect.any(String),
+    })
   })
 
   it('answerNoteName is a no-op while a staff-to-key card is showing', () => {
@@ -359,7 +476,11 @@ describe('useFlashcardDrill — answering a key-signature card (roadmap 3.11)', 
 
     // Kills a mutant that only compares majorTonic (or only minorTonic) when
     // grading a key-signature answer, and one that fails to advance `current`.
-    expect(result.current.lastGrade).toEqual({ correct: true, grade: 'easy' })
+    expect(result.current.lastGrade).toEqual({
+      correct: true,
+      grade: 'easy',
+      expected: expect.any(String),
+    })
     expect(result.current.stats.total).toBe(1)
     expect(result.current.card?.id).not.toBe(expected.id)
   })
@@ -375,7 +496,11 @@ describe('useFlashcardDrill — answering a key-signature card (roadmap 3.11)', 
       }),
     )
 
-    expect(result.current.lastGrade).toEqual({ correct: false, grade: 'again' })
+    expect(result.current.lastGrade).toEqual({
+      correct: false,
+      grade: 'again',
+      expected: expect.any(String),
+    })
   })
 
   it('answerKeySignature is a no-op while an interval-on-staff card is showing', () => {

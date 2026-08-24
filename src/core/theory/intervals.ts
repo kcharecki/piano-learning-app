@@ -345,6 +345,29 @@ export function intervalLongName(i: Interval): string {
   return `${QUALITY_LONG[i.quality]} ${numberName(i.number)}`
 }
 
+/**
+ * `'Perfect 5th'`, `'Minor 3rd'`, `'Doubly diminished 3rd'` — the same interval
+ * written the way the flashcard answer pad prints it on its buttons.
+ *
+ * A second display name exists because the two drills that show intervals do
+ * not speak the same English. Ear training reads them out in prose ("a minor
+ * third above"), which is {@link intervalLongName}; the flashcard pad is a grid
+ * of short labels, where "Minor 3rd" fits and "minor third" does not. Telling a
+ * learner who just pressed **Minor 3rd** that the answer was "minor third"
+ * makes them check whether those are the same thing, so the flashcard side —
+ * pad, and the reveal that corrects it — uses this one throughout.
+ *
+ * Takes only the number and quality — the semitone count says nothing about
+ * how the interval is written, and demanding it would force every caller
+ * holding a bare answer to build a whole `Interval` first.
+ *
+ * @see intervalLongName for the prose form.
+ */
+export function intervalOrdinalName(i: Pick<Interval, 'number' | 'quality'>): string {
+  const quality = QUALITY_LONG[i.quality]
+  return `${quality[0]?.toUpperCase() ?? ''}${quality.slice(1)} ${i.number}${ordinalSuffix(i.number)}`
+}
+
 // ---------------------------------------------------------------------------
 // transposition
 // ---------------------------------------------------------------------------

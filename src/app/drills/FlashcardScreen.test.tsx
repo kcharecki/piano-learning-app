@@ -11,8 +11,11 @@ import {
   type IntervalOnStaffCard,
   type KeySignatureCard,
   type NoteNameCard,
+  type StaffToKeyCard,
 } from '@core/drills/flashcards.ts'
 import { seededRng } from '@core/ports/rng.ts'
+import { midi } from '@core/shared/units.ts'
+import { midiToName } from '@core/theory/pitch.ts'
 import { act, render, screen, cleanup, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FakeClock, FakeMidiInput, scriptedRng } from '@test/fakes.ts'
@@ -391,7 +394,7 @@ describe('FlashcardScreen — graded-answer pill reserves its own height (roadma
     expect(feedbackAfter.querySelector('svg')).not.toBeNull()
   })
 
-  it('a wrong answer shows the error class and a "comes back for review" message, not just red text', async () => {
+  it('a wrong answer shows the error class and NAMES the answer, not just red text', async () => {
     const user = userEvent.setup()
     const rng = scriptedRng([0])
     render(<FlashcardScreen rng={rng} midiInput={new FakeMidiInput()} />)
@@ -404,7 +407,60 @@ describe('FlashcardScreen — graded-answer pill reserves its own height (roadma
 
     const feedback = screen.getByTestId('flashcard-feedback')
     expect(feedback).toHaveClass('is-error')
-    expect(feedback).toHaveTextContent(/not quite.*review/i)
+    // Naming it is the whole point: "wrong" alone teaches nothing.
+    expect(feedback).toHaveTextContent(/not quite/i)
+    expect(feedback).toHaveTextContent(/minor 2nd/i)
+    expect(feedback).not.toHaveTextContent(/major 3rd/i)
+  })
+})
+
+describe('FlashcardScreen — the reveal holds the card (improve-app run 2026-08-24-1)', () => {
+  // scriptedRng([0]) always draws the deck's first card, so the test knows the
+  // answer without reading it back off the screen it is checking.
+  const FIRST = buildDeck('staff-to-key', 1)[0] as StaffToKeyCard
+  const answerKey = midiToName(FIRST.answer.midi)
+  const wrongKey = midiToName(midi(FIRST.answer.midi + (FIRST.answer.midi === 56 ? 1 : -1)))
+
+  it('a miss offers Next, marks the answer on the keyboard, and freezes the answer pad', async () => {
+    const user = userEvent.setup()
+    render(<FlashcardScreen rng={scriptedRng([0])} midiInput={new FakeMidiInput()} />)
+    const staffBefore = screen.getByTestId('staff-note').getAttribute('data-step')
+
+    await user.click(screen.getByRole('button', { name: wrongKey }))
+
+    expect(screen.getByRole('button', { name: 'Next' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: answerKey })).toHaveAttribute(
+      'data-highlighted',
+      'true',
+    )
+    // Same card, still on screen: the correction lands on what caused it.
+    expect(screen.getByTestId('staff-note')).toHaveAttribute('data-step', staffBefore)
+    // The pad is inert, so the marked key cannot be clicked back for credit.
+    expect(screen.getByRole('button', { name: answerKey })).toBeDisabled()
+  })
+
+  it('Next clears the mark and the feedback, and serves the next card', async () => {
+    const user = userEvent.setup()
+    render(<FlashcardScreen rng={scriptedRng([0])} midiInput={new FakeMidiInput()} />)
+
+    await user.click(screen.getByRole('button', { name: wrongKey }))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+
+    expect(screen.queryByRole('button', { name: 'Next' })).toBeNull()
+    expect(document.querySelectorAll('[data-highlighted="true"]')).toHaveLength(0)
+    expect(screen.getByTestId('flashcard-feedback')).toHaveAttribute('data-visible', 'false')
+    expect(screen.getByRole('button', { name: answerKey })).toBeEnabled()
+  })
+
+  it('a correct answer never reveals — it advances, as it always did', async () => {
+    const user = userEvent.setup()
+    render(<FlashcardScreen rng={scriptedRng([0])} midiInput={new FakeMidiInput()} />)
+
+    await user.click(screen.getByRole('button', { name: answerKey }))
+
+    expect(screen.queryByRole('button', { name: 'Next' })).toBeNull()
+    expect(document.querySelectorAll('[data-highlighted="true"]')).toHaveLength(0)
+    expect(screen.getByTestId('flashcard-feedback')).toHaveTextContent(/correct/i)
   })
 })
 

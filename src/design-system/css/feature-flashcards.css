@@ -77,11 +77,24 @@
 
 /* ---------- Answer input ----------
    Centers whichever answer UI the current deck renders (on-screen keyboard or
-   one of the three answer pads) on the stage's shared axis. */
+   one of the three answer pads) on the stage's shared axis.
+
+   A `<fieldset>` rather than a `<div>` (improve-app run 2026-08-24-1): while
+   the reveal holds a missed card on screen the answer input must be inert, and
+   `disabled` on a fieldset disables every control inside it natively — no
+   `disabled` prop threaded through four separate answer components, and no
+   click path left open that the hook would silently swallow. The reset below
+   is the whole reason a fieldset is not normally used for layout: the UA gives
+   it a border, padding, a margin and a `min-inline-size: min-content` that
+   would stop the keyboard scrolling. */
 .flashcard-answer {
   width: 100%;
   display: flex;
   justify-content: center;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-inline-size: 0;
 }
 /* Every answer pad (`NoteNameAnswerPad`/`KeySignatureAnswerPad`/
    `IntervalAnswerPad`) renders `role="group"` + this shared class on its own

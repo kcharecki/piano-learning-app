@@ -327,8 +327,26 @@
 /* Feedback states: wash fill + strong inset ring + position dot.
    Rings on WHITE keys use the -ink variants (3:1+ on the light
    key face); black keys use the bright shell variants. */
-.keyboard-diagram .key-white[data-state="correct"] { box-shadow: inset 0 0 0 3px var(--fb-correct-ink); background: color-mix(in srgb, var(--key-white), var(--fb-correct-ink) 22%); }
-.keyboard-diagram .key-black[data-state="correct"] { box-shadow: inset 0 0 0 3px var(--fb-correct); }
+/* `data-highlighted` is the drill reveal marking the key the learner SHOULD
+   have played (improve-app run 2026-08-24-1). Visually it is the "this is the
+   right key" treatment the diagram already has, so it shares the `correct`
+   declarations rather than restating the tokens; it is a separate attribute
+   because it says something different — the screen is teaching, the learner is
+   not being graded — and the two can be true of different keys at once. Colour
+   is not the only signal: the feedback line names the note in text alongside. */
+.keyboard-diagram .key-white[data-state="correct"],
+.keyboard-diagram .key-white[data-highlighted="true"] { box-shadow: inset 0 0 0 3px var(--fb-correct-ink); background: color-mix(in srgb, var(--key-white), var(--fb-correct-ink) 22%); }
+.keyboard-diagram .key-black[data-state="correct"],
+.keyboard-diagram .key-black[data-highlighted="true"] { box-shadow: inset 0 0 0 3px var(--fb-correct); }
+/* The revealed key stays at full strength while the rest of the disabled
+   keyboard fades to `button:disabled`'s .45 (primitives.css) — the one key the
+   learner is meant to look at cannot be the one that is hardest to see. */
+.keyboard-diagram .key[data-highlighted="true"] { opacity: 1; }
+/* ---------- Drill reveal ----------
+   The exit row shared by the flashcard drill and the theory drill: both hold a
+   missed prompt on screen and both need one centred "Next" under it. Lives here
+   rather than in either feature stylesheet because two features render it. */
+.drill-reveal { display: flex; justify-content: center; }
 .keyboard-diagram .key-white[data-state="wrong"] { box-shadow: inset 0 0 0 3px var(--fb-wrong-ink); background: color-mix(in srgb, var(--key-white), var(--fb-wrong-ink) 22%); }
 .keyboard-diagram .key-black[data-state="wrong"] { box-shadow: inset 0 0 0 3px var(--fb-wrong); }
 .keyboard-diagram .key-white[data-state="target"] { box-shadow: inset 0 0 0 3px var(--fb-playing-ink); }

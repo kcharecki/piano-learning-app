@@ -5,9 +5,10 @@ import { seededRng } from '@core/ports/rng.ts'
 import { classifyCadence, chordForRomanNumeral } from '@core/theory/harmony.ts'
 import { keyFromFifths } from '@core/theory/keys.ts'
 import { buildChord, chordMidi } from '@core/theory/chords.ts'
-import { spell } from '@core/theory/pitch.ts'
+import { fromMidi, pitchDisplayName, spell } from '@core/theory/pitch.ts'
 import {
   buildTheoryQuiz,
+  describeTheoryAnswer,
   gradeTheoryStep,
   MAX_THEORY_LEVEL,
   theoryQuizFromId,
@@ -205,7 +206,12 @@ describe('gradeTheoryStep', () => {
       fc.property(arbKind, arbLevel, arbSeed, (kind, level, seed) => {
         const item = buildTheoryQuiz(kind, level, seededRng(seed))
         const result = gradeTheoryStep(item, item.answer)
-        expect(result).toEqual({ correct: true, matchedGroups: item.answer.length, done: true })
+        expect(result).toEqual({
+          correct: true,
+          matchedGroups: item.answer.length,
+          done: true,
+          expected: describeTheoryAnswer(item),
+        })
       }),
     )
   })
@@ -244,7 +250,12 @@ describe('gradeTheoryStep', () => {
         const direction = octaveDirectionFor(item.answer)
         const transposed = transposeOctave(item.answer, direction)
         const result = gradeTheoryStep(item, transposed)
-        expect(result).toEqual({ correct: true, matchedGroups: item.answer.length, done: true })
+        expect(result).toEqual({
+          correct: true,
+          matchedGroups: item.answer.length,
+          done: true,
+          expected: describeTheoryAnswer(item),
+        })
       }),
     )
   })
@@ -326,15 +337,30 @@ describe('gradeTheoryStep', () => {
     const item: TheoryQuizItem = buildTheoryQuiz('build-scale', 1, seededRng(1))
     const first = item.answer[0] as readonly Midi[]
     const partial = gradeTheoryStep(item, [first])
-    expect(partial).toEqual({ correct: false, matchedGroups: 1, done: false })
+    expect(partial).toEqual({
+      correct: false,
+      matchedGroups: 1,
+      done: false,
+      expected: describeTheoryAnswer(item),
+    })
   })
 
   it('settles as done and correct only once every group has been played', () => {
     const item = buildTheoryQuiz('build-chord', 3, seededRng(2))
     const half = gradeTheoryStep(item, [])
-    expect(half).toEqual({ correct: false, matchedGroups: 0, done: false })
+    expect(half).toEqual({
+      correct: false,
+      matchedGroups: 0,
+      done: false,
+      expected: describeTheoryAnswer(item),
+    })
     const full = gradeTheoryStep(item, item.answer)
-    expect(full).toEqual({ correct: true, matchedGroups: item.answer.length, done: true })
+    expect(full).toEqual({
+      correct: true,
+      matchedGroups: item.answer.length,
+      done: true,
+      expected: describeTheoryAnswer(item),
+    })
   })
 })
 
@@ -520,5 +546,52 @@ describe('MAX_THEORY_LEVEL', () => {
       if (item.prompt.includes('E major')) sawEMajor = true
     }
     expect(sawEMajor).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// describeTheoryAnswer
+// ---------------------------------------------------------------------------
+
+describe('describeTheoryAnswer', () => {
+  it('lists a sequence comma-separated and a chord plus-separated', () => {
+    const scale = buildTheoryQuiz('build-scale', 1, seededRng(1))
+    const scaleText = describeTheoryAnswer(scale)
+    expect(scaleText).not.toContain(' + ')
+    expect(scaleText.split(', ')).toHaveLength(scale.answer.length)
+
+    const chord = buildTheoryQuiz('build-chord', 1, seededRng(1))
+    const chordText = describeTheoryAnswer(chord)
+    expect(chordText).not.toContain(', ')
+    expect(chordText.split(' + ')).toHaveLength((chord.answer[0] as readonly Midi[]).length)
+  })
+
+  it('names every note by the same spelling the rest of the app prints', () => {
+    const item = buildTheoryQuiz('build-chord', 1, seededRng(7))
+    const notes = (item.answer[0] as readonly Midi[]).map((n) => pitchDisplayName(fromMidi(n)))
+    expect(describeTheoryAnswer(item)).toBe(notes.join(' + '))
+  })
+
+  it('property: mentions exactly as many pitches as the answer has notes', () => {
+    fc.assert(
+      fc.property(arbKind, arbLevel, arbSeed, (kind, level, seed) => {
+        const item = buildTheoryQuiz(kind, level, seededRng(seed))
+        const noteCount = item.answer.reduce((n, group) => n + group.length, 0)
+        const text = describeTheoryAnswer(item)
+        // Every printed token is a real pitch name and there is one per note.
+        const tokens = text.split(/, | \+ /)
+        expect(tokens).toHaveLength(noteCount)
+        for (const token of tokens) expect(token).toMatch(/^[A-G][♯♭]*-?\d+$/)
+      }),
+    )
+  })
+
+  it('property: never empty, for any item any kind and level can generate', () => {
+    fc.assert(
+      fc.property(arbKind, arbLevel, arbSeed, (kind, level, seed) => {
+        const item = buildTheoryQuiz(kind, level, seededRng(seed))
+        expect(describeTheoryAnswer(item).length).toBeGreaterThan(0)
+      }),
+    )
   })
 })

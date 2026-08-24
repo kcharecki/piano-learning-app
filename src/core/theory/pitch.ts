@@ -110,6 +110,16 @@ function accidentalGlyphs(alter: Alter): string {
   return alter < 0 ? '♭'.repeat(-alter) : '♯'.repeat(alter)
 }
 
+/**
+ * `'F♯'`, `'B♭'`, `'C'` — a letter and its accidental written for a learner,
+ * with no octave. The octave-less half of {@link pitchDisplayName}, split out
+ * because several drills ask for exactly this much: "name the note" wants
+ * `F♯`, not `F♯3`, and a key is `B♭ major`, never `B♭4 major`.
+ */
+export function letterAlterDisplayName(letter: Letter, alter: Alter): string {
+  return `${letter}${accidentalGlyphs(alter)}`
+}
+
 /** Build a pitch. Throws on a non-integer octave (programmer error). */
 export function spell(letter: Letter, alter: Alter, octave: number): SpelledPitch {
   if (!Number.isInteger(octave)) {
@@ -175,7 +185,7 @@ export function pitchName(p: SpelledPitch): string {
  * @see pitchName for the parseable form.
  */
 export function pitchDisplayName(p: SpelledPitch): string {
-  return `${p.letter}${accidentalGlyphs(p.alter)}${p.octave}`
+  return `${letterAlterDisplayName(p.letter, p.alter)}${p.octave}`
 }
 
 /**
