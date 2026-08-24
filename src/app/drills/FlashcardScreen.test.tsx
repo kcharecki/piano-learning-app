@@ -421,7 +421,7 @@ describe('FlashcardScreen — the reveal holds the card (improve-app run 2026-08
   const answerKey = midiToName(FIRST.answer.midi)
   const wrongKey = midiToName(midi(FIRST.answer.midi + (FIRST.answer.midi === 56 ? 1 : -1)))
 
-  it('a miss offers Next, marks the answer on the keyboard, and freezes the answer pad', async () => {
+  it('a miss offers Next, marks the answer on the keyboard, and holds the card', async () => {
     const user = userEvent.setup()
     render(<FlashcardScreen rng={scriptedRng([0])} midiInput={new FakeMidiInput()} />)
     const staffBefore = screen.getByTestId('staff-note').getAttribute('data-step')
@@ -435,8 +435,41 @@ describe('FlashcardScreen — the reveal holds the card (improve-app run 2026-08
     )
     // Same card, still on screen: the correction lands on what caused it.
     expect(screen.getByTestId('staff-note')).toHaveAttribute('data-step', staffBefore)
-    // The pad is inert, so the marked key cannot be clicked back for credit.
-    expect(screen.getByRole('button', { name: answerKey })).toBeDisabled()
+  })
+
+  it('the marked key can be played back under the reveal, ungraded (panel r1, Teacher)', async () => {
+    const user = userEvent.setup()
+    render(<FlashcardScreen rng={scriptedRng([0])} midiInput={new FakeMidiInput()} />)
+
+    await user.click(screen.getByRole('button', { name: wrongKey }))
+    const staffAtReveal = screen.getByTestId('staff-note').getAttribute('data-step')
+    expect(screen.getByTestId('flashcard-practise')).toHaveTextContent(/^now play /i)
+
+    // The keys stay live: the drill trains finding notes AT the keys, so the
+    // correction has to be playable rather than only readable.
+    const marked = screen.getByRole('button', { name: answerKey })
+    expect(marked).toBeEnabled()
+    await user.click(marked)
+
+    expect(screen.getByTestId('flashcard-practise')).toHaveAttribute('data-done', 'true')
+    // Ungraded and not an answer: the card has not moved and Next is still
+    // the only way on.
+    expect(screen.getByTestId('staff-note')).toHaveAttribute('data-step', staffAtReveal)
+    expect(screen.getByRole('button', { name: 'Next' })).toBeInTheDocument()
+    expect(screen.getByTestId('flashcard-feedback')).toHaveTextContent(/not quite/i)
+  })
+
+  it('a wrong key played back under the reveal says so, and still does not grade', async () => {
+    const user = userEvent.setup()
+    render(<FlashcardScreen rng={scriptedRng([0])} midiInput={new FakeMidiInput()} />)
+
+    await user.click(screen.getByRole('button', { name: wrongKey }))
+    await user.click(screen.getByRole('button', { name: wrongKey }))
+
+    const practise = screen.getByTestId('flashcard-practise')
+    expect(practise).toHaveAttribute('data-done', 'false')
+    expect(practise).toHaveTextContent(/not that one/i)
+    expect(screen.getByRole('button', { name: 'Next' })).toBeInTheDocument()
   })
 
   it('Next clears the mark and the feedback, and serves the next card', async () => {
@@ -449,6 +482,7 @@ describe('FlashcardScreen — the reveal holds the card (improve-app run 2026-08
     expect(screen.queryByRole('button', { name: 'Next' })).toBeNull()
     expect(document.querySelectorAll('[data-highlighted="true"]')).toHaveLength(0)
     expect(screen.getByTestId('flashcard-feedback')).toHaveAttribute('data-visible', 'false')
+    expect(screen.queryByTestId('flashcard-practise')).toBeNull()
     expect(screen.getByRole('button', { name: answerKey })).toBeEnabled()
   })
 

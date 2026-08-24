@@ -1,11 +1,12 @@
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import { midi, type Midi } from '@core/shared/units.ts'
+import { at } from '@core/shared/invariant.ts'
 import { seededRng } from '@core/ports/rng.ts'
 import { classifyCadence, chordForRomanNumeral } from '@core/theory/harmony.ts'
 import { keyFromFifths } from '@core/theory/keys.ts'
 import { buildChord, chordMidi } from '@core/theory/chords.ts'
-import { fromMidi, pitchDisplayName, spell } from '@core/theory/pitch.ts'
+import { pitchDisplayName, spell } from '@core/theory/pitch.ts'
 import {
   buildTheoryQuiz,
   describeTheoryAnswer,
@@ -23,6 +24,9 @@ const KINDS: readonly TheoryQuizKind[] = [
   'name-key-signature',
   'build-cadence',
 ]
+
+/** Letter names in scale order, for the one-letter-per-degree property below. */
+const LETTER_ORDER = 'CDEFGAB'
 
 const arbKind = fc.constantFrom(...KINDS)
 const arbLevel = fc.integer({ min: 1, max: 10 })
@@ -300,6 +304,7 @@ describe('gradeTheoryStep', () => {
       kind: 'build-chord',
       prompt: 'Play a C major chord, first inversion.',
       answer: [chordMidi(firstInversion)],
+      spelledAnswer: [firstInversion.notes],
       simultaneous: true,
     }
     const result = gradeTheoryStep(item, [chordMidi(rootPosition)])
@@ -566,10 +571,72 @@ describe('describeTheoryAnswer', () => {
     expect(chordText.split(' + ')).toHaveLength((chord.answer[0] as readonly Midi[]).length)
   })
 
-  it('names every note by the same spelling the rest of the app prints', () => {
-    const item = buildTheoryQuiz('build-chord', 1, seededRng(7))
-    const notes = (item.answer[0] as readonly Midi[]).map((n) => pitchDisplayName(fromMidi(n)))
-    expect(describeTheoryAnswer(item)).toBe(notes.join(' + '))
+  // This block replaces a test that asserted the reveal matched
+  // `pitchDisplayName(fromMidi(n))` — i.e. that it re-derived a name from the
+  // MIDI number. That is exactly the defect the 2026-08-24-1 panel found: the
+  // assertion held only because its seed drew a sharp-free chord, and it
+  // certified the sharp spelling for every key that is not. The contract is
+  // the item's OWN spelling, and these are the cases that tell the two apart.
+
+  it('spells a flat key with flats — the fourth degree of F major is B♭, never A♯', () => {
+    const item = theoryQuizFromId('build-scale-F-major')
+    expect(item).toBeDefined()
+    const text = describeTheoryAnswer(item as TheoryQuizItem)
+    expect(text).toBe('F4, G4, A4, B♭4, C5, D5, E5, F5')
+    expect(text).not.toContain('♯')
+  })
+
+  it('spells an interval as the one the prompt asked for — a minor 3rd above C is E♭, not D♯', () => {
+    // C–D♯ is an augmented second. Printed under a prompt that asked for a
+    // minor third, it names an interval the app did not ask for.
+    const item = theoryQuizFromId('build-interval-C-3-minor')
+    expect(item).toBeDefined()
+    expect(describeTheoryAnswer(item as TheoryQuizItem)).toBe('C4, E♭4')
+  })
+
+  it("spells a key signature's tonic the way the key names it — G♭ major, not F♯ major", () => {
+    const item = theoryQuizFromId('name-key-signature--6-major')
+    expect(item).toBeDefined()
+    expect(describeTheoryAnswer(item as TheoryQuizItem)).toBe('G♭4')
+  })
+
+  it("spells a cadence's doubled soprano like its tonic — E♭5 on top, not D♯5", () => {
+    const item = theoryQuizFromId('build-cadence-perfect-authentic-Eb')
+    expect(item).toBeDefined()
+    expect(describeTheoryAnswer(item as TheoryQuizItem)).toBe('B♭4 + D5 + F5, E♭4 + G4 + E♭5')
+  })
+
+  it('property: a scale answer steps one letter name per degree', () => {
+    fc.assert(
+      fc.property(arbLevel, arbSeed, (level, seed) => {
+        const item = buildTheoryQuiz('build-scale', level, seededRng(seed))
+        const letters = describeTheoryAnswer(item)
+          .split(', ')
+          .map((token) => token.slice(0, 1))
+        // Every scale this drill builds is seven-letter diatonic, so each
+        // degree moves up exactly one letter. A spelling re-derived from MIDI
+        // repeats a letter and skips the next one (F major as "A, A♯" instead
+        // of "A, B♭"), which is what this catches.
+        for (let i = 1; i < letters.length; i++) {
+          const prev = LETTER_ORDER.indexOf(at(letters, i - 1))
+          const here = LETTER_ORDER.indexOf(at(letters, i))
+          expect(prev).toBeGreaterThanOrEqual(0)
+          expect((here - prev + LETTER_ORDER.length) % LETTER_ORDER.length).toBe(1)
+        }
+      }),
+    )
+  })
+
+  it('property: the printed names are the item own spelling, never re-derived', () => {
+    fc.assert(
+      fc.property(arbKind, arbLevel, arbSeed, (kind, level, seed) => {
+        const item = buildTheoryQuiz(kind, level, seededRng(seed))
+        const own = item.spelledAnswer
+          .map((group) => group.map(pitchDisplayName).join(' + '))
+          .join(', ')
+        expect(describeTheoryAnswer(item)).toBe(own)
+      }),
+    )
   })
 
   it('property: mentions exactly as many pitches as the answer has notes', () => {

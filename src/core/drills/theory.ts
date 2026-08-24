@@ -42,11 +42,11 @@
  * question reappearing after a reload keeps its SRS history.
  */
 import { assertNever, at, invariant } from '@core/shared/invariant.ts'
-import { midi, type Midi } from '@core/shared/units.ts'
+import { type Midi } from '@core/shared/units.ts'
 import { pick, type Rng } from '@core/ports/rng.ts'
-import { fromMidi, pitchDisplayName, spell, toMidi, type Alter, type Letter, type SpelledPitch } from '@core/theory/pitch.ts'
+import { pitchDisplayName, spell, toMidi, type Alter, type Letter, type SpelledPitch } from '@core/theory/pitch.ts'
 import { buildScale, scaleName, scaleNotes, type ScaleType } from '@core/theory/scales.ts'
-import { buildChord, chordMidi, isTriad, type Chord, type ChordQuality, type Inversion } from '@core/theory/chords.ts'
+import { buildChord, isTriad, type Chord, type ChordQuality, type Inversion } from '@core/theory/chords.ts'
 import { intervalLongName, makeInterval, SIMPLE_INTERVALS, transposeSpelled, tryTransposeSpelled, type Interval, type IntervalQuality } from '@core/theory/intervals.ts'
 import { CIRCLE_OF_FIFTHS, keyFromFifths, keyName, keyOf, type Key, type Mode } from '@core/theory/keys.ts'
 import { chordForRomanNumeral, type CadenceType } from '@core/theory/harmony.ts'
@@ -85,8 +85,23 @@ export type TheoryQuizItem = {
   /**
    * The MIDI notes that answer it, in the order they must be played. A chord
    * or a cadence step is a set played together — see `simultaneous`.
+   *
+   * Always `spelledAnswer` run through `toMidi`, never built separately —
+   * `midiGroups` is the only thing that fills this field.
    */
   readonly answer: readonly (readonly Midi[])[]
+  /**
+   * The same notes as {@link answer}, still spelled: B♭ in F major, E♭ above
+   * C, never A♯ or D♯.
+   *
+   * `toMidi` is lossy about spelling, and until this field existed the reveal
+   * re-derived a name from the MIDI number with `fromMidi`, whose table is
+   * sharps. That printed "F4, G4, A4, A♯4, …" for F major and "C4, D♯4" for
+   * a minor third above C — an augmented second, which is not the interval
+   * the prompt asked for. Every generator already holds the correct spelling
+   * one line before it calls `toMidi`, so it is kept rather than guessed at.
+   */
+  readonly spelledAnswer: readonly (readonly SpelledPitch[])[]
   /**
    * True when each group in `answer` is a chord (played together) rather
    * than a sequence. Descriptive metadata for a future consumer that wants
@@ -116,6 +131,17 @@ export type TheoryAnswerResult = {
 
 /** Register every generated note/root/chord/scale sits in, absent a reason to move it. */
 const HOME_OCTAVE = 4
+
+/**
+ * `spelledAnswer` -> `answer`. Every maker below builds the spelled groups and
+ * projects them through this, so the two fields cannot describe different
+ * notes: there is one source of truth and one direction of travel.
+ */
+function midiGroups(
+  groups: readonly (readonly SpelledPitch[])[],
+): readonly (readonly Midi[])[] {
+  return groups.map((group) => group.map(toMidi))
+}
 
 /** The widest a key signature ever gets: read off the theory module, never restated. */
 const MAX_ACCIDENTALS = (CIRCLE_OF_FIFTHS.length - 1) / 2
@@ -209,12 +235,13 @@ function tonicForScaleType(fifths: number, type: ScaleType): SpelledPitch {
  */
 function makeScaleItem(tonic: SpelledPitch, type: ScaleType): TheoryQuizItem {
   const scale = buildScale(tonic, type)
-  const notes = scaleNotes(tonic, type, 1)
+  const spelled = scaleNotes(tonic, type, 1).map((p) => [p])
   return {
     id: `build-scale-${tonicKey(tonic)}-${type}`,
     kind: 'build-scale',
     prompt: `Play ${scaleName(scale)}, ascending.`,
-    answer: notes.map((p) => [toMidi(p)]),
+    answer: midiGroups(spelled),
+    spelledAnswer: spelled,
     simultaneous: false,
   }
 }
@@ -293,7 +320,8 @@ function makeChordItem(
     prompt:
       `Play a ${tonicKey(root)} ${CHORD_QUALITY_PHRASE[quality]} chord, ` +
       `${CHORD_INVERSION_PHRASE[inversion]}.`,
-    answer: [chordMidi(chord)],
+    answer: midiGroups([chord.notes]),
+    spelledAnswer: [chord.notes],
     simultaneous: true,
   }
 }
@@ -350,7 +378,8 @@ function makeIntervalItem(
     id: `build-interval-${tonicKey(root)}-${interval.number}-${interval.quality}`,
     kind: 'build-interval',
     prompt: `Play ${tonicKey(root)}, then a ${intervalLongName(interval)} above it.`,
-    answer: [[toMidi(root)], [toMidi(target)]],
+    answer: midiGroups([[root], [target]]),
+    spelledAnswer: [[root], [target]],
     simultaneous: false,
   }
 }
@@ -382,7 +411,8 @@ function makeKeySignatureItem(fifths: number, mode: Mode): TheoryQuizItem {
     id: `name-key-signature-${fifths}-${mode}`,
     kind: 'name-key-signature',
     prompt: `How many ${accidentalWord(fifths)} has ${keyName(key)}? Answer by playing its tonic.`,
-    answer: [[toMidi(key.tonic)]],
+    answer: midiGroups([[key.tonic]]),
+    spelledAnswer: [[key.tonic]],
     simultaneous: false,
   }
 }
@@ -438,12 +468,13 @@ function makeCadenceItem(recipe: CadenceRecipe, key: Key): TheoryQuizItem {
   const [firstText, secondText] = recipe.numerals
   const first = mustChord(firstText, key)
   const second = mustChord(secondText, key)
-  const secondMidi = finalChordMidi(recipe.type, second)
+  const spelled = [first.notes, finalChordPitches(recipe.type, second)]
   return {
     id: `build-cadence-${recipe.type}-${tonicKey(key.tonic)}`,
     kind: 'build-cadence',
     prompt: `Play a ${CADENCE_LABEL[recipe.type]} cadence in ${keyName(key)}.`,
-    answer: [chordMidi(first), secondMidi],
+    answer: midiGroups(spelled),
+    spelledAnswer: spelled,
     simultaneous: true,
   }
 }
@@ -461,15 +492,18 @@ function buildCadenceItem(level: number, rng: Rng): TheoryQuizItem {
  * final chord is root position AND its top sounding note is the tonic, so a
  * `'perfect-authentic'` recipe's answer must actually satisfy that, not just
  * a root-position triad whose top note happens to be the fifth.
+ *
+ * Spelled, not MIDI: the doubled soprano keeps the tonic's own letter and
+ * accidental, so a cadence in D♭ reveals D♭5 on top rather than C♯5.
  */
-function finalChordMidi(type: CadenceType, chord: Chord): readonly Midi[] {
-  const notes = chordMidi(chord)
+function finalChordPitches(type: CadenceType, chord: Chord): readonly SpelledPitch[] {
+  const notes = chord.notes
   if (type !== 'perfect-authentic') return notes
   // A perfect-authentic recipe's final chord is a root-position 'I', so its
   // lowest note is already the tonic — an octave above it is a tonic soprano
   // that stays above every other voice.
   const root = at(notes, 0)
-  return [...notes.slice(0, -1), midi(root + 12)]
+  return [...notes.slice(0, -1), { ...root, octave: root.octave + 1 }]
 }
 
 /**
@@ -737,8 +771,8 @@ function intervalMatches(
  * was built in is the one its prompt implies.
  */
 export function describeTheoryAnswer(item: TheoryQuizItem): string {
-  return item.answer
-    .map((group) => group.map((note) => pitchDisplayName(fromMidi(note))).join(' + '))
+  return item.spelledAnswer
+    .map((group) => group.map(pitchDisplayName).join(' + '))
     .join(', ')
 }
 

@@ -193,6 +193,35 @@ describe('useFlashcardDrill — the reveal (improve-app run 2026-08-24-1)', () =
     expect(useFlashcardStore.getState().cardsById[heldId!]).toEqual(scheduledByTheMiss)
   })
 
+  it('a press under the reveal is remembered as practice, and grades nothing', () => {
+    const { result, midiInput, clock } = setup()
+    const correctMidi = staffToKeyMidi(result.current.card)
+    const wrongMidi = correctMidi === 56 ? correctMidi + 1 : correctMidi - 1
+    act(() => result.current.answerNote(midi(wrongMidi)))
+    const heldId = result.current.card?.id
+    const scheduledByTheMiss = useFlashcardStore.getState().cardsById[heldId!]
+
+    expect(result.current.practisedNote).toBeUndefined()
+
+    // The learner plays the note the reveal named. It must land — the drill
+    // trains finding notes at the keys — without being graded, since it was
+    // read off the screen (panel r1, Teacher MAJOR).
+    act(() => result.current.answerNote(midi(correctMidi)))
+
+    expect(result.current.practisedNote).toBe(correctMidi)
+    expect(useFlashcardStore.getState().cardsById[heldId!]).toEqual(scheduledByTheMiss)
+    expect(result.current.card?.id).toBe(heldId)
+
+    // A real MIDI press reaches the same path, not a separate one.
+    act(() =>
+      midiInput.emit({ type: 'noteOn', note: midi(wrongMidi), velocity: 80, time: clock.now() }),
+    )
+    expect(result.current.practisedNote).toBe(wrongMidi)
+
+    act(() => result.current.next())
+    expect(result.current.practisedNote).toBeUndefined()
+  })
+
   it('next() clears the reveal and moves on; a correct answer never reveals at all', () => {
     const { result } = setup()
     const correctMidi = staffToKeyMidi(result.current.card)

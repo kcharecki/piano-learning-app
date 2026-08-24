@@ -139,6 +139,41 @@ function AnswerFeedback({ grade }: { readonly grade: GradeResult | undefined }) 
 }
 
 /**
+ * The reveal's second line: play the note it just named (panel r1
+ * 2026-08-24-1, Teacher MAJOR). The correction for a note-reading drill has
+ * to be produced at the keys, because producing it at the keys is the skill
+ * being trained — a reveal that disabled every key would train reading a
+ * marked rectangle and pressing Next. So the keyboard stays live under the
+ * reveal, ungraded, and this says what to do with it and whether it landed.
+ *
+ * Only the `'staff-to-key'` card gets one: the other three kinds are answered
+ * on a pad of labels, and a label is not something a learner plays.
+ */
+function PractisePrompt({
+  expected,
+  hit,
+}: {
+  readonly expected: string
+  /** `undefined` until the learner presses something under the reveal. */
+  readonly hit: boolean | undefined
+}) {
+  return (
+    <p
+      role="status"
+      className="drill-practise-line"
+      data-testid="flashcard-practise"
+      data-done={hit === true}
+    >
+      {hit === undefined
+        ? `Now play ${expected}.`
+        : hit
+          ? `That is it — ${expected}.`
+          : `Not that one — ${expected} is the marked key.`}
+    </p>
+  )
+}
+
+/**
  * The reveal's exit control (improve-app run 2026-08-24-1). Mounted only while
  * a missed card is being held on screen, and physically LAST — after the
  * marked key and the sentence naming it — the same ordering
@@ -247,7 +282,7 @@ export function FlashcardScreen(props: FlashcardScreenProps) {
           <p className="flashcard-prompt-text">
             Play the note shown, on the keyboard below or your MIDI keyboard.
           </p>
-          <fieldset className="flashcard-answer" disabled={drill.revealed}>
+          <fieldset className="flashcard-answer">
             <OnScreenKeyboard
               low={drill.range.low}
               high={drill.range.high}
@@ -263,7 +298,19 @@ export function FlashcardScreen(props: FlashcardScreenProps) {
             <QwertyHint />
           </details>
           <AnswerFeedback grade={drill.lastGrade} />
-          {drill.revealed && <RevealNext onNext={drill.next} />}
+          {drill.revealed && drill.lastGrade !== undefined && (
+            <>
+              <PractisePrompt
+                expected={drill.lastGrade.expected}
+                hit={
+                  drill.practisedNote === undefined
+                    ? undefined
+                    : drill.practisedNote === drill.card.answer.midi
+                }
+              />
+              <RevealNext onNext={drill.next} />
+            </>
+          )}
         </section>
       ) : drill.card.kind === 'interval-on-staff' ? (
         <section className="flashcard-stage" aria-label="Flashcard">

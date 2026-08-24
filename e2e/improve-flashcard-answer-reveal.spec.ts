@@ -25,6 +25,11 @@ import { expect, test, type ConsoleMessage, type Page } from '@playwright/test'
  *   (design A in `runs/2026-08-24-1/design.md`, killed) fails.
  * - Arm 3 answers CORRECTLY and requires no reveal, so a screen that always
  *   shows the answer fails.
+ * - Arm 4 is the class, not the instance: the same gap on the theory drill,
+ *   deep-linked to `build-scale` level 1 (one scale type, one key signature,
+ *   so the item is C major on every run) and answered one degree at a time,
+ *   so a screen that grades an attempt still IN PROGRESS fails before it ever
+ *   reaches the reveal.
  *
  * Seeding writes the SRS store directly and reloads, the pattern
  * `e2e/dashboard-populated.spec.ts` uses. The level-1 `staff-to-key` deck is
@@ -166,6 +171,29 @@ test('arm 1 — a wrong answer names that card own correct note, with the card s
   // The reveal is dismissed deliberately, not by a timer.
   await expect(page.getByRole('button', { name: 'Next', exact: true })).toBeVisible()
 
+  // The keys stay live under the reveal, because producing the correction at
+  // the keys IS the skill this deck trains. Playing it back is ungraded and
+  // never advances the card — `Next` remains the only way on.
+  const practise = page.getByTestId('flashcard-practise')
+  await expect(practise).toHaveText('Now play E4.')
+  const idleColor = await practise.evaluate((el) => getComputedStyle(el).color)
+
+  await keyboard.getByRole('button', { name: wrongKeyName(64), exact: true }).click()
+  await expect(practise).toHaveText('Not that one — E4 is the marked key.')
+
+  await keyboard.getByRole('button', { name: 'E4', exact: true }).click()
+  await expect(practise).toHaveText('That is it — E4.')
+  await expect(practise).toHaveAttribute('data-done', 'true')
+  // Landing it is worth a color of its own — asserted against the un-landed
+  // color rather than a literal, so the tokens stay free to move.
+  expect(await practise.evaluate((el) => getComputedStyle(el).color)).not.toBe(idleColor)
+
+  // Three presses under the reveal, and the card is still the missed one, still
+  // wrong, still waiting for Next.
+  await expect(staff).toHaveAttribute('data-step', stepBefore ?? '')
+  await expect(page.getByTestId('flashcard-feedback')).toContainText('Not quite')
+  await expect(page.getByRole('button', { name: 'Next', exact: true })).toBeVisible()
+
   expect(errors).toEqual([])
 })
 
@@ -212,24 +240,55 @@ test('arm 3 — a correct answer reveals nothing and moves on', async ({ page })
   expect(errors).toEqual([])
 })
 
-test('the class, not the instance — the theory drill also names its answer', async ({ page }) => {
+test('the class, not the instance — the theory drill also names its answer, and only once the attempt settles', async ({
+  page,
+}) => {
   const errors = collectErrors(page)
-  await page.goto('/')
-  await nav(page, 'Theory').click()
-  await expect(page.getByRole('heading', { name: 'Theory', exact: true })).toBeVisible()
-
+  // A deep link, not the nav: `/theory/<kind>/<level>` pins the topic and the
+  // level, and level 1 `build-scale` admits exactly one scale type (major) and
+  // exactly one key signature (no accidentals), so the item is C major on every
+  // run. That is what lets this arm press a note it KNOWS is right and a note it
+  // KNOWS is wrong, instead of the old single unmusical press, which was right
+  // whenever the drawn tonic happened to be C and therefore proved nothing.
+  await page.goto('/theory/build-scale/1')
   const prompt = page.getByTestId('theory-prompt')
-  await expect(prompt).toBeVisible()
+  await expect(prompt).toHaveText('Play C major, ascending.')
+  await expect(page.getByTestId('theory-progress')).toContainText('0 / 8')
 
-  // Answer with a deliberately unmusical single press. Whatever the generated
-  // item is, one key is not a scale, a triad or an interval, so this grades
-  // wrong for every `TheoryQuizKind`.
   const keyboard = page.getByRole('group', { name: 'On-screen keyboard' })
-  await keyboard.getByRole('button', { name: 'C3', exact: true }).click()
+  const feedback = page.getByTestId('theory-feedback')
 
-  // The feedback must name the expected notes, not just the SRS grade. Today
-  // it reads "Not quite — graded again" and this line is why the spec is red.
-  await expect(page.getByTestId('theory-feedback')).toContainText(/[A-G](#|b)?\d/)
+  // Degree 1, correct. An attempt in progress is NOT a verdict: a screen that
+  // grades every press printed "Not quite" over a right note, and — once the
+  // result carried the expected answer — leaked the whole scale after one key.
+  await keyboard.getByRole('button', { name: 'C4', exact: true }).click()
+  await expect(page.getByTestId('theory-progress')).toContainText('1 / 8')
+  await expect(feedback).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Next', exact: true })).toHaveCount(0)
+
+  // Degree 2, wrong (C again, where D belongs). Now the attempt is settled, so
+  // now there is a verdict — and it names every note the prompt asked for.
+  await keyboard.getByRole('button', { name: 'C4', exact: true }).click()
+  await expect(feedback).toContainText('C4, D4, E4, F4, G4, A4, B4, C5')
+
+  // Held on the prompt that was missed, exited by hand, exactly like the
+  // flashcard reveal in arm 1.
+  await expect(prompt).toHaveText('Play C major, ascending.')
+  const next = page.getByRole('button', { name: 'Next', exact: true })
+  await expect(next).toBeVisible()
+
+  // The keys stay live under the reveal so the answer can be PLAYED, not only
+  // read — ungraded, and it never advances the prompt.
+  const echo = page.getByTestId('theory-echo')
+  await expect(echo).toContainText('Now play it: 0 of 8')
+  await keyboard.getByRole('button', { name: 'C4', exact: true }).click()
+  await expect(echo).toContainText('Now play it: 1 of 8')
+  await expect(prompt).toHaveText('Play C major, ascending.')
+  await expect(next).toBeVisible()
+
+  await next.click()
+  await expect(page.getByTestId('theory-echo')).toHaveCount(0)
+  await expect(page.getByTestId('theory-feedback')).toHaveCount(0)
 
   expect(errors).toEqual([])
 })

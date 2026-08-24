@@ -338,10 +338,6 @@
 .keyboard-diagram .key-white[data-highlighted="true"] { box-shadow: inset 0 0 0 3px var(--fb-correct-ink); background: color-mix(in srgb, var(--key-white), var(--fb-correct-ink) 22%); }
 .keyboard-diagram .key-black[data-state="correct"],
 .keyboard-diagram .key-black[data-highlighted="true"] { box-shadow: inset 0 0 0 3px var(--fb-correct); }
-/* The revealed key stays at full strength while the rest of the disabled
-   keyboard fades to `button:disabled`'s .45 (primitives.css) — the one key the
-   learner is meant to look at cannot be the one that is hardest to see. */
-.keyboard-diagram .key[data-highlighted="true"] { opacity: 1; }
 /* ---------- Drill reveal ----------
    The exit row shared by the flashcard drill and the theory drill: both hold a
    missed prompt on screen and both need one centred "Next" under it. Lives here
@@ -507,6 +503,27 @@
 .dictation-result .note-chip[data-state="extra"] { border-color: var(--fb-extra); color: var(--fb-extra); background: var(--fb-extra-dim); }
 .dictation-result .note-chip[data-state="extra"]::before { content: "+"; }
 .dictation-result .accuracy-pair { display: flex; gap: var(--space-6); }
+
+/* ---------- Drill reveal: the practise line ----------
+   improve-app run 2026-08-24-1. The reveal names the answer in a
+   `[role="status"]` chip and then asks for it to be PLAYED. That second
+   sentence is an instruction, not a second verdict, and the primitive's chip
+   drew it as one: on Theory it stacked a bordered full-width box directly
+   under the bordered verdict, and on Flashcards it sat between the verdict
+   and `Next` reading as a second, disabled button. Both are the defect class
+   `scripts/check-visual-pass.mjs` exists to catch, and no test can fail on
+   either. It keeps `role="status"` — the text changes as the learner plays
+   the answer back and has to be announced — and drops the box. */
+.drill-practise-line {
+  justify-content: center;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+}
+/* Landed. The same green the rest of the app spends on a correct answer. */
+.drill-practise-line[data-done="true"] { color: var(--fb-correct); }
 
 /* ---------- Metronome & rhythm ---------- */
 .metronome-beats {

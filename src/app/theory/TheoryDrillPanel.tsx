@@ -186,10 +186,32 @@ function rangeFor(): { readonly low: Midi; readonly high: Midi } {
  */
 function AnswerFeedback({ result }: { readonly result: TheoryAnswerResult | undefined }) {
   if (result === undefined) return null
-  const grade: Grade = result.correct ? 'good' : 'again'
   return (
     <p role="status" data-testid="theory-feedback">
-      {result.correct ? `Correct — graded ${grade}` : `Not quite — it was ${result.expected}`}
+      {result.correct ? 'Correct' : `Not quite — it was ${result.expected}`}
+    </p>
+  )
+}
+
+/**
+ * The reveal's second line: play what it just named (panel r1 2026-08-24-1,
+ * Teacher MAJOR). Reading "it was C4, D4, E4…" and pressing Next rehearses
+ * reading and pressing Next; the drill is about finding those notes at the
+ * keys, so the keys stay live under the reveal and this counts the learner
+ * through them. Ungraded — the card was scheduled when the attempt settled,
+ * and nothing here can change it or move the prompt on.
+ */
+function EchoPrompt({
+  played,
+  total,
+}: {
+  readonly played: number
+  readonly total: number
+}) {
+  const done = played >= total
+  return (
+    <p role="status" className="drill-practise-line" data-testid="theory-echo" data-done={done}>
+      {done ? 'That is it — you played it back.' : `Now play it: ${played} of ${total}`}
     </p>
   )
 }
@@ -239,6 +261,7 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
   const [, setPendingNotes] = useState<readonly Midi[]>([])
   const [lastResult, setLastResult] = useState<TheoryAnswerResult | undefined>(undefined)
   const [revealed, setRevealed] = useState(false)
+  const [echoed, setEchoed] = useState(0)
   const [nowMs, setNowMs] = useState<number>(() => date.epochMillis())
 
   // Accumulates presses within the current attempt; mirrored into
@@ -246,8 +269,21 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
   // this ref (rather than deriving the next value from stale render-closure
   // state) makes two `noteOn` events delivered in the same batched task
   // accumulate correctly instead of the second overwriting the first.
+  // The named answer as one flat press sequence — what `echoPress` walks
+  // through while the reveal is up. Chords are listed in the order the reveal
+  // prints them, because a mouse has one pointer and cannot play them together.
+  const echoTargets: readonly Midi[] = useMemo(
+    () => (item === undefined ? [] : item.answer.flat()),
+    [item],
+  )
+
   const pendingRef = useRef<readonly Midi[]>([])
   const playedRef = useRef<readonly (readonly Midi[])[]>([])
+
+  // How much of the named answer the learner has played back under the reveal.
+  // A ref for the same reason `pendingRef` is one: two `noteOn` events in one
+  // batched task must both count.
+  const echoedRef = useRef(0)
 
   // Set just before `commitAnswer` calls `setKind` to serve a due item of a
   // different kind: tells the kind/level effect below "the item is already
@@ -282,6 +318,8 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
     setPendingNotes([])
     setLastResult(undefined)
     setRevealed(false)
+    echoedRef.current = 0
+    setEchoed(0)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only kind/level should reset the item
   }, [kind, level])
 
@@ -361,12 +399,33 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
     if (!revealed) return
     setRevealed(false)
     setLastResult(undefined)
+    echoedRef.current = 0
+    setEchoed(0)
     serveNext(useFlashcardStore.getState().cardsById)
   }
 
+  /**
+   * A press while the reveal is up. Ungraded, and it never advances the
+   * prompt: the card was scheduled the moment the attempt settled, and `Next`
+   * is still the only way on. What it does is let the learner PLAY the
+   * correction rather than only read it — the drill trains finding notes at
+   * the keys, so a reveal that disabled every key would rehearse pressing
+   * Next instead (panel r1 2026-08-24-1, Teacher). Presses count in the order
+   * the reveal lists them; a wrong one is simply not counted.
+   */
+  function echoPress(note: Midi): void {
+    if (echoedRef.current >= echoTargets.length) return
+    if (echoTargets[echoedRef.current] !== note) return
+    echoedRef.current += 1
+    setEchoed(echoedRef.current)
+  }
+
   function handleNote(note: Midi): void {
-    if (revealed) return
     if (item === undefined) return
+    if (revealed) {
+      echoPress(note)
+      return
+    }
     if (playedRef.current.length === 0) setLastResult(undefined)
     const expected = item.answer[playedRef.current.length]
     if (expected === undefined) return
@@ -384,8 +443,15 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
     setPendingNotes([])
     setPlayedGroups(played)
     const result = gradeTheoryStep(item, played)
+    // An attempt in progress is not a verdict. `gradeTheoryStep` reports
+    // `correct: false` until the last group lands, so rendering every step
+    // printed "Not quite" over a note that was right — and, once the result
+    // carried `expected`, printed the whole answer after the first correct
+    // press. Progress is what `theory-progress` is for; this line is the
+    // verdict, and a verdict needs a settled attempt.
+    if (!result.done) return
     setLastResult(result)
-    if (result.done) commitAnswer(item, result.correct)
+    commitAnswer(item, result.correct)
   }
 
   const handleNoteRef = useRef(handleNote)
@@ -486,15 +552,15 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
             </span>
             <span className="stat-label">Played</span>
           </div>
-          <OnScreenKeyboard
-            low={range.low}
-            high={range.high}
-            onPress={handleNote}
-            disabled={revealed}
-          />
+          <OnScreenKeyboard low={range.low} high={range.high} onPress={handleNote} />
           <QwertyHint />
           <AnswerFeedback result={lastResult} />
-          {revealed && <RevealNext onNext={next} />}
+          {revealed && (
+            <>
+              <EchoPrompt played={echoed} total={echoTargets.length} />
+              <RevealNext onNext={next} />
+            </>
+          )}
         </section>
       )}
 

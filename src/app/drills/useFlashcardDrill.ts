@@ -125,8 +125,14 @@ export type UseFlashcardDrill = {
   readonly stats: RetentionStats
   readonly lastGrade: GradeResult | undefined
   /** True while a missed card is held on screen with its answer shown. The
-   *  four `answerX` functions are no-ops until `next()` clears it. */
+   *  four `answerX` functions stop grading until `next()` clears it. */
   readonly revealed: boolean
+  /** The key the learner has pressed since the reveal went up, if any — the
+   *  correction played back rather than only read. `undefined` until they
+   *  press one, and cleared with the reveal. Only `'staff-to-key'` cards can
+   *  set it: the other three kinds are answered on a pad, and a label is not
+   *  something you play. */
+  readonly practisedNote: Midi | undefined
   /** Leaves the reveal and draws the next card. A no-op when not revealed. */
   readonly next: () => void
   readonly midi: MidiConnection
@@ -214,6 +220,7 @@ export function useFlashcardDrill(options: UseFlashcardDrillOptions): UseFlashca
   const [current, setCurrent] = useState<DrillCard | undefined>(undefined)
   const [lastGrade, setLastGrade] = useState<GradeResult | undefined>(undefined)
   const [revealed, setRevealed] = useState(false)
+  const [practisedNote, setPractisedNote] = useState<Midi | undefined>(undefined)
   const promptShownAtRef = useRef(0)
 
   // A fresh deck (the level or kind changed) always starts from whatever is
@@ -226,6 +233,7 @@ export function useFlashcardDrill(options: UseFlashcardDrillOptions): UseFlashca
     promptShownAtRef.current = clockNow
     setLastGrade(undefined)
     setRevealed(false)
+    setPractisedNote(undefined)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a deck change (level/kind) should reset the current card
   }, [deck])
 
@@ -289,6 +297,7 @@ export function useFlashcardDrill(options: UseFlashcardDrillOptions): UseFlashca
     if (!revealed) return
     const clockNow = clock.now()
     setRevealed(false)
+    setPractisedNote(undefined)
     setLastGrade(undefined)
     setCurrent(nextDrillCard(deck, cards, date.epochMillis(), rng))
     promptShownAtRef.current = clockNow
@@ -296,8 +305,17 @@ export function useFlashcardDrill(options: UseFlashcardDrillOptions): UseFlashca
 
   function answerNote(note: Midi): void {
     const card = current
-    if (revealed) return
     if (card === undefined || card.kind !== 'staff-to-key') return
+    if (revealed) {
+      // Ungraded, and it never advances: the card was scheduled the moment
+      // the answer landed and `next()` is still the only way on. What it does
+      // is let the learner PLAY the note the reveal just named — the drill
+      // trains finding notes at the keys, so a reveal that disabled them
+      // would rehearse reading a highlighted rectangle and pressing Next
+      // (panel r1 2026-08-24-1, Teacher MAJOR). MIDI arrives here too.
+      setPractisedNote(note)
+      return
+    }
     const clockNow = clock.now()
     const dateNow = date.epochMillis()
     const elapsedMs = clockNow - promptShownAtRef.current
@@ -373,6 +391,7 @@ export function useFlashcardDrill(options: UseFlashcardDrillOptions): UseFlashca
     stats,
     lastGrade,
     revealed,
+    practisedNote,
     next,
     midi,
     answerNote,

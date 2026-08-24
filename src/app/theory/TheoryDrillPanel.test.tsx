@@ -136,7 +136,7 @@ describe('TheoryDrillPanel', () => {
       }
     }
 
-    expect(screen.getByTestId('theory-feedback')).toHaveTextContent(/correct — graded good/i)
+    expect(screen.getByTestId('theory-feedback')).toHaveTextContent(/^correct$/i)
     expect(screen.getByTestId('theory-stats-total')).toHaveTextContent('1')
   })
 
@@ -195,18 +195,55 @@ describe('TheoryDrillPanel', () => {
     // Same prompt, still on screen: the correction lands on what caused it.
     expect(screen.getByTestId('theory-prompt').textContent).toBe(promptBefore)
     expect(screen.getByRole('button', { name: 'Next' })).toBeInTheDocument()
-    // The pad is inert, so the named answer cannot be played back for credit.
-    expect(
-      within(keyboard).getByRole('button', { name: midiToName(asMidi(firstNote)) }),
-    ).toBeDisabled()
+    // The keys stay live so the named answer can be PLAYED back — the drill is
+    // about finding notes at the keys (panel r1, Teacher MAJOR). Ungraded: the
+    // prompt does not move and Next is still the only way on.
+    const firstKey = within(keyboard).getByRole('button', {
+      name: midiToName(asMidi(firstNote)),
+    })
+    expect(firstKey).toBeEnabled()
+    expect(screen.getByTestId('theory-echo')).toHaveTextContent(
+      `Now play it: 0 of ${expected.answer.length}`,
+    )
+
+    await user.click(firstKey)
+
+    expect(screen.getByTestId('theory-echo')).toHaveTextContent(
+      `Now play it: 1 of ${expected.answer.length}`,
+    )
+    expect(screen.getByTestId('theory-prompt').textContent).toBe(promptBefore)
+    expect(screen.getByRole('button', { name: 'Next' })).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Next' }))
 
     expect(screen.queryByRole('button', { name: 'Next' })).toBeNull()
     expect(screen.queryByTestId('theory-feedback')).toBeNull()
+    expect(screen.queryByTestId('theory-echo')).toBeNull()
     expect(
       within(keyboard).getByRole('button', { name: midiToName(asMidi(firstNote)) }),
     ).toBeEnabled()
+  })
+
+  it('a correct note mid-answer says nothing at all — no verdict, no answer leaked', async () => {
+    const user = userEvent.setup()
+    render(<TheoryDrillPanel rng={scriptedRng([0])} midiInput={new FakeMidiInput()} />)
+
+    // A scale is eight groups, so the first press settles nothing.
+    // `gradeTheoryStep` reports `correct: false` until the last group lands,
+    // and rendering that printed "Not quite" over a RIGHT note — with the
+    // whole answer attached, once the result carried `expected`.
+    const expected = buildTheoryQuiz('build-scale', 1, scriptedRng([0]))
+    expect(expected.answer.length).toBeGreaterThan(2)
+    const firstNote = expected.answer[0]?.[0] as number
+
+    const keyboard = screen.getByRole('group', { name: 'On-screen keyboard' })
+    await user.click(within(keyboard).getByRole('button', { name: midiToName(asMidi(firstNote)) }))
+
+    expect(screen.queryByTestId('theory-feedback')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Next' })).toBeNull()
+    expect(screen.getByTestId('theory-progress')).toHaveTextContent(
+      `1 / ${expected.answer.length}`,
+    )
   })
 
   it('a correct answer never reveals — it advances, as it always did', async () => {
@@ -245,7 +282,7 @@ describe('TheoryDrillPanel', () => {
     const lastNote = chord.at(-1) as number
     await user.click(within(keyboard).getByRole('button', { name: midiToName(asMidi(lastNote)) }))
 
-    expect(screen.getByTestId('theory-feedback')).toHaveTextContent(/correct — graded good/i)
+    expect(screen.getByTestId('theory-feedback')).toHaveTextContent(/^correct$/i)
   })
 
   it('a physical MIDI keyboard press answers the prompt exactly like the on-screen one', () => {
@@ -261,7 +298,7 @@ describe('TheoryDrillPanel', () => {
       }
     }
 
-    expect(screen.getByTestId('theory-feedback')).toHaveTextContent(/correct — graded good/i)
+    expect(screen.getByTestId('theory-feedback')).toHaveTextContent(/^correct$/i)
     expect(screen.getByTestId('theory-stats-total')).toHaveTextContent('1')
   })
 
@@ -334,7 +371,7 @@ describe('TheoryDrillPanel', () => {
       }
     })
 
-    expect(screen.getByTestId('theory-feedback')).toHaveTextContent(/correct — graded good/i)
+    expect(screen.getByTestId('theory-feedback')).toHaveTextContent(/^correct$/i)
   })
 
   it('a wrongly-graded card comes back as ITSELF once due — not a fresh draw that merely shares its kind (roadmap 3.20)', async () => {
