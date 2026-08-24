@@ -186,10 +186,17 @@ test('opening "The C Major Triad" lesson\'s quiz opens the build-chord theory dr
   // The roadmap's proof action: a chord played on the keyboard grades.
   // `commitAnswer` immediately resets `playedGroups` to serve the next item
   // (progress reverts to "0 / <n> played" for THAT item in the same commit),
-  // so the feedback message — which `commitAnswer` does not clear — is the
-  // assertion that actually proves this attempt graded, not the progress
-  // counter.
-  await expect(page.getByTestId('theory-feedback')).toHaveText('Correct — graded good')
+  // so the feedback message — which `commitAnswer` does not clear — is one
+  // half of the assertion that this attempt graded rather than the progress
+  // counter moving.
+  await expect(page.getByTestId('theory-feedback')).toHaveText('Correct')
+
+  // The other half. The verdict used to read "Correct — graded good", and that
+  // SRS jargon was the only thing separating a graded attempt from a rendered
+  // string; improve-app run 2026-08-24-1 removed the jargon as unreadable, so
+  // the scheduling itself is asserted instead — a card now exists where none
+  // did, which only `commitAnswer` can produce.
+  await expect(page.getByTestId('theory-stats-total')).toHaveText('1')
 
   expect(errors).toEqual([])
 })

@@ -343,13 +343,14 @@ test('opening "The Circle of Fifths" lesson quiz lands on the key-signature deck
 
   // Proves the deck is usable, not merely selected: a real key-signature
   // prompt is showing, and answering it produces a real graded result.
-  // (The pill's copy changed under UI-12 from "Correct/Not quite — graded
-  // <n>" to "Correct" / "Not quite — it comes back for review"; either one
+  // (The pill's copy has moved twice: UI-12 replaced "graded <n>" with "it
+  // comes back for review", and improve-app run 2026-08-24-1 replaced that
+  // with the card's own answer, "Not quite — that was <key>". Any of them
   // proves a real grade landed, which a pill that never left its unrendered,
-  // pre-answer state could not.)
+  // pre-answer state could not — so this matches the shape, not the wording.)
   await expect(page.getByTestId('key-signature-prompt')).not.toHaveText('')
   await page.getByRole('group', { name: 'Key signature answer' }).getByRole('button').first().click()
-  await expect(page.getByTestId('flashcard-feedback')).toHaveText(/^(Correct|Not quite — it comes back for review)$/)
+  await expect(page.getByTestId('flashcard-feedback')).toHaveText(/^(Correct|Not quite — .+)$/)
 
   expect(errors).toEqual([])
 })
