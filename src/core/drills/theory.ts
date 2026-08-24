@@ -102,6 +102,16 @@ export type TheoryQuizItem = {
    * one line before it calls `toMidi`, so it is kept rather than guessed at.
    */
   readonly spelledAnswer: readonly (readonly SpelledPitch[])[]
+
+  /**
+   * What the answer IS, when naming the notes does not answer the question the
+   * prompt asked. `'name-key-signature'` asks for a COUNT ("How many flats has
+   * B♭ major?") and is answered at the keys, so naming only the note it wanted
+   * ("it was B♭4") replies to the instruction and never to the question — a
+   * learner who did not know the count still does not (panel r2 2026-08-24-1,
+   * Teacher). Set only where the two differ; `describeTheoryAnswer` prefers it.
+   */
+  readonly answerSummary?: string
   /**
    * True when each group in `answer` is a chord (played together) rather
    * than a sequence. Descriptive metadata for a future consumer that wants
@@ -404,6 +414,14 @@ function accidentalWord(fifths: number): string {
   return fifths > 0 ? 'sharps' : 'flats'
 }
 
+/** The count the prompt asked for, as the reveal has to say it back: `'2 flats'`. */
+function accidentalCount(fifths: number): string {
+  if (fifths === 0) return 'no sharps or flats'
+  const n = Math.abs(fifths)
+  const word = fifths > 0 ? 'sharp' : 'flat'
+  return `${n} ${word}${n === 1 ? '' : 's'}`
+}
+
 /** Same split as `makeScaleItem` — shared by `buildKeySignatureItem` and `theoryQuizFromId`. */
 function makeKeySignatureItem(fifths: number, mode: Mode): TheoryQuizItem {
   const key = keyFromFifths(fifths, mode)
@@ -413,6 +431,7 @@ function makeKeySignatureItem(fifths: number, mode: Mode): TheoryQuizItem {
     prompt: `How many ${accidentalWord(fifths)} has ${keyName(key)}? Answer by playing its tonic.`,
     answer: midiGroups([[key.tonic]]),
     spelledAnswer: [[key.tonic]],
+    answerSummary: `${accidentalCount(fifths)}, tonic ${pitchDisplayName(key.tonic)}`,
     simultaneous: false,
   }
 }
@@ -771,6 +790,7 @@ function intervalMatches(
  * was built in is the one its prompt implies.
  */
 export function describeTheoryAnswer(item: TheoryQuizItem): string {
+  if (item.answerSummary !== undefined) return item.answerSummary
   return item.spelledAnswer
     .map((group) => group.map(pitchDisplayName).join(' + '))
     .join(', ')

@@ -597,7 +597,19 @@ describe('describeTheoryAnswer', () => {
   it("spells a key signature's tonic the way the key names it — G♭ major, not F♯ major", () => {
     const item = theoryQuizFromId('name-key-signature--6-major')
     expect(item).toBeDefined()
-    expect(describeTheoryAnswer(item as TheoryQuizItem)).toBe('G♭4')
+    expect(describeTheoryAnswer(item as TheoryQuizItem)).toBe('6 flats, tonic G♭4')
+  })
+
+  // The prompt asks "How many flats has B♭ major?" and is answered at the keys,
+  // so naming only the note replies to the instruction and never to the
+  // question (panel r2 2026-08-24-1, Teacher MAJOR).
+  it('answers the key-signature question with the COUNT it asked for, not only the tonic', () => {
+    const two = theoryQuizFromId('name-key-signature--2-major')
+    expect(describeTheoryAnswer(two as TheoryQuizItem)).toBe('2 flats, tonic B♭4')
+    const one = theoryQuizFromId('name-key-signature-1-major')
+    expect(describeTheoryAnswer(one as TheoryQuizItem)).toBe('1 sharp, tonic G4')
+    const none = theoryQuizFromId('name-key-signature-0-major')
+    expect(describeTheoryAnswer(none as TheoryQuizItem)).toBe('no sharps or flats, tonic C4')
   })
 
   it("spells a cadence's doubled soprano like its tonic — E♭5 on top, not D♯5", () => {
@@ -634,7 +646,11 @@ describe('describeTheoryAnswer', () => {
         const own = item.spelledAnswer
           .map((group) => group.map(pitchDisplayName).join(' + '))
           .join(', ')
-        expect(describeTheoryAnswer(item)).toBe(own)
+        // `name-key-signature` answers a COUNT and carries its own summary; every
+        // other kind is answered by the notes and must print exactly its own
+        // spelling. Either way the spelling shown is the item's, never re-derived.
+        if (item.answerSummary === undefined) expect(describeTheoryAnswer(item)).toBe(own)
+        else expect(describeTheoryAnswer(item)).toContain(own)
       }),
     )
   })
@@ -645,6 +661,9 @@ describe('describeTheoryAnswer', () => {
         const item = buildTheoryQuiz(kind, level, seededRng(seed))
         const noteCount = item.answer.reduce((n, group) => n + group.length, 0)
         const text = describeTheoryAnswer(item)
+        // A summary is prose about the answer, not a list of it — counted below
+        // by its own test rather than by this one.
+        if (item.answerSummary !== undefined) return
         // Every printed token is a real pitch name and there is one per note.
         const tokens = text.split(/, | \+ /)
         expect(tokens).toHaveLength(noteCount)

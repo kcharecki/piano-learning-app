@@ -437,6 +437,78 @@ Full histories of completed tasks: docs/roadmap-archive-2026-08-08.md and git hi
       and with a stale server on 5173, and the two DR-09 specs are recorded as expected-red by the
       gate itself rather than by a comment.*
 
+- [ ] T.19 **The theory reveal names the whole answer and never says which note was wrong.**
+      Panel MINOR, /improve-app run 2026-08-24-1 (Teacher seat, round 1), deferred with reason:
+      §6 requires BLOCKERs and MAJORs, and this is new copy on the verdict line rather than a
+      defect in that slice. `gradeTheoryStep` already computes `matchedGroups` and the panel
+      throws it away (`src/core/drills/theory.ts:784`, `src/app/theory/TheoryDrillPanel.tsx`), so
+      a learner who plays seven of eight scale degrees correctly reads the same eight names as
+      one who played none. A teacher names the degree that broke: "6th note: you played B♭, it is
+      B". The value is already on the result — this is a rendering decision, not a computation.
+      *Proof: a multi-group item missed at group n names group n, and the e2e arm asserts n from
+      the presses it made rather than from anything the app printed.*
+
+- [ ] T.20 **The flashcard reveal's black-key vocabulary is sharps only.**
+      Panel MINOR, /improve-app run 2026-08-24-1 (Teacher seat, round 1), deferred with reason:
+      the fix is a key context on the deck itself, which `buildDeck` (`src/core/drills/flashcards.ts`)
+      does not have, so it is a slice of its own rather than polish on that one. Today a miss is
+      corrected as "that was A♯3" whatever key the learner is reading, and the `note-name` pad
+      offers C C♯ D D♯ E F F♯ G G♯ A A♯ B with no flats at all — so a learner working through the
+      flat keys is corrected in a spelling their score never uses. The theory drill no longer has
+      this defect: its items carry their own `spelledAnswer` since `9e09ef1`, and the same idea
+      (spell at generation, never re-derive from MIDI) is what a flashcard deck needs.
+      *Proof: a deck drawn in a flat key names its answers with flats, and the pad offers them.*
+
+- [ ] T.21 **A flashcard deck says "No cards at this level yet" when the level has nine cards.**
+      Ledger row G2 of /improve-app run 2026-08-24-1 (source 1c, class BLIND, sum 6 — not picked;
+      the run built G1). `FlashcardScreen.tsx:213` renders one string for two different states:
+      a level that really is empty, and a level whose whole deck is scheduled into the future.
+      The second is the common one — the level-1 decks are 9 / 9 / 3 / 20 cards — and the advice
+      it gives ("try a lower level") is wrong for it. A learner who has just answered everything
+      correctly is told the level is empty.
+      *Proof: a deck seeded due-in-the-future says when it comes back; a genuinely empty level
+      still says what it says now, and an e2e arm distinguishes the two.*
+
+- [ ] T.22 **Three of the four level-1 flashcard decks run out inside a minute.**
+      Ledger row G3 of /improve-app run 2026-08-24-1 (source 1c, class THIN, sum 7 — not picked).
+      The decks are 9 / 9 / 3 / 20 cards against a **6-minute** flashcard segment in Today's
+      session, so the segment cannot be filled by the content that exists. `buildDeck` generates
+      from level tables, so widening is a content-and-generator change, not a UI one.
+      *Proof: a level-1 deck sustains the segment's own duration without exhausting, measured
+      against the session plan's minutes rather than a number picked here.*
+
+- [ ] T.23 **Every perfect authentic cadence the drill draws has its leading tone falling a fifth.**
+      Panel MAJOR, /improve-app run 2026-08-24-1 (Teacher seat, round 2), unresolved at the
+      re-panel cap. `finalChordPitches` (`src/core/theory/harmony.ts`) hands the tonic chord a
+      doubled-tonic soprano, which leaves 7 nowhere to go: C major reveals "G4 + B4 + D5,
+      C4 + E4 + C5" - B4 falls to E4 instead of rising to C5 - and E-flat major and F major do
+      the same. Pre-existing, not introduced by this run: `git show 85df305:src/core/drills/theory.ts`
+      has identical voicing semantics. It is a harmony defect, so the fix belongs with the
+      cadence builder, not with the reveal that prints it.
+      *Proof: for every key and every cadence type the drill can draw, the leading tone of a
+      perfect authentic cadence resolves upward by a semitone - a property test over the
+      generator, not an example.*
+
+- [ ] T.24 **The same accidental is spelled two ways two lines apart.**
+      Panel MINOR, /improve-app run 2026-08-24-1 (Teacher seat, round 2), deferred with reason:
+      `scaleName` and `keyName` are ASCII app-wide and ear training, the reference panel and the
+      technique library all assert 'Bb major', so changing the glyph is a cross-screen slice
+      rather than polish on this one. Today the prompt reads "Play Bb major, ascending." and the
+      verdict directly beneath it reads "it was Bb4" in glyphs.
+      *Proof: no screen prints both spellings of one accidental, asserted where the two strings
+      meet rather than in either producer alone.*
+
+- [ ] T.25 **73 of the 770 theory items name a note the on-screen keyboard does not draw.**
+      Panel MINOR, /improve-app run 2026-08-24-1 (Skeptic seat, round 2), deferred with reason:
+      the drill is answerable - `gradeTheoryStep` and the reveal's echo both match by pitch class,
+      so the octave-down voicing grades correct and plays back - but the printed answer still
+      names keys that are not on screen ("Play a B major chord, second inversion." names D-sharp 6,
+      MIDI 87, against `KEYBOARD_HIGH` 84). Every second- and third-inversion chord on A, B-flat,
+      B, F-sharp, G and A-flat is affected. Either voice generated items inside 48-84, or draw the
+      range the item needs.
+      *Proof: every item any kind and level can generate names only notes the panel draws - a
+      property over the generator against the keyboard's own bounds.*
+
 ## Phases 0-2 — Foundation, M1 playable core, M2 feedback & reading — all done
 
 Every box in these three phases is `[x]`. Moved to

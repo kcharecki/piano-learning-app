@@ -224,6 +224,35 @@ describe('TheoryDrillPanel', () => {
     ).toBeEnabled()
   })
 
+  it('the echo answers a wrong press, and takes the right note in any octave (panel r2)', async () => {
+    const user = userEvent.setup()
+    render(<TheoryDrillPanel rng={scriptedRng([0])} midiInput={new FakeMidiInput()} />)
+
+    const expected = buildTheoryQuiz('build-scale', 1, scriptedRng([0]))
+    const firstNote = expected.answer[0]?.[0] as number
+    const wrongNote = firstNote + 1 <= 127 ? firstNote + 1 : firstNote - 1
+    const total = expected.answer.length
+
+    const keyboard = screen.getByRole('group', { name: 'On-screen keyboard' })
+    await user.click(within(keyboard).getByRole('button', { name: midiToName(asMidi(wrongNote)) }))
+    expect(screen.getByTestId('theory-echo')).toHaveTextContent(`Now play it: 0 of ${total}`)
+
+    // A press the echo is not waiting for says so, and moves nothing — silence
+    // there read as a dead keyboard (panel r2, three seats).
+    await user.click(within(keyboard).getByRole('button', { name: midiToName(asMidi(wrongNote)) }))
+    expect(screen.getByTestId('theory-echo')).toHaveTextContent(
+      `Not that one — still 0 of ${total}`,
+    )
+
+    // The right note an octave away IS the right note: the grader matches by
+    // pitch class, and an echo that disagreed with it counted a correct scale
+    // as "0 of 8" (panel r2, Skeptic MAJOR).
+    const octaveAway = firstNote + 12 <= 84 ? firstNote + 12 : firstNote - 12
+    expect(octaveAway).not.toBe(firstNote)
+    await user.click(within(keyboard).getByRole('button', { name: midiToName(asMidi(octaveAway)) }))
+    expect(screen.getByTestId('theory-echo')).toHaveTextContent(`Now play it: 1 of ${total}`)
+  })
+
   it('a correct note mid-answer says nothing at all — no verdict, no answer leaked', async () => {
     const user = userEvent.setup()
     render(<TheoryDrillPanel rng={scriptedRng([0])} midiInput={new FakeMidiInput()} />)

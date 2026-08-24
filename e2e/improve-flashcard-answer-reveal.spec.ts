@@ -283,6 +283,16 @@ test('the class, not the instance — the theory drill also names its answer, an
   await expect(echo).toContainText('Now play it: 0 of 8')
   await keyboard.getByRole('button', { name: 'C4', exact: true }).click()
   await expect(echo).toContainText('Now play it: 1 of 8')
+
+  // The echo is a real reader of what was pressed, not a press counter: E is in
+  // this scale but not this step, so it is refused, said so, and the count holds.
+  await keyboard.getByRole('button', { name: 'E4', exact: true }).click()
+  await expect(echo).toContainText('Not that one — still 1 of 8')
+
+  // ...and the note it IS waiting for counts in any octave, exactly as the
+  // grader scores it (panel r2). D5, not D4.
+  await keyboard.getByRole('button', { name: 'D5', exact: true }).click()
+  await expect(echo).toContainText('Now play it: 2 of 8')
   await expect(prompt).toHaveText('Play C major, ascending.')
   await expect(next).toBeVisible()
 

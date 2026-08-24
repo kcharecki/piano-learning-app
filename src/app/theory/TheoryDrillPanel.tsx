@@ -79,6 +79,14 @@ import {
   type TheoryQuizKind,
 } from '@core/drills/theory.ts'
 import {
+  advanceEcho,
+  ECHO_START,
+  echoDone,
+  echoPlayed,
+  echoTotal,
+  type EchoProgress,
+} from '@core/drills/theoryEcho.ts'
+import {
   dueCards,
   newCard,
   retentionStats,
@@ -204,14 +212,21 @@ function AnswerFeedback({ result }: { readonly result: TheoryAnswerResult | unde
 function EchoPrompt({
   played,
   total,
+  missed,
 }: {
   readonly played: number
   readonly total: number
+  /** The last press under the reveal was not a note the answer wanted. */
+  readonly missed: boolean
 }) {
   const done = played >= total
   return (
     <p role="status" className="drill-practise-line" data-testid="theory-echo" data-done={done}>
-      {done ? 'That is it — you played it back.' : `Now play it: ${played} of ${total}`}
+      {done
+        ? 'That is it — you played it back.'
+        : missed
+          ? `Not that one — still ${played} of ${total}`
+          : `Now play it: ${played} of ${total}`}
     </p>
   )
 }
@@ -261,7 +276,8 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
   const [, setPendingNotes] = useState<readonly Midi[]>([])
   const [lastResult, setLastResult] = useState<TheoryAnswerResult | undefined>(undefined)
   const [revealed, setRevealed] = useState(false)
-  const [echoed, setEchoed] = useState(0)
+  const [echo, setEcho] = useState<EchoProgress>(ECHO_START)
+  const [echoMissed, setEchoMissed] = useState(false)
   const [nowMs, setNowMs] = useState<number>(() => date.epochMillis())
 
   // Accumulates presses within the current attempt; mirrored into
@@ -269,21 +285,13 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
   // this ref (rather than deriving the next value from stale render-closure
   // state) makes two `noteOn` events delivered in the same batched task
   // accumulate correctly instead of the second overwriting the first.
-  // The named answer as one flat press sequence — what `echoPress` walks
-  // through while the reveal is up. Chords are listed in the order the reveal
-  // prints them, because a mouse has one pointer and cannot play them together.
-  const echoTargets: readonly Midi[] = useMemo(
-    () => (item === undefined ? [] : item.answer.flat()),
-    [item],
-  )
-
   const pendingRef = useRef<readonly Midi[]>([])
   const playedRef = useRef<readonly (readonly Midi[])[]>([])
 
   // How much of the named answer the learner has played back under the reveal.
   // A ref for the same reason `pendingRef` is one: two `noteOn` events in one
   // batched task must both count.
-  const echoedRef = useRef(0)
+  const echoRef = useRef<EchoProgress>(ECHO_START)
 
   // Set just before `commitAnswer` calls `setKind` to serve a due item of a
   // different kind: tells the kind/level effect below "the item is already
@@ -318,8 +326,7 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
     setPendingNotes([])
     setLastResult(undefined)
     setRevealed(false)
-    echoedRef.current = 0
-    setEchoed(0)
+    resetEcho()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only kind/level should reset the item
   }, [kind, level])
 
@@ -399,8 +406,7 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
     if (!revealed) return
     setRevealed(false)
     setLastResult(undefined)
-    echoedRef.current = 0
-    setEchoed(0)
+    resetEcho()
     serveNext(useFlashcardStore.getState().cardsById)
   }
 
@@ -413,17 +419,30 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
    * Next instead (panel r1 2026-08-24-1, Teacher). Presses count in the order
    * the reveal lists them; a wrong one is simply not counted.
    */
-  function echoPress(note: Midi): void {
-    if (echoedRef.current >= echoTargets.length) return
-    if (echoTargets[echoedRef.current] !== note) return
-    echoedRef.current += 1
-    setEchoed(echoedRef.current)
+  function echoPress(played: TheoryQuizItem, note: Midi): void {
+    const next = advanceEcho(played, echoRef.current, note)
+    if (next === undefined) {
+      // Say so. Silence here read as a dead key, and the flashcard reveal on
+      // the same commit already answers a wrong practice press (panel r2
+      // 2026-08-24-1, Regression hunter and Teacher).
+      setEchoMissed(true)
+      return
+    }
+    echoRef.current = next
+    setEcho(next)
+    setEchoMissed(false)
+  }
+
+  function resetEcho(): void {
+    echoRef.current = ECHO_START
+    setEcho(ECHO_START)
+    setEchoMissed(false)
   }
 
   function handleNote(note: Midi): void {
     if (item === undefined) return
     if (revealed) {
-      echoPress(note)
+      echoPress(item, note)
       return
     }
     if (playedRef.current.length === 0) setLastResult(undefined)
@@ -557,7 +576,11 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
           <AnswerFeedback result={lastResult} />
           {revealed && (
             <>
-              <EchoPrompt played={echoed} total={echoTargets.length} />
+              <EchoPrompt
+                played={echoPlayed(item, echo)}
+                total={echoTotal(item)}
+                missed={echoMissed && !echoDone(item, echo)}
+              />
               <RevealNext onNext={next} />
             </>
           )}
