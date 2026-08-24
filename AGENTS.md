@@ -102,6 +102,22 @@ npm run checkpoint # verify, then git commit
 npm run dev        # app at http://localhost:5173
 ```
 
+### Running the app (do this, not `npm run dev` in a shell)
+
+`.claude/launch.json` already defines the servers. Never start a dev server with Bash.
+
+1. `preview_start` with `{name: "dev"}` — port 5173. In a worktree session use
+   `{name: "dev-alt"}` (port 5273) so you do not fight the main checkout for the port.
+2. The tab opens blank. `navigate` it to `http://localhost:5173` before anything else —
+   `read_page` on the fresh tab errors with "No site is open in this tab".
+3. Drive it with `read_page` / `computer` / `get_page_text`, and check
+   `read_console_messages` and `preview_logs`. Screenshots need the Browser pane visible;
+   if it is not, `screenshot` fails with "the Browser pane is not displayed" — fall back to
+   `get_page_text` for evidence and say so, do not treat it as a broken app.
+
+Cold-start state is a fresh learner: a first-run setup card ("Not now" dismisses it) and
+Today's session with five items. "Start session" is the fastest path to real content.
+
 ## Git
 
 - Small commits, one slice each. Conventional Commits (`feat(core/theory): ...`).
