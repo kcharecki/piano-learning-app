@@ -5,6 +5,8 @@ export type {
   MidiNoteOn,
   MidiNoteOff,
   MidiSustain,
+  MidiControlChange,
+  MidiPolyAftertouch,
   MidiDevice,
   MidiInput,
   MidiOutput,

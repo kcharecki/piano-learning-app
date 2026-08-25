@@ -25,7 +25,33 @@ export type MidiSustain = {
   readonly time: Millis
 }
 
-export type MidiEvent = MidiNoteOn | MidiNoteOff | MidiSustain
+/**
+ * A control-change message the adapter does not already give its own
+ * dedicated event for (sustain/CC64 keeps its `MidiSustain` shape unchanged —
+ * see `webmidi.ts`). Added for DR-02: the e-drum hi-hat pedal reports its
+ * continuous position on CC#4, which piano input never sent and the adapter
+ * used to drop silently.
+ */
+export type MidiControlChange = {
+  readonly type: 'controlChange'
+  readonly controller: number
+  readonly value: number
+  readonly time: Millis
+}
+
+/**
+ * Polyphonic key/channel pressure (status `0xA0`). Piano input never sends
+ * this; the adapter used to drop it silently. DR-02 reads it as a cymbal
+ * choke gesture on an e-kit.
+ */
+export type MidiPolyAftertouch = {
+  readonly type: 'polyAftertouch'
+  readonly note: Midi
+  readonly pressure: number
+  readonly time: Millis
+}
+
+export type MidiEvent = MidiNoteOn | MidiNoteOff | MidiSustain | MidiControlChange | MidiPolyAftertouch
 
 export type MidiDevice = {
   readonly id: string
