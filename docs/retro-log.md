@@ -16,6 +16,70 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
+## 2026-08-25 (second session) — four slices, and both of the session's own mistakes were classes
+
+- **user-reported defects since last session:** 0
+- **slices proven / started:** 4 / 4 — rhythm picker completeness (`b894e85`), disclosure
+  affordance + its e2e gate (`36c3b21`), LF line endings (`510db09`), T.27 `verify:full`
+  green (`e832ea5`). Plus one integration: `task/DR-02` merged, four merged claims found.
+- **gate catches before commit:** 4. The pre-commit visual-pass receipt gate refused a commit
+  whose surface hash no longer matched (correctly — the tree really had changed). The browser
+  drive proved level 1 engraves quarters + halves and no whole notes, by counting VexFlow
+  noteheads and stems rather than trusting the generator. `verify:full`'s e2e step — reachable
+  for the first time in months — failed `responsive-drawers.spec.ts`. And the browser drive
+  proved the `writtenTicks` refactor by beam geometry (8 groups, one beam line each = triplet
+  eighths; a broken conversion draws sixteenths), not by reading back our own MusicXML.
+- **docs budget:** no warnings.
+- **cost note:** roughly a third of the session went on two self-inflicted errors, both of the
+  same shape — a tool silently handing back the wrong bytes. A `cd` into a worktree persisted
+  between Bash calls, so `ROADMAP.md`, `docs/PROCESS.md` and `docs/drums/ROADMAP.md` were all
+  read from a nine-day-old copy; the triage that followed was against fiction (four items open
+  where ten were; four boxes planned for ticking that `master` had ticked already). It
+  surfaced only because an unrelated assertion happened to disagree. Separately, Python's
+  `open(p, 'w')` on Windows wrote CRLF into an LF repo, so an 11-line chevron change committed
+  as 571 insertions / 562 deletions.
+- **hypothesis:** the weakest part of the process is that **reading is unguarded while writing
+  is guarded**. Every write path here has a gate — typecheck, lint, tests, the visual-pass
+  receipt, the docs budget, the commit hook. The read path that the whole `/next` loop pivots
+  on (open `ROADMAP.md`, decide what matters) has none, and a wrong read produces confident,
+  fully-verified work on the wrong problem. Nothing in this session's green suites could have
+  told me I was triaging a stale file.
+- **change:** `scripts/roadmap.mjs` — prints the open items from the MAIN checkout's
+  `ROADMAP.md`, resolved through `git rev-parse --git-common-dir`, with the absolute path it
+  read in the first line of output. `docs/PROCESS.md` step 1 now names it instead of "open the
+  file". Proven against the actual incident: run from inside `w-dr02`, whose own copy has
+  **zero** open `T.` rows, it still reports master's eleven. Its worktree test asserts real
+  git behaviour (mutation-checked: it fails when the resolution is wrong). Not a rule anyone
+  can follow imperfectly — the wrong file is no longer reachable through the supported path.
+  **Review-by 2026-09-25 (or 4 sessions):** if a session still triages a stale tree, escalate
+  to a hook that refuses Bash commands whose cwd left the main checkout.
+- **experiment verdicts due:**
+  - **"Find the class before fixing the instance"** (review-by 2026-08-29) — **KEEP**, folded
+    into `docs/PROCESS.md` as standing text with the review-by removed. Five for five this
+    session, and three times the class was strictly bigger than the report: 1 rhythm picker
+    reported / 4 pickers now type-enforced by `Record`; 1 disclosure reported (UI-25, fixed
+    per-screen) / 3 found across 13 destinations, with an e2e sweep that covers the rest; 6
+    CRLF files noticed / 21 in the index, closed by `.gitattributes`; 5 knip findings quoted
+    in T.27 / 8 actually present. The instance-only fix would have passed its own proof every
+    time.
+  - **"When the slice writes a file a third-party library renders, the gate is the render"**
+    (review-by 2026-09-20) — not yet due; fresh supporting evidence recorded above under gate
+    catches.
+
+**What T.27 was really worth.** It read as housekeeping — a knip exit code. Closing it
+unblocked `verify:full`'s e2e step, which immediately produced T.28. The two findings inside it
+were not lint debt either: `tuplet.ts` existed *because* the sounding-to-written conversion "is
+domain logic, not formatting", and its only production caller had inlined the formula anyway,
+so the module had no callers at all; and `persistenceHarness.ts` was never dead code, only
+filed in `src/app/state/` where a production scan is right to flag it. A red gate had been
+hiding both for weeks, along with every e2e regression.
+
+**Two triage rows filed rather than closed.** T.28 is filed OPEN even though a fix shipped with
+it, because the fix is the sibling spec's remedy for the sibling's symptom and did not
+reproduce under 20x CPU throttle with per-frame sampling (min 44.000 x 44.000 over 32 frames).
+Ticking it would have recorded a guess as a result. T.29 (the app draws its disclosure arrow
+two different ways across nine stylesheets) came out of fixing the disclosures that drew none.
+
 ## 2026-08-25 — a run now has to say what it left behind, and the docs budget stopped lying about what it costs
 
 - **user-reported defects since last session:** 0. Two directives: "Update the improve-app command

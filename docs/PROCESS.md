@@ -32,7 +32,11 @@ delegation policy, the retro — applies to both. The loop below is `/next`'s al
 
 0. **RECOVER** — `git status`. Dirty → `npm run verify`; green → slice-commit leftovers;
    red → fixing it is triage item #1. Never start new work on a dirty tree.
-1. **TRIAGE** — pick work in `ROADMAP.md`'s stated order: the Triage section (user-reported
+1. **TRIAGE** — `node scripts/roadmap.mjs` lists what is open, always from the MAIN
+   checkout, and prints the path it read. Use it instead of opening the file: a `cd` that
+   persisted between Bash calls had a session triage a nine-day-old worktree copy on
+   2026-08-25 — four items open where ten were, four boxes planned for ticking that were
+   already ticked. Pick in `ROADMAP.md`'s stated order: the Triage section (user-reported
    bugs, red states, disproven claims) first, then highest learner impact. The old
    "first unchecked box" rule is dead. State what you picked and why in one sentence.
 2. **SLICES** — up to 3–4 vertical slices per session. One slice = one user-visible
@@ -88,7 +92,10 @@ over a dozen "tests green, feature dead in the browser" defects. The browser dri
   cause where every technique-library score engraved in C major regardless of tonic. T.2
   reported a failing spec; the real defect was that the spec could not fail for the reason it
   existed. Fixing either as written would have passed its own proof and left the class alive.*
-  **Review-by 2026-08-29 (or 4 sessions).**
+  **Standing text since 2026-08-25** — verdict KEEP on five-for-five in one session, three of
+  them where the class was strictly larger than the report: 1 rhythm picker reported / 4
+  pickers now type-enforced, 1 disclosure / 3 found over 13 destinations, 6 CRLF files / 21,
+  5 knip findings / 8. No review-by: it has stopped being an experiment.
 - **Design before code** for any UI change: three sentences in the slice plan — what the
   screen shows, what is primary, what is behind disclosure. Adding a control to an
   already-dense screen obliges the slice to say what it demotes or hides
