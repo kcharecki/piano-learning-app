@@ -16,6 +16,41 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
+## 2026-08-25 — a run now has to say what it left behind, and the saying is checked
+
+- **user-reported defects since last session:** 0. One directive: "Update the improve-app command
+  to always end by summarisation on what are the possible next steps."
+- **slices proven / started:** 0 / 0. Process work only, at the user's direction, outside a run.
+- **gate catches before commit:** 2. (1) `check-improve-log.mjs`'s own new rule refused the
+  backfilled `### Next steps` for run 2026-08-24-1 — the section opened with a line of prose
+  carrying no roadmap id, which is exactly the loophole the rule exists to close, so the intro
+  line went rather than the rule. (2) `check-docs-budget.mjs` refused `improve-app.md` at 210 of
+  200; see below.
+- **docs budget (ROADMAP+CLAUDE+PROCESS lines):** ROADMAP 1357 of 1500, CLAUDE 2 of 160, PROCESS
+  151 of 160. `docs/commands/improve-app.md` **raised 200 → 215**, recorded here because
+  `check-docs-budget.mjs` says a raise without a reason in this file is not allowed. The doc was
+  at 199 of 200, so the only way to add a step was to delete an existing rule to pay for it —
+  that trade is worse than the number. It is now 209 of 215.
+- **cost note:** small. Most of it went on deciding where the rule belongs, not on writing it.
+- **hypothesis:** the weakest part of the process was that **a run's queue lived in the session
+  that produced it.** Every run files roadmap rows, defers MAJORs and leaves a metric owing, and
+  all of that was reconstructed by the next session from `ROADMAP.md` — the rediscovery
+  `docs/improve-log.md` exists to prevent, happening in the one place the log did not cover.
+- **change:** `### Next steps` is now a required section of the log entry, one line per roadmap
+  row the run leaves behind, each citing its id in backticks; `check-improve-log.mjs` enforces it
+  inside `verify` and rejects a line citing an id that is not a real `ROADMAP.md` task row, so a
+  hand-off cannot be prose. Scoped to run ids from 2026-08-24 on and backfilled for that run.
+  §8 of `docs/commands/improve-app.md` gained the step, and requires the same list in chat —
+  the learner reads the reply, not the ledger. Prose in the command doc, gate in the script, per
+  the standing rule that a hard rule belongs in automation. **Review by 2026-09-25 (or 3 runs):**
+  keep if a run's next steps are read rather than re-derived; revisit if entries start reading
+  as a copy of the roadmap's own ordering, which would mean the section is duplicating a file
+  instead of prioritising it.
+- **experiment verdicts due:** none. The `verify:full` reorder (set 2026-08-24) reviews 2026-09-24;
+  the visual-pass receipt gate reviews 2026-10-05 and was already resolved **keep** yesterday.
+
+---
+
 ## 2026-08-24 (/improve-app run 2026-08-24-1) — a wrong answer is finally told what the right one was, and the fix for that needed its own fix
 
 - **user-reported defects since last session:** 0. The one thing the learner said was a steer on

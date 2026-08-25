@@ -128,9 +128,23 @@ const H2_HEADING = /^##\s+/
 const H2_OR_H3_HEADING = /^#{2,3}\s+/
 const LEDGER_HEADING = /^###\s+Ledger\b/
 const REGISTER_HEADING = /^###\s+Cannot-sense register\b/
+const NEXT_STEPS_HEADING = /^###\s+Next steps\b/
 const STANDING_REGISTER_HEADING = /^##\s+Cannot-sense register\b/
 const IDEA_REGISTER_HEADING = /^##\s+Idea register\b/
 const IDEA_PLACEHOLDER = '*(none yet)*'
+
+// `### Next steps` was added to the schema on 2026-08-25, at the user's direction: a run that
+// ends without saying what it left behind makes the next session re-derive the queue from the
+// roadmap, which is the rediscovery this whole file exists to stop. Entries older than the
+// cutoff predate the rule and are not retro-fitted; ids that are not date-stamped (the test
+// fixtures' `## Run 1`) are out of scope, since `improve-run.mjs start` only ever mints dates.
+const NEXT_STEPS_FROM = '2026-08-24'
+const DATED_RUN_ID = /^##\s+Run\s+(\d{4}-\d{2}-\d{2})\S*/
+const NEXT_STEPS_NONE = 'nothing queued this run'
+// A next step is a pointer at a committed roadmap row (`T.19`, `U.3`, `DR-02`), never prose.
+const CITED_ROADMAP_ID = /`([A-Z]{1,4}[.-]\d+)`/g
+// `- [ ] T.19 **...**` / `- [x] DR-02 **...**` — how ROADMAP.md opens every task row.
+const ROADMAP_ROW_ID = /^\s*-\s+\[[ x~]\]\s+([A-Z]{1,4}[.-]\d+)\b/
 const VALID_IDEA_STATUS = /^(open|shipped in .+|struck — .+)$/
 const NOT_YET_DISCLOSED = /^\*\(not yet disclosed\)\*$/i
 const TABLE_ROW = /^\s*\|.*\|\s*$/
@@ -645,9 +659,103 @@ function validateRegister(lines, start, end, headingLine, violations) {
   }
 }
 
+/**
+ * Collect every task id declared in `ROADMAP.md`'s task rows. Used to keep `### Next steps`
+ * honest: a run cannot hand the next session a pointer at a row nobody filed. Returns `null`
+ * when the file is missing — skip the check, the same convention as `collectMetricFields`.
+ */
+export function collectRoadmapIds(root = process.cwd()) {
+  const abs = resolve(root, 'ROADMAP.md')
+  if (!existsSync(abs)) return null
+  const ids = new Set()
+  for (const line of readFileSync(abs, 'utf8').split('\n')) {
+    const m = ROADMAP_ROW_ID.exec(line)
+    if (m) ids.add(m[1])
+  }
+  return ids
+}
+
+/**
+ * Validate the `### Next steps` inside [start, end): either exactly the line
+ * "nothing queued this run", or one or more lines each citing at least one roadmap id in
+ * backticks. `roadmapIds` is the result of `collectRoadmapIds`, or `null` to skip the
+ * membership half of the check and take any well-formed id.
+ */
+function validateNextSteps(lines, start, end, headingLine, violations, roadmapIds) {
+  const dated = DATED_RUN_ID.exec(lines[start])
+  if (!dated || dated[1] < NEXT_STEPS_FROM) return
+
+  let secStart = -1
+  for (let i = start; i < end; i++) {
+    if (NEXT_STEPS_HEADING.test(lines[i])) {
+      secStart = i
+      break
+    }
+  }
+  if (secStart === -1) {
+    violations.push({
+      line: headingLine,
+      message: `missing required "### Next steps" section. Add one naming the roadmap rows this run leaves for the next session, or the line "${NEXT_STEPS_NONE}".`,
+    })
+    return
+  }
+
+  let secEnd = end
+  for (let i = secStart + 1; i < end; i++) {
+    if (H2_OR_H3_HEADING.test(lines[i])) {
+      secEnd = i
+      break
+    }
+  }
+
+  const body = []
+  for (let i = secStart + 1; i < secEnd; i++) {
+    const text = lines[i].trim()
+    if (text !== '') body.push({ text, num: i + 1 })
+  }
+
+  if (body.length === 0) {
+    violations.push({
+      line: headingLine,
+      message: `"### Next steps" section is empty. Add "${NEXT_STEPS_NONE}" or a line per roadmap row.`,
+    })
+    return
+  }
+
+  if (body.length === 1 && body[0].text === NEXT_STEPS_NONE) return
+
+  for (const { text, num } of body) {
+    if (text === NEXT_STEPS_NONE) {
+      violations.push({
+        line: num,
+        message: `"${NEXT_STEPS_NONE}" must be the only line in "### Next steps". Remove the other lines, or remove this line.`,
+      })
+      continue
+    }
+    const cited = [...text.matchAll(CITED_ROADMAP_ID)].map((m) => m[1])
+    if (cited.length === 0) {
+      violations.push({
+        line: num,
+        message: `"### Next steps" line cites no roadmap id in backticks (e.g. \`T.19\`): "${text}"`,
+      })
+      continue
+    }
+    if (roadmapIds === null) continue
+    for (const id of cited) {
+      if (!roadmapIds.has(id)) {
+        violations.push({
+          line: num,
+          message: `"### Next steps" cites \`${id}\`, which is not a task row in ROADMAP.md. File the row, or fix the id.`,
+        })
+      }
+    }
+  }
+}
+
 /** Validate one `## Run` entry spanning lines [start, end) of the file. `metricFields` is the
- * result of `collectMetricFields`, or `null` to skip the Metric-membership check. */
-function validateRunEntry(lines, start, end, violations, metricFields) {
+ * result of `collectMetricFields`, or `null` to skip the Metric-membership check;
+ * `roadmapIds` likewise for the `### Next steps` membership check. */
+function validateRunEntry(lines, start, end, violations, metricFields, roadmapIds) {
   const headingLine = start + 1
   const fields = collectFields(lines, start, end)
 
@@ -891,6 +999,7 @@ function validateRunEntry(lines, start, end, violations, metricFields) {
   }
 
   validateRegister(lines, start, end, headingLine, violations)
+  validateNextSteps(lines, start, end, headingLine, violations, roadmapIds)
 }
 
 /**
@@ -900,7 +1009,7 @@ function validateRunEntry(lines, start, end, violations, metricFields) {
  * `collectMetricFields`, or `null`/omitted to skip the Metric-membership check (the
  * "sources missing, skip" convention — also what every fixture-only test gets by default).
  */
-export function validateImproveLog(text, metricFields = null) {
+export function validateImproveLog(text, metricFields = null, roadmapIds = null) {
   const lines = stripFencedCode(text.replace(/\r\n/g, '\n').split('\n'))
   const violations = []
 
@@ -921,7 +1030,7 @@ export function validateImproveLog(text, metricFields = null) {
         break
       }
     }
-    validateRunEntry(lines, start, end, violations, metricFields)
+    validateRunEntry(lines, start, end, violations, metricFields, roadmapIds)
   }
 
   return violations
@@ -947,7 +1056,8 @@ function main() {
 
   const text = readFileSync(target, 'utf8')
   const metricFields = collectMetricFields(process.cwd())
-  const violations = validateImproveLog(text, metricFields)
+  const roadmapIds = collectRoadmapIds(process.cwd())
+  const violations = validateImproveLog(text, metricFields, roadmapIds)
 
   if (violations.length > 0) {
     for (const v of violations) console.error(`${file}:${v.line}: ${v.message}`)

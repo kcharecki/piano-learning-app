@@ -168,12 +168,12 @@ exits through ABORT, as does a refuted claim. Shipping a slice whose own claim w
    one must match a teacher-verified expected result — differing-but-wrong is worse than none.
 5. The full experience gate in `docs/PROCESS.md`.
 
-### 8. LOG, RETRO, RELEASE
+### 8. LOG, RETRO, RELEASE, HAND OFF
 
 Append the run to `docs/improve-log.md` in the schema that file documents and
 `check-improve-log.mjs` enforces inside `verify`. It includes **the verdict on the previous run's
-metric** — the point of the whole ledger — and the pick's **Class**, without which the log cannot
-say whether ten runs running were all repairs. Then:
+metric** — the point of the whole ledger — the pick's **Class**, without which the log cannot
+say whether ten runs running were all repairs, and **`### Next steps`**, below. Then:
 
 ```bash
 node scripts/improve-run.mjs verdict --value <n>|--none
@@ -188,6 +188,16 @@ declared clean round, and a falling BLOCKER count. Then the `docs/PROCESS.md` re
 node scripts/worktrees.mjs release <id>
 node scripts/worktrees.mjs release main-checkout
 ```
+
+**Then hand off — the last thing a run does, ABORT included.** `### Next steps` in the log entry
+is one line per roadmap row this run leaves behind, each citing its id in backticks, ordered by
+what unblocks the most: the rows it just filed, every MAJOR it could not close, and what the next
+run must have before it can `start` (a metric reading, an instrument, a thread). `nothing queued
+this run` is the only substitute, and it is rarely true. `check-improve-log.mjs` refuses a step
+that cites no real `ROADMAP.md` id, so the hand-off points at committed rows rather than at a
+plan nobody filed. **Close the run in chat with that same list**, shortest first — the learner
+reads the reply, not the ledger, and a run whose queue lives only in this file has handed off to
+a file instead of to a person.
 
 ### ABORT — a valid, successful outcome
 

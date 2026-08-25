@@ -14,12 +14,16 @@ import { readFileSync } from 'node:fs';
 // under the same number, and CLAUDE.md keeps its entry so re-inlining the body cannot slip
 // through. The two /improve-app docs are budgeted on the same criterion as the rest: they are
 // re-read in full at the start of every run of that command.
+// 2026-08-25: improve-app.md raised 200 → 215 at the user's direction ("update the improve-app
+// command to always end by summarisation on what are the possible next steps"). §8 gained the
+// hand-off step and the doc was at 199 of 200, so the alternative was deleting a hard-won rule
+// to make room for a new one. Recorded in docs/retro-log.md, per the rule above.
 const BUDGETS = [
   ['ROADMAP.md', 1500],
   ['CLAUDE.md', 160],
   ['AGENTS.md', 160],
   ['docs/PROCESS.md', 160],
-  ['docs/commands/improve-app.md', 200],
+  ['docs/commands/improve-app.md', 215],
   ['docs/improve/method.md', 160],
 ];
 

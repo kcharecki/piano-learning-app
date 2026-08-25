@@ -66,7 +66,19 @@ missing.
 ### Cannot-sense register
 
 <one row added this run, or one sentence on why the run found nothing between its events>
+
+### Next steps
+
+- <one line per roadmap row this run leaves behind, each citing its id in backticks,
+  ordered by what unblocks the most — or the single line: nothing queued this run>
 ```
+
+**Next steps** is the hand-off, and it is the section a reader of this file arrives for: the run
+that just ended knows which rows it filed, which MAJOR it could not close, and what the next run
+has to read before it can `start`. Written down it is a queue; left in a session it is
+rediscovered from the roadmap every time, which is the cost this whole file exists to avoid.
+The checker takes only lines citing a real `ROADMAP.md` task id, so a step is a pointer at a
+committed row and never a plan nobody filed. Required for run ids from **2026-08-24** on.
 
 The pick recorded in **Pick source** must be the source of the ledger table's highest-scoring
 row, unless a **Harm gate**, a **Thread**, or a **Register cadence** line explains the override.
@@ -281,6 +293,17 @@ produced no metric reading, and the next drums run inherits `T.7`, not a number.
 ### Cannot-sense register
 
 **Whether a learner read the note or copied the marked key** (screen: Flashcards) — PHYSICAL, no sensor in this rig reports where the learner looked, and this run's own reveal rings the correct key while the staff still shows the question, which is what the Teacher seat named at finding 16. Countability challenge: press latency — a note read off the staff carries a reading cost that scales with how unfamiliar the note is, and a key copied off a highlight does not; it stands in if presses made while a key is marked cluster at a shorter latency that is flat across note difficulty, while presses made with nothing marked do not. Until then the flashcard reveal cannot tell the two apart, and `T.20`'s deck-key work is the first place it would show.
+
+### Next steps
+
+- **Repair the gate first.** `T.27` is the cheapest row on this list and the most expensive to leave: `verify:full` exits at `knip:prod:all`, so it never reaches `test:e2e`, which is the whole point of `T.18`. Five findings, each a deletion or a recorded reason. Until it is green every future run's session gate stops one step short and nobody is told.
+- **Then the flake.** `T.26` is the only spec in the suite whose pass depends on how many others are running. An 11-second margin under variable load will fail again in the run after next, and it will look like a real regression when it does.
+- **Cheapest learner-facing lie.** `T.21` — a level with nine cards all scheduled forward says "No cards at this level yet, try a lower level" to a learner who has just answered everything right. One string, two states, and the advice is wrong for the common one.
+- **Finish what this run started.** `T.19` names *which* note was wrong; `gradeTheoryStep` already computes `matchedGroups` and the panel throws it away. It is a rendering decision on a value that exists, and it is the other half of the reveal this run shipped.
+- **The unresolved MAJOR.** `T.23` — every perfect authentic cadence the drill draws voices its leading tone falling a fifth. It is pre-existing and it is a harmony defect, so it wants a property test over `finalChordPitches` for every key and cadence type, not an example fix in the reveal.
+- **Then the spelling and range work**, in this order: `T.25` (73 of 770 items name notes the keyboard does not draw), `T.20` (sharps-only vocabulary in flat keys), `T.24` (ASCII `Bb` above glyph `B♭`, two lines apart, and cross-screen).
+- **Largest, and the one a learner feels most.** `T.22` — level-1 decks of 9 / 9 / 3 / 20 cards against a 6-minute flashcard segment. Content and generator work, so it is a run of its own rather than a slice.
+- **Before the next `/improve-app` can `start`:** this run's metric needs a reading, and `PersistedFlashcards.cardsById` stays at its baseline of 0 until a card is actually missed and re-learned in the running app. `T.22` is why a single session may not produce one. The next run is drums-bound by the persona rotation, so it inherits `T.7`, not this number.
 
 ## Run 2026-08-21-1
 

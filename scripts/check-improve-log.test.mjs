@@ -426,6 +426,97 @@ describe('validateImproveLog', () => {
     ).toBe(true)
   })
 
+  // ------------------------------------------------------------ Next steps (§8 hand-off)
+  //
+  // The section is scoped by run id: dated entries from NEXT_STEPS_FROM on must carry it,
+  // and everything else — the undated fixtures above included — is out of scope. Every test
+  // here therefore builds its own dated heading rather than reusing VALID_RUN's `## Run 1`.
+  describe('Next steps', () => {
+    const DATED = VALID_RUN.replace('## Run 1', '## Run 2026-09-01-1')
+    const withSteps = (body) =>
+      DATED.replace('### Cannot-sense register\nnone this run', `### Next steps\n${body}\n\n$&`)
+
+    it('leaves an undated run entry alone — the rule starts at a dated id', () => {
+      expect(validateImproveLog(VALID_RUN).some((v) => v.message.includes('Next steps'))).toBe(
+        false,
+      )
+    })
+
+    it('leaves a dated entry from before the cutoff alone', () => {
+      const fixture = VALID_RUN.replace('## Run 1', '## Run 2026-08-21-1')
+      expect(validateImproveLog(fixture).some((v) => v.message.includes('Next steps'))).toBe(false)
+    })
+
+    it('requires the section on a dated entry from the cutoff on', () => {
+      const violations = validateImproveLog(DATED)
+      expect(
+        violations.some(
+          (v) =>
+            v.line === lineOf(DATED, '## Run 2026-09-01-1') &&
+            v.message.includes('missing required "### Next steps" section'),
+        ),
+      ).toBe(true)
+    })
+
+    it('accepts the "nothing queued this run" line on its own', () => {
+      const fixture = withSteps('nothing queued this run')
+      expect(validateImproveLog(fixture).some((v) => v.message.includes('Next steps'))).toBe(false)
+    })
+
+    it('rejects "nothing queued this run" alongside real steps', () => {
+      const fixture = withSteps('nothing queued this run\n- Then `T.19`')
+      const violations = validateImproveLog(fixture)
+      expect(
+        violations.some((v) => v.message.includes('must be the only line in "### Next steps"')),
+      ).toBe(true)
+    })
+
+    it('rejects an empty section', () => {
+      const fixture = withSteps('')
+      expect(
+        validateImproveLog(fixture).some((v) =>
+          v.message.includes('"### Next steps" section is empty'),
+        ),
+      ).toBe(true)
+    })
+
+    it('rejects a step that is prose with no roadmap id', () => {
+      const fixture = withSteps('- Probably tidy up the theory screen a bit')
+      const violations = validateImproveLog(fixture)
+      expect(
+        violations.some(
+          (v) =>
+            v.line === lineOf(fixture, 'Probably tidy up') &&
+            v.message.includes('cites no roadmap id in backticks'),
+        ),
+      ).toBe(true)
+    })
+
+    it('accepts a step citing a roadmap id, and takes the T./U./DR- shapes', () => {
+      const fixture = withSteps('- Repair `T.27` first, then `U.3`, then `DR-02`')
+      expect(validateImproveLog(fixture).some((v) => v.message.includes('Next steps'))).toBe(false)
+    })
+
+    it('rejects an id that names no row in ROADMAP.md, when the ids are supplied', () => {
+      const fixture = withSteps('- Repair `T.27`, then `T.999`')
+      const roadmapIds = new Set(['T.27'])
+      const violations = validateImproveLog(fixture, null, roadmapIds)
+      expect(
+        violations.some(
+          (v) =>
+            v.line === lineOf(fixture, 'T.999') &&
+            v.message.includes('`T.999`, which is not a task row in ROADMAP.md'),
+        ),
+      ).toBe(true)
+      expect(violations.some((v) => v.message.includes('`T.27`, which is not'))).toBe(false)
+    })
+
+    it('skips the membership half when no ids are supplied', () => {
+      const fixture = withSteps('- Repair `T.999`')
+      expect(validateImproveLog(fixture).some((v) => v.message.includes('Next steps'))).toBe(false)
+    })
+  })
+
   it('reports every violation in the file, not just the first', () => {
     const fixture = VALID_RUN.replace('- **Tier:** M', '- **Tier:** XL')
       .replace('- **Outcome:** clean', '- **Outcome:** maybe')
