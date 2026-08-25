@@ -1,0 +1,23 @@
+# Line endings are LF in the repository, always.
+#
+# Why this file exists: on 2026-08-25 a session edited six committed files with
+# a Windows Python script whose `open(p, 'w')` writes CRLF. `core.autocrlf` is
+# `false` here and no attributes file existed, so git stored the CRLF verbatim.
+# Both commits then read as full-file rewrites — DashboardScreen.tsx alone went
+# in as 571 insertions / 562 deletions for an 11-line change — and every later
+# diff, blame and review of those files inherits the noise. Nothing failed; the
+# tests were green throughout, because line endings are invisible to them.
+#
+# `text=auto eol=lf` makes that a git-level guarantee rather than a habit: any
+# tool that writes CRLF gets normalised to LF on the way into the index, and
+# every checkout gets LF back, on every platform.
+* text=auto eol=lf
+
+# Binary — never normalise, never diff as text.
+*.png binary
+*.jpg binary
+*.mp3 binary
+*.wav binary
+*.mxl binary
+*.woff binary
+*.woff2 binary
