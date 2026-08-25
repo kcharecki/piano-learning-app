@@ -28,7 +28,22 @@
   font-weight: var(--weight-medium);
   color: var(--text-2);
   padding: var(--space-2) 0;
+  gap: var(--space-2);
 }
+/* The disclosure chevron. `primitives.css`'s app-wide `summary { display:
+   flex }` removes the browser's own marker, so without this the summary line
+   is indistinguishable from static card text — the defect UI-25 fixed on the
+   Metronome screen. Same convention as `.metronome-config` and
+   `.lessons-track-filter`: closed points at the content it reveals, open
+   flips. */
+.sight-reading-customizer > summary svg {
+  width: 1em;
+  height: 1em;
+  flex-shrink: 0;
+  color: var(--text-2);
+  transition: transform var(--dur-1) var(--ease-out);
+}
+.sight-reading-customizer[open] > summary svg { transform: rotate(180deg); }
 .sight-reading-customizer[open] summary {
   color: var(--text-1);
 }

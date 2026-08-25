@@ -308,7 +308,16 @@ function LevelsCard({ levels }: LevelsCardProps) {
       </ul>
 
       <details className="level-adjust">
-        <summary className="btn btn-ghost">Adjust level&hellip;</summary>
+        {/* The ghost-button styling says "clickable"; it does not say
+            "opens and closes", and `primitives.css`'s app-wide
+            `summary { display: flex }` has already removed the marker that
+            would. The chevron carries the open/closed STATE the button style
+            cannot — same convention as every other disclosure here, held by
+            `e2e/disclosure-affordance.spec.ts`. */}
+        <summary className="btn btn-ghost">
+          <Icon name="chevron-down" />
+          Adjust level&hellip;
+        </summary>
         <div className="level-adjust-body">
           {levels.map((l) => (
             <div className="field" key={l.track}>

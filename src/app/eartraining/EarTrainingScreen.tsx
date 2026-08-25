@@ -291,7 +291,16 @@ export function EarTrainingScreen(props: EarTrainingScreenProps) {
           Sing what you hear back before answering — it trains twice as much.
         </p>
         <details>
-          <summary>Why?</summary>
+          {/* Chevron, not decoration: `primitives.css`'s app-wide
+              `summary { display: flex }` removes the browser's own disclosure
+              marker, so a bare "Why?" renders as a static line of accent-
+              coloured text with nothing to say it opens. Same convention as
+              `.lessons-track-filter`; held for the whole app by
+              `e2e/disclosure-affordance.spec.ts`. */}
+          <summary>
+            <Icon name="chevron-down" />
+            Why?
+          </summary>
           <p className="eartraining-vocal-note">
             This screen has no microphone — it can&apos;t hear you sing, only what you
             click or play on a keyboard. RCM accepts keyboard playback like the

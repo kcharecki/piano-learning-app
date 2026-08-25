@@ -147,6 +147,16 @@
 .level-adjust > summary::-webkit-details-marker {
   display: none;
 }
+/* Chevron — see `.sight-reading-customizer > summary svg`. The ghost-button
+   styling already says "clickable"; this is what says "opens and closes", and
+   carries the state while open. */
+.level-adjust > summary svg {
+  width: 1em;
+  height: 1em;
+  flex-shrink: 0;
+  transition: transform var(--dur-1) var(--ease-out);
+}
+.level-adjust[open] > summary svg { transform: rotate(180deg); }
 .level-adjust-body {
   display: flex;
   flex-direction: column;

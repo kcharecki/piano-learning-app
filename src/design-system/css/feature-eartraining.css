@@ -40,7 +40,19 @@
   color: var(--accent);
   font-size: var(--text-sm);
   font-weight: var(--weight-medium);
+  gap: var(--space-1);
 }
+/* Chevron — see `.sight-reading-customizer > summary svg` for why every
+   disclosure in this app has to draw its own. Inherits `currentColor` here
+   rather than `--text-2`, because this summary is deliberately accent-
+   coloured and a grey chevron beside accent text reads as two elements. */
+.eartraining-sing-callout summary svg {
+  width: 1em;
+  height: 1em;
+  flex-shrink: 0;
+  transition: transform var(--dur-1) var(--ease-out);
+}
+.eartraining-sing-callout details[open] > summary svg { transform: rotate(180deg); }
 .eartraining-vocal-note {
   margin: var(--space-2) 0 0;
   font-size: var(--text-sm);

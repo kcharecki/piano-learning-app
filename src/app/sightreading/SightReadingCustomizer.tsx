@@ -11,6 +11,7 @@
 import type { GeneratorParams, HandIndependence, RhythmStyle } from '@core/generator/melody.ts'
 import { keyFromFifths } from '@core/theory/keys.ts'
 import { at } from '@core/shared/invariant.ts'
+import { Icon } from '@app/ui/Icon.tsx'
 import {
   HANDS_OPTIONS,
   INDEPENDENCE_OPTIONS,
@@ -43,7 +44,18 @@ export function SightReadingCustomizer({
 
   return (
     <details className="sight-reading-customizer">
-      <summary>Customize exercise</summary>
+      {/* The chevron is not decoration. `primitives.css`'s app-wide
+          `summary { display: flex }` removes the browser's own disclosure
+          marker, so without a glyph of its own this line renders as plain card
+          text and reads as static — the defect roadmap UI-25 fixed on the
+          Metronome screen and this screen never got. Same convention as
+          `.lessons-track-filter` / `.metronome-config`: closed points at the
+          content it reveals, open flips. `e2e/disclosure-affordance.spec.ts`
+          holds it for every disclosure in the app, not just this one. */}
+      <summary>
+        <Icon name="chevron-down" />
+        Customize exercise
+      </summary>
 
       <div className="field-row sight-reading-customizer-controls">
         <div className="field">
