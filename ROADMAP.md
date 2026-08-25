@@ -172,16 +172,47 @@ Full histories of completed tasks: `docs/roadmap-archive-*.md` and git history.
       *Proof: the spec's own timing is measured rather than waited out - it asserts the teardown
       threw nothing without a wall-clock settle that competes with the rest of the suite.*
 
-- [ ] T.27 **`npm run verify:full` is red on `knip:prod:all`, and has been since `d6e1af9`.**
-      Found during /improve-app run 2026-08-24-1's experience gate. `knip --production` reports
-      1 unused file (`src/app/state/persistenceHarness.ts`) and 4 unused exports (`lastAttempt`,
-      `grooveById`, `writtenTicks`, `snapshotGrade`), exit 1 - so `verify:full` never reaches its
-      `test:e2e` step, which is the step T.18 is about. Confirmed pre-existing, not caused by that
-      run: the same command at `d6e1af9` in an isolated worktree with `node_modules` linked reports
-      the same set plus `allMappedPads`, exit 1. Each finding is either dead code to delete or a
-      seam knip cannot see; both answers are cheap, and leaving it red costs the whole gate.
-      *Proof: `npm run verify:full` exits 0 in the main checkout, and each of the five findings is
-      resolved by a deletion or by a recorded reason, not by widening the ignore list.*
+- [x] T.27 `npm run verify:full` was red on `knip:prod:all` since `d6e1af9`, so it never reached
+      `test:e2e` — the step T.18 is about. Closed in `e832ea5`; `verify:full` now exits 0 (243
+      files / 4935 unit tests, knip clean in both modes, 179 e2e passed). Eight findings, each on
+      its own merits: `writtenTicks` was callerless because `musicxmlwriter.ts` inlined the same
+      formula the module exists to own (now calls it); `persistenceHarness.ts` was test fixtures
+      misfiled under `src/app/state/` (moved to `src/test/`); `grooveById` and `lastAttempt` were
+      exports whose stated purpose was never built (deleted, 4 tests with them); `snapshotGrade` is
+      tagged `@public` with the reason beside it (U.3 took its last production caller, but the
+      tallies it reads are how the suite states the live-vs-batch agreement property); DR-02's
+      three kit-map files are excluded from PRODUCTION analysis only via `project`'s trailing `!`,
+      dated with a deletion condition. **What it uncovered:** with knip green, `test:e2e` ran in
+      that gate for the first time and `responsive-drawers.spec.ts` failed — see T.28.
+
+- [ ] T.28 **A 44px touch assertion failed once under full-suite load and has not reproduced.**
+      Found the moment T.27 unblocked `verify:full`'s e2e step (2026-08-25): `responsive-drawers`
+      reported *"controls under 44px: Open navigation — 44x44"* — a control accused of being under
+      44px whose own printed size is 44. `e832ea5` applied the fix its sibling already carries
+      (`tablet-touch-targets.spec.ts` traced the same self-contradiction to a box read inside a
+      still-transforming ancestor, 43.9921875 for a control whose `min-height` is exactly
+      `--touch-min`), extracted it to `e2e/settle-layout.ts`, and unrounded both specs' failure
+      messages. That fix is **not proven**: the failure did not reproduce alone, nor with the CPU
+      throttled 20x while sampling that button's box every frame across the drawer close (min
+      44.000 x 44.000 over 32 frames, 0 samples under 44). So the cause is still open, and it is
+      the same shape as T.26 — a spec whose pass depends on what else is running.
+      *Proof: the sub-pixel read is reproduced deliberately (a spec that measures mid-transition
+      and asserts the value is under 44), or the real cause is named and fixed — not another
+      settle added on the guess that motion is to blame.*
+
+- [ ] T.29 **The app draws its disclosure arrow two different ways, and which one you get
+      depends on which screen you are on.** Found while closing the disclosure-affordance defect
+      (`36c3b21`). Five screens use an `<Icon name="chevron-down">` that rotates 180 degrees on
+      open (`feature-lessons.css`, `feature-metronome.css`, `feature-sightreading.css`,
+      `feature-eartraining.css`, `feature-progress.css`); four use a `::before` with `content:
+      "b8"` that rotates 90 degrees (`feature-audio-recording.css:35`,
+      `feature-milestones.css:20`, `feature-practice-sections.css:42`, `feature-today.css:35`).
+      Both are legible on their own; together they teach a learner two glyphs for one idea, and a
+      new disclosure inherits whichever file it lands next to. `docs/DESIGN.md` names neither.
+      `e2e/disclosure-affordance.spec.ts` deliberately accepts both, because it guards visibility
+      rather than consistency — so it will not catch the drift widening.
+      *Proof: one convention, named in `docs/DESIGN.md`, and the e2e gate narrowed to it — the
+      spec that today accepts either marker accepts only the chosen one.*
 
 ## Phases 0-2 — Foundation, M1 playable core, M2 feedback & reading — all done
 
