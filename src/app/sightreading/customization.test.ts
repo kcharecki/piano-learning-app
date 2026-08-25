@@ -4,8 +4,12 @@ import { describe, expect, it } from 'vitest'
 import {
   applyCustomization,
   isCustomizationActive,
+  HANDS_OPTIONS,
+  INDEPENDENCE_OPTIONS,
   MAJOR_KEYS,
   MINOR_KEYS,
+  REGISTER_OPTIONS,
+  RHYTHM_OPTIONS,
   keyLabel,
   type SightReadingCustomization,
 } from './customization.ts'
@@ -125,5 +129,49 @@ describe('customization — key lists', () => {
   it('labels a key by its real name', () => {
     expect(keyLabel(keyFromFifths(1, 'major'))).toBe('G major')
     expect(keyLabel(keyFromFifths(0, 'minor'))).toBe('A minor')
+  })
+})
+
+/**
+ * The class this suite guards (roadmap 5.54 follow-up): a picker whose
+ * `<option>` list silently stops covering the union it is built from.
+ *
+ * Two gates already stand in front of these assertions, and neither is here.
+ * `tsc` rejects a label map that misses a union member — the maps in
+ * `customization.ts` are `Record`s over their unions. An `invariant` at module
+ * load rejects a display order that has a label available and leaves it out.
+ * Importing this module at all therefore runs the second gate, so these tests
+ * are the third thing: they pin what the two gates cannot say, which is that
+ * the resulting list is fit to render and ordered the way a beginner is taught.
+ *
+ * The concrete instance that motivated all three: `RhythmStyle` gained
+ * `'quarter-half'` — level 1's own default rhythm (`levelDefaults.ts`) — and
+ * the picker never offered it, so the one style a beginner is actually being
+ * taught was the one style they could not select, while the list still led
+ * with whole notes.
+ */
+describe('customization — every picker is fit to render', () => {
+  const PICKERS = [
+    ['rhythm', RHYTHM_OPTIONS],
+    ['hands', HANDS_OPTIONS],
+    ['handIndependence', INDEPENDENCE_OPTIONS],
+    ['register', REGISTER_OPTIONS],
+  ] as const
+
+  it.each(PICKERS)('%s renders no blank or duplicated label', (_name, options) => {
+    const labels = options.map((o) => o.label)
+    expect(labels.every((l) => l.trim().length > 0)).toBe(true)
+    expect(new Set(labels).size).toBe(labels.length)
+  })
+
+  it.each(PICKERS)('%s offers at least two real choices', (_name, options) => {
+    expect(options.length).toBeGreaterThan(1)
+  })
+
+  it("offers level 1's own default rhythm, ahead of the whole-note style", () => {
+    const order = RHYTHM_OPTIONS.map((o) => o.value)
+    expect(order).toContain('quarter-half')
+    expect(order.indexOf('quarter-half')).toBeLessThan(order.indexOf('whole-half'))
+    expect(order.indexOf('quarters')).toBeLessThan(order.indexOf('whole-half'))
   })
 })
