@@ -7,7 +7,7 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 - user-reported defects since last session: <n, listed briefly>
 - slices proven / started: <a>/<b>
 - gate catches before commit: <n, what>
-- docs budget (ROADMAP+CLAUDE+PROCESS lines): <n>
+- docs budget: <what `npm run docs:budget` warned about, or "no warnings">
 - cost note: <where the session's cost went, one line>
 - hypothesis: <weakest part of the process right now>
 - change: <the experiment + review-by date | "none because …">
@@ -16,22 +16,26 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
-## 2026-08-25 — a run now has to say what it left behind, and the saying is checked
+## 2026-08-25 — a run now has to say what it left behind, and the docs budget stopped lying about what it costs
 
-- **user-reported defects since last session:** 0. One directive: "Update the improve-app command
-  to always end by summarisation on what are the possible next steps."
+- **user-reported defects since last session:** 0. Two directives: "Update the improve-app command
+  to always end by summarisation on what are the possible next steps", then, after a second
+  opinion from Fable 5 on the numbers, "do all three".
 - **slices proven / started:** 0 / 0. Process work only, at the user's direction, outside a run.
-- **gate catches before commit:** 2. (1) `check-improve-log.mjs`'s own new rule refused the
+- **gate catches before commit:** 3. (1) `check-improve-log.mjs`'s own new rule refused the
   backfilled `### Next steps` for run 2026-08-24-1 — the section opened with a line of prose
   carrying no roadmap id, which is exactly the loophole the rule exists to close, so the intro
   line went rather than the rule. (2) `check-docs-budget.mjs` refused `improve-app.md` at 210 of
-  200; see below.
-- **docs budget (ROADMAP+CLAUDE+PROCESS lines):** ROADMAP 1357 of 1500, CLAUDE 2 of 160, PROCESS
-  151 of 160. `docs/commands/improve-app.md` **raised 200 → 215**, recorded here because
-  `check-docs-budget.mjs` says a raise without a reason in this file is not allowed. The doc was
-  at 199 of 200, so the only way to add a step was to delete an existing rule to pay for it —
-  that trade is worse than the number. It is now 209 of 215.
-- **cost note:** small. Most of it went on deciding where the rule belongs, not on writing it.
+  200; see below. (3) Two of the new budget tests were wrong rather than the code: both picked
+  fixture sizes that also blew the read-set aggregate, so they asserted one message and got two.
+  The aggregate was behaving correctly in both cases.
+- **docs budget:** no warnings. The whole gate changed shape this session — see the second change
+  below. Before it: ROADMAP 1357 of 1500, CLAUDE 2 of 160, PROCESS 151 of 160, and
+  `docs/commands/improve-app.md` **raised 200 → 215** because it sat at 199 of 200 and the only
+  other way to add a step was to delete an existing rule to pay for it.
+- **cost note:** moderate, and most of it bought something. The `/improve-app` change was small.
+  The budget work cost a Fable 5 consult, a 351-line archive pass and a new test file — and the
+  consult earned it: it found that CLAUDE.md's re-inlining guard had never been able to fire.
 - **hypothesis:** the weakest part of the process was that **a run's queue lived in the session
   that produced it.** Every run files roadmap rows, defers MAJORs and leaves a metric owing, and
   all of that was reconstructed by the next session from `ROADMAP.md` — the rediscovery
@@ -46,6 +50,36 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
   keep if a run's next steps are read rather than re-derived; revisit if entries start reading
   as a copy of the roadmap's own ordering, which would mean the section is duplicating a file
   instead of prioritising it.
+- **second change, and this session therefore breaks the one-change-per-session rule** — stated
+  rather than hidden, and at the user's explicit direction ("do all three") after they said the
+  budgets "seem to be too small" and asked for a second opinion. Three findings, in the order
+  they matter:
+  1. **CLAUDE.md's guard had never been able to fire.** Its entry exists only to catch AGENTS.md's
+     body being re-inlined into it. Its cap was 160 lines; the AGENTS.md body is 126. Re-inlining
+     would have passed. That is not a tuning question, it is a guard that was decorative for five
+     days. `scripts/check-docs-budget.test.mjs` now pins the *relationship* — CLAUDE.md's cap must
+     be under whatever AGENTS.md currently weighs — so it cannot go vacuous again as AGENTS grows.
+  2. **Lines were the wrong unit.** These docs are consumed as context and context is priced in
+     tokens. Density across the budgeted set ran 56 to 89 bytes per line, so one number bought
+     very different amounts of context per file; and rewrapping at 100 columns instead of 80 would
+     have cut any count by a quarter while saving nothing. The gate now measures
+     `bytes/4` as estimated tokens.
+  3. **A per-file maximum was never what a session pays** — a session pays a sum. There are now
+     three read-set aggregates (`every session`, `/next`, `/improve-app`) capped below the sum of
+     their members' caps, so PROCESS.md may grow 400 tokens if AGENTS.md sheds 400 and the total
+     holds. `docs/PROCESS.md` had been tracking that sum as a prose retro metric; it is a script
+     rule now, per the standing rule about automation.
+  Plus a **warning band at 90%**, non-fatal. Every raise this gate has ever had was reactive, made
+  on the day a rule landed and a build went red — raise-or-delete under pressure. A warning that
+  nags for three sessions makes the compress pass a scheduled choice. Proven live by growing
+  PROCESS.md: silent at 74%, `exit 0` with a warning at 91%, `exit 1` at 101%.
+  And the reason the caps could be set with real headroom without loosening anything: the
+  **351-line Triage archive pass** (`f16ca22`) cleared fourteen finished tasks whose proof prose
+  every triaging session was re-reading. That silt was the thing the budget exists to catch, and
+  it had been sitting there while the same gate squeezed files with no flab in them. Everything
+  now sits at 74–82% of its budget. **Review by 2026-10-25 (or 6 sessions):** keep if a 90%
+  warning ever precedes a compress pass rather than a raise; revisit if bytes/4 turns out to
+  misprice these files badly enough to matter, or if the aggregates never bind.
 - **experiment verdicts due:** none. The `verify:full` reorder (set 2026-08-24) reviews 2026-09-24;
   the visual-pass receipt gate reviews 2026-10-05 and was already resolved **keep** yesterday.
 

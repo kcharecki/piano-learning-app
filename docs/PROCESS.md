@@ -135,8 +135,9 @@ The retro is not a diary; it is the mechanism this process uses to fix itself. E
    - user-reported defects since last session (target: trending to 0)
    - slices proven / slices started
    - experience-gate findings caught before commit (the gate paying rent)
-   - docs budget: `ROADMAP.md` + `CLAUDE.md` + `PROCESS.md` line total
-     (enforced by `scripts/check-docs-budget.mjs` in `verify`)
+   - docs budget: whatever `npm run docs:budget` warned about, or "no warnings". It measures
+     estimated tokens per file **and per read-set**, and warns at 90% — that warning is the
+     signal to schedule a compress pass, not to raise a number
 
 Experiments with passed review-by dates get a verdict at the next retro: keep (fold in as
 standing text), extend (say why), or revert (say what the evidence showed).
