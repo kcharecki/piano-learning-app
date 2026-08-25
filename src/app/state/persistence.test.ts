@@ -28,7 +28,7 @@ import {
   resetStore,
   teardownPersisters,
   ThrowingStore,
-} from './persistenceHarness.ts'
+} from '@test/persistenceHarness.ts'
 
 describe('persistence', () => {
   beforeEach(() => {

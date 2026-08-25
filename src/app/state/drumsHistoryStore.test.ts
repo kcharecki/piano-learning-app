@@ -1,10 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { DrumsGrooveAttempt } from '@core/drums/practice/attempt.ts'
-import {
-  lastAttempt,
-  MAX_STORED_DRUMS_ATTEMPTS,
-  useDrumsHistoryStore,
-} from './drumsHistoryStore.ts'
+import { MAX_STORED_DRUMS_ATTEMPTS, useDrumsHistoryStore } from './drumsHistoryStore.ts'
 
 function attempt(overrides: Partial<DrumsGrooveAttempt> = {}): DrumsGrooveAttempt {
   return {
@@ -50,29 +46,5 @@ describe('useDrumsHistoryStore', () => {
     const restored = attempt({ at: 9 })
     useDrumsHistoryStore.getState().hydrate({ attempts: [restored] })
     expect(useDrumsHistoryStore.getState().attempts).toEqual([restored])
-  })
-})
-
-describe('lastAttempt', () => {
-  const money = attempt({ at: 2 })
-  const rock = attempt({ at: 1, grooveId: 'quarter-note-rock', grooveTitle: 'Quarter-Note Rock' })
-
-  /**
-   * Unfiltered is what the screen shows: a learner who comes back sees the run
-   * they actually last played, not whatever the picker happens to be sitting
-   * on after a reload.
-   */
-  it('returns the most recent run of any groove when no id is given', () => {
-    expect(lastAttempt([money, rock])).toBe(money)
-  })
-
-  it('returns the most recent run of one groove when an id is given', () => {
-    expect(lastAttempt([money, rock], 'quarter-note-rock')).toBe(rock)
-    expect(lastAttempt([money, rock], 'money-beat-open-hat')).toBeUndefined()
-  })
-
-  it('returns undefined for an empty history', () => {
-    expect(lastAttempt([])).toBeUndefined()
-    expect(lastAttempt([], 'money-beat')).toBeUndefined()
   })
 })

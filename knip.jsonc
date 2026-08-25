@@ -5,6 +5,18 @@
     "src/**/*.{ts,tsx}!",
     "!src/**/*.test.{ts,tsx}!",
     "!src/test/**!",
+    // drums DR-02 kit-map. Excluded from PRODUCTION analysis only — that is what the
+    // trailing `!` means here, exactly as it does on the two lines above, so the dev-mode
+    // run still guards these files and knip stops offering to remove the line. Same shape
+    // as the `ignore` entry below, one layer up: `docs/drums/ROADMAP.md` marks DR-02 `[~]`
+    // — the core slice (note->pad table, CC4 hi-hat state machine, choke, debounce,
+    // unmapped bucket, four vendor presets) merged, and the MIDI-learn wizard that builds
+    // a `KitMapEngine` from a chosen preset is the app half, still pending. DELETE this
+    // line when that wizard merges, or when any adapter constructs the engine for a live
+    // e-kit — whichever is first. Dated, not permanent: if DR-02's app half is still
+    // unbuilt when the next drums slice lands, the answer is to build it or to delete the
+    // core layer, not to leave this here. (Roadmap T.27 is why it is written down at all.)
+    "!src/core/drums/kitmap/**!",
     "scripts/**/*.mjs"
   ],
   "ignoreExportsUsedInFile": true,
@@ -19,9 +31,12 @@
   // it landed. `core/curriculum/model.ts`, `content/curriculum/*` and `content/scores/demoScores.ts`
   // are now reachable from `src/main.tsx`, so knip's production mode guards them like everything
   // else. Do not add an entry here without a roadmap task id and a deletion condition.
+  //
   // drums DR-04 model: finished + tested core layer whose production consumers are the
   // in-flight D0 slices (DR-02 kit-map engine emits its DrumHit, DR-05 engraves its
   // GrooveScore, DR-06 plays it). DELETE this line when the first drums screen that
   // renders or plays a groove merges (DR-05's gallery or DR-06's DrumsToday preview).
+  // DR-02's kit-map layer above it is the same situation, handled in `project` instead —
+  // see that line for why production-only exclusion is the sharper tool.
   "ignore": ["src/core/drums/model/**"]
 }

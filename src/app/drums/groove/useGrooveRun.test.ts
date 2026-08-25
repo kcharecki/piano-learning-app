@@ -8,7 +8,7 @@ import { act, renderHook } from '@testing-library/react'
 import { FakeClock, RecordingAudioOutput } from '@test/fakes.ts'
 import { describe, expect, it, vi } from 'vitest'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
-import { grooveById } from '@core/drums/practice/library.ts'
+import { moneyBeat } from '@core/drums/model/referenceGrooves.ts'
 import { planGrooveRun, type GrooveRunPlan } from '@core/drums/practice/plan.ts'
 import type { GrooveRunResult } from '@core/drums/practice/grade.ts'
 import { useGrooveRun, type UseGrooveRunOptions } from './useGrooveRun.ts'
@@ -25,9 +25,7 @@ function manualDriver(): { driver: FrameDriver; pump: () => void } {
 }
 
 function moneyBeatPlan(): GrooveRunPlan {
-  const groove = grooveById('money-beat')
-  if (groove === undefined) throw new Error('money-beat missing from the trainer library')
-  return planGrooveRun(groove, 80)
+  return planGrooveRun(moneyBeat(), 80)
 }
 
 type Harness = {

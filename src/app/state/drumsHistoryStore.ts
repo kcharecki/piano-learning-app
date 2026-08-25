@@ -40,13 +40,3 @@ export const useDrumsHistoryStore = create<DrumsHistoryStore>((set) => ({
     })),
   hydrate: (state) => set(state),
 }))
-
-/** The most recent run on `grooveId`, or the most recent of any groove when it is omitted. */
-export function lastAttempt(
-  attempts: readonly DrumsGrooveAttempt[],
-  grooveId?: string,
-): DrumsGrooveAttempt | undefined {
-  return grooveId === undefined
-    ? attempts[0]
-    : attempts.find((attempt) => attempt.grooveId === grooveId)
-}

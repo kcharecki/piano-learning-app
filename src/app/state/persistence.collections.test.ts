@@ -6,7 +6,7 @@
  *
  * Split out of `persistence.test.ts`, which keeps the engine itself — the
  * restore/subscribe/flush machinery and the failures that belong to no single
- * collection. The shared fixtures are in `persistenceHarness.ts`.
+ * collection. The shared fixtures are in `@test/persistenceHarness.ts`.
  */
 import { SINGLE_NOTE } from '@test/fixtures.ts'
 import { midi, millis, ticks } from '@core/shared/units.ts'
@@ -74,7 +74,7 @@ import {
   resetStore,
   teardownPersisters,
   ThrowingStore,
-} from './persistenceHarness.ts'
+} from '@test/persistenceHarness.ts'
 import { MemoryStore } from '@test/fakes.ts'
 
 

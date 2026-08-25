@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { validateGrooveScore } from '@core/drums/model/groove.ts'
-import { grooveById, grooveTrainerLibrary } from './library.ts'
+import { grooveTrainerLibrary } from './library.ts'
 import { planGrooveRun } from './plan.ts'
 
 describe('grooveTrainerLibrary', () => {
@@ -37,13 +37,5 @@ describe('grooveTrainerLibrary', () => {
     const library = grooveTrainerLibrary()
     expect(new Set(library.map((groove) => groove.title)).size).toBe(library.length)
     for (const groove of library) expect(validateGrooveScore(groove).ok).toBe(true)
-  })
-})
-
-describe('grooveById', () => {
-  it('finds a library entry by id and nothing else', () => {
-    expect(grooveById('money-beat')?.title).toBe('Money Beat')
-    expect(grooveById('ghost-funk-bar')).toBeUndefined()
-    expect(grooveById('nope')).toBeUndefined()
   })
 })

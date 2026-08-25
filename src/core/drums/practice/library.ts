@@ -33,8 +33,3 @@ import type { GrooveScore } from '@core/drums/model/groove.ts'
 export function grooveTrainerLibrary(): readonly [GrooveScore, ...GrooveScore[]] {
   return [quarterNoteRock(), moneyBeat(), moneyBeatOpenHat()]
 }
-
-/** The library entry `id` names, or `undefined`. Used to restore a picker position. */
-export function grooveById(id: string): GrooveScore | undefined {
-  return grooveTrainerLibrary().find((groove) => groove.id === id)
-}

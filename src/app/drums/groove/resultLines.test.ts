@@ -7,14 +7,12 @@
 import { describe, expect, it } from 'vitest'
 import type { GroovePadResult, GrooveRunResult } from '@core/drums/practice/grade.ts'
 import { gradeGrooveRun } from '@core/drums/practice/grade.ts'
-import { grooveById } from '@core/drums/practice/library.ts'
+import { moneyBeat, quarterNoteRock } from '@core/drums/model/referenceGrooves.ts'
 import { planGrooveRun, type GrooveRunPlan } from '@core/drums/practice/plan.ts'
 import { diagnosisSentences, lastRunText, padLineText, verdictText } from './resultLines.ts'
 
 function moneyBeatPlan(bpm = 80): GrooveRunPlan {
-  const groove = grooveById('money-beat')
-  if (groove === undefined) throw new Error('money-beat missing from the trainer library')
-  return planGrooveRun(groove, bpm)
+  return planGrooveRun(moneyBeat(), bpm)
 }
 
 function row(overrides: Partial<GroovePadResult>): GroovePadResult {
@@ -177,9 +175,7 @@ describe('diagnosisSentences', () => {
 
   it('calls one step a beat when the groove is on straight quarters', () => {
     const quarters = moneyBeatPlan()
-    const rock = grooveById('quarter-note-rock')
-    if (rock === undefined) throw new Error('quarter-note-rock missing from the trainer library')
-    const rockPlan = planGrooveRun(rock, 80)
+    const rockPlan = planGrooveRun(quarterNoteRock(), 80)
     expect(rockPlan.subdivisionMs).toBe(rockPlan.beatMs)
     const late = gradeGrooveRun(
       rockPlan,

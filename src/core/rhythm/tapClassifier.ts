@@ -350,7 +350,19 @@ export function classifyTap(
  * 1, when nothing has been decided (`total === 0`) — a caller that DID once
  * treat this as a run summary (a manual Stop before anything was graded) used
  * to read that as a perfect 100% run; nothing decided is not a perfect score.
+ *
+ * `@public` because that fix left it with no production caller, and it is not
+ * therefore dead: `TapClassifierState`'s running tallies exist to be read out,
+ * and reading them out is how the suite states the property that guards the
+ * live path the screens DO use — folding `classifyTap` over arbitrary taps
+ * agrees with `gradeTapping` exactly, at every clamped tolerance. Delete this
+ * and the tallies go with it, and with them the only check that the per-tap
+ * verdicts a learner sees are the same decisions the batch grader would make.
+ * The tag is the recorded reason knip asks for (roadmap T.27) — per symbol and
+ * next to the code, rather than a glob in `knip.jsonc` that stops naming what
+ * it covers the moment the file changes.
  */
+/** @public */
 export function snapshotGrade(state: TapClassifierState): TapClassifierGrade {
   const total = state.matched + state.missed + state.extra
   return {

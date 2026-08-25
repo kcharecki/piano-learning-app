@@ -26,6 +26,7 @@ import { fromMidi } from '@core/theory/pitch.ts'
 import { TICKS_PER_QUARTER } from '@core/shared/units.ts'
 import { measureDurationTicks, type Clef, type Measure, type Score, type ScoreNote, type StaffInfo, type Tuplet } from './score.ts'
 import { notesInMeasure } from './scoreQueries.ts'
+import { writtenTicks } from './tuplet.ts'
 
 // -------------------------------------------------------------------- escaping
 
@@ -61,16 +62,18 @@ const dotFactor = (dots: number): number => 2 - 2 ** -dots
  *
  * A tuplet note's raw `durationTicks` is not what it is written as — a triplet
  * eighth is 160 ticks (0.333 quarters), which by raw duration would engrave as
- * a 16th. `tuplet` recovers the WRITTEN duration via its ratio
- * (`durationTicks * actual / normal`; 160 * 3 / 2 = 240, an eighth) before the
- * lookup runs.
+ * a 16th. `writtenTicks` (tuplet.ts) recovers the WRITTEN duration from the
+ * ratio (160 * 3 / 2 = 240, an eighth) before the lookup runs. That call is
+ * the point of the import: this function used to inline the same
+ * `durationTicks * actual / normal` expression, which left `tuplet.ts` — a
+ * module that exists, in its own words, because that arithmetic "is domain
+ * logic, not formatting" — with no caller at all (roadmap T.27).
  */
 function typeAndDots(
   durationTicks: number,
   tuplet?: Tuplet,
 ): { readonly type: string; readonly dots: number } {
-  const writtenTicks = tuplet === undefined ? durationTicks : (durationTicks * tuplet.actual) / tuplet.normal
-  const quarters = writtenTicks / TICKS_PER_QUARTER
+  const quarters = writtenTicks(durationTicks, tuplet) / TICKS_PER_QUARTER
   for (const [type, base] of TYPE_QUARTERS) {
     if (base > quarters && type !== '32nd') continue
     let dots = 0

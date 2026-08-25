@@ -4,7 +4,16 @@
  * `persistence.collections.test.ts` (one round-trip suite per saved
  * collection).
  *
- * It lives in its own module because both halves need the same three things
+ * It lives under `src/test/` — beside `fakes.ts` and `osmdEngraverFakes.ts` —
+ * rather than beside the code it exercises, because it is test code that
+ * happens not to be named `*.test.ts`. Under `src/app/state/` it read to
+ * `knip --production` as a production module nothing imports, which is how
+ * roadmap T.27 found it: an unused-file finding that was never dead code, only
+ * misfiled. `src/test/**` is outside knip's project globs and outside the
+ * production bundle, so the location now states what the file is.
+ *
+ * It is one module rather than a copy per suite because both halves need the
+ * same three things
  * and a copy in each would drift: every zustand store reset to factory state
  * between tests (they are module singletons, so a value left behind by one
  * test is a false pass in the next), a `startPersisting` subscription that is
@@ -16,17 +25,17 @@ import { MemoryStore } from '@test/fakes.ts'
 import { MIN_LEVEL } from '@core/sightreading/adaptive.ts'
 import { initialLevelState } from '@core/progress/levels.ts'
 import { emptyEarSession } from '@core/eartraining/session.ts'
-import { startPersisting } from './persistence.ts'
-import { useScoreStore, type ScoreStore } from './scoreStore.ts'
-import { useSightReadingStore } from './sightReadingStore.ts'
-import { useFlashcardStore } from './flashcardStore.ts'
-import { useProgressStore } from './progressStore.ts'
-import { useTechniqueStore } from './techniqueStore.ts'
-import { useDrumsHistoryStore } from './drumsHistoryStore.ts'
-import { useRepertoireStore } from './repertoireStore.ts'
-import { useLevelStore } from './levelStore.ts'
-import { useEarTrainingStore } from './earTrainingStore.ts'
-import { useThemeStore } from './themeStore.ts'
+import { startPersisting } from '@app/state/persistence.ts'
+import { useScoreStore, type ScoreStore } from '@app/state/scoreStore.ts'
+import { useSightReadingStore } from '@app/state/sightReadingStore.ts'
+import { useFlashcardStore } from '@app/state/flashcardStore.ts'
+import { useProgressStore } from '@app/state/progressStore.ts'
+import { useTechniqueStore } from '@app/state/techniqueStore.ts'
+import { useDrumsHistoryStore } from '@app/state/drumsHistoryStore.ts'
+import { useRepertoireStore } from '@app/state/repertoireStore.ts'
+import { useLevelStore } from '@app/state/levelStore.ts'
+import { useEarTrainingStore } from '@app/state/earTrainingStore.ts'
+import { useThemeStore } from '@app/state/themeStore.ts'
 
 /** `useScoreStore`'s factory state, captured before any test touched it. */
 export const INITIAL_STATE: ScoreStore = useScoreStore.getState()

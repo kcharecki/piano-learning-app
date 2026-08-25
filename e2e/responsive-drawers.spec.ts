@@ -2,6 +2,7 @@ import { expect, test, type ConsoleMessage, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { settleLayout } from './settle-layout.ts'
 
 /**
  * E2E proof for roadmap 5.27: the ≤1024px responsive drawer, verified by
@@ -97,7 +98,27 @@ test('the nav drawer opens and closes on tap, its scrim dismisses it, and nothin
   await navToggle.tap()
   await expect(navToggle).toHaveAttribute('aria-expanded', 'false')
 
-  // No visible, enabled control anywhere on the page is under the 44px touch minimum.
+  // No visible, enabled control anywhere on the page is under the 44px touch
+  // minimum — measured on the RESTING layout.
+  //
+  // This assertion failed once, on 2026-08-25, inside a full 6-worker
+  // `test:e2e` run: "controls under 44px: Open navigation — 44x44". It has not
+  // been reproduced since — not alone, and not with the CPU throttled 20x
+  // while sampling that button's box on every frame of the drawer's close
+  // (min 44.000 x 44.000 over 32 frames, 0 samples under 44). So the settle
+  // below is the sibling spec's fix applied to the same symptom, NOT a proven
+  // cause: `tablet-touch-targets.spec.ts` met an identical self-contradictory
+  // failure, traced it to a box read inside a still-transforming ancestor
+  // (43.9921875 for a control whose `min-height` is exactly `--touch-min`),
+  // and grew the settle now shared in `settle-layout.ts`. The two taps above
+  // leave this page mid-close, which is exactly the state that spec describes,
+  // so the same settle belongs here whether or not it explains that one run.
+  //
+  // It cannot mask a real defect: it is a fixed wait, not a retry-until-green
+  // loop, so a control genuinely undersized at rest still fails. The raw-size
+  // print below is the other half — if this recurs, the message will say what
+  // the number actually was instead of rounding the evidence away.
+  await settleLayout(page)
   const controls = page.locator('button:visible, a:visible, input:visible, select:visible')
   const count = await controls.count()
   const tooSmall: string[] = []
@@ -108,7 +129,12 @@ test('the nav drawer opens and closes on tap, its scrim dismisses it, and nothin
     if (box === null) continue
     if (box.width < 44 || box.height < 44) {
       const label = (await el.getAttribute('aria-label')) ?? (await el.textContent()) ?? '(unlabelled)'
-      tooSmall.push(`${label.trim()} — ${Math.round(box.width)}x${Math.round(box.height)}`)
+      // RAW, not rounded. The 2026-08-25 failure printed "Open navigation —
+      // 44x44" as a control under 44px, which is self-contradictory and told
+      // the next reader nothing: the real value was somewhere in [43.5, 44)
+      // and `Math.round` erased the only digit that mattered. Three decimals
+      // is enough to see a sub-pixel read and short enough to stay readable.
+      tooSmall.push(`${label.trim()} — ${box.width.toFixed(3)}x${box.height.toFixed(3)}`)
     }
   }
   expect(tooSmall, `controls under 44px: ${tooSmall.join(', ')}`).toEqual([])
