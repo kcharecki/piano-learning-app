@@ -77,3 +77,6 @@
 {"ts":"2026-08-24T22:56:50.407Z","run":"2026-08-24-1","event":"verdict","value":null}
 {"ts":"2026-08-24T22:56:50.469Z","run":"2026-08-24-1","event":"mark","section":"8","elapsedPct":90.18}
 {"ts":"2026-08-24T22:56:57.483Z","run":"2026-08-24-1","event":"finish","outcome":"shipped-not-clean"}
+{"ts":"2026-08-25T20:57:43.789Z","run":"2026-08-25-1","event":"start","commit":"93316fe0463cc2901871583346b5bf9045ef66f4","budgetMin":240,"persona":"Rusty returner (DRUMS)","personaIndex":3,"instrument":"drums","prevPickSource":"1c"}
+{"ts":"2026-08-25T20:58:05.980Z","run":"2026-08-25-1","event":"mark","section":"1a","elapsedPct":0.15}
+{"ts":"2026-08-25T20:58:06.038Z","run":"2026-08-25-1","event":"mark","section":"1e","elapsedPct":0.15}
