@@ -42,7 +42,7 @@ import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import { gradeGrooveRun, type GrooveHit, type GrooveRunResult } from '@core/drums/practice/grade.ts'
 import type { GrooveRunPlan } from '@core/drums/practice/plan.ts'
 import type { AudioOutput, Clock } from '@core/ports/index.ts'
-import { midi, millis, TICKS_PER_QUARTER } from '@core/shared/units.ts'
+import { midi, millis } from '@core/shared/units.ts'
 
 export type GrooveRunPhase = 'idle' | 'count-in' | 'playing' | 'graded' | 'preview'
 
@@ -74,7 +74,7 @@ export type GrooveRunApi = {
   start: () => void
   stop: () => void
   hit: (pad: MappedDrumPad) => void
-  /** Play one pass of the drawn music, plus a click track. Nothing is graded. */
+  /** Play the graded music, plus a click track under it. Nothing is graded. */
   preview: () => void
 }
 
@@ -93,20 +93,45 @@ type PreviewTiming = {
 const PAD_TONE_MS = 60
 
 /**
+ * How long an open hi-hat rings. Open is a DURATION before it is a colour —
+ * a closed hat is a chick and an open one sustains until the next stroke — so
+ * a preview that gave both the same 60 ms would say "open" nowhere the ear can
+ * hear it. Still shorter than an eighth at the trainer's floor tempo (375 ms at
+ * 80 bpm), so consecutive hats never run into each other.
+ */
+const OPEN_TONE_MS = 240
+
+/**
  * The pitch a pad's confirmation tone sounds at. Not `gmNoteOf` directly: the
  * fallback voice is a pitched triangle oscillator, and the GM percussion map
  * crowds kick, snare and hats into a sixth at the bottom of the range, where
  * they are indistinguishable. Spreading them across three octaves keeps
- * "which limb did I just play" audible on the fallback voice, and any output
- * routed to a real drum module ignores this and uses `gmNoteOf` anyway.
+ * "which limb did I just play" audible on the fallback voice.
+ *
+ * `hhOpen` is separated from `hhClosed` deliberately, and it is the one
+ * separation this map cannot collapse: `Money Beat (Open Hat)` differs from
+ * `Money Beat` by exactly one note, and the Listen preview exists to settle
+ * which reading the chart means. Two pads sharing a pitch there would make the
+ * preview say the opposite of what the staff draws.
  */
 function padTonePitch(pad: MappedDrumPad): number {
   if (pad === 'kick' || pad === 'hhPedal') return 40
-  if (pad === 'hhClosed' || pad === 'hhOpen' || pad === 'rideBow' || pad === 'rideBell') return 88
+  if (pad === 'hhOpen') return 91
+  if (pad === 'hhClosed' || pad === 'rideBow' || pad === 'rideBell') return 88
   if (pad === 'crash1' || pad === 'crash2' || pad === 'splash' || pad === 'rideEdge') return 84
   // Snare, rim, cross stick and the toms: the middle of the range.
   return 64
 }
+
+/** How long that tone holds. Pitch alone is a weak cue; length is what "open" sounds like. */
+const padToneMs = (pad: MappedDrumPad): number => (pad === 'hhOpen' ? OPEN_TONE_MS : PAD_TONE_MS)
+
+/**
+ * What a marking is a marking OF. A `GrooveRunResult` outlives the run that
+ * made it — it stays on screen so the learner can read it — so it must never
+ * be shown under a groove or a tempo it never graded.
+ */
+const planIdentity = (plan: GrooveRunPlan): string => `${plan.grooveId}@${plan.bpm}`
 
 export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
   const { plan, driver } = options
@@ -129,6 +154,8 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
   const previewRef = useRef<PreviewTiming | undefined>(undefined)
   const hitsRef = useRef<GrooveHit[]>([])
   const seqRef = useRef(0)
+  /** Which plan the current `result` was graded under. See `planIdentity`. */
+  const resultPlanRef = useRef<string | undefined>(undefined)
   const planRef = useRef(plan)
   planRef.current = plan
   const onFinishedRef = useRef(options.onFinished)
@@ -152,7 +179,7 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
       withAudio((out) => {
         const pitch = midi(padTonePitch(pad))
         out.noteOn(pitch, 96)
-        out.noteOff(pitch, millis(out.now() + PAD_TONE_MS))
+        out.noteOff(pitch, millis(out.now() + padToneMs(pad)))
       })
     },
     [withAudio],
@@ -199,21 +226,14 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
     const startedAt = clock.now()
     timingRef.current = undefined
 
-    // plan.ts's own formula for ticks -> ms, kept here in a comment rather
-    // than imported so the two cannot silently drift: if this ever needs to
-    // change, the diff has to touch both places on purpose.
-    const msPerTick = 60_000 / runPlan.bpm / TICKS_PER_QUARTER
-
-    // The largest notated instant across every pad, then rounded UP to a
-    // whole number of bars — a preview that stopped mid-bar would cut off
-    // whatever the last pad plays on beat 4, which is exactly the instant a
-    // learner most needs to hear.
-    let lastTick = 0
-    for (const pad of runPlan.pads) {
-      for (const tick of pad.loopTicks) lastTick = Math.max(lastTick, tick)
-    }
-    const lastTickMs = lastTick * msPerTick
-    const spanMs = Math.ceil((lastTickMs + 1) / runPlan.barMs) * runPlan.barMs
+    // The preview is exactly as long as the thing being graded. `gradedMs`
+    // and `pad.expectedMs` are the grader's OWN instants — the same array
+    // `gradeGrooveRun` marks against — so the demonstration cannot state a
+    // different length, or a different pattern, from the run that follows it.
+    // The staff draws the same number as `×N` (`GrooveTrainerScreen` derives
+    // it from `gradedBars` too), so all three now agree by construction
+    // rather than by three copies of one formula.
+    const spanMs = runPlan.gradedMs
 
     phaseRef.current = 'preview'
     setPhase('preview')
@@ -226,15 +246,14 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
     // comment), so hearing it once, at the tempo it will be graded at, is
     // what turns the staff from notation to decode into a pattern to copy.
     const beatsPerBar = Math.max(1, Math.round(runPlan.barMs / runPlan.beatMs))
-    const bars = Math.round(spanMs / runPlan.barMs)
-    const totalBeats = bars * beatsPerBar
+    const totalBeats = beatsPerBar * runPlan.gradedBars
     withAudio((out) => {
       for (const pad of runPlan.pads) {
-        for (const tick of pad.loopTicks) {
-          const at = startedAt + tick * msPerTick
+        for (const ms of pad.expectedMs) {
+          const at = startedAt + ms
           const pitch = midi(padTonePitch(pad.pad))
           out.noteOn(pitch, 96, millis(at))
-          out.noteOff(pitch, millis(at + PAD_TONE_MS))
+          out.noteOff(pitch, millis(at + padToneMs(pad.pad)))
         }
       }
       for (let beat = 0; beat < totalBeats; beat++) {
@@ -245,6 +264,7 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
 
   const finish = useCallback((): void => {
     const graded = gradeGrooveRun(planRef.current, hitsRef.current)
+    resultPlanRef.current = planIdentity(planRef.current)
     timingRef.current = undefined
     phaseRef.current = 'graded'
     setPhase('graded')
@@ -323,7 +343,11 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
     countInBeat:
       phase === 'count-in' ? Math.min(countInBeats, Math.max(1, beatIndex + 1)) : 0,
     bar: phase === 'playing' ? Math.min(plan.gradedBars, Math.floor(gradedBeat / beatsPerBar) + 1) : 0,
-    result,
+    // Gated, not cleared: switching groove or tempo must retire the marking
+    // rather than leave it standing under a chart it never graded. Derived
+    // here instead of reset in an effect so there is no frame in which the
+    // old result is still on screen beside the new staff.
+    result: resultPlanRef.current === planIdentity(plan) ? result : undefined,
     flash,
     start,
     stop,

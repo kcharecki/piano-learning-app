@@ -211,7 +211,11 @@ describe('GrooveTrainerScreen', () => {
       expect(screen.getByRole('button', { name: 'Start' })).toBeDisabled()
 
       // The preview's own span elapses on its own; nothing here presses Stop.
+      // That span is the GRADED span, not one bar — the staff above says `×2`
+      // and the run grades two, so the demonstration lasts two.
       frameAt(BAR_MS)
+      expect(runState()).toBe('Listening — the groove as written')
+      frameAt(GRADED_MS)
       expect(runState()).toBe('Ready when you are')
       expect(screen.getByRole('button', { name: 'Listen' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Start' })).toBeEnabled()
