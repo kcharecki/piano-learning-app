@@ -191,4 +191,74 @@ describe('GrooveTrainerScreen', () => {
       screen.getByRole('region', { name: 'Result' }).textContent ?? '',
     ).toMatch(/keyboard and speakers/)
   })
+
+  /**
+   * The Rival-seat MAJOR: the persona does not already know the groove, and
+   * every shipping rival lets a learner hear the pattern first. The audio
+   * itself is proven against a recording fake in `useGrooveRun.test.ts`; what
+   * belongs here is the wiring — the button's own label, and that it does not
+   * quietly disable the very control (Start) a learner reaches for next.
+   */
+  describe('Listen', () => {
+    it('lets the learner hear the groove before playing it, then hands Start back', async () => {
+      const { user, frameAt } = setup()
+      expect(screen.getByRole('button', { name: 'Listen' })).toBeEnabled()
+
+      await user.click(screen.getByRole('button', { name: 'Listen' }))
+      expect(runState()).toBe('Listening — the groove as written')
+      expect(screen.getByRole('button', { name: 'Stop listening' })).toBeInTheDocument()
+      // Not disabled by a run that never started — only a graded run may gate Start.
+      expect(screen.getByRole('button', { name: 'Start' })).toBeDisabled()
+
+      // The preview's own span elapses on its own; nothing here presses Stop.
+      frameAt(BAR_MS)
+      expect(runState()).toBe('Ready when you are')
+      expect(screen.getByRole('button', { name: 'Listen' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Start' })).toBeEnabled()
+    })
+
+    it('lets Stop listening cancel a preview early', async () => {
+      const { user } = setup()
+      await user.click(screen.getByRole('button', { name: 'Listen' }))
+      expect(runState()).toBe('Listening — the groove as written')
+
+      await user.click(screen.getByRole('button', { name: 'Stop listening' }))
+      expect(runState()).toBe('Ready when you are')
+      expect(screen.getByRole('button', { name: 'Listen' })).toBeInTheDocument()
+    })
+
+    it('disables the groove picker and the tempo field during a preview, same as during a run', async () => {
+      const { user } = setup()
+      await user.click(screen.getByRole('button', { name: 'Listen' }))
+
+      expect(screen.getByRole('button', { name: 'Next groove' })).toBeDisabled()
+      expect(screen.getByRole('spinbutton', { name: /tempo/i })).toBeDisabled()
+      // Listen itself stays reachable, so the learner can stop and re-listen.
+      expect(screen.getByRole('button', { name: 'Stop listening' })).toBeEnabled()
+    })
+
+    it('is disabled while a graded run is on', async () => {
+      const { user } = setup()
+      await user.click(screen.getByRole('button', { name: 'Start' }))
+      expect(screen.getByRole('button', { name: 'Listen' })).toBeDisabled()
+    })
+
+    /**
+     * `running`, not `busy`, gates Space (T.17.4) — a preview must never
+     * borrow the learner's own kick key.
+     */
+    it('does not let Space become the kick during a preview', async () => {
+      const { user } = setup()
+      await user.click(screen.getByRole('button', { name: 'Listen' }))
+      await user.keyboard(' ')
+      expect(screen.getByRole('button', { name: 'Kick' })).not.toHaveAttribute('data-lit')
+    })
+
+    it('still lights a pad struck during a preview — a learner tapping along is not an error', async () => {
+      const { user } = setup()
+      await user.click(screen.getByRole('button', { name: 'Listen' }))
+      await user.keyboard('f')
+      expect(screen.getByRole('button', { name: 'Snare' })).toHaveAttribute('data-lit', 'true')
+    })
+  })
 })

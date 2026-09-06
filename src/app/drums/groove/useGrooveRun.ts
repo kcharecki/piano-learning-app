@@ -42,9 +42,9 @@ import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import { gradeGrooveRun, type GrooveHit, type GrooveRunResult } from '@core/drums/practice/grade.ts'
 import type { GrooveRunPlan } from '@core/drums/practice/plan.ts'
 import type { AudioOutput, Clock } from '@core/ports/index.ts'
-import { midi, millis } from '@core/shared/units.ts'
+import { midi, millis, TICKS_PER_QUARTER } from '@core/shared/units.ts'
 
-export type GrooveRunPhase = 'idle' | 'count-in' | 'playing' | 'graded'
+export type GrooveRunPhase = 'idle' | 'count-in' | 'playing' | 'graded' | 'preview'
 
 /** The pad that was last struck, with a sequence number so two hits in a row still re-trigger the flash. */
 export type PadFlash = {
@@ -65,8 +65,8 @@ export type GrooveRunApi = {
   readonly phase: GrooveRunPhase
   /** Beats since the run started, count-in included. `-1` before the first frame. */
   readonly beatIndex: number
-  /** Count-in beats still to come, or 0 once the graded window is open. */
-  readonly countInLeft: number
+  /** 1-based beat of the count-in bar currently sounding, or 0 outside the count-in. */
+  readonly countInBeat: number
   /** 1-based bar of the graded window, or 0 outside it. */
   readonly bar: number
   readonly result: GrooveRunResult | undefined
@@ -74,11 +74,18 @@ export type GrooveRunApi = {
   start: () => void
   stop: () => void
   hit: (pad: MappedDrumPad) => void
+  /** Play one pass of the drawn music, plus a click track. Nothing is graded. */
+  preview: () => void
 }
 
 type RunTiming = {
   readonly startedAt: number
   readonly gradedOrigin: number
+  readonly endAt: number
+}
+
+/** A preview in flight: nothing but "when does it end", since nothing is graded. */
+type PreviewTiming = {
   readonly endAt: number
 }
 
@@ -119,6 +126,7 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
   const phaseRef = useRef<GrooveRunPhase>('idle')
   const beatRef = useRef(-1)
   const timingRef = useRef<RunTiming | undefined>(undefined)
+  const previewRef = useRef<PreviewTiming | undefined>(undefined)
   const hitsRef = useRef<GrooveHit[]>([])
   const seqRef = useRef(0)
   const planRef = useRef(plan)
@@ -152,6 +160,7 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
 
   const stop = useCallback((): void => {
     timingRef.current = undefined
+    previewRef.current = undefined
     hitsRef.current = []
     phaseRef.current = 'idle'
     beatRef.current = -1
@@ -165,6 +174,7 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
     const startedAt = clock.now()
     const gradedOrigin = startedAt + runPlan.countInBars * runPlan.barMs
     timingRef.current = { startedAt, gradedOrigin, endAt: gradedOrigin + runPlan.gradedMs }
+    previewRef.current = undefined
     hitsRef.current = []
     beatRef.current = -1
     phaseRef.current = 'count-in'
@@ -184,6 +194,55 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
     })
   }, [clock, withAudio])
 
+  const preview = useCallback((): void => {
+    const runPlan = planRef.current
+    const startedAt = clock.now()
+    timingRef.current = undefined
+
+    // plan.ts's own formula for ticks -> ms, kept here in a comment rather
+    // than imported so the two cannot silently drift: if this ever needs to
+    // change, the diff has to touch both places on purpose.
+    const msPerTick = 60_000 / runPlan.bpm / TICKS_PER_QUARTER
+
+    // The largest notated instant across every pad, then rounded UP to a
+    // whole number of bars — a preview that stopped mid-bar would cut off
+    // whatever the last pad plays on beat 4, which is exactly the instant a
+    // learner most needs to hear.
+    let lastTick = 0
+    for (const pad of runPlan.pads) {
+      for (const tick of pad.loopTicks) lastTick = Math.max(lastTick, tick)
+    }
+    const lastTickMs = lastTick * msPerTick
+    const spanMs = Math.ceil((lastTickMs + 1) / runPlan.barMs) * runPlan.barMs
+
+    phaseRef.current = 'preview'
+    setPhase('preview')
+    previewRef.current = { endAt: startedAt + spanMs }
+
+    // One pass of the drawn music, plus a click track under it — both
+    // scheduled once against absolute instants on the clock epoch, exactly
+    // the discipline `start()` uses above. The persona this screen serves
+    // does not already know the groove (see `GrooveTrainerScreen`'s module
+    // comment), so hearing it once, at the tempo it will be graded at, is
+    // what turns the staff from notation to decode into a pattern to copy.
+    const beatsPerBar = Math.max(1, Math.round(runPlan.barMs / runPlan.beatMs))
+    const bars = Math.round(spanMs / runPlan.barMs)
+    const totalBeats = bars * beatsPerBar
+    withAudio((out) => {
+      for (const pad of runPlan.pads) {
+        for (const tick of pad.loopTicks) {
+          const at = startedAt + tick * msPerTick
+          const pitch = midi(padTonePitch(pad.pad))
+          out.noteOn(pitch, 96, millis(at))
+          out.noteOff(pitch, millis(at + PAD_TONE_MS))
+        }
+      }
+      for (let beat = 0; beat < totalBeats; beat++) {
+        out.click(beat % beatsPerBar === 0, millis(startedAt + beat * runPlan.beatMs))
+      }
+    })
+  }, [clock, withAudio])
+
   const finish = useCallback((): void => {
     const graded = gradeGrooveRun(planRef.current, hitsRef.current)
     timingRef.current = undefined
@@ -194,10 +253,21 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
   }, [])
 
   const onFrame = useCallback((): void => {
+    const now = clock.now()
+
+    const previewTiming = previewRef.current
+    if (previewTiming !== undefined) {
+      if (now >= previewTiming.endAt) {
+        previewRef.current = undefined
+        phaseRef.current = 'idle'
+        setPhase('idle')
+      }
+      return
+    }
+
     const timing = timingRef.current
     if (timing === undefined) return
     const runPlan = planRef.current
-    const now = clock.now()
 
     const beat = Math.floor((now - timing.startedAt) / runPlan.beatMs)
     if (beat !== beatRef.current) {
@@ -212,7 +282,7 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
   }, [clock, finish])
 
   useTransportLoop({
-    active: phase === 'count-in' || phase === 'playing',
+    active: phase === 'count-in' || phase === 'playing' || phase === 'preview',
     onFrame,
     ...(driver === undefined ? {} : { driver }),
   })
@@ -236,7 +306,13 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
 
   // A run cannot outlive the screen: a pump that keeps ticking after unmount
   // would grade against a plan nothing is showing.
-  useEffect(() => () => void (timingRef.current = undefined), [])
+  useEffect(
+    () => () => {
+      timingRef.current = undefined
+      previewRef.current = undefined
+    },
+    [],
+  )
 
   const beatsPerBar = Math.max(1, Math.round(plan.barMs / plan.beatMs))
   const countInBeats = plan.countInBars * beatsPerBar
@@ -244,12 +320,14 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
   return {
     phase,
     beatIndex,
-    countInLeft: phase === 'count-in' ? Math.max(0, countInBeats - Math.max(0, beatIndex)) : 0,
+    countInBeat:
+      phase === 'count-in' ? Math.min(countInBeats, Math.max(1, beatIndex + 1)) : 0,
     bar: phase === 'playing' ? Math.min(plan.gradedBars, Math.floor(gradedBeat / beatsPerBar) + 1) : 0,
     result,
     flash,
     start,
     stop,
     hit,
+    preview,
   }
 }

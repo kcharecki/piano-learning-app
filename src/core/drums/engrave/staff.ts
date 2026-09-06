@@ -12,11 +12,12 @@
  * independent: beaming rewrites the very `stemToY` the stem pass computed (a
  * beam is what a group of stems merges into once they are gathered under one
  * beat), so stems have to be finished before beaming can run, and beam
- * membership has to be finished before a note's FINAL `stemToY` is known. A
- * caller who only wanted beams, or only wanted stems, could not get a correct
- * answer without running the other pass anyway — so the passes below are
- * private helpers, not their own exports, and `engraveGroove` is the only
- * thing that has to be right.
+ * membership has to be finished before a note's FINAL `stemToY` is known —
+ * which in turn is what a note's `markAnchorY` is measured from. A caller who
+ * only wanted beams, or only wanted stems, could not get a correct answer
+ * without running the other passes anyway — so the passes below are private
+ * helpers, not their own exports, and `engraveGroove` is the only thing that
+ * has to be right.
  *
  * ## Beat-grouped beaming crosses instruments on purpose
  *
@@ -53,19 +54,27 @@ import { TICKS_PER_QUARTER } from '@core/shared/units.ts'
 import type { DynamicsClass, GrooveNote, GrooveScore } from '@core/drums/model/groove.ts'
 import { staffPositionOf, type MappedDrumPad, type Notehead, type StaffStep, type Voice } from '@core/drums/model/pad.ts'
 import {
+  CLEF_WIDTH,
   COUNT_ROW_DESCENT,
   COUNT_ROW_GAP,
   EDGE_PAD,
-  LEFT_MARGIN,
+  MARK_ANCHOR_GAP,
   MARK_RESERVE,
   MIN_STAFF_TOP_Y,
+  REPEAT_BARLINE_RESERVE,
+  REPEAT_LABEL_GAP,
+  REPEAT_LABEL_RESERVE,
   RIGHT_MARGIN,
   SLOT_WIDTH,
   STEM_LENGTH,
+  TIME_SIGNATURE_WIDTH,
+  type EngraveOptions,
   type EngravedBeam,
+  type EngravedBeamSegment,
   type EngravedCount,
   type EngravedLine,
   type EngravedNote,
+  type EngravedRest,
   type NoteMark,
   type StaffLayout,
 } from './layout.ts'
@@ -98,22 +107,46 @@ function relYOf(pad: MappedDrumPad): number {
 
 /**
  * The topmost ink this score will put on the page, relative to the top staff
- * line. A hands note reaches up by its stem; any note carrying marks reaches
- * up by the renderer's mark budget (`MARK_RESERVE`). Never positive: the top
- * staff line is itself ink, so it bounds the answer.
+ * line. Never positive: the top staff line is itself ink, so it bounds the
+ * answer.
  *
- * Beaming can only pull a stem tip back down — a beam sits at the `min` of
- * its group's stem tips, and every member of that group is already measured
- * here — so measuring the pre-beam stems is exact, not merely safe.
+ * `handsStemTop` — the minimum over ALL hands notes, marked or not — is the
+ * bound a marked note's clearance is measured against, not that note's own
+ * stem. A beam sits at the `min` of its group's per-tick stems, and every one
+ * of those per-tick stems is itself a min over a SUBSET of hands notes, so it
+ * can never be more extreme (never a smaller, higher-reaching y) than the min
+ * over the WHOLE set. That means once the score reserves enough headroom for
+ * `handsStemTop` to clear a mark stack, every hands note's stem — beamed,
+ * shared, or solo — already clears it too, without measuring each one.
+ *
+ * `feetMarkTop` only has to look at feet notes that actually carry a mark,
+ * because a feet stem points down: nothing about a feet note's stem competes
+ * for the space above the staff, only its mark does.
  */
-function highestRelInk(score: GrooveScore): number {
-  let top = 0
+function noteTopRelInk(score: GrooveScore): number {
+  let handsStemTop = 0
+  let anyHandsMark = false
+  let feetMarkTop = 0
   for (const note of score.notes) {
     const rel = relYOf(note.pad)
-    if (note.voice === 'hands') top = Math.min(top, rel - STEM_LENGTH)
-    if (marksOf(note).length > 0) top = Math.min(top, rel - MARK_RESERVE)
+    if (note.voice === 'hands') {
+      handsStemTop = Math.min(handsStemTop, rel - STEM_LENGTH)
+      if (marksOf(note).length > 0) anyHandsMark = true
+    } else if (marksOf(note).length > 0) {
+      feetMarkTop = Math.min(feetMarkTop, rel - MARK_ANCHOR_GAP - MARK_RESERVE)
+    }
   }
-  return top
+  const top = Math.min(0, handsStemTop, feetMarkTop)
+  return anyHandsMark ? Math.min(top, handsStemTop - MARK_ANCHOR_GAP - MARK_RESERVE) : top
+}
+
+/**
+ * The repeat label's band sits ON TOP of everything above, never at a fixed
+ * height over the staff — see `REPEAT_LABEL_RESERVE`.
+ */
+function highestRelInk(score: GrooveScore, playCount: number): number {
+  const top = noteTopRelInk(score)
+  return playCount > 1 ? top - REPEAT_LABEL_RESERVE : top
 }
 
 /**
@@ -135,8 +168,8 @@ function lowestRelInk(score: GrooveScore): number {
  * of the canvas, but never above `MIN_STAFF_TOP_Y` — a groove of nothing but
  * kicks should not float in the middle of a tall empty box.
  */
-function staffTopYFor(score: GrooveScore): number {
-  return Math.max(MIN_STAFF_TOP_Y, EDGE_PAD - highestRelInk(score))
+function staffTopYFor(score: GrooveScore, playCount: number): number {
+  return Math.max(MIN_STAFF_TOP_Y, EDGE_PAD - highestRelInk(score, playCount))
 }
 
 // ---------------------------------------------------------------------- marks
@@ -152,20 +185,30 @@ function marksOf(note: GrooveNote): NoteMark[] {
 
 // ------------------------------------------------------------------ horizontal
 
-function makeXOf(totalTicks: number, musicWidth: number): (tick: number) => number {
-  return (tick: number) => LEFT_MARGIN + (tick / totalTicks) * musicWidth
+/** The clef and the time signature together — see `./layout.ts`'s module doc. */
+const HEAD_WIDTH = CLEF_WIDTH + TIME_SIGNATURE_WIDTH
+
+function makeXOf(firstNoteX: number, gridStep: number): (tick: number) => number {
+  return (tick: number) => firstNoteX + (tick / gridStep) * SLOT_WIDTH
 }
 
-function buildStaffLines(staffTopY: number, musicWidth: number): EngravedLine[] {
+function buildStaffLines(staffTopY: number, finalBarlineX: number): EngravedLine[] {
   return [0, 1, 2, 3, 4].map((offset) => ({
     y: staffTopY + offset,
-    fromX: LEFT_MARGIN,
-    toX: LEFT_MARGIN + musicWidth,
+    fromX: 0,
+    toX: finalBarlineX,
   }))
 }
 
-function buildBarlines(score: GrooveScore, musicWidth: number, x: (tick: number) => number): number[] {
-  return [...score.measures.map((m) => x(m.startTick)), LEFT_MARGIN + musicWidth]
+/**
+ * One per measure after the first, halfway between that measure's own first
+ * slot and the previous measure's last, then the final barline last. There is
+ * no opening barline — see `./layout.ts`'s module doc for why one used to run
+ * straight through every beat-1 notehead.
+ */
+function buildBarlines(score: GrooveScore, x: (tick: number) => number, finalBarlineX: number): number[] {
+  const internal = score.measures.slice(1).map((m) => x(m.startTick) - SLOT_WIDTH / 2)
+  return [...internal, finalBarlineX]
 }
 
 // -------------------------------------------------------------- notes & stems
@@ -173,8 +216,9 @@ function buildBarlines(score: GrooveScore, musicWidth: number, x: (tick: number)
 /**
  * The mutable working form of a note while its stem is still being decided —
  * `EngravedNote` is deliberately readonly (a finished fact for the renderer),
- * but beaming (below) has to rewrite `stemToY` after this pass runs, so the
- * type it works over cannot be the frozen one.
+ * but beaming (below) has to rewrite `stemToY` after this pass runs, and
+ * `markAnchorY` can only be set once THAT settles, so the type it works over
+ * cannot be the frozen one.
  */
 type DraftNote = {
   readonly id: string
@@ -188,6 +232,7 @@ type DraftNote = {
   readonly marks: NoteMark[]
   stemToY: number
   flags: number
+  markAnchorY: number
 }
 
 function draftNotes(score: GrooveScore, staffTopY: number, x: (tick: number) => number): DraftNote[] {
@@ -206,6 +251,7 @@ function draftNotes(score: GrooveScore, staffTopY: number, x: (tick: number) => 
       marks: marksOf(note),
       stemToY: 0, // placeholder — assignBaseStems fills every note before this is ever read
       flags: 0, // placeholder — assignFlags fills every note once beaming is known
+      markAnchorY: 0, // placeholder — assignMarkAnchors fills every note once stemToY is final
     }
   })
 }
@@ -240,14 +286,77 @@ function assignBaseStems(notes: readonly DraftNote[]): ReadonlyMap<string, numbe
   return base
 }
 
+/**
+ * `markAnchorY` can only be set once beaming (below) has finished rewriting
+ * `stemToY` — a beamed note's stem tip is the beam's own `y`, not its
+ * pre-beam value, and the mark has to clear whichever one actually gets
+ * drawn. A `feet` note's stem runs downward, so nothing above its notehead is
+ * ever occupied by its own stem or a beam; it clears the head itself instead.
+ */
+function assignMarkAnchors(notes: readonly DraftNote[]): void {
+  for (const note of notes) {
+    note.markAnchorY = note.voice === 'hands' ? note.stemToY - MARK_ANCHOR_GAP : note.y - MARK_ANCHOR_GAP
+  }
+}
+
 // ---------------------------------------------------------------------- beams
 
 const EIGHTH_TICKS = TICKS_PER_QUARTER / 2
+
+/**
+ * The secondary (sixteenth) beam for one group, as maximal runs of
+ * grid-adjacent short ticks — see `EngravedBeamSegment`'s doc for why a lone
+ * short tick draws a half-slot partial stub rather than nothing, and why a
+ * full-width secondary beam across a gap would overstate the rhythm.
+ */
+function buildBeamSegments(
+  members: readonly GrooveNote[],
+  distinctTicks: readonly number[],
+  fromX: number,
+  toX: number,
+  gridStep: number,
+  x: (tick: number) => number,
+): EngravedBeamSegment[] {
+  const segments: EngravedBeamSegment[] = [{ level: 1, fromX, toX }]
+
+  const shortTicks = distinctTicks.filter((tick) => {
+    const durationsAtTick = members.filter((n) => n.tick === tick).map((n) => n.durationTicks)
+    return Math.min(...durationsAtTick) < EIGHTH_TICKS
+  })
+
+  const runs: number[][] = []
+  for (const tick of shortTicks) {
+    const current = runs[runs.length - 1]
+    if (current !== undefined && tick - at(current, current.length - 1) === gridStep) {
+      current.push(tick)
+    } else {
+      runs.push([tick])
+    }
+  }
+
+  for (const run of runs) {
+    if (run.length >= 2) {
+      segments.push({ level: 2, fromX: x(at(run, 0)), toX: x(at(run, run.length - 1)) })
+      continue
+    }
+    const tick = at(run, 0)
+    const pointsLeft = distinctTicks.some((other) => other < tick)
+    segments.push(
+      pointsLeft
+        ? { level: 2, fromX: x(tick) - SLOT_WIDTH / 2, toX: x(tick) }
+        : { level: 2, fromX: x(tick), toX: x(tick) + SLOT_WIDTH / 2 },
+    )
+  }
+
+  return segments
+}
 
 function buildBeams(
   score: GrooveScore,
   draftById: ReadonlyMap<string, DraftNote>,
   baseStems: ReadonlyMap<string, number>,
+  gridStep: number,
+  x: (tick: number) => number,
 ): EngravedBeam[] {
   const beatTicks = measureDurationTicks(score.timeSignature) / score.timeSignature.beats
   const groups = new Map<string, GrooveNote[]>()
@@ -291,13 +400,15 @@ function buildBeams(
     for (const draft of drafts) draft.stemToY = beamY
 
     const noteIds = [...drafts].sort((a, b) => a.x - b.x).map((d) => d.id)
+    const fromX = Math.min(...drafts.map((d) => d.x))
+    const toX = Math.max(...drafts.map((d) => d.x))
     beams.push({
       voice,
       noteIds,
-      fromX: Math.min(...drafts.map((d) => d.x)),
-      toX: Math.max(...drafts.map((d) => d.x)),
+      fromX,
+      toX,
       y: beamY,
-      count: shortNotes.some((n) => n.durationTicks < EIGHTH_TICKS) ? 2 : 1,
+      segments: buildBeamSegments(members, distinctTicks, fromX, toX, gridStep, x),
     })
   }
   return beams
@@ -385,25 +496,75 @@ function buildCounts(
   return counts
 }
 
+// --------------------------------------------------------------------- rests
+
+/**
+ * One rest per silent beat per voice the score actually uses — never a voice
+ * the groove never calls on (a hands-only groove gets no feet rests to fill
+ * space nothing was ever going to occupy), and never subdivided further: a
+ * beat a voice plays any part of already has its subdivisions stated by the
+ * beam over it.
+ */
+function buildRests(score: GrooveScore, staffTopY: number, x: (tick: number) => number): EngravedRest[] {
+  const voicesPresent = new Set(score.notes.map((n) => n.voice))
+  const orderedVoices = (['hands', 'feet'] as const).filter((voice) => voicesPresent.has(voice))
+  if (orderedVoices.length === 0) return []
+
+  const beatTicks = measureDurationTicks(score.timeSignature) / score.timeSignature.beats
+  const rests: EngravedRest[] = []
+  for (const measure of score.measures) {
+    for (let beat = 0; beat < score.timeSignature.beats; beat++) {
+      const beatStart = measure.startTick + beat * beatTicks
+      const beatEnd = beatStart + beatTicks
+      for (const voice of orderedVoices) {
+        const plays = score.notes.some((n) => n.voice === voice && n.tick >= beatStart && n.tick < beatEnd)
+        if (plays) continue
+        rests.push({
+          voice,
+          x: x(beatStart),
+          y: voice === 'hands' ? staffTopY + 1 : staffTopY + 3,
+          beats: 1,
+        })
+      }
+    }
+  }
+  return rests
+}
+
 // ------------------------------------------------------------------ assembly
 
-export function engraveGroove(score: GrooveScore): StaffLayout {
+export function engraveGroove(score: GrooveScore, options: EngraveOptions = {}): StaffLayout {
+  const playCount = options.playCount ?? 1
+  invariant(
+    Number.isInteger(playCount) && playCount >= 1,
+    `playCount must be a positive integer, got ${playCount}`,
+  )
+
   const measureTicks = measureDurationTicks(score.timeSignature)
   const totalTicks = measureTicks * score.measures.length
   // A bar is as wide as its own counting grid, so a busy bar gets the room it
   // needs instead of squeezing its noteheads together — see `SLOT_WIDTH`.
   const gridStep = gridStepFor(score)
-  const musicWidth = (totalTicks / gridStep) * SLOT_WIDTH
-  const x = makeXOf(totalTicks, musicWidth)
+  const totalSlots = totalTicks / gridStep
+  const firstNoteX = HEAD_WIDTH + SLOT_WIDTH / 2
+  // A repeat barline reaches back into the bar with its dots, so it is given
+  // its own width rather than sharing the last slot's — see
+  // `REPEAT_BARLINE_RESERVE`.
+  const finalBarlineX =
+    firstNoteX +
+    (totalSlots - 0.5) * SLOT_WIDTH +
+    (playCount > 1 ? REPEAT_BARLINE_RESERVE : 0)
+  const x = makeXOf(firstNoteX, gridStep)
 
-  const staffTopY = staffTopYFor(score)
+  const staffTopY = staffTopYFor(score, playCount)
   const countRowY = staffTopY + lowestRelInk(score) + COUNT_ROW_GAP
 
   const drafts = draftNotes(score, staffTopY, x)
   const draftById = new Map(drafts.map((d) => [d.id, d]))
   const baseStems = assignBaseStems(drafts)
-  const beams = buildBeams(score, draftById, baseStems)
+  const beams = buildBeams(score, draftById, baseStems, gridStep, x)
   assignFlags(drafts, new Map(score.notes.map((n) => [n.id, n.durationTicks])), beams)
+  assignMarkAnchors(drafts)
 
   const notes: EngravedNote[] = drafts.map((d) => ({
     id: d.id,
@@ -417,15 +578,35 @@ export function engraveGroove(score: GrooveScore): StaffLayout {
     marks: d.marks,
     stemToY: d.stemToY,
     flags: d.flags,
+    markAnchorY: d.markAnchorY,
   }))
 
   return {
-    width: LEFT_MARGIN + musicWidth + RIGHT_MARGIN,
+    width: finalBarlineX + RIGHT_MARGIN,
     height: countRowY + COUNT_ROW_DESCENT,
-    staffLines: buildStaffLines(staffTopY, musicWidth),
-    barlines: buildBarlines(score, musicWidth, x),
+    staffLines: buildStaffLines(staffTopY, finalBarlineX),
+    barlines: buildBarlines(score, x, finalBarlineX),
+    timeSignature: {
+      beats: score.timeSignature.beats,
+      beatType: score.timeSignature.beatType,
+      x: CLEF_WIDTH + TIME_SIGNATURE_WIDTH / 2,
+      y: staffTopY,
+    },
     notes,
     beams,
+    rests: buildRests(score, staffTopY, x),
     counts: buildCounts(score, gridStep, countRowY, x),
+    playCount,
+    repeatLabel:
+      playCount > 1
+        ? {
+            text: `×${playCount}`,
+            x: finalBarlineX,
+            // The baseline sits just inside the band reserved above every
+            // other piece of ink, so the label clears the tallest stem in the
+            // score rather than a nominal height over the staff.
+            y: staffTopY + noteTopRelInk(score) - REPEAT_LABEL_GAP,
+          }
+        : undefined,
   }
 }

@@ -1,17 +1,17 @@
 /**
  * `GrooveStaff` (roadmap DR-05) renders a `StaffLayout` it is handed —
- * nothing here calls `engraveGroove`/`describeGroove` (neither exists yet;
- * both are being built alongside this component), so every layout below is
- * a hand-built literal. These tests only check that the renderer turns a
+ * nothing here calls `engraveGroove`/`describeGroove`, so every layout below
+ * is a hand-built literal. These tests only check that the renderer turns a
  * given layout into the right SVG shapes; the geometry itself is
  * `staff.ts`'s contract, proven by its own tests.
  */
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
+import { invariant } from '@core/shared/invariant.ts'
 import type { EngravedBeam, EngravedNote, NoteMark, StaffLayout } from '@core/drums/engrave/layout.ts'
-import { MARK_RESERVE } from '@core/drums/engrave/layout.ts'
+import { MARK_ANCHOR_GAP, MARK_RESERVE, REPEAT_BARLINE_RESERVE, SLOT_WIDTH } from '@core/drums/engrave/layout.ts'
 import type { MappedDrumPad, Notehead, Voice } from '@core/drums/model/pad.ts'
-import { GrooveStaff } from './GrooveStaff.tsx'
+import { GHOST_BULGE, GHOST_GAP_X, GrooveStaff } from './GrooveStaff.tsx'
 
 afterEach(cleanup)
 
@@ -28,13 +28,17 @@ function baseLayout(overrides: Partial<StaffLayout> = {}): StaffLayout {
     width: 40,
     height: 13,
     staffLines: STAFF_LINES,
-    barlines: [3, 39],
+    barlines: [39],
+    timeSignature: { beats: 4, beatType: 4, x: 1.3, y: 5 },
     notes: [],
     beams: [],
+    rests: [],
     counts: [
       { text: '1', x: 4, y: 11.5 },
       { text: 'e', x: 7, y: 11.5 },
     ],
+    playCount: 1,
+    repeatLabel: undefined,
     ...overrides,
   }
 }
@@ -49,6 +53,7 @@ function makeNote({
   marks = [],
   stemToY,
   flags = 0,
+  markAnchorY,
 }: {
   readonly id: string
   readonly pad?: MappedDrumPad
@@ -59,7 +64,9 @@ function makeNote({
   readonly marks?: readonly NoteMark[]
   readonly stemToY?: number
   readonly flags?: number
+  readonly markAnchorY?: number
 }): EngravedNote {
+  const resolvedStemToY = stemToY ?? y - 3
   return {
     id,
     pad,
@@ -70,8 +77,9 @@ function makeNote({
     voice,
     dynamics: 'normal',
     marks,
-    stemToY: stemToY ?? y - 3,
+    stemToY: resolvedStemToY,
     flags,
+    markAnchorY: markAnchorY ?? resolvedStemToY - MARK_ANCHOR_GAP,
   }
 }
 
@@ -136,18 +144,78 @@ describe('GrooveStaff', () => {
     expect(container.querySelector('[data-note-id="n-plain"] .groove-mark-open')).toBeNull()
   })
 
-  it('draws one beam rect for count 1 and two for count 2', () => {
-    const oneBeam: EngravedBeam = { voice: 'hands', noteIds: ['a', 'b'], fromX: 4, toX: 7, y: 2, count: 1 }
+  it("keeps every mark's bounding box clear of the note's own stem", () => {
+    // The panel's most-cited defect: the open-hi-hat circle used to be
+    // centred ON the stem, which is the notation for a HALF-open hi-hat, a
+    // different articulation. `markAnchorY` is core's answer — the renderer
+    // must stack marks off it, not off the notehead — so this proves the
+    // stacked mark never reaches back down as far as the stem tip.
+    const stemToY = 2
+    const markAnchorY = stemToY - MARK_ANCHOR_GAP
+    const { container } = render(
+      <GrooveStaff
+        layout={baseLayout({
+          notes: [
+            makeNote({
+              id: 'n-open-beamed',
+              x: 6,
+              y: 7,
+              notehead: 'x',
+              voice: 'hands',
+              marks: ['open'],
+              stemToY,
+              markAnchorY,
+            }),
+          ],
+        })}
+        label="test groove"
+        grooveId="g1"
+      />,
+    )
+
+    const circle = container.querySelector('[data-note-id="n-open-beamed"] .groove-mark-open')
+    const cy = Number(circle?.getAttribute('cy'))
+    const r = Number(circle?.getAttribute('r'))
+    expect(Number.isFinite(cy) && Number.isFinite(r)).toBe(true)
+    expect(cy + r).toBeLessThan(stemToY)
+  })
+
+  it('draws one beam rect per segment, offsetting a level-2 segment by its own y', () => {
+    const oneLevel: EngravedBeam = {
+      voice: 'hands',
+      noteIds: ['a', 'b'],
+      fromX: 4,
+      toX: 7,
+      y: 2,
+      segments: [{ level: 1, fromX: 4, toX: 7 }],
+    }
     const { container: withOne } = render(
-      <GrooveStaff layout={baseLayout({ beams: [oneBeam] })} label="test groove" grooveId="g1" />,
+      <GrooveStaff layout={baseLayout({ beams: [oneLevel] })} label="test groove" grooveId="g1" />,
     )
     expect(withOne.querySelectorAll('.groove-beam')).toHaveLength(1)
 
-    const twoBeam: EngravedBeam = { voice: 'hands', noteIds: ['a', 'b'], fromX: 4, toX: 7, y: 2, count: 2 }
+    const twoLevels: EngravedBeam = {
+      voice: 'hands',
+      noteIds: ['a', 'b'],
+      fromX: 4,
+      toX: 7,
+      y: 2,
+      // A partial secondary beam is deliberate (`EngravedBeamSegment`'s own
+      // doc comment) — half the width of the primary segment, not the full span.
+      segments: [
+        { level: 1, fromX: 4, toX: 7 },
+        { level: 2, fromX: 4, toX: 5.5 },
+      ],
+    }
     const { container: withTwo } = render(
-      <GrooveStaff layout={baseLayout({ beams: [twoBeam] })} label="test groove" grooveId="g2" />,
+      <GrooveStaff layout={baseLayout({ beams: [twoLevels] })} label="test groove" grooveId="g2" />,
     )
-    expect(withTwo.querySelectorAll('.groove-beam')).toHaveLength(2)
+    const rects = withTwo.querySelectorAll('.groove-beam')
+    expect(rects).toHaveLength(2)
+    const widths = Array.from(rects).map((r) => Number(r.getAttribute('width'))).sort((a, b) => a - b)
+    expect(widths).toEqual([1.5, 3])
+    const ys = Array.from(rects).map((r) => Number(r.getAttribute('y')))
+    expect(new Set(ys).size).toBe(2)
   })
 
   it('marks the count row aria-hidden', () => {
@@ -189,16 +257,16 @@ describe('GrooveStaff', () => {
 
   it('keeps a full mark stack inside the headroom core reserved for it (MARK_RESERVE)', () => {
     // The contract that lets `staff.ts` size the box without importing this
-    // file's glyph dimensions: whatever this component stacks above a
-    // notehead must fit in `MARK_RESERVE`. If a mark ever grows past it, the
-    // engraver will place a staff too high and the mark will be clipped —
+    // file's glyph dimensions: whatever this component stacks above
+    // `markAnchorY` must fit in `MARK_RESERVE`. If a mark ever grows past it,
+    // the engraver will place a staff too high and the mark will be clipped —
     // so this test is the other half of `layout.ts`'s `MARK_RESERVE` doc.
-    const noteY = 7
+    const markAnchorY = 3
     const { container } = render(
       <GrooveStaff
         layout={baseLayout({
           notes: [
-            makeNote({ id: 'n-both', x: 10, y: noteY, notehead: 'x', marks: ['open', 'accent'] }),
+            makeNote({ id: 'n-both', x: 10, y: 7, notehead: 'x', marks: ['open', 'accent'], markAnchorY }),
           ],
         })}
         label="test groove"
@@ -220,7 +288,16 @@ describe('GrooveStaff', () => {
     for (const value of [circleTop, ...accentYs]) expect(Number.isFinite(value)).toBe(true)
 
     const highest = Math.min(circleTop, ...accentYs)
-    expect(highest).toBeGreaterThanOrEqual(noteY - MARK_RESERVE)
+    expect(highest).toBeGreaterThanOrEqual(markAnchorY - MARK_RESERVE)
+  })
+
+  it('keeps two ghost notes one grid slot apart from merging into one bracket', () => {
+    // The panel found `GHOST_GAP_X + GHOST_BULGE` summing to more than half
+    // a slot, so two ghost parentheses one `SLOT_WIDTH` apart overlapped and
+    // rendered as one tangled glyph. This holds the constants to the
+    // inequality that prevents that, rather than trusting the numbers not to
+    // drift apart again silently.
+    expect(2 * (GHOST_GAP_X + GHOST_BULGE)).toBeLessThanOrEqual(SLOT_WIDTH)
   })
 
   it("sets the viewBox from the layout's own width and height", () => {
@@ -238,5 +315,101 @@ describe('GrooveStaff', () => {
 
     const svg = screen.getByRole('img', { name: 'Empty groove' })
     expect(svg.querySelectorAll('.groove-staff-line')).toHaveLength(5)
+  })
+
+  describe('time signature', () => {
+    it('draws both digits as an aria-hidden group', () => {
+      const { container } = render(
+        <GrooveStaff
+          layout={baseLayout({ timeSignature: { beats: 3, beatType: 4, x: 3.5, y: 5 } })}
+          label="test groove"
+          grooveId="g1"
+        />,
+      )
+      const group = container.querySelector('.groove-time-signature')
+      expect(group).toHaveAttribute('aria-hidden', 'true')
+      const texts = Array.from(group?.querySelectorAll('text') ?? []).map((t) => t.textContent)
+      expect(texts).toEqual(['3', '4'])
+    })
+  })
+
+  describe('rests', () => {
+    it('draws one aria-hidden rest glyph per entry', () => {
+      const { container } = render(
+        <GrooveStaff
+          layout={baseLayout({ rests: [{ voice: 'feet', x: 10, y: 7, beats: 1 }] })}
+          label="test groove"
+          grooveId="g1"
+        />,
+      )
+      const group = container.querySelector('.groove-rests')
+      expect(group).toHaveAttribute('aria-hidden', 'true')
+      expect(group?.querySelectorAll('.groove-rest-quarter')).toHaveLength(1)
+    })
+  })
+
+  describe('repeat barline', () => {
+    it('draws a plain single barline when playCount is 1', () => {
+      const { container } = render(
+        <GrooveStaff layout={baseLayout({ barlines: [39], playCount: 1 })} label="test groove" grooveId="g1" />,
+      )
+      expect(container.querySelectorAll('.groove-barline')).toHaveLength(1)
+      expect(container.querySelector('.groove-repeat-barline')).toBeNull()
+    })
+
+    it('draws a thick+thin repeat barline with two dots when playCount is more than 1', () => {
+      const { container } = render(
+        <GrooveStaff layout={baseLayout({ barlines: [39], playCount: 2 })} label="test groove" grooveId="g1" />,
+      )
+      const repeat = container.querySelector('.groove-repeat-barline')
+      expect(repeat).toHaveAttribute('aria-hidden', 'true')
+      expect(repeat?.querySelector('.groove-repeat-barline-thick')).not.toBeNull()
+      expect(repeat?.querySelector('.groove-repeat-barline-thin')).not.toBeNull()
+      expect(repeat?.querySelectorAll('.groove-repeat-dot')).toHaveLength(2)
+      expect(container.querySelectorAll('.groove-barline')).toHaveLength(0)
+    })
+
+    it('keeps the whole apparatus inside the width the layout reserved for it', () => {
+      // The dots reach back into the bar, and core widens the tail by exactly
+      // `REPEAT_BARLINE_RESERVE` to make room. Spend more than that and the
+      // dots land on the last slot's notehead — on Quarter-Note Rock one was
+      // drawn straight onto the beat-4 snare, which reads as a dotted note.
+      const barlineX = 39
+      const { container } = render(
+        <GrooveStaff layout={baseLayout({ barlines: [barlineX], playCount: 2 })} label="test groove" grooveId="g1" />,
+      )
+      const repeat = container.querySelector('.groove-repeat-barline')
+      invariant(repeat !== null, 'expected a repeat barline')
+
+      const leftEdges = [
+        ...[...repeat.querySelectorAll('line')].map((l) => Number(l.getAttribute('x1'))),
+        ...[...repeat.querySelectorAll('rect')].map((r) => Number(r.getAttribute('x'))),
+        ...[...repeat.querySelectorAll('circle')].map(
+          (c) => Number(c.getAttribute('cx')) - Number(c.getAttribute('r')),
+        ),
+      ]
+      expect(leftEdges.length).toBeGreaterThan(0)
+      expect(Math.min(...leftEdges)).toBeGreaterThanOrEqual(barlineX - REPEAT_BARLINE_RESERVE)
+    })
+
+    it('draws the repeat label right-anchored when present', () => {
+      const { container } = render(
+        <GrooveStaff
+          layout={baseLayout({ barlines: [39], playCount: 2, repeatLabel: { text: '×2', x: 39, y: 4 } })}
+          label="test groove"
+          grooveId="g1"
+        />,
+      )
+      const label = container.querySelector('.groove-repeat-label')
+      expect(label).toHaveAttribute('text-anchor', 'end')
+      expect(label?.textContent).toBe('×2')
+    })
+
+    it('renders no repeat label when the layout has none', () => {
+      const { container } = render(
+        <GrooveStaff layout={baseLayout({ barlines: [39], playCount: 1 })} label="test groove" grooveId="g1" />,
+      )
+      expect(container.querySelector('.groove-repeat-label')).toBeNull()
+    })
   })
 })

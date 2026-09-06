@@ -17,12 +17,20 @@
  * app has never heard of.
  */
 import { useMemo } from 'react'
+import { DrumKey } from '@app/drums/notation/DrumKey.tsx'
 import { GrooveStaff } from '@app/drums/notation/GrooveStaff.tsx'
 import { GROOVE_PAD_LABEL } from '@app/drums/groove/padLabels.ts'
 import { describeGroove } from '@core/drums/engrave/describe.ts'
 import { engraveGroove } from '@core/drums/engrave/staff.ts'
 import type { GrooveScore } from '@core/drums/model/groove.ts'
 import { referenceGrooves } from '@core/drums/model/referenceGrooves.ts'
+
+// No pad is bound to a key on this developer-only screen — there is nothing
+// here for a learner to press, so `DrumKey` gets a `keyFor` that always
+// answers "no key" rather than a real binding table that would be a lie.
+function noKeyBound(): undefined {
+  return undefined
+}
 
 function GalleryItem({ score }: { readonly score: GrooveScore }) {
   const layout = useMemo(() => engraveGroove(score), [score])
@@ -31,6 +39,7 @@ function GalleryItem({ score }: { readonly score: GrooveScore }) {
     <section className="card notation-gallery-item">
       <h2>{score.title}</h2>
       <GrooveStaff layout={layout} label={label} grooveId={score.id} />
+      <DrumKey layout={layout} labelFor={(pad) => GROOVE_PAD_LABEL[pad]} keyFor={noKeyBound} />
       <p className="notation-gallery-caption">{label}</p>
     </section>
   )

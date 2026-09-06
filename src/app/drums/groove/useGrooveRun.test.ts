@@ -11,6 +11,7 @@ import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { moneyBeat } from '@core/drums/model/referenceGrooves.ts'
 import { planGrooveRun, type GrooveRunPlan } from '@core/drums/practice/plan.ts'
 import type { GrooveRunResult } from '@core/drums/practice/grade.ts'
+import { TICKS_PER_QUARTER } from '@core/shared/units.ts'
 import { useGrooveRun, type UseGrooveRunOptions } from './useGrooveRun.ts'
 
 function manualDriver(): { driver: FrameDriver; pump: () => void } {
@@ -96,7 +97,9 @@ describe('useGrooveRun', () => {
 
     frameAt(h, h.plan.barMs - 1)
     expect(h.result.current.phase).toBe('count-in')
-    expect(h.result.current.countInLeft).toBe(1)
+    // The last count-in beat sounding right before the bar opens is beat 4,
+    // counted forwards — not "1 beat left", counted down.
+    expect(h.result.current.countInBeat).toBe(4)
 
     frameAt(h, h.plan.barMs)
     expect(h.result.current.phase).toBe('playing')
@@ -110,15 +113,22 @@ describe('useGrooveRun', () => {
     expect(h.finished).toHaveLength(1)
   })
 
-  it('counts the count-in down rather than up', () => {
+  /**
+   * A MAJOR finding from the Teacher seat: this used to count DOWN (4, 3, 2,
+   * 1), so the digit "1" landed on the last beat BEFORE the downbeat — one
+   * beat before the 1 a learner had just read off the staff's own count row.
+   * A teacher counts a bar in forwards, in the chart's own vocabulary, so
+   * this walks a whole count-in bar and pins the exact ascending sequence.
+   */
+  it('counts the count-in bar forwards, matching the chart the learner just read', () => {
     const h = harness()
     act(() => h.result.current.start())
     const seen: number[] = []
     for (let beat = 0; beat < 4; beat++) {
       frameAt(h, beat * h.plan.beatMs)
-      seen.push(h.result.current.countInLeft)
+      seen.push(h.result.current.countInBeat)
     }
-    expect(seen).toEqual([4, 3, 2, 1])
+    expect(seen).toEqual([1, 2, 3, 4])
   })
 
   /**
@@ -230,5 +240,79 @@ describe('useGrooveRun', () => {
       manual.pump()
     })
     expect(onFinished).not.toHaveBeenCalled()
+  })
+
+  /**
+   * The Rival-seat MAJOR: every shipping rival lets a learner hear a groove
+   * before playing it, and this trainer's persona does not already know it.
+   * `preview()` is that control — one pass of exactly what the staff draws,
+   * scheduled once against absolute clock instants the same way `start()`
+   * schedules its click track, so it is provable the same way: read off a
+   * recording fake, not by listening.
+   */
+  describe('preview', () => {
+    it('schedules one tone per notated instant, plus a click on every beat, from one origin — and grades nothing', () => {
+      const h = harness()
+      act(() => h.result.current.preview())
+      expect(h.result.current.phase).toBe('preview')
+
+      // plan.ts's own tick-to-ms formula, mirrored here rather than imported
+      // so this test proves the two independently agree.
+      const msPerTick = 60_000 / h.plan.bpm / TICKS_PER_QUARTER
+      let lastTick = 0
+      for (const pad of h.plan.pads) {
+        for (const tick of pad.loopTicks) lastTick = Math.max(lastTick, tick)
+      }
+      const spanMs = Math.ceil((lastTick * msPerTick + 1) / h.plan.barMs) * h.plan.barMs
+      const beatsPerBar = Math.round(h.plan.barMs / h.plan.beatMs)
+      const totalBeats = Math.round(spanMs / h.plan.barMs) * beatsPerBar
+
+      const expectedOnsets = h.plan.pads
+        .flatMap((pad) => pad.loopTicks.map((tick) => tick * msPerTick))
+        .sort((a, b) => a - b)
+      const actualOnsets = h.audio.calls
+        .filter((c) => c.kind === 'noteOn')
+        .map((c) => c.at)
+        .sort((a, b) => a - b)
+      expect(actualOnsets).toEqual(expectedOnsets)
+
+      // A click on every beat across the whole span — one pass of the music
+      // is still a bar the learner counts along to.
+      expect(h.audio.clicks).toHaveLength(totalBeats)
+
+      // The span elapses on its own; nothing was graded and nothing produced.
+      frameAt(h, spanMs)
+      expect(h.result.current.phase).toBe('idle')
+      expect(h.result.current.result).toBeUndefined()
+      expect(h.finished).toEqual([])
+    })
+
+    it('returns to idle when stopped mid-preview', () => {
+      const h = harness()
+      act(() => h.result.current.preview())
+      expect(h.result.current.phase).toBe('preview')
+
+      act(() => h.result.current.stop())
+      expect(h.result.current.phase).toBe('idle')
+
+      // And it really is cancelled: running the clock past where the preview
+      // would have ended does not resurrect it.
+      frameAt(h, h.plan.barMs * 4)
+      expect(h.result.current.phase).toBe('idle')
+    })
+
+    /** A learner tapping along with a preview is not an error — it is the point. */
+    it('still flashes and sounds a pad struck during a preview, without grading it', () => {
+      const h = harness()
+      act(() => h.result.current.preview())
+      const soundedBefore = h.audio.playedNotes.length
+
+      act(() => h.result.current.hit('kick'))
+
+      expect(h.result.current.flash?.pad).toBe('kick')
+      expect(h.audio.playedNotes.length).toBeGreaterThan(soundedBefore)
+      expect(h.result.current.result).toBeUndefined()
+      expect(h.finished).toEqual([])
+    })
   })
 })

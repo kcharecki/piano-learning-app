@@ -51,10 +51,11 @@ describe('describeGroove — reference grooves', () => {
     )
   })
 
-  it('ghostFunkBar: every-sixteenth hi-hat, ghost+accent snare merge into one position list', () => {
+  it('ghostFunkBar: every-sixteenth hi-hat, ghost+accent snare positions each carry their mark', () => {
     expect(describeGroove(ghostFunkBar(), label)).toBe(
       'Ghost Funk Bar in 4/4. Kick: 1, 1 a, 3, 3 a. ' +
-        'Snare: 1 e, 1 &, 2, 2 &, 2 a, 3 e, 3 &, 4, 4 &, 4 a. Hi-hat: every sixteenth.',
+        'Snare: 1 e (ghost), 1 & (ghost), 2 (accent), 2 & (ghost), 2 a (ghost), ' +
+        '3 e (ghost), 3 & (ghost), 4 (accent), 4 & (ghost), 4 a (ghost). Hi-hat: every sixteenth.',
     )
   })
 })
@@ -190,5 +191,27 @@ describe('describeGroove — off-grid tick', () => {
       notes: [{ pad: 'kick', tick: 30, durationTicks: 60 }],
     })
     expect(describeGroove(score, label)).toBe('Off Grid in 4/4. Kick: 1 +30 ticks.')
+  })
+})
+
+describe('describeGroove — playCount', () => {
+  it('appends "Played twice." when playCount is 2', () => {
+    expect(describeGroove(quarterNoteRock(), label, { playCount: 2 })).toBe(
+      'Quarter-Note Rock in 4/4. Kick: 1, 3. Snare: 2, 4. Hi-hat: every beat. Played twice.',
+    )
+  })
+
+  it('appends "Played 3 times." for any other count', () => {
+    expect(describeGroove(quarterNoteRock(), label, { playCount: 3 })).toBe(
+      'Quarter-Note Rock in 4/4. Kick: 1, 3. Snare: 2, 4. Hi-hat: every beat. Played 3 times.',
+    )
+  })
+
+  it('says nothing extra when playCount is 1 or the options argument is omitted entirely', () => {
+    const withExplicitOne = describeGroove(quarterNoteRock(), label, { playCount: 1 })
+    const withNoOptions = describeGroove(quarterNoteRock(), label)
+    const expected = 'Quarter-Note Rock in 4/4. Kick: 1, 3. Snare: 2, 4. Hi-hat: every beat.'
+    expect(withExplicitOne).toBe(expected)
+    expect(withNoOptions).toBe(expected)
   })
 })

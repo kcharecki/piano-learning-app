@@ -47,6 +47,27 @@
   fill: var(--text-1);
 }
 
+/* ---------- Time signature ----------
+   Decorative to a screen reader (aria-hidden on the group, set in the
+   component) — the figure's aria-label already speaks the meter. */
+.groove-time-signature-digit {
+  fill: var(--text-1);
+  font-family: var(--font-ui);
+  font-weight: var(--weight-semibold);
+  font-size: 2.6px;
+}
+
+/* ---------- Rests ----------
+   Drawn as a stroked path, not a text glyph, so the figure never depends on
+   a music font being installed. */
+.groove-rest-quarter {
+  fill: none;
+  stroke: var(--text-1);
+  stroke-width: 0.22;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 /* ---------- Noteheads ----------
    `normal` is a filled shape; `x`, `diamond` and `circleX` are strokes, so
    they read as outlines rather than solid blocks at the same size. */
@@ -117,6 +138,32 @@
   stroke-width: 0.12;
 }
 
+/* ---------- Repeat barline ----------
+   Drawn in place of the final plain barline when the score is played more
+   than once (`layout.playCount > 1`). Both the barline and its "×N" label
+   are aria-hidden in the component: the figure's accessible name already
+   says "Played twice", so this is a sighted-only restatement of that fact. */
+.groove-repeat-barline-thin {
+  stroke: var(--text-3);
+  stroke-width: 0.08;
+}
+
+.groove-repeat-barline-thick {
+  stroke: var(--text-1);
+  stroke-width: 0.35;
+}
+
+.groove-repeat-dot {
+  fill: var(--text-1);
+}
+
+.groove-repeat-label {
+  fill: var(--text-2);
+  font-family: var(--font-ui);
+  font-weight: var(--weight-medium);
+  font-size: 1.3px;
+}
+
 /* ---------- Count row ----------
    `aria-hidden` on the whole row is set in the component, not here — this
    only styles what sighted readers see under the staff. */
@@ -124,6 +171,62 @@
   fill: var(--text-3);
   font-family: var(--font-ui);
   font-size: 1.3px;
+}
+
+/* ---------- Drum key ----------
+   The legend under a `GrooveStaff` (roadmap DR-05): one row per pad the
+   score actually uses, in staff order. A wide screen lays rows out as a
+   horizontal wrap so a short key does not read as a tall list for no
+   reason; `--content-pad`'s own <=640px breakpoint (`responsive.css`) is
+   already where every other single-column layout switch in this app
+   happens, so the key falls into a single column there too rather than
+   inventing a second breakpoint value to keep in sync with it. */
+.drum-key {
+  margin-top: var(--space-4);
+}
+
+.drum-key-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.drum-key-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-2);
+  font-size: var(--text-sm);
+}
+
+.drum-key-glyph {
+  flex: none;
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.drum-key-text {
+  white-space: nowrap;
+}
+
+.drum-key-shortcut {
+  color: var(--text-3);
+}
+
+.drum-key-caption {
+  margin: var(--space-3) 0 0;
+  max-width: 60ch;
+  color: var(--text-3);
+  font-size: var(--text-sm);
+}
+
+@media (max-width: 640px) {
+  .drum-key-list {
+    flex-direction: column;
+  }
 }
 
 /* ---------- Where the staff sits ----------

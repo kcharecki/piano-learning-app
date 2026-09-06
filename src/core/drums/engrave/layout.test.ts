@@ -8,26 +8,32 @@
 import { describe, expect, it } from 'vitest'
 import { staffPositionOf } from '@core/drums/model/pad.ts'
 import {
-  SLOT_WIDTH,
+  CLEF_WIDTH,
   COUNT_ROW_DESCENT,
   COUNT_ROW_GAP,
   EDGE_PAD,
-  LEFT_MARGIN,
+  MARK_ANCHOR_GAP,
   MARK_RESERVE,
   MIN_STAFF_TOP_Y,
+  REPEAT_LABEL_RESERVE,
   RIGHT_MARGIN,
+  SLOT_WIDTH,
   STEM_LENGTH,
+  TIME_SIGNATURE_WIDTH,
 } from './layout.ts'
 
 describe('layout constants', () => {
   it('are all finite and positive', () => {
     const values = [
       MIN_STAFF_TOP_Y,
-      LEFT_MARGIN,
+      CLEF_WIDTH,
+      TIME_SIGNATURE_WIDTH,
       SLOT_WIDTH,
       RIGHT_MARGIN,
       STEM_LENGTH,
+      MARK_ANCHOR_GAP,
       MARK_RESERVE,
+      REPEAT_LABEL_RESERVE,
       EDGE_PAD,
       COUNT_ROW_GAP,
       COUNT_ROW_DESCENT,
@@ -69,5 +75,19 @@ describe('layout constants', () => {
 
   it('reserves less for a mark stack than for a stem, since marks sit between the head and the stem tip', () => {
     expect(MARK_RESERVE).toBeLessThan(STEM_LENGTH)
+  })
+
+  it('gives the clef more room than the time signature, and both a real width', () => {
+    // A hand-picked ordering fact about the two head glyphs, not a value this
+    // test could derive by re-running the same subtraction the code does.
+    expect(CLEF_WIDTH).toBeGreaterThan(TIME_SIGNATURE_WIDTH)
+  })
+
+  it('sits the mark anchor closer to the stem than the room it has to clear', () => {
+    // `markAnchorY` is `MARK_ANCHOR_GAP` off the stem tip; the marks
+    // themselves then need `MARK_RESERVE` beyond THAT. If the gap were not
+    // smaller than the reserve it protects, the anchor could sit past the
+    // room the layout set aside for it.
+    expect(MARK_ANCHOR_GAP).toBeLessThan(MARK_RESERVE)
   })
 })

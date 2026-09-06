@@ -7,7 +7,7 @@ import { makeGrooveScore, type DynamicsClass, type GrooveScoreInput } from '@cor
 import { MAPPED_PADS, type MappedDrumPad } from '@core/drums/model/pad.ts'
 import { ghostFunkBar, moneyBeat, moneyBeatOpenHat, quarterNoteRock } from '@core/drums/model/referenceGrooves.ts'
 import { engraveGroove } from './staff.ts'
-import type { EngravedNote, StaffLayout } from './layout.ts'
+import { CLEF_WIDTH, REPEAT_BARLINE_RESERVE, SLOT_WIDTH, TIME_SIGNATURE_WIDTH, type EngravedNote, type StaffLayout } from './layout.ts'
 
 // -------------------------------------------------------------------- helpers
 
@@ -55,7 +55,10 @@ describe('engraveGroove — beams and flags', () => {
     const hiHatIds = new Set(score.notes.filter((n) => n.pad === 'hhClosed').map((n) => n.id))
     for (const beam of handsBeams) {
       expect(beam.noteIds.filter((id) => hiHatIds.has(id))).toHaveLength(2)
-      expect(beam.count).toBe(1)
+      // Straight eighths only — nothing here is shorter than an eighth, so
+      // there is no secondary beam, just the one primary segment.
+      expect(beam.segments).toHaveLength(1)
+      expect(at(beam.segments, 0).level).toBe(1)
     }
 
     // Beamed notes carry no flag — the beam is the flag.
@@ -73,9 +76,9 @@ describe('engraveGroove — beams and flags', () => {
       id: 'lone-eighth',
       measureCount: 1,
       notes: [
-        { pad: 'hhClosed', tick: 0, durationTicks: 240, dynamics: 'normal' },
-        { pad: 'snare', tick: 480, durationTicks: 480, dynamics: 'normal' },
-        { pad: 'hhClosed', tick: 960, durationTicks: 120, dynamics: 'normal' },
+        { pad: 'hhClosed', tick: 0, durationTicks: 240 },
+        { pad: 'snare', tick: 480, durationTicks: 480 },
+        { pad: 'hhClosed', tick: 960, durationTicks: 120 },
       ],
     })
     const layout = engraveGroove(score)
@@ -98,8 +101,8 @@ describe('engraveGroove — beams and flags', () => {
       id: 'shared-stem',
       measureCount: 1,
       notes: [
-        { pad: 'hhClosed', tick: 0, durationTicks: 240, dynamics: 'normal' },
-        { pad: 'snare', tick: 0, durationTicks: 120, dynamics: 'normal' },
+        { pad: 'hhClosed', tick: 0, durationTicks: 240 },
+        { pad: 'snare', tick: 0, durationTicks: 120 },
       ],
     })
     const layout = engraveGroove(score)
@@ -165,6 +168,211 @@ describe('engraveGroove — ghostFunkBar', () => {
     for (const beam of handsBeams) {
       expect(beam.noteIds.filter((id) => hiHatIds.has(id))).toHaveLength(4)
     }
+  })
+})
+
+// ------------------------------------------------------- horizontal layout
+
+describe('engraveGroove — horizontal layout', () => {
+  it('places the first notehead strictly right of the clef and time signature, with no barline at or before it', () => {
+    const score = moneyBeat()
+    const layout = engraveGroove(score)
+    const firstNoteX = Math.min(...layout.notes.map((n) => n.x))
+
+    expect(firstNoteX).toBeGreaterThan(CLEF_WIDTH + TIME_SIGNATURE_WIDTH)
+    expect(layout.barlines.every((x) => x > firstNoteX)).toBe(true)
+  })
+
+  it('draws exactly one barline for a one-measure score', () => {
+    const layout = engraveGroove(moneyBeat())
+    expect(layout.barlines).toHaveLength(1)
+  })
+
+  it('draws two barlines for a two-measure score, the first strictly between bar 1s last note and bar 2s first', () => {
+    const score = makeGrooveScore({
+      id: 'two-bar-hats',
+      measureCount: 2,
+      notes: [
+        { pad: 'hhClosed', tick: 0, durationTicks: 480 },
+        { pad: 'hhClosed', tick: 1920, durationTicks: 480 },
+      ],
+    })
+    const layout = engraveGroove(score)
+    expect(layout.barlines).toHaveLength(2)
+
+    const bar1Note = layout.notes.find((n) => n.tick === 0)
+    const bar2Note = layout.notes.find((n) => n.tick === 1920)
+    invariant(bar1Note !== undefined && bar2Note !== undefined, 'expected one note in each bar')
+
+    const firstBarline = at(layout.barlines, 0)
+    expect(firstBarline).toBeGreaterThan(bar1Note.x)
+    expect(firstBarline).toBeLessThan(bar2Note.x)
+  })
+})
+
+describe('engraveGroove — time signature', () => {
+  it('states the meter once, between the clef and the first notehead, at the top staff lines y', () => {
+    const score = moneyBeat()
+    const layout = engraveGroove(score)
+    const firstNoteX = Math.min(...layout.notes.map((n) => n.x))
+    const topLineY = Math.min(...layout.staffLines.map((l) => l.y))
+
+    expect(layout.timeSignature.beats).toBe(score.timeSignature.beats)
+    expect(layout.timeSignature.beatType).toBe(score.timeSignature.beatType)
+    expect(layout.timeSignature.x).toBeGreaterThan(0)
+    expect(layout.timeSignature.x).toBeLessThan(firstNoteX)
+    expect(layout.timeSignature.y).toBe(topLineY)
+  })
+})
+
+// ------------------------------------------------------- playCount & repeat
+
+describe('engraveGroove — playCount and the repeat', () => {
+  it('reports playCount 1 and no repeat label by default', () => {
+    const layout = engraveGroove(moneyBeat())
+    expect(layout.playCount).toBe(1)
+    expect(layout.repeatLabel).toBeUndefined()
+  })
+
+  it('reports playCount 2 and a ×2 label above the top staff line when asked to repeat', () => {
+    const layout = engraveGroove(moneyBeat(), { playCount: 2 })
+    expect(layout.playCount).toBe(2)
+    invariant(layout.repeatLabel !== undefined, 'expected a repeat label')
+    expect(layout.repeatLabel.text).toBe('×2')
+    const topLineY = Math.min(...layout.staffLines.map((l) => l.y))
+    expect(layout.repeatLabel.y).toBeLessThan(topLineY)
+  })
+
+  // Both of the next two were drawn on top of the music before they were
+  // written: the label crossed the last hi-hat's stem, and the renderer's
+  // repeat dots landed on the beat-4 snare, which reads as a dotted notehead
+  // rather than as a repeat.
+  it('puts the repeat label above every stem and every mark in the score', () => {
+    const layout = engraveGroove(moneyBeatOpenHat(), { playCount: 2 })
+    invariant(layout.repeatLabel !== undefined, 'expected a repeat label')
+    for (const note of layout.notes) {
+      expect(layout.repeatLabel.y).toBeLessThan(note.stemToY)
+      if (note.marks.length > 0) expect(layout.repeatLabel.y).toBeLessThan(note.markAnchorY)
+    }
+  })
+
+  it('leaves the repeat barline its own width, clear of the last notehead', () => {
+    const plain = engraveGroove(moneyBeat())
+    const repeated = engraveGroove(moneyBeat(), { playCount: 2 })
+    const tailOf = (layout: StaffLayout): number =>
+      at(layout.barlines, layout.barlines.length - 1) - Math.max(...layout.notes.map((n) => n.x))
+
+    // The whole reserve is spent on the gap the dots need, and on nothing
+    // else: the notes do not move, and a bar that is not repeated pays
+    // nothing for the apparatus it never draws.
+    expect(tailOf(repeated) - tailOf(plain)).toBeCloseTo(REPEAT_BARLINE_RESERVE)
+    expect(tailOf(plain)).toBeCloseTo(SLOT_WIDTH / 2)
+    expect(repeated.width - plain.width).toBeCloseTo(REPEAT_BARLINE_RESERVE)
+    expect(Math.max(...repeated.notes.map((n) => n.x))).toBeCloseTo(
+      Math.max(...plain.notes.map((n) => n.x)),
+    )
+  })
+})
+
+// --------------------------------------------------------------- markAnchorY
+
+describe('engraveGroove — markAnchorY', () => {
+  it('anchors an open hi-hats mark above its own stem tip', () => {
+    const score = moneyBeatOpenHat()
+    const layout = engraveGroove(score)
+    const openNote = layout.notes.find((n) => n.marks.includes('open'))
+    invariant(openNote !== undefined, 'expected an open note')
+    expect(openNote.markAnchorY).toBeLessThan(openNote.stemToY)
+  })
+
+  it('anchors a beamed open hi-hats mark above its beam, not just its own pre-beam stem', () => {
+    // moneyBeatOpenHat's open hat rides the beat-4 hi-hat beam; its stemToY
+    // IS that beam's y once beaming has settled, so this pins the same fact
+    // the renderer actually reads off.
+    const score = moneyBeatOpenHat()
+    const layout = engraveGroove(score)
+    const openNote = layout.notes.find((n) => n.marks.includes('open'))
+    invariant(openNote !== undefined, 'expected an open note')
+    const beam = layout.beams.find((b) => b.noteIds.includes(openNote.id))
+    invariant(beam !== undefined, 'expected the open hi-hat to be beamed')
+    expect(openNote.markAnchorY).toBeLessThan(beam.y)
+  })
+})
+
+// ----------------------------------------------------------- beam segments
+
+describe('engraveGroove — beam segments', () => {
+  it("ghostFunkBar's kick beat-1 beam ('1' and '1 a') gets one level-1 segment and two opposite half-slot stubs", () => {
+    const score = ghostFunkBar()
+    const layout = engraveGroove(score)
+
+    const kickAt0 = layout.notes.find((n) => n.pad === 'kick' && n.tick === 0)
+    const kickAt360 = layout.notes.find((n) => n.pad === 'kick' && n.tick === 360)
+    invariant(kickAt0 !== undefined && kickAt360 !== undefined, 'expected kicks on "1" and "1 a"')
+
+    const beam = layout.beams.find((b) => b.noteIds.includes(kickAt0.id) && b.noteIds.includes(kickAt360.id))
+    invariant(beam !== undefined, 'expected the two kicks to share a beam')
+
+    const level1 = beam.segments.filter((s) => s.level === 1)
+    expect(level1).toHaveLength(1)
+
+    const level2 = beam.segments.filter((s) => s.level === 2)
+    expect(level2).toHaveLength(2)
+    for (const segment of level2) expect(segment.toX - segment.fromX).toBeCloseTo(SLOT_WIDTH / 2)
+
+    // "1" has no earlier beam member, so its stub points right; "1 a" has an
+    // earlier member (tick 0), so its stub points left.
+    const rightStub = level2.find((s) => s.fromX === kickAt0.x)
+    const leftStub = level2.find((s) => s.toX === kickAt360.x)
+    expect(rightStub).toBeDefined()
+    expect(leftStub).toBeDefined()
+  })
+
+  it('beams four consecutive sixteenths as one level-2 segment spanning all four, not four stubs', () => {
+    const score = ghostFunkBar()
+    const layout = engraveGroove(score)
+
+    const hiHatAt0 = layout.notes.find((n) => n.pad === 'hhClosed' && n.tick === 0)
+    const hiHatAt360 = layout.notes.find((n) => n.pad === 'hhClosed' && n.tick === 360)
+    invariant(hiHatAt0 !== undefined && hiHatAt360 !== undefined, 'expected hi-hats on beat 1s four sixteenths')
+
+    const beam = layout.beams.find((b) => b.noteIds.includes(hiHatAt0.id))
+    invariant(beam !== undefined, 'expected the hi-hat to be beamed')
+
+    const level2 = beam.segments.filter((s) => s.level === 2)
+    expect(level2).toHaveLength(1)
+    expect(at(level2, 0).fromX).toBe(hiHatAt0.x)
+    expect(at(level2, 0).toX).toBe(hiHatAt360.x)
+  })
+})
+
+// ---------------------------------------------------------------------- rests
+
+describe('engraveGroove — rests', () => {
+  it("emits feet rests on moneyBeat's silent beats (2 and 4) and no hands rests", () => {
+    const score = moneyBeat()
+    const layout = engraveGroove(score)
+
+    expect(layout.rests.filter((r) => r.voice === 'hands')).toHaveLength(0)
+    const feetRests = layout.rests.filter((r) => r.voice === 'feet')
+    expect(feetRests).toHaveLength(2)
+
+    const snareAt480 = layout.notes.find((n) => n.pad === 'snare' && n.tick === 480)
+    const snareAt1440 = layout.notes.find((n) => n.pad === 'snare' && n.tick === 1440)
+    invariant(snareAt480 !== undefined && snareAt1440 !== undefined, 'expected the two backbeats')
+    expect(feetRests.map((r) => r.x).sort((a, b) => a - b)).toEqual(
+      [snareAt480.x, snareAt1440.x].sort((a, b) => a - b),
+    )
+  })
+
+  it('emits no feet rests at all when the score has no feet note', () => {
+    const score = makeGrooveScore({
+      id: 'no-feet',
+      measureCount: 1,
+      notes: [{ pad: 'hhClosed', tick: 0, durationTicks: 480 }],
+    })
+    const layout = engraveGroove(score)
+    expect(layout.rests.some((r) => r.voice === 'feet')).toBe(false)
   })
 })
 
@@ -275,6 +483,18 @@ describe('engraveGroove — properties', () => {
     )
   })
 
+  it('every beam has exactly one level-1 segment, and every segment has fromX <= toX', () => {
+    fc.assert(
+      fc.property(grooveScoreArb, (score) => {
+        const layout = engraveGroove(score)
+        for (const beam of layout.beams) {
+          expect(beam.segments.filter((s) => s.level === 1)).toHaveLength(1)
+          for (const segment of beam.segments) expect(segment.fromX).toBeLessThanOrEqual(segment.toX)
+        }
+      }),
+    )
+  })
+
   it('a note carries the ghost mark iff its dynamics is ghost', () => {
     fc.assert(
       fc.property(grooveScoreArb, (score) => {
@@ -286,22 +506,71 @@ describe('engraveGroove — properties', () => {
     )
   })
 
-  it('every coordinate is finite, x stays within [0, width], y stays within [0, height]', () => {
+  it('marks an open or accented note above its own head, clearing its stem', () => {
+    // `ghost` is excluded on purpose: it draws beside the head, not stacked
+    // off `markAnchorY` (see `EngravedNote.markAnchorY`'s doc), so nothing
+    // guarantees its anchor clears anything — it is simply unused.
     fc.assert(
       fc.property(grooveScoreArb, (score) => {
         const layout = engraveGroove(score)
+        for (const note of layout.notes) {
+          if (!note.marks.includes('open') && !note.marks.includes('accent')) continue
+          expect(note.markAnchorY).toBeLessThan(note.y)
+          if (note.voice === 'hands') expect(note.markAnchorY).toBeLessThan(note.stemToY)
+          else expect(note.markAnchorY).toBeLessThan(note.y)
+        }
+      }),
+    )
+  })
+
+  it("every rest's y sits strictly inside the five staff lines", () => {
+    fc.assert(
+      fc.property(grooveScoreArb, (score) => {
+        const layout = engraveGroove(score)
+        const lineYs = layout.staffLines.map((l) => l.y)
+        const top = Math.min(...lineYs)
+        const bottom = Math.max(...lineYs)
+        for (const rest of layout.rests) {
+          expect(rest.y).toBeGreaterThan(top)
+          expect(rest.y).toBeLessThan(bottom)
+        }
+      }),
+    )
+  })
+
+  it('every coordinate is finite, x stays within [0, width], y stays within [0, height]', () => {
+    // Extended (rather than duplicated) for the new fields: `timeSignature`,
+    // `rests`, `beams[].segments` and, since it is only ever drawn for a note
+    // carrying `open`/`accent`, `markAnchorY` restricted to those notes — see
+    // the "marks an open or accented note" property above for why an
+    // unmarked note's `markAnchorY` is exempt. `repeatLabel` is only ever
+    // present when `playCount > 1`, so this generates one alongside the
+    // score to actually exercise it instead of leaving it perpetually absent.
+    fc.assert(
+      fc.property(grooveScoreArb, fc.integer({ min: 1, max: 4 }), (score, playCount) => {
+        const layout = engraveGroove(score, { playCount })
+        const markedYs = layout.notes
+          .filter((n) => n.marks.includes('open') || n.marks.includes('accent'))
+          .map((n) => n.markAnchorY)
         const xs = [
           ...layout.barlines,
+          layout.timeSignature.x,
           ...layout.notes.map((n) => n.x),
           ...layout.counts.map((c) => c.x),
+          ...layout.rests.map((r) => r.x),
           ...layout.staffLines.flatMap((l) => [l.fromX, l.toX]),
-          ...layout.beams.flatMap((b) => [b.fromX, b.toX]),
+          ...layout.beams.flatMap((b) => [b.fromX, b.toX, ...b.segments.flatMap((s) => [s.fromX, s.toX])]),
+          ...(layout.repeatLabel === undefined ? [] : [layout.repeatLabel.x]),
         ]
         const ys = [
+          layout.timeSignature.y,
           ...layout.notes.flatMap((n) => [n.y, n.stemToY]),
+          ...markedYs,
           ...layout.staffLines.map((l) => l.y),
           ...layout.counts.map((c) => c.y),
+          ...layout.rests.map((r) => r.y),
           ...layout.beams.map((b) => b.y),
+          ...(layout.repeatLabel === undefined ? [] : [layout.repeatLabel.y]),
         ]
         for (const value of [...xs, ...ys]) expect(Number.isFinite(value)).toBe(true)
         for (const value of xs) {

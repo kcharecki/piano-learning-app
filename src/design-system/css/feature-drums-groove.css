@@ -45,7 +45,18 @@
   align-items: center;
   gap: var(--space-4);
 }
-.groove-start {
+/* Start and Listen sit side by side: Listen is what a learner who does not
+   know the groove reaches for first, so it has to be as findable as Start
+   rather than tucked somewhere below it. They wrap on a narrow screen so
+   neither ever loses its label. */
+.groove-transport {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-3);
+}
+.groove-start,
+.groove-listen {
   min-width: 160px;
 }
 /* The one line the learner reads mid-run, so it holds its height whether it

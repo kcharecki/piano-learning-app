@@ -33,10 +33,21 @@
  * four), not as an independent notion of "eighth-note time" — that keeps the
  * collapse test and the position naming reading from one definition instead
  * of two that could disagree in an odd meter.
+ *
+ * A pad whose notes carry `accent` or `ghost` dynamics never collapses, even
+ * when its positions happen to fill a collapse grid exactly: "every
+ * sixteenth" throws away exactly the ghost/accent distinction the sentence
+ * exists to carry, the same way the picture draws every ghost note as a
+ * parenthesised head and every accent as a wedge rather than one undifferentiated
+ * run. Each such position instead carries its mark inline — `1 e (ghost)`,
+ * `2 (accent)` — appended after the count name. `open` gets no such suffix:
+ * it already lands on a distinct pad (`hhOpen`) with its own label, so the
+ * pad name alone already says what a sighted learner reads off the ring
+ * notehead.
  */
 import { at } from '@core/shared/invariant.ts'
 import { measureDurationTicks, type TimeSignature } from '@core/notation/score.ts'
-import type { GrooveScore } from '@core/drums/model/groove.ts'
+import type { DynamicsClass, GrooveScore } from '@core/drums/model/groove.ts'
 import { padOrderIndex, type MappedDrumPad } from '@core/drums/model/pad.ts'
 
 /** The four named subdivisions of one beat, in order — index 0 is the beat itself (no suffix). */
@@ -78,6 +89,16 @@ function sameOffsets(a: readonly number[], b: readonly number[]): boolean {
   return a.length === b.length && a.every((v, i) => v === b[i])
 }
 
+/** One note's position within its bar, plus the dynamics that decide its spoken mark. */
+type PositionEntry = { readonly offset: number; readonly dynamics: DynamicsClass }
+
+/** `' (accent)'` / `' (ghost)'` / `''` — see the module doc for why `open` gets none. */
+function markSuffix(dynamics: DynamicsClass): string {
+  if (dynamics === 'accent') return ' (accent)'
+  if (dynamics === 'ghost') return ' (ghost)'
+  return ''
+}
+
 /**
  * `'every sixteenth'` / `'every eighth'` / `'every beat'` when a pad's offsets
  * are exactly that grid in EVERY measure (including a measure it is silent
@@ -106,6 +127,8 @@ function collapseLabel(
 /**
  * The `aria-label` sentence for a groove staff. Format:
  * `<title> in <beats>/<beatType>. <Pad>: <positions>. <Pad>: <positions>.`
+ * followed by `Played twice.` / `Played N times.` when `options.playCount`
+ * says the figure repeats — see the module doc.
  *
  * - Title omitted (with its trailing space) when `score.title` is empty, so
  *   the sentence starts `In 4/4.`
@@ -118,6 +141,7 @@ function collapseLabel(
 export function describeGroove(
   score: GrooveScore,
   padLabel: (pad: MappedDrumPad) => string,
+  options: { readonly playCount?: number } = {},
 ): string {
   const { beats, beatType } = score.timeSignature
   const titleClause =
@@ -126,26 +150,37 @@ export function describeGroove(
   const beatTicks = beatTicksOf(score.timeSignature)
   const measureCount = score.measures.length
 
-  const offsetsByPad = new Map<MappedDrumPad, number[][]>()
+  const entriesByPad = new Map<MappedDrumPad, PositionEntry[][]>()
   for (const note of score.notes) {
-    let perMeasure = offsetsByPad.get(note.pad)
+    let perMeasure = entriesByPad.get(note.pad)
     if (perMeasure === undefined) {
       perMeasure = score.measures.map(() => [])
-      offsetsByPad.set(note.pad, perMeasure)
+      entriesByPad.set(note.pad, perMeasure)
     }
     const measure = at(score.measures, note.measureIndex)
-    at(perMeasure, note.measureIndex).push(note.tick - measure.startTick)
+    at(perMeasure, note.measureIndex).push({ offset: note.tick - measure.startTick, dynamics: note.dynamics })
   }
 
-  const clauses = [...offsetsByPad.entries()].map(([pad, perMeasureOffsets]) => {
-    const collapsed = collapseLabel(score.timeSignature, beatTicks, perMeasureOffsets)
+  const clauses = [...entriesByPad.entries()].map(([pad, perMeasureEntries]) => {
+    // A pad carrying any accent/ghost dynamics always lists its positions —
+    // collapsing would silently drop the one thing the sentence exists to add.
+    const hasMark = perMeasureEntries.some((entries) => entries.some((e) => e.dynamics !== 'normal'))
+    const collapsed = hasMark
+      ? undefined
+      : collapseLabel(
+          score.timeSignature,
+          beatTicks,
+          perMeasureEntries.map((entries) => entries.map((e) => e.offset)),
+        )
     const positionsText =
       collapsed ??
-      perMeasureOffsets
-        .map((offsets, measureIndex) => ({ measureIndex, offsets }))
-        .filter(({ offsets }) => offsets.length > 0)
-        .map(({ measureIndex, offsets }) => {
-          const names = offsets.map((offset) => countName(offset, beatTicks)).join(', ')
+      perMeasureEntries
+        .map((entries, measureIndex) => ({ measureIndex, entries }))
+        .filter(({ entries }) => entries.length > 0)
+        .map(({ measureIndex, entries }) => {
+          const names = entries
+            .map((e) => `${countName(e.offset, beatTicks)}${markSuffix(e.dynamics)}`)
+            .join(', ')
           return measureCount > 1 ? `bar ${measureIndex + 1}: ${names}` : names
         })
         .join('; ')
@@ -153,5 +188,9 @@ export function describeGroove(
   })
   clauses.sort((a, b) => padOrderIndex(a.pad) - padOrderIndex(b.pad))
 
-  return [titleClause, ...clauses.map((c) => c.text)].join(' ')
+  const sentences = [titleClause, ...clauses.map((c) => c.text)]
+  if (options.playCount !== undefined && options.playCount > 1) {
+    sentences.push(options.playCount === 2 ? 'Played twice.' : `Played ${options.playCount} times.`)
+  }
+  return sentences.join(' ')
 }
