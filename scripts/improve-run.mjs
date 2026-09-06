@@ -934,6 +934,25 @@ const cmdPanel = runCommand((args, ctx) => {
     throw new RuleViolation(`panel refused: round ${round} exceeds tier ${tier}'s re-panel cap (max round ${maxRound}).`)
   }
 
+  // The ratchet stops the polish loop, not just the outcome. Once a round has failed to fall, the
+  // only outcome `finish` will accept is `abort`, so every later round reviews a fix that cannot
+  // change the result -- and run 2026-09-06-1 spent its whole back half proving that: the latch
+  // fired at round 2, a fix commit followed anyway, and round 3's unique yield was two faults IN
+  // THAT FIX, both deleted by the revert an hour later. Printing the advice at the latch was not
+  // enough; this is the same sentence as a gate.
+  //
+  // Bounded to rounds AFTER the latched one so a partially-recorded round can always be finished:
+  // the sum that raises the ratchet is reached mid-round, and refusing the remaining seats would
+  // leave the ledger holding half a round forever.
+  const { rising: latched } = blockerRatchet(events, run)
+  if (latched && round > latched.curr.round) {
+    throw new RuleViolation(
+      `panel refused: ${describeRatchet(latched)}, so this run can only finish as \`abort\` and ` +
+        `round ${round} cannot change that. Revert the implementation commits, keep the spec ` +
+        'commit, file the findings already on disk as `T.<n>`, then `finish --outcome abort`.',
+    )
+  }
+
   const renderedSha = sha256File(file)
   appendEvent(
     ctx.ledgerPath,

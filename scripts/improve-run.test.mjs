@@ -600,7 +600,7 @@ describe('blocker ratchet', () => {
   /** Same shape as `finish`'s `fullySetUpRun`, but reusable from outside that describe block:
    * mark 0, a Floor-tier pick, slice, verdict, spec and mark 8 — everything a non-abort `finish`
    * needs EXCEPT the panel sweeps, which each test records at its own severities. */
-  function runReadyForPanels() {
+  function runReadyForPanels(cost = 'S') {
     const ledger = tempLedger()
     const panelDir = panelFixtureDir()
     const file = panelOutputFile()
@@ -611,7 +611,7 @@ describe('blocker ratchet', () => {
     runCli(['start', '--ledger', ledger, '--now', now], { git })
     runCli(['mark', '0', '--ledger', ledger, '--now', now], { git })
     runCli(
-      ['pick', '--source', '1a', '--instrument', 'piano', '--sum', '5', '--cost', 'S', '--leader-gap', '9',
+      ['pick', '--source', '1a', '--instrument', 'piano', '--sum', '5', '--cost', cost, '--leader-gap', '9',
         '--harm', '0', '--class', 'THIN', '--thread', 'none', '--metric', 'm', '--baseline', '1', '--ledger', ledger, '--now', now],
       { git },
     )
@@ -664,6 +664,44 @@ describe('blocker ratchet', () => {
     expectExit(second, 0)
     expect(second.stdout.join(' ')).toMatch(/RATCHET/)
     expect(second.stdout.join(' ')).toMatch(/only finish as `abort`/)
+  })
+
+  it('refuses every round AFTER the latched one — the polish loop ends where the outcome does', () => {
+    // Tier L, so the re-panel cap (max round 4) is not what does the refusing here.
+    const { ledger, now, panelDir, file, git } = runReadyForPanels('L')
+
+    floorPanelSweep(ledger, now, git, panelDir, file, 1, { blockers: 1 })
+    floorPanelSweep(ledger, now, git, panelDir, file, 2, { blockers: 1 })
+
+    const third = runPanel(ledger, now, git, { round: 3, role: 'skeptic', panelDir, file, blockers: 0 })
+    expectExit(third, 1)
+    expect(third.stderr.join(' ')).toMatch(/panel refused/)
+    expect(third.stderr.join(' ')).toMatch(/did not fall/)
+    expect(third.stderr.join(' ')).toMatch(/only finish as `abort`/)
+
+    // Refusing the round must never strand the run: abort is still reachable without it.
+    expectExit(
+      runCli(['finish', '--outcome', 'abort', '--blocker', 'the fixing stopped converging', '--ledger', ledger, '--now', now], { git }),
+      0,
+    )
+  })
+
+  it('lets the round that RAISED it be finished — the sum crosses mid-round, and half a round is not a round', () => {
+    const { ledger, now, panelDir, file, git } = runReadyForPanels('L')
+
+    expectExit(runPanel(ledger, now, git, { round: 1, role: 'skeptic', panelDir, file, blockers: 1 }), 0)
+    expectExit(runPanel(ledger, now, git, { round: 1, role: 'regression-hunter', panelDir, file, blockers: 0 }), 0)
+
+    // Round 2's first seat alone already equals round 1's total, so the ratchet is up from here.
+    const raised = runPanel(ledger, now, git, { round: 2, role: 'skeptic', panelDir, file, blockers: 1 })
+    expectExit(raised, 0)
+    expect(raised.stdout.join(' ')).toMatch(/RATCHET/)
+
+    // The remaining seat of that same round is still recordable.
+    expectExit(runPanel(ledger, now, git, { round: 2, role: 'regression-hunter', panelDir, file, blockers: 0 }), 0)
+
+    // The next round is not.
+    expectExit(runPanel(ledger, now, git, { round: 3, role: 'skeptic', panelDir, file, blockers: 0 }), 1)
   })
 
   it('does not fire on a round-1-only run, and treats a missing later round as no evidence', () => {

@@ -152,7 +152,8 @@ Triage, the roadmap box stays `[~]` naming those ids, outcome logged `shipped-no
 
 **The BLOCKER count must fall every round.** A round returning as many as the one before it means
 the fixing is creating faults faster than it closes them; `finish` then refuses every outcome but
-`abort`. Do not start the next fix round.
+`abort`, and `panel` refuses every round after the one that latched — the seats of the latched
+round can still be recorded, nothing later can. Revert, file what is already on disk, finish.
 
 **An unfixed BLOCKER cannot ship** — not as `shipped-not-clean`, not deferred to a `T.<n>`. It
 exits through ABORT, as does a refuted claim. Shipping a slice whose own claim was disproved is the one outcome this command never permits.

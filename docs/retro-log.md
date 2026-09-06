@@ -16,6 +16,98 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
+## 2026-09-06 (/improve-app run 2026-09-06-1) — the third abort, and a stop condition that fired and was ignored
+
+- **user-reported defects since last session:** 0.
+- **slices proven / started:** 0 / 1. DR-05 (VOID, drums, tier L) — show the groove on a
+  percussion staff. Three panel rounds, two fix commits, reverted whole. The spec commit
+  `46cec4c` stays, and `e2e/improve-DR-05.spec.ts` is red on `master` on purpose.
+- **gate catches before commit:** 6.
+  1. **The ratchet latched.** BLOCKERs ran 1 → 2 → 1 across rounds 1–3, so `finish` refused
+     `clean` and `shipped-not-clean` and allowed only `abort`.
+  2. **The refutation condition was void, and a seat proved it.** The Skeptic's duty-0
+     sabotage test stubbed `relYOf` to `return 1.5` — every notehead on one staff line — and
+     `e2e/improve-DR-05.spec.ts` as committed still reported `4 passed`, exit 0. The spec had
+     asserted that noteheads *exist*, never where. Replaced with one that reads the picture:
+     pad = (vertical position, glyph shape), instants from the count row, play count from the
+     drawn `×N`. It is that version the abort keeps.
+  3. **A regression `verify` structurally cannot see.** The Regression hunter found
+     `e2e/improve-DR-09.spec.ts` red at HEAD, where it had sat for two commits and three panel
+     rounds. `npm run verify` has no e2e step (`T.18`), so nothing in the loop was looking.
+  4. **`check-improve-log.mjs` refused the log entry three times** — a `Metric` naming a field
+     no persisted shape declares, a claim whose observable was not in learner-visible terms,
+     and a cannot-sense entry missing its `(screen: …)`. Every one was a real weakening.
+  5. **The held-out goal passed** — a 3/4 waltz added as content only engraved correctly at
+     both widths in both themes with `staff.ts` untouched, which is the only evidence the run
+     produced that the geometry generalised rather than fitting three grooves.
+  6. **The visual-pass receipt gate** held the post-revert commit to a fresh receipt.
+  One gate limitation found rather than caught: `visual-pass.mjs` reaches a screen by clicking
+  its nav label, so `/drums/notation-dev` — deliberately URL-only — is unreachable by it and
+  needed a bespoke probe. Not filed; it is a property of the dev gallery, not a defect.
+- **docs budget:** no warnings. `ROADMAP.md` at 1108 of 1500 after five new triage rows.
+- **cost note:** `mark 8` recorded **219.99%** of budget. Nearly all of the overrun is the back
+  half, and the back half could not change the outcome: the ratchet latched on the round-2
+  panel event, and the next thing the run did was write a fix commit (`d765c31`), which round 3
+  then reviewed. Round 3's unique yield was two faults **in that fix** — a fixed
+  `OPEN_TONE_MS = 240` that at 200 bpm sounds across three closed hats the staff draws under
+  it, and the same widening leaking into the learner's own pad tone — both deleted by the
+  revert an hour later. The rounds before the latch were worth their cost; everything after it
+  bought four roadmap rows that rounds 1 and 2 had already found.
+- **hypothesis:** the weakest part of the process is that **it states its stop conditions in the
+  right place, at the right moment, and then leaves obeying them to judgement.** The ratchet
+  message is not vague and it is not late — `panel` prints, on the event that raises it, "this
+  run can now only finish as abort; revert the implementation commits, keep the spec commit,
+  file the BLOCKERs as `T.<n>`", exactly so the next fix round is never started. The run read
+  that and started the next fix round. Every other hard rule here is a script that exits 1;
+  this one was a sentence, and a sentence is a thing a tired session argues with.
+- **change:** `improve-run.mjs panel` now **refuses every round after the one that latched the
+  ratchet** — the same sentence, as an exit code. Bounded to rounds strictly after
+  `rising.curr.round`, because the sum that raises the ratchet is reached mid-round and refusing
+  the remaining seats would strand half a round in the ledger forever; the latched round can
+  always be completed, nothing later can. `finish --outcome abort` needs no further panel, so
+  the gate cannot deadlock a run. `docs/commands/improve-app.md` §6 says it too.
+  Mutation-checked, not asserted: with the condition forced false, exactly the two new tests
+  fail and the other 50 in `scripts/improve-run.test.mjs` pass. The second test is the one that
+  matters — round 2's first seat alone equals round 1's total, that seat records with `RATCHET`
+  on stdout, its sibling seat still records, and only round 3 is refused.
+  **Review by 2026-11-06 (or 4 `/improve-app` runs):** keep if a run stops at the latch instead
+  of spending its back half; revert if it refuses a round on a run whose latch came from a seat
+  count artefact rather than from real non-convergence, which is the failure a sum cannot see.
+- **experiment verdicts due:**
+  - **Innovation quota** (review-by 2026-09-05 / 4 `/improve-app` runs) — **both conditions now
+    met, and the verdict is KEEP.** The four real picks: `2026-08-20-1` VOID/piano,
+    `2026-08-21-1` VOID/drums, `2026-08-24-1` BLIND/piano, `2026-09-06-1` VOID/drums. The
+    question it was set to answer was whether any run in the window shipped **new capability
+    rather than a repair**. The answer is no — three VOID picks, three aborts, and the only run
+    that shipped anything (`2026-08-24-1`, `shipped-not-clean`) was the BLIND one. Keep it
+    anyway, for the reason it was built: without `Class` on every pick that sentence is not
+    answerable at all, and the quota is why three of four picks were VOID instead of the
+    comfortable repair each time. What it has now exposed is a different problem and the next
+    one to attack — **a VOID pick forces tier L, and tier L has never cleared, 0 for 3.** The
+    obligations that make L honest (held-out goal, extra drives, four seats, three re-panels)
+    are exactly the ones a single run keeps failing to finish inside its budget. That is a
+    scope question, not a pick question, and the quota is not the thing to change.
+  - **BLOCKER-count ratchet** (review-by 2026-10-05 / 4 runs) — **not yet due** (2 runs since,
+    calendar date a month out), but it met its first live run today and the record belongs
+    here: it fired correctly, on 1 → 2, and the run would have aborted regardless on the
+    unfixed BLOCKER and the refuted claim, so it has not yet had to be the sole reason for
+    anything. What the firing did establish is that the ratchet as *advice* is ignorable, which
+    is this session's change above.
+  - Nothing else is due. Nearest are the third-party-render gate (2026-09-20) and the
+    `verify:full` reorder (2026-09-24).
+
+**What the abort actually bought.** A run that ships nothing is only a pass if it leaves the next
+one better placed, so, concretely: a red `e2e/improve-DR-05.spec.ts` that is now proved to fail
+for the right reason and not merely to fail; five triage rows (`T.30`–`T.34`), four of which are
+defects that **pre-date the slice and survive its revert** — a stale marking left standing under a
+groove and a tempo it never graded, one voice for both hi-hats, a wrong articulation graded as
+miss-plus-extra and named as neither, and a validator that accepts an `hhOpen` with no `open`;
+and the held-out waltz, which says the engraving approach was sound and the run died on the
+*sound* of the thing, not on the drawing of it. The panel's standing consensus is written into
+`T.30` so the rebuild does not have to rediscover it: a drum key that draws notehead shape and
+not staff position leaves snare and kick as byte-identical ellipses, and a learner who flips them
+scores `0 of 4, 4 missed, 4 extra` on both limbs.
+
 ## 2026-08-25 (second session) — four slices, and both of the session's own mistakes were classes
 
 - **user-reported defects since last session:** 0
