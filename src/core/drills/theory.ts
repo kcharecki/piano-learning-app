@@ -44,12 +44,13 @@
 import { assertNever, at, invariant } from '@core/shared/invariant.ts'
 import { type Midi } from '@core/shared/units.ts'
 import { pick, type Rng } from '@core/ports/rng.ts'
-import { pitchDisplayName, spell, toMidi, type Alter, type Letter, type SpelledPitch } from '@core/theory/pitch.ts'
+import { pitchClass, pitchDisplayName, spell, toMidi, type Alter, type Letter, type SpelledPitch } from '@core/theory/pitch.ts'
 import { buildScale, scaleName, scaleNotes, type ScaleType } from '@core/theory/scales.ts'
 import { buildChord, isTriad, type Chord, type ChordQuality, type Inversion } from '@core/theory/chords.ts'
 import { intervalLongName, makeInterval, SIMPLE_INTERVALS, transposeSpelled, tryTransposeSpelled, type Interval, type IntervalQuality } from '@core/theory/intervals.ts'
 import { CIRCLE_OF_FIFTHS, keyFromFifths, keyName, keyOf, type Key, type Mode } from '@core/theory/keys.ts'
 import { chordForRomanNumeral, type CadenceType } from '@core/theory/harmony.ts'
+import { cadenceGroupMatches, type CadenceAnswer } from './cadenceGrading.ts'
 
 // ---------------------------------------------------------------------------
 // public shape
@@ -75,6 +76,8 @@ export const ALL_THEORY_KINDS: readonly TheoryQuizKind[] = [
   'name-key-signature',
   'build-cadence',
 ]
+
+export type { CadenceAnswer }
 
 export type TheoryQuizItem = {
   /** Stable and derived from the content, so SRS scheduling survives a reload. */
@@ -111,6 +114,23 @@ export type TheoryQuizItem = {
    * learner who did not know the count still does not (panel r2 2026-08-24-1,
    * Teacher). Set only where the two differ; `describeTheoryAnswer` prefers it.
    */
+  /**
+   * What a `'build-cadence'` item actually asked for, so grading can ask
+   * whether the learner played THE CADENCE rather than whether they played
+   * one arrangement of it.
+   *
+   * Until this existed the answer was an exact MIDI list and `groupsMatch`
+   * rejected on note count before it compared a pitch, so `C4 E4 G4 C5` — V-I,
+   * both chords root position, tonic in the highest voice, every requirement a
+   * perfect authentic cadence has — was marked wrong against a three-note
+   * expectation (roadmap `T.23`, drive 2026-09-07). A cadence is a relation
+   * between two chords, not a voicing of them, and the two chords are the only
+   * thing needed to grade it that way.
+   *
+   * Set only by `makeCadenceItem`; `undefined` on every other kind, which is
+   * what routes those to the exact-match path unchanged.
+   */
+  readonly cadence?: CadenceAnswer
   readonly answerSummary?: string
   /**
    * True when each group in `answer` is a chord (played together) rather
@@ -494,6 +514,11 @@ function makeCadenceItem(recipe: CadenceRecipe, key: Key): TheoryQuizItem {
     prompt: `Play a ${CADENCE_LABEL[recipe.type]} cadence in ${keyName(key)}.`,
     answer: midiGroups(spelled),
     spelledAnswer: spelled,
+    cadence: {
+      type: recipe.type,
+      chords: [first, second],
+      tonicPitchClass: pitchClass(toMidi(key.tonic)),
+    },
     simultaneous: true,
   }
 }
@@ -512,6 +537,15 @@ function buildCadenceItem(level: number, rng: Rng): TheoryQuizItem {
  * `'perfect-authentic'` recipe's answer must actually satisfy that, not just
  * a root-position triad whose top note happens to be the fifth.
  *
+ * The tonic is ADDED above the triad, not swapped in for its top note. Doing
+ * the latter deleted the fifth, so the answer this drill named — and, before
+ * `cadenceGroupMatches`, the only one it accepted — was a tonic chord with no
+ * fifth: C major revealed "C4 + E4 + C5" (roadmap `T.23`). It also left the
+ * leading tone with nowhere to rise to under the obvious voice reading, which
+ * is how `T.23` was originally filed; a final chord containing the tonic an
+ * octave up settles that under EVERY voice assignment rather than arguing for
+ * one.
+ *
  * Spelled, not MIDI: the doubled soprano keeps the tonic's own letter and
  * accidental, so a cadence in D♭ reveals D♭5 on top rather than C♯5.
  */
@@ -522,7 +556,7 @@ function finalChordPitches(type: CadenceType, chord: Chord): readonly SpelledPit
   // lowest note is already the tonic — an octave above it is a tonic soprano
   // that stays above every other voice.
   const root = at(notes, 0)
-  return [...notes.slice(0, -1), { ...root, octave: root.octave + 1 }]
+  return [...notes, { ...root, octave: root.octave + 1 }]
 }
 
 /**
@@ -804,9 +838,16 @@ export function gradeTheoryStep(
   let matchedGroups = 0
   for (const played of playedSoFar) {
     const expected = item.answer[matchedGroups]
-    if (expected === undefined || !groupsMatch(item.kind, expected, played)) {
+    if (expected === undefined) {
       return { correct: false, matchedGroups, done: true, expected: expectedText }
     }
+    // A cadence is graded on the cadence's own requirements; every other kind
+    // still matches the spelled answer note for note.
+    const ok =
+      item.cadence !== undefined
+        ? cadenceGroupMatches(item.cadence, matchedGroups, played)
+        : groupsMatch(item.kind, expected, played)
+    if (!ok) return { correct: false, matchedGroups, done: true, expected: expectedText }
     matchedGroups++
   }
   const done = matchedGroups === item.answer.length

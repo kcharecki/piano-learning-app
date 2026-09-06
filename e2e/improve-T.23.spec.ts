@@ -129,9 +129,19 @@ test('an imperfect authentic cadence is still refused, and the answer named has 
   await openCadenceDrill(page)
 
   const dominant = chordNotes('V')
+  const tonic = chordNotes('I')
   // Root position and complete, but the FIFTH is the highest voice, so this is
   // an imperfect authentic cadence and the drill must not call it perfect.
-  const tonicWithFifthSoprano = chordNotes('I')
+  //
+  // Four notes, not three, because `TheoryDrillPanel` closes an answer group
+  // when the press count reaches the expected group's length — so a three-note
+  // group never submits against a four-note expectation and no verdict appears
+  // at all. As first committed this arm played three notes, which was runnable
+  // against the pre-fix tree (its expectation was the three-note `C4 E4 C5`)
+  // and unrunnable against the fixed one. Widened here, not weakened: the
+  // check it makes is the same one, and the extra note is a doubled fifth,
+  // which keeps the soprano wrong.
+  const tonicWithFifthSoprano = [...tonic, Math.max(...tonic) + 12]
 
   await play(page, dominant)
   await play(page, tonicWithFifthSoprano)
@@ -142,7 +152,6 @@ test('an imperfect authentic cadence is still refused, and the answer named has 
   // And the answer it names is a tonic chord that HAS its fifth — the whole of
   // `T.23`. Built from the same core call, so this cannot pass by matching a
   // string this spec invented.
-  const tonic = chordNotes('I')
   const named = [...tonic, Math.min(...tonic) + 12].map((n) => midiToName(asMidi(n))).join(' + ')
   await expect(feedback).toContainText(named)
 

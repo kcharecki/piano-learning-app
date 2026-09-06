@@ -313,6 +313,107 @@ describe('gradeTheoryStep', () => {
     expect(gradeTheoryStep(item, item.answer).correct).toBe(true)
   })
 
+  // -------------------------------------------------------------------------
+  // build-cadence — roadmap `T.23`. A cadence is a relation between two chords,
+  // not a voicing of them, so grading asks the cadence's own three questions.
+  // -------------------------------------------------------------------------
+
+  /** The level-1 cadence: perfect authentic in C major, the only draw at level 1. */
+  const cadenceInC = (): TheoryQuizItem => {
+    const item = theoryQuizFromId('build-cadence-perfect-authentic-C')
+    if (item === undefined) throw new Error('build-cadence-perfect-authentic-C must be buildable')
+    return item
+  }
+
+  const notes = (...ns: readonly number[]): readonly Midi[] => ns.map((n) => midi(n))
+  /** G4 B4 D5 — the dominant, root position, unchanged by this run. */
+  const V_IN_C = notes(67, 71, 74)
+
+  it('build-cadence: the answer it names is a complete tonic triad with the tonic on top', () => {
+    // C4 E4 G4 C5 — root, third, FIFTH, tonic doubled above. Deleting the fifth
+    // was `T.23`.
+    expect(cadenceInC().answer[1]).toEqual(notes(60, 64, 67, 72))
+  })
+
+  it('build-cadence: a perfect authentic cadence spread over other octaves grades correct', () => {
+    // Same three requirements, a different arrangement: the tonic in the bass
+    // an octave down, the third above the fifth. Exact-MIDI matching called
+    // this wrong.
+    const result = gradeTheoryStep(cadenceInC(), [V_IN_C, notes(48, 67, 76, 84)])
+    expect(result.correct).toBe(true)
+  })
+
+  it('build-cadence: an incomplete final tonic — root, third, doubled root, no fifth — grades correct', () => {
+    // What four-part writing does at a final cadence, and what this drill
+    // itself demanded before `T.23` was fixed.
+    // C4 E4 C5 C6 — no G anywhere, tonic still the highest voice.
+    const result = gradeTheoryStep(cadenceInC(), [V_IN_C, notes(60, 64, 72, 84)])
+    expect(result.correct).toBe(true)
+  })
+
+  it('build-cadence: the fifth in the highest voice is an IMPERFECT authentic cadence and is refused', () => {
+    // C4 E4 G4 + G5: right chord, root position, wrong soprano. Accepting it
+    // would make the drill grade a different cadence than the one it asked for.
+    const result = gradeTheoryStep(cadenceInC(), [V_IN_C, notes(60, 64, 67, 79)])
+    expect(result.correct).toBe(false)
+    expect(result.matchedGroups).toBe(1)
+  })
+
+  it('build-cadence: a first-inversion tonic is refused even with the tonic on top', () => {
+    // E4 G4 C5 C6 — soprano is the tonic, bass is the third. `classifyCadence`
+    // requires root position on both chords for a perfect authentic cadence.
+    const result = gradeTheoryStep(cadenceInC(), [V_IN_C, notes(64, 67, 72, 84)])
+    expect(result.correct).toBe(false)
+  })
+
+  it('build-cadence: an inverted DOMINANT is refused too — the rule is both chords', () => {
+    // B3 D4 G4 — V6. Right pitch classes, third in the bass.
+    const result = gradeTheoryStep(cadenceInC(), [notes(59, 62, 67)])
+    expect(result.correct).toBe(false)
+    expect(result.matchedGroups).toBe(0)
+  })
+
+  it('build-cadence: a foreign note is refused however well the rest fits', () => {
+    // C4 E4 G4 A5 — A is in neither chord.
+    const result = gradeTheoryStep(cadenceInC(), [V_IN_C, notes(60, 64, 67, 81)])
+    expect(result.correct).toBe(false)
+  })
+
+  it('build-cadence: a chord missing its third is refused — the third is what fixes the quality', () => {
+    // C4 G4 C5 C6: an open fifth is not a tonic triad.
+    const result = gradeTheoryStep(cadenceInC(), [V_IN_C, notes(60, 67, 72, 84)])
+    expect(result.correct).toBe(false)
+  })
+
+  it('build-cadence: half, plagal and deceptive cadences accept inverted chords', () => {
+    // Only `perfect-authentic` carries a root-position requirement in
+    // `classifyCadence`, so the others must not inherit one.
+    const half = theoryQuizFromId('build-cadence-half-C')
+    expect(half).toBeDefined()
+    // I6 (E4 G4 C5) then V (G4 B4 D5) — still a half cadence.
+    expect(gradeTheoryStep(half as TheoryQuizItem, [notes(64, 67, 72), V_IN_C]).correct).toBe(true)
+  })
+
+  it('build-cadence: property — over every level and seed, the generated answer grades correct and the same chord with a non-tonic soprano does not', () => {
+    fc.assert(
+      fc.property(arbLevel, arbSeed, (level, seed) => {
+        const item = buildTheoryQuiz('build-cadence', level, seededRng(seed))
+        expect(gradeTheoryStep(item, item.answer).correct).toBe(true)
+        if (item.cadence?.type !== 'perfect-authentic') return
+        const final = item.answer[1] as readonly Midi[]
+        // Move the top voice to a chord tone that is NOT the tonic, keeping the
+        // bass and every other voice where it is.
+        const tonicPc = item.cadence.tonicPitchClass
+        const other = final.find((n) => n % 12 !== tonicPc)
+        if (other === undefined) return
+        const top = Math.max(...final)
+        const raised = midi(((other % 12) + 12) % 12 + (Math.floor(top / 12) + 1) * 12)
+        if (raised > 127) return
+        expect(gradeTheoryStep(item, [item.answer[0] as readonly Midi[], [...final, raised]]).correct).toBe(false)
+      }),
+    )
+  })
+
   it('build-chord: a single voice moved an octave (a differently-spread voicing) still grades correct', () => {
     fc.assert(
       fc.property(arbLevel, arbSeed, (level, seed) => {
@@ -612,10 +713,12 @@ describe('describeTheoryAnswer', () => {
     expect(describeTheoryAnswer(none as TheoryQuizItem)).toBe('no sharps or flats, tonic C4')
   })
 
-  it("spells a cadence's doubled soprano like its tonic — E♭5 on top, not D♯5", () => {
+  it("spells a cadence's doubled soprano like its tonic — E♭5 on top, not D♯5, and the tonic chord keeps its fifth", () => {
     const item = theoryQuizFromId('build-cadence-perfect-authentic-Eb')
     expect(item).toBeDefined()
-    expect(describeTheoryAnswer(item as TheoryQuizItem)).toBe('B♭4 + D5 + F5, E♭4 + G4 + E♭5')
+    // The doubled tonic is ADDED above the triad, not swapped in for its top
+    // note — B♭4 is the fifth, and deleting it was roadmap `T.23`.
+    expect(describeTheoryAnswer(item as TheoryQuizItem)).toBe('B♭4 + D5 + F5, E♭4 + G4 + B♭4 + E♭5')
   })
 
   it('property: a scale answer steps one letter name per degree', () => {
