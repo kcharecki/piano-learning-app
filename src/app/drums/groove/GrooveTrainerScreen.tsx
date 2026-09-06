@@ -2,11 +2,22 @@
  * The groove trainer (roadmap DR-09/T.17) — the first drum screen that
  * actually teaches something.
  *
- * A learner picks one of three grooves, sets a tempo, gets a bar of count-in
- * and then plays two graded bars on the pads. The result names **each limb
- * separately**: its own count and its own mean offset. "You were off" is the
- * failure mode this screen exists to avoid, so every sentence it prints
- * attributes the problem to a pad.
+ * A learner picks one of three grooves, reads it off the staff, sets a tempo,
+ * gets a bar of count-in and then plays two graded bars on the pads. The
+ * result names **each limb separately**: its own count and its own mean
+ * offset. "You were off" is the failure mode this screen exists to avoid, so
+ * every sentence it prints attributes the problem to a pad.
+ *
+ * ## The staff is the statement of the task (DR-05)
+ *
+ * This screen shipped without one, and graded a pattern it never stated. Two
+ * standard readings of its own title `Money Beat (Open Hat)` exist; driving it
+ * proved the app grades one of them, states neither, and after a wrong guess
+ * reports `Open hi-hat — 0 of 2, 2 missed, 2 extra` without ever disclosing
+ * where the hat actually opens. So the staff sits directly under the title and
+ * above the transport, and it is engraved from the same `GrooveScore` the
+ * grader plans from — the picture and the marking cannot disagree, because
+ * there is only one source for both.
  *
  * ## The persona has no e-kit
  *
@@ -36,8 +47,12 @@
  */
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Icon } from '@app/ui/Icon.tsx'
+import { GrooveStaff } from '@app/drums/notation/GrooveStaff.tsx'
 import { useDrumsHistoryStore } from '@app/state/drumsHistoryStore.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
+import { describeGroove } from '@core/drums/engrave/describe.ts'
+import { engraveGroove } from '@core/drums/engrave/staff.ts'
+import type { StaffLayout } from '@core/drums/engrave/layout.ts'
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import { grooveTrainerLibrary } from '@core/drums/practice/library.ts'
 import type { GrooveRunResult } from '@core/drums/practice/grade.ts'
@@ -70,6 +85,18 @@ export function GrooveTrainerScreen(props: GrooveTrainerScreenProps) {
   const groove = library[grooveIndex] ?? library[0]
   const plan = useMemo(() => planGrooveRun(groove, bpm), [groove, bpm])
 
+  // The staff and its spoken description are both derived from the same
+  // `GrooveScore` the grader plans its run from, so the picture, the sentence
+  // and the marking can never describe three different patterns. That is the
+  // whole point: before this, the screen's entire statement of the task was
+  // its title, and two standard readings of "Money Beat (Open Hat)" scored
+  // 2 of 2 and 0 of 2 against a grader that named neither.
+  const layout = useMemo(() => engraveGroove(groove), [groove])
+  const staffLabel = useMemo(
+    () => describeGroove(groove, (pad) => GROOVE_PAD_LABEL[pad]),
+    [groove],
+  )
+
   const attempts = useDrumsHistoryStore((state) => state.attempts)
   const addAttempt = useDrumsHistoryStore((state) => state.addAttempt)
   const lastRun = attempts[0]
@@ -96,6 +123,8 @@ export function GrooveTrainerScreen(props: GrooveTrainerScreenProps) {
   return (
     <Trainer
       plan={plan}
+      layout={layout}
+      staffLabel={staffLabel}
       bpm={bpm}
       onBpm={setBpm}
       onStep={(delta) => setGrooveIndex((i) => (i + delta + library.length) % library.length)}
@@ -114,6 +143,9 @@ export function GrooveTrainerScreen(props: GrooveTrainerScreenProps) {
 
 type TrainerProps = {
   readonly plan: GrooveRunPlan
+  /** Engraved upstream, where the `GrooveScore` lives — `Trainer` stays presentational. */
+  readonly layout: StaffLayout
+  readonly staffLabel: string
   readonly bpm: number
   readonly onBpm: (bpm: number) => void
   readonly onStep: (delta: number) => void
@@ -124,7 +156,17 @@ type TrainerProps = {
   readonly frameDriver?: FrameDriver
 }
 
-function Trainer({ plan, bpm, onBpm, onStep, onFinished, lastRunLine, ...seams }: TrainerProps) {
+function Trainer({
+  plan,
+  layout,
+  staffLabel,
+  bpm,
+  onBpm,
+  onStep,
+  onFinished,
+  lastRunLine,
+  ...seams
+}: TrainerProps) {
   const run = useGrooveRun({
     plan,
     onFinished,
@@ -185,6 +227,13 @@ function Trainer({ plan, bpm, onBpm, onStep, onFinished, lastRunLine, ...seams }
         >
           <Icon name="chevron-right" />
         </button>
+      </div>
+
+      {/* The statement of the task, directly under the title and above the
+          transport: everything below this is HOW you attempt the task, and
+          until now the screen had no place that said WHAT the task was. */}
+      <div className="card groove-notation">
+        <GrooveStaff layout={layout} label={staffLabel} grooveId={plan.grooveId} />
       </div>
 
       <div className="card groove-stage">
