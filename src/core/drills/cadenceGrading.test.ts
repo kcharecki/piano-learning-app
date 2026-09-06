@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { midi, type Midi } from '@core/shared/units.ts'
+import { invertChord } from '@core/theory/chords.ts'
 import { chordForRomanNumeral } from '@core/theory/harmony.ts'
 import { keyFromFifths } from '@core/theory/keys.ts'
 import { toMidi, pitchClass } from '@core/theory/pitch.ts'
@@ -61,7 +62,7 @@ describe('cadenceGroupMatches — is this the chord?', () => {
   })
 })
 
-describe('cadenceGroupMatches — root position, for a perfect authentic cadence', () => {
+describe('cadenceGroupMatches — root position', () => {
   it('refuses an inverted dominant', () => {
     // B3 D4 G4 — V6.
     expect(cadenceGroupMatches(PAC, 0, notes(59, 62, 67))).toBe(false)
@@ -72,7 +73,7 @@ describe('cadenceGroupMatches — root position, for a perfect authentic cadence
     expect(cadenceGroupMatches(PAC, 1, notes(64, 67, 72, 84))).toBe(false)
   })
 
-  it('does not impose root position on a half, plagal or deceptive cadence', () => {
+  it('does not impose root position on the PENULTIMATE chord of a half, plagal or deceptive cadence', () => {
     const half = answer('half', 'I', 'V')
     const plagal = answer('plagal', 'IV', 'I')
     const deceptive = answer('deceptive', 'V', 'vi')
@@ -82,6 +83,76 @@ describe('cadenceGroupMatches — root position, for a perfect authentic cadence
     expect(cadenceGroupMatches(plagal, 0, notes(69, 72, 77))).toBe(true)
     // V6 into a deceptive cadence.
     expect(cadenceGroupMatches(deceptive, 0, notes(59, 62, 67))).toBe(true)
+  })
+
+  // Panel r1 skeptic drove all three of these on the running app and was told
+  // `Correct`. A cadence's FINAL chord is root position whatever the type: a
+  // phrase that stops over the third or the fifth has not cadenced there.
+  it('refuses an inverted FINAL chord on a plagal cadence', () => {
+    const plagal = answer('plagal', 'IV', 'I')
+    // E4 G4 C5 — I6 after IV. Not a plagal cadence in any text.
+    expect(cadenceGroupMatches(plagal, 1, notes(64, 67, 72))).toBe(false)
+    expect(cadenceGroupMatches(plagal, 1, notes(60, 64, 67))).toBe(true)
+  })
+
+  it('refuses an inverted FINAL chord on a half cadence', () => {
+    const half = answer('half', 'I', 'V')
+    // D4 G4 B4 — a 6/4 over the dominant is the chord BEFORE a half cadence.
+    expect(cadenceGroupMatches(half, 1, notes(62, 67, 71))).toBe(false)
+    expect(cadenceGroupMatches(half, 1, notes(67, 71, 74))).toBe(true)
+  })
+
+  it('refuses an inverted FINAL chord on a deceptive cadence', () => {
+    const deceptive = answer('deceptive', 'V', 'vi')
+    // C4 E4 A4 — vi6.
+    expect(cadenceGroupMatches(deceptive, 1, notes(60, 64, 69))).toBe(false)
+    // A3 C4 E4 — root position.
+    expect(cadenceGroupMatches(deceptive, 1, notes(57, 60, 64))).toBe(true)
+  })
+})
+
+describe('cadenceGroupMatches — the leading tone is not doubled', () => {
+  it('refuses a dominant with its leading tone doubled', () => {
+    // G4 B4 B5 — the fifth dropped and the leading tone doubled instead. The
+    // one doubling every harmony text forbids, in the chord whose whole
+    // function is that leading tone (panel r1 skeptic, driven: `Correct`).
+    expect(cadenceGroupMatches(PAC, 0, notes(67, 71, 83))).toBe(false)
+  })
+
+  it('still accepts a dominant with its ROOT doubled — how four voices write it', () => {
+    // G3 G4 B4 D5.
+    expect(cadenceGroupMatches(PAC, 0, notes(55, 67, 71, 74))).toBe(true)
+  })
+
+  it('refuses a doubled leading tone on a half cadence, whose final chord is V', () => {
+    const half = answer('half', 'I', 'V')
+    expect(cadenceGroupMatches(half, 1, notes(67, 71, 74, 83))).toBe(false)
+  })
+
+  it('leaves every other doubling free, the tonic own third included', () => {
+    // C4 E4 E5 C6 — a thin final tonic, not a wrong one: no leading tone in it.
+    expect(cadenceGroupMatches(PAC, 1, notes(60, 64, 76, 84))).toBe(true)
+  })
+})
+
+describe('cadenceGroupMatches — the third is found by interval, not by position', () => {
+  // `Chord.notes` is in SOUNDING order with the inversion applied, so on a
+  // second-inversion chord its second entry is the ROOT and reading "the third"
+  // positionally landed on the fifth (panel r1 skeptic). Unreachable through
+  // the drill today — every recipe numeral is root position — so this is the
+  // only place that can hold the line.
+  const invertedFinal: CadenceAnswer = {
+    type: 'plagal',
+    chords: [chord('IV'), invertChord(chord('I'), 2)],
+    tonicPitchClass: pitchClass(toMidi(C_MAJOR.tonic)),
+  }
+
+  it('accepts root and third of a second-inversion chord', () => {
+    expect(cadenceGroupMatches(invertedFinal, 1, notes(60, 64))).toBe(true)
+  })
+
+  it('refuses root and fifth, which do not fix the quality', () => {
+    expect(cadenceGroupMatches(invertedFinal, 1, notes(60, 67))).toBe(false)
   })
 })
 
