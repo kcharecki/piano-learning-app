@@ -96,6 +96,42 @@ describe('start', () => {
     expectExit(runCli(['start', '--ledger', ledger, '--now', isoAt(base, 7), '--budget', '120'], { git }), 0)
   })
 
+  it('does not demand a verdict from a rewound run, and takes prevPickSource from the last live one', () => {
+    // A rewound run never reaches section 8, so it records no verdict and no pick. Before this,
+    // `start` asked the run at the tip for a verdict it could never have owed, and `rewind`
+    // cannot go back and supply one -- so an interrupted run deadlocked every later run.
+    const ledger = tempLedger()
+    const git = cleanGit()
+    const base = '2026-08-20T09:00:00.000Z'
+
+    expectExit(runCli(['start', '--ledger', ledger, '--now', base, '--budget', '120'], { git }), 0)
+    expectExit(
+      runCli(
+        ['pick', '--source', '1d', '--instrument', 'piano', '--class', 'VOID', '--sum', '10',
+          '--cost', 'L', '--leader-gap', '2', '--harm', '0', '--thread', 'none',
+          '--metric', 'x.y', '--baseline', '0', '--ledger', ledger, '--now', isoAt(base, 1)],
+        { git },
+      ),
+      0,
+    )
+    expectExit(runCli(['verdict', '--none', '--ledger', ledger, '--now', isoAt(base, 2)], { git }), 0)
+
+    // Second run starts, then dies mid-discovery: no pick, no verdict, then a rewind.
+    expectExit(runCli(['start', '--ledger', ledger, '--now', isoAt(base, 3), '--budget', '120'], { git }), 0)
+    expectExit(runCli(['rewind', '--reason', 'session interrupted', '--ledger', ledger, '--now', isoAt(base, 4)], { git }), 0)
+
+    const third = runCli(['start', '--ledger', ledger, '--now', isoAt(base, 5), '--budget', '120'], { git })
+    expectExit(third, 0)
+
+    const starts = loadLedger(ledger).filter((e) => e.event === 'start')
+    // The rewound run had no pick, so a naive `currentRunId` walk would report "none" and
+    // silently switch the source-rotation rule off for the run that follows an interruption.
+    expect(starts[starts.length - 1].prevPickSource).toBe('1d')
+    // The rewind gave the persona back, so run 3 replays run 2's persona.
+    expect(starts[starts.length - 1].persona).toBe(starts[1].persona)
+    expectExit(runCli(['audit', '--ledger', ledger, '--now', isoAt(base, 6)], { git }), 0)
+  })
+
   it('refuses on a dirty working tree, and when run from a worktree', () => {
     const dirty = cleanGit({ statusPorcelain: () => ' M src/core/foo.ts' })
     expectExit(runCli(['start', '--ledger', tempLedger(), '--now', '2026-08-20T09:00:00.000Z'], { git: dirty }), 1)

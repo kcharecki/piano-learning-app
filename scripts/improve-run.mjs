@@ -230,6 +230,23 @@ function currentRunId(events) {
   return last
 }
 
+const isRewound = (events, runId) => eventsForRun(events, runId).some((e) => e.event === 'rewind')
+
+// The last run that still counts for the *next* run's sake. A rewound run gave its persona back
+// and never reached section 8, so it answered no metric verdict and recorded no pick source: asking it
+// for either deadlocks the ledger, because the one thing `rewind` cannot do is go back and
+// record the verdict the run never owed. Walk back past every rewound run to the last live one.
+// `currentRunId` is deliberately left alone -- `mark`/`pick`/`verdict` still address the run at
+// the tip, and `rewind` doubles as the instrument pin the tests rely on.
+function lastLiveRunId(events) {
+  const runsInOrder = events.filter((e) => e.event === 'start').map((e) => e.run)
+  for (let i = runsInOrder.length - 1; i >= 0; i -= 1) {
+    const run = runsInOrder[i]
+    if (run !== undefined && !isRewound(events, run)) return run
+  }
+  return undefined
+}
+
 function previousRunId(events, currentRun) {
   const runsInOrder = events.filter((e) => e.event === 'start').map((e) => e.run)
   const idx = runsInOrder.lastIndexOf(currentRun)
@@ -577,7 +594,7 @@ const cmdStart = runCommand((args, ctx) => {
   }
 
   const events = loadLedger(ctx.ledgerPath)
-  const prevRun = currentRunId(events)
+  const prevRun = lastLiveRunId(events)
   if (prevRun !== undefined && !eventsForRun(events, prevRun).some((e) => e.event === 'verdict')) {
     throw new RuleViolation(
       `start refused: previous run ${prevRun} has no \`verdict\` event — a skipped metric ` +
@@ -1122,7 +1139,7 @@ export function auditLedger(ledgerPath, { runFilter } = {}) {
       if (e.instrument !== expectedInstrument) {
         problems.push(`line ${e.__line}: start ${e.run} stores instrument "${e.instrument}", replay derives "${expectedInstrument}"`)
       }
-      const prevRun = currentRunId(running)
+      const prevRun = lastLiveRunId(running)
       const expectedPrevSource =
         prevRun !== undefined ? (pickEventFor(running, prevRun)?.source ?? 'none') : 'none'
       if (e.prevPickSource !== expectedPrevSource) {
