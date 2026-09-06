@@ -81,3 +81,12 @@
 {"ts":"2026-08-25T20:58:05.980Z","run":"2026-08-25-1","event":"mark","section":"1a","elapsedPct":0.15}
 {"ts":"2026-08-25T20:58:06.038Z","run":"2026-08-25-1","event":"mark","section":"1e","elapsedPct":0.15}
 {"ts":"2026-09-06T10:08:17.052Z","run":"2026-08-25-1","event":"rewind","reason":"session interrupted during 1 DISCOVER, no pick, no spec, no code; giving the drums persona back so the next run starts clean"}
+{"ts":"2026-09-06T11:22:27.683Z","run":"2026-09-06-1","event":"start","commit":"18584848f328bca49bc78bc5e41a00edb123554a","budgetMin":240,"persona":"Rusty returner (DRUMS)","personaIndex":3,"instrument":"drums","prevPickSource":"1c"}
+{"ts":"2026-09-06T11:22:40.917Z","run":"2026-09-06-1","event":"mark","section":"1a","elapsedPct":0.09}
+{"ts":"2026-09-06T11:23:45.327Z","run":"2026-09-06-1","event":"mark","section":"1e","elapsedPct":0.54}
+{"ts":"2026-09-06T11:23:45.390Z","run":"2026-09-06-1","event":"mark","section":"1d","elapsedPct":0.54}
+{"ts":"2026-09-06T11:25:39.362Z","run":"2026-09-06-1","event":"mark","section":"1b","elapsedPct":1.33}
+{"ts":"2026-09-06T11:25:54.007Z","run":"2026-09-06-1","event":"mark","section":"1c","elapsedPct":1.43}
+{"ts":"2026-09-06T11:36:36.723Z","run":"2026-09-06-1","event":"mark","section":"2","elapsedPct":5.9}
+{"ts":"2026-09-06T11:41:26.982Z","run":"2026-09-06-1","event":"pick","source":"1d","instrument":"drums","class":"VOID","sum":10,"cost":"L","tier":"L","harm":0,"thread":"none","metric":"DrumsGrooveAttempt.pads[].matched against .expected on a first-ever attempt at a groove the learner does not already know by name","baseline":"unstartable: the trainer's whole statement of the pattern is the groove title plus three pad labels (drive D1-D5), so a learner who does not know the groove produces 0 of N matched"}
+{"ts":"2026-09-06T11:44:56.519Z","run":"2026-09-06-1","event":"mark","section":"3","elapsedPct":9.37}
