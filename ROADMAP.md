@@ -286,6 +286,54 @@ Full histories of completed tasks: `docs/roadmap-archive-*.md` and git history.
       *Proof: a property test over every `MappedDrumPad` — an `hhOpen` note without `open` is an
       `err`, and one with it round-trips.*
 
+- [ ] T.35 **Today's session reads neither the onboarding goal nor the persisted level.** Ledger
+      row G3 of /improve-app run 2026-09-06-2 (source 1c, class MIS-GATED, sum 8 — deferred by the
+      thread rule, not by preference). Answering the first-run card with
+      `input[name="onboarding-experience"][value="experienced"]` and
+      `input[name="onboarding-goal"][value="theory"]` produces a plan reading "C major five-finger
+      pattern, right hand" and "Sight-reading practice, level 1", with **zero theory-drill
+      minutes**. Independently, IndexedDB `settings/levelState` holding
+      `{"levels":{"playing":3,"sight-reading":3,"theory":3},"overridden":{"playing":true,…}}` —
+      the strongest signal the app has that this learner is not a beginner — survives a full
+      reload and the plan still reads level 1. Two inputs, one planner, one omission.
+      *Proof: a driven spec that answers the onboarding card "experienced"/"theory" and asserts
+      the resulting plan contains theory minutes and no level-1 five-finger item; and a second
+      that writes `levelState` at level 3, reloads, and asserts the plan's levels follow.*
+
+- [ ] T.36 **Repertoire play discards every dynamic the learner produced.** Ledger row G1 of
+      /improve-app run 2026-09-06-2 (source 1e, class VOID, sum 7 + age bonus 3 = **10, the
+      leader of that run's ledger**, deferred because the thread rule bound the pick to `T.23`).
+      `ScoreNoteInput.velocity` is captured from Web MIDI, range-validated in
+      `practice/recorder.ts:98-103`, carried through the practice log — and read by nothing. A
+      learner who plays a whole piece at one flat volume gets back the same page as one who shapes
+      every phrase, and the data to tell them apart is already on disk. Age 3 on the 1e orphan
+      scan. First in line for the next piano `/improve-app` run.
+      *Proof: a driven spec that plays one passage flat and the same passage shaped, and asserts
+      the app says something different about the two — in the learner's own words, on screen.*
+
+- [ ] T.37 **The theory drill's typing hint offers a range that cannot answer its own prompt.**
+      Ledger row G10 of /improve-app run 2026-09-06-2 (source 1c, class UNREACHABLE, sum 3).
+      `TheoryDrillPanel.tsx:177-178` sets `KEYBOARD_LOW = midi(48)`, `defaultBaseNote` returns
+      `low`, and `OFFSET_BY_CODE` in `keyboardInput/qwertyNoteMap.ts` spans offsets 0–16 — so the
+      printed hint "A is the lowest key shown: A S D F G H J K L ; play the white keys" reaches
+      MIDI 48–64, C3–E4. Every cadence answer needs G4, B4, D5, C5 (67, 71, 74, 72). Not blocking
+      — the on-screen keys are clickable and were used for the whole 1c drive — but the hint is
+      false on this screen.
+      *Proof: for every drill item the panel can render, every note of its answer is reachable
+      from the QWERTY map the panel prints under it.*
+
+- [ ] T.38 **An answer group closes on the expected note COUNT, so a correct realisation with a
+      different number of notes cannot be entered.** Found while shipping `T.23` in /improve-app
+      run 2026-09-06-2, and named in that slice's commit body as a known limitation.
+      `TheoryDrillPanel.tsx` completes a group when the press count reaches
+      `item.answer[playedGroups.length].length`. `cadenceGroupMatches` now accepts an incomplete
+      final tonic (root, third, doubled root, no fifth) as the cadence it is — four-part writing
+      does this routinely — and a learner cannot play one, because the panel waits for a fourth
+      press against the four-note answer it named. The grader is right and the input path cannot
+      express it.
+      *Proof: a driven spec that plays a three-note correct realisation of a four-note cadence
+      answer and gets a verdict — any verdict — rather than an unclosed group.*
+
 ## Phases 0-2 — Foundation, M1 playable core, M2 feedback & reading — all done
 
 Every box in these three phases is `[x]`. Moved to
