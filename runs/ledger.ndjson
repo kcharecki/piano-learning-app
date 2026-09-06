@@ -80,3 +80,4 @@
 {"ts":"2026-08-25T20:57:43.789Z","run":"2026-08-25-1","event":"start","commit":"93316fe0463cc2901871583346b5bf9045ef66f4","budgetMin":240,"persona":"Rusty returner (DRUMS)","personaIndex":3,"instrument":"drums","prevPickSource":"1c"}
 {"ts":"2026-08-25T20:58:05.980Z","run":"2026-08-25-1","event":"mark","section":"1a","elapsedPct":0.15}
 {"ts":"2026-08-25T20:58:06.038Z","run":"2026-08-25-1","event":"mark","section":"1e","elapsedPct":0.15}
+{"ts":"2026-09-06T10:08:17.052Z","run":"2026-08-25-1","event":"rewind","reason":"session interrupted during 1 DISCOVER, no pick, no spec, no code; giving the drums persona back so the next run starts clean"}
