@@ -12,13 +12,34 @@
  *
  * Every kind's answer is `readonly (readonly Midi[])[]` — a chord ('build-
  * chord', 'build-cadence') or a single note ('build-scale', 'build-interval',
- * 'name-key-signature') either way. The panel does not need to know which:
- * it buffers presses into `pendingNotes` and flushes them into one completed
- * group as soon as it has as many notes as the *next expected* group needs
- * (`item.answer[playedGroups.length].length`) — one press completes a
- * single-note group immediately, three completes a triad. `gradeTheoryStep`
- * itself is octave- and press-order-within-a-group insensitive, so this
- * never has to police simultaneity.
+ * 'name-key-signature') either way. For every kind BUT `'build-cadence'` the
+ * panel does not need to know which: it buffers presses into `pendingNotes`
+ * and flushes them into one completed group as soon as it has as many notes
+ * as the *next expected* group needs (`item.answer[playedGroups.length]
+ * .length`) — one press completes a single-note group immediately, three
+ * completes a triad. Those kinds are graded by exact match, so the expected
+ * length IS the answer's length and closing on it is exact.
+ *
+ * `'build-cadence'` is the exception, and it needs the learner to say when a
+ * chord is finished (`SUBMIT_KINDS`). Its grader accepts any realisation of
+ * the cadence, not the one voicing the reveal happens to spell, so the
+ * expected length is a property of the DISPLAY and closing a group on it
+ * mis-cuts the press stream both ways: a four-voice dominant `G3 G4 B4 D5`
+ * closed after three presses and pushed `D5` into the tonic chord, and the
+ * fifth-less final tonic `C4 E4 C5` that the grader is written to accept
+ * could never be entered at all — it hung at 1/2 forever, and one more press
+ * to escape booked the SRS card a real lapse (panel r1, both seats).
+ *
+ * Inferring the boundary instead of asking for it does not work. "Close when
+ * the grader would accept what is played so far" cuts the four-voice dominant
+ * at three notes again; "close when a press arrives that the current chord
+ * cannot contain" handles that, but then a WRONG final chord never closes at
+ * all, and IV's own C is also I's root, so a plagal cadence mis-cuts anyway.
+ *
+ * `gradeTheoryStep` is octave-insensitive for every other kind, but NOT for a
+ * cadence: root position and a tonic soprano are read off the played
+ * register (`core/drills/cadenceGrading.ts`). Press order within a group is
+ * still free.
  *
  * ## Timing
  *
@@ -238,6 +259,12 @@ function EchoPrompt({
  * would otherwise fall out of the DOM and a keyboard user would tab from the
  * top of the document to reach Next.
  */
+/**
+ * Kinds whose answer groups the learner closes, because the panel cannot infer
+ * where one ends — see the file header. Everything else auto-closes on count.
+ */
+const SUBMIT_KINDS: readonly TheoryQuizKind[] = ['build-cadence']
+
 export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
   const [level, setLevel] = useState(() => clampLevel(props.initialLevel ?? MIN_LEVEL))
   const [kind, setKind] = useState<TheoryQuizKind>(() => props.initialKind ?? 'build-scale')
@@ -273,7 +300,7 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
       buildTheoryQuiz(kind, level, rng),
   )
   const [playedGroups, setPlayedGroups] = useState<readonly (readonly Midi[])[]>([])
-  const [, setPendingNotes] = useState<readonly Midi[]>([])
+  const [pendingNotes, setPendingNotes] = useState<readonly Midi[]>([])
   const [lastResult, setLastResult] = useState<TheoryAnswerResult | undefined>(undefined)
   const [revealed, setRevealed] = useState(false)
   const [echo, setEcho] = useState<EchoProgress>(ECHO_START)
@@ -450,18 +477,23 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
     if (expected === undefined) return
 
     const pending = [...pendingRef.current, note]
-    if (pending.length < expected.length) {
+    if (SUBMIT_KINDS.includes(item.kind) || pending.length < expected.length) {
       pendingRef.current = pending
       setPendingNotes(pending)
       return
     }
+    closeGroup(item, pending)
+  }
 
-    const played = [...playedRef.current, pending]
+  /** Grade the buffered notes as one finished group. */
+  function closeGroup(answered: TheoryQuizItem, group: readonly Midi[]): void {
+    if (group.length === 0) return
+    const played = [...playedRef.current, group]
     pendingRef.current = []
     playedRef.current = played
     setPendingNotes([])
     setPlayedGroups(played)
-    const result = gradeTheoryStep(item, played)
+    const result = gradeTheoryStep(answered, played)
     // An attempt in progress is not a verdict. `gradeTheoryStep` reports
     // `correct: false` until the last group lands, so rendering every step
     // printed "Not quite" over a note that was right — and, once the result
@@ -470,7 +502,7 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
     // verdict, and a verdict needs a settled attempt.
     if (!result.done) return
     setLastResult(result)
-    commitAnswer(item, result.correct)
+    commitAnswer(answered, result.correct)
   }
 
   const handleNoteRef = useRef(handleNote)
@@ -572,6 +604,23 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
             <span className="stat-label">Played</span>
           </div>
           <OnScreenKeyboard low={range.low} high={range.high} onPress={handleNote} />
+          {SUBMIT_KINDS.includes(item.kind) && !revealed && (
+            <div className="field-row theory-submit-row">
+              <button
+                type="button"
+                className="btn-primary"
+                data-testid="theory-submit-chord"
+                disabled={pendingNotes.length === 0}
+                onClick={() => closeGroup(item, pendingRef.current)}
+              >
+                Submit chord
+              </button>
+              <p data-testid="theory-submit-hint">
+                Play every note of the chord, then submit it.
+                {pendingNotes.length > 0 && ` ${String(pendingNotes.length)} held.`}
+              </p>
+            </div>
+          )}
           <QwertyHint />
           <AnswerFeedback result={lastResult} />
           {revealed && (

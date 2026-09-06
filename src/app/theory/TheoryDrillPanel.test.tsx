@@ -122,6 +122,47 @@ describe('TheoryDrillPanel', () => {
     expect(screen.getByTestId('theory-prompt')).toHaveTextContent(expected.prompt)
   })
 
+  it('a cadence group is closed by the learner, not by the reveal note count (panel r1)', async () => {
+    // Both round-1 seats drove this. `finalChordPitches` spells a four-note
+    // final tonic, so closing on that count made the fifth-less realisation
+    // the grader is written to accept unenterable, and cut a four-voice
+    // dominant after three presses. The learner says when a chord is done.
+    const user = userEvent.setup()
+    render(
+      <TheoryDrillPanel
+        rng={scriptedRng([0])}
+        midiInput={new FakeMidiInput()}
+        initialKind="build-cadence"
+      />,
+    )
+
+    const keyboard = screen.getByRole('group', { name: 'On-screen keyboard' })
+    const press = async (note: number) =>
+      user.click(within(keyboard).getByRole('button', { name: midiToName(asMidi(note)) }))
+    const submit = screen.getByTestId('theory-submit-chord')
+
+    expect(submit).toBeDisabled()
+    // G3 G4 B4 D5 — four voices. The old panel closed the group at three.
+    for (const note of [55, 67, 71, 74]) await press(note)
+    expect(submit).toBeEnabled()
+    expect(screen.getByTestId('theory-progress')).toHaveTextContent('0 / 2')
+
+    await user.click(submit)
+    expect(screen.getByTestId('theory-progress')).toHaveTextContent('1 / 2')
+    expect(screen.queryByTestId('theory-feedback')).not.toBeInTheDocument()
+
+    // C4 E4 C5 — the fifth omitted, three notes against a four-note reveal.
+    for (const note of [60, 64, 72]) await press(note)
+    await user.click(screen.getByTestId('theory-submit-chord'))
+    expect(screen.getByTestId('theory-feedback')).toHaveTextContent(/^correct$/i)
+  })
+
+  it('the submit control belongs to cadences only — every other kind still closes on count', () => {
+    render(<TheoryDrillPanel rng={scriptedRng([0])} midiInput={new FakeMidiInput()} />)
+    expect(screen.getByLabelText('Topic')).toHaveValue('build-scale')
+    expect(screen.queryByTestId('theory-submit-chord')).not.toBeInTheDocument()
+  })
+
   it('playing the answer on the on-screen keyboard grades it and moves the SRS stat', async () => {
     const user = userEvent.setup()
     render(<TheoryDrillPanel rng={scriptedRng([0])} midiInput={new FakeMidiInput()} />)

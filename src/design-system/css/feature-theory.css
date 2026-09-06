@@ -50,6 +50,21 @@
 .theory-drill-panel .theory-quiz > .stat {
   width: fit-content;
 }
+/* A cadence's answer groups are closed by the learner, not by a press count
+   (see TheoryDrillPanel.tsx's header), so that drill — and only that drill —
+   grows a submit control under the keyboard. `.field-row` already wraps at
+   narrow widths, so the sentence drops under the button instead of squeezing
+   it; the copy is a hint, so it takes the same size and colour as
+   `.qwerty-hint` right below it rather than reading as body text. */
+.theory-drill-panel .theory-submit-row {
+  align-items: center;
+  gap: var(--space-3);
+}
+.theory-drill-panel .theory-submit-row > p {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
 
 /* ---------- Circle of fifths tab ---------- */
 /* domain.css's `.circle-of-fifths` already centers and caps the SVG's own

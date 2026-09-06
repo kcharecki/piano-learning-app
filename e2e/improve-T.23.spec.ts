@@ -92,10 +92,12 @@ async function openCadenceDrill(page: Page): Promise<void> {
   )
 }
 
-async function play(page: Page, notes: readonly number[]): Promise<void> {
+/** Play one chord and tell the drill it is finished. */
+async function playChord(page: Page, notes: readonly number[]): Promise<void> {
   for (const note of notes) {
     await page.getByRole('button', { name: midiToName(asMidi(note)), exact: true }).click()
   }
+  await page.getByTestId('theory-submit-chord').click()
 }
 
 test('a perfect authentic cadence played the way a teacher writes one is marked correct (T.23)', async ({
@@ -111,8 +113,8 @@ test('a perfect authentic cadence played the way a teacher writes one is marked 
   // all three of the requirements quoted above.
   const tonicWithTonicSoprano = [...tonic, tonicRoot + 12]
 
-  await play(page, dominant)
-  await play(page, tonicWithTonicSoprano)
+  await playChord(page, dominant)
+  await playChord(page, tonicWithTonicSoprano)
 
   await expect(page.getByTestId('theory-feedback')).toHaveText('Correct')
   // The other half: only `commitAnswer` can create a card, so this separates a
@@ -132,19 +134,15 @@ test('an imperfect authentic cadence is still refused, and the answer named has 
   const tonic = chordNotes('I')
   // Root position and complete, but the FIFTH is the highest voice, so this is
   // an imperfect authentic cadence and the drill must not call it perfect.
-  //
-  // Four notes, not three, because `TheoryDrillPanel` closes an answer group
-  // when the press count reaches the expected group's length — so a three-note
-  // group never submits against a four-note expectation and no verdict appears
-  // at all. As first committed this arm played three notes, which was runnable
-  // against the pre-fix tree (its expectation was the three-note `C4 E4 C5`)
-  // and unrunnable against the fixed one. Widened here, not weakened: the
-  // check it makes is the same one, and the extra note is a doubled fifth,
-  // which keeps the soprano wrong.
-  const tonicWithFifthSoprano = [...tonic, Math.max(...tonic) + 12]
+  // The bare triad, exactly as this arm was first committed at `ea98a39`: the
+  // learner now closes a cadence group, so a three-note answer submits against
+  // a four-note reveal and this arm no longer needs the doubled fifth it was
+  // briefly widened with (panel r1 skeptic, duty 0b, recorded that widening as
+  // a reservation).
+  const tonicWithFifthSoprano = tonic
 
-  await play(page, dominant)
-  await play(page, tonicWithFifthSoprano)
+  await playChord(page, dominant)
+  await playChord(page, tonicWithFifthSoprano)
 
   const feedback = page.getByTestId('theory-feedback')
   await expect(feedback).toContainText('Not quite')
