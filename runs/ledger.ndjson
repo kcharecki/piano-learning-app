@@ -90,3 +90,5 @@
 {"ts":"2026-09-06T11:36:36.723Z","run":"2026-09-06-1","event":"mark","section":"2","elapsedPct":5.9}
 {"ts":"2026-09-06T11:41:26.982Z","run":"2026-09-06-1","event":"pick","source":"1d","instrument":"drums","class":"VOID","sum":10,"cost":"L","tier":"L","harm":0,"thread":"none","metric":"DrumsGrooveAttempt.pads[].matched against .expected on a first-ever attempt at a groove the learner does not already know by name","baseline":"unstartable: the trainer's whole statement of the pattern is the groove title plus three pad labels (drive D1-D5), so a learner who does not know the groove produces 0 of N matched"}
 {"ts":"2026-09-06T11:44:56.519Z","run":"2026-09-06-1","event":"mark","section":"3","elapsedPct":9.37}
+{"ts":"2026-09-06T11:50:06.567Z","run":"2026-09-06-1","event":"spec","sha":"46cec4caced31cf69a78d8e30654c8c089ee3ee6","redExit":1}
+{"ts":"2026-09-06T11:54:40.831Z","run":"2026-09-06-1","event":"mark","section":"4","elapsedPct":13.42}
