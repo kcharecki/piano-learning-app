@@ -214,6 +214,78 @@ Full histories of completed tasks: `docs/roadmap-archive-*.md` and git history.
       *Proof: one convention, named in `docs/DESIGN.md`, and the e2e gate narrowed to it — the
       spec that today accepts either marker accepts only the chosen one.*
 
+- [ ] T.30 **The Groove trainer still cannot show the learner what to play, and
+      `e2e/improve-DR-05.spec.ts` is RED saying so.** `/improve-app` run 2026-09-06-1 built the
+      percussion staff (`64de051`) and polished it twice (`00999cd`, `d765c31`), then aborted on
+      the BLOCKER ratchet — 1 BLOCKER at round 1, 2 at round 2, 1 at round 3, so the count never
+      fell. The implementation is reverted; the spec is kept, and kept in its STRENGTHENED form,
+      because the original was void: with `relYOf` stubbed to `return 1.5` every notehead drew on
+      one line and the old spec still reported 4 passed, exit 0. The replacement reads the drawing
+      the way a drummer reads a chart — five staff lines give the space, a notehead's pad is
+      (vertical position, glyph shape), its instant comes from the count row, and how much music
+      there is comes from the drawn `×N` — with no `data-note-id`, no `referenceGrooves.ts`, no
+      `planGrooveRun` and no grader. Proved sound rather than assumed: sabotaging the horizontal
+      axis (every notehead one eighth right) gave `3 failed, 1 passed`, exit 1. On the reverted
+      tree today it is `4 failed`, exit 1; on the reverted-away implementation it was `4 passed`,
+      exit 0. **Two results a rebuild should keep.** (1) The geometry generalised: the run's
+      held-out goal added a 3/4 groove as content only, and the gallery drew `3/4`, a count row
+      reading `1 & 2 & 3 &`, and a bar 372 px wide at both widths and both themes with
+      `src/core/drums/engrave/staff.ts` untouched — evidence in
+      `runs/2026-09-06-1/prove/waltz-gallery.json`. (2) The panel's standing consensus across all
+      three rounds, which a rebuild inherits: the drum key draws notehead SHAPE only, so snare and
+      kick are byte-identical ellipses in the legend; a reading with those two swapped scores
+      `0 of 4, 4 missed, 4 extra` on both limbs. Full findings verbatim in
+      `runs/2026-09-06-1/panel-r{1,2,3}-*.md`.
+      *Proof: the spec above, green, on a tree whose `staff.ts` still draws a waltz.*
+
+- [ ] T.31 **The Groove trainer keeps a graded marking under a groove and a tempo it never
+      graded.** Pre-dates DR-05 and survives its revert. `useGrooveRun.ts:249` returns `result`
+      gated on nothing but `result !== undefined`, so a verdict and a per-pad score stay on screen
+      through every groove change and every tempo change. Driven on the current tree
+      (`runs/2026-09-06-1/prove/stale-result-pre-slice.json`): one graded run on Quarter-Note Rock,
+      then three presses of Next groove and a tempo change to 120, and all five snapshots read
+      `Run finished` with `Not there yet / Kick — 0 of 4 / Snare — 0 of 4 / Hi-hat — 0 of 8` —
+      including under `Money Beat (Open Hat)`, which has an open-hat row the marking does not
+      list. Raised by three seats over two rounds. The fix run 2026-09-06-1 tried
+      (`d765c31`, reverted) stamped the result with `grooveId@bpm`; two seats then showed that
+      shape is wrong in both directions — cycling back to the same groove resurrects the identical
+      verdict with no run played, and a tempo change deletes the per-limb sentences at the moment
+      the learner is acting on them. Stamp the panel with the tempo it was graded at, keep it
+      across a tempo change, retire it only on a groove change.
+      *Proof: a driven spec that grades a run, changes groove, and asserts the Result region is
+      gone — and changes tempo, and asserts it is still there and says which tempo it graded.*
+
+- [ ] T.32 **The trainer gives the open and the closed hi-hat one voice, so it cannot say "open"
+      in sound.** `useGrooveRun.ts:96` maps `hhClosed` and `hhOpen` to the same pitch 88 for the
+      same `PAD_TONE_MS` 60, so a learner pressing the open-hat pad hears a closed hat. `gmNoteOf`
+      (`core/drums/model/pad.ts:178`) does separate 42 from 46 and reaches no audio path at all —
+      only the MusicXML writer. Open is a DURATION before it is a colour, so pitch alone is the
+      wrong axis: run 2026-09-06-1 tried pitch 91 plus a 240 ms ring and all four seats refuted
+      the constant — `MIN_BPM` is 40, the binding case is `MAX_BPM` 200, and the audible voice is
+      `padToneMs + RELEASE_S` = 490 ms, which at 200 bpm covers the next three strokes. An open
+      hat is released at the NEXT hi-hat event, not by a wall-clock constant.
+      *Proof: an instrumented AudioContext showing the open-hat voice ending at the next hi-hat
+      onset at 40, 80 and 200 bpm, and differing from the closed hat at all three.*
+
+- [ ] T.33 **A wrong hi-hat articulation is graded as two errors and named as neither.** Grading
+      is strictly per pad (`core/drums/practice/grade.ts:246-254`), so a learner who plays a closed
+      hat where the score writes an open one scores `hhOpen — 0 of n, n missed` AND
+      `hhClosed — … n extra`: two failures for one mistake, and no sentence anywhere says "you
+      closed the hat". This is the run's own measured baseline, verbatim from the drive
+      (`runs/2026-09-06-1/drive.md`, D8): `Open hi-hat — 0 of 2, 2 missed, 2 extra`. A teacher
+      names the articulation; the app double-counts it.
+      *Proof: a graded run playing every instant right with the hat closed throughout reports one
+      articulation error naming the hat, not a miss row and an extra row.*
+
+- [ ] T.34 **`validateGrooveScore` accepts an `hhOpen` note with no `open` articulation.** The
+      validator checks only that each articulation is a known one (`groove.ts:296`); nothing ties
+      the pad to the sign. `moneyBeatOpenHat` sets `articulations: ['open']` by hand, so authored
+      content is one omission away from a groove that is open in the model, closed on the page and
+      closed in every description. Cheap to close as an invariant in `makeGrooveScore` plus a
+      `Result` error in the validator.
+      *Proof: a property test over every `MappedDrumPad` — an `hhOpen` note without `open` is an
+      `err`, and one with it round-trips.*
+
 ## Phases 0-2 — Foundation, M1 playable core, M2 feedback & reading — all done
 
 Every box in these three phases is `[x]`. Moved to

@@ -30,7 +30,6 @@
 @import "css/feature-piano-roll.css";
 @import "css/feature-audio-recording.css";
 @import "css/feature-provenance.css";
-@import "css/feature-drums-notation.css";
 /* Per-screen stubs (roadmap UI-02): one file per nav destination, registered
    empty so every later screen task already has a place to write without
    touching this aggregator. Folded back per-screen the same way the feature

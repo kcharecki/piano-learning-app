@@ -114,6 +114,8 @@ declares unbuildable.
 | Where the learner's own timing sits, once device latency is taken out | **OURS** — every instant this app grades has already been through a keyboard scan, a browser event queue and an audio output buffer, and none of that is measured, so a signed mean offset is the learner's placement plus an unknown constant. A drummer laying the snare back 25 ms and a rig 25 ms slow produce the same number | A calibration pass — one pad, one bar against the click, take the median offset as the rig's constant and report bias relative to it; it stands in if two rigs with known different output latency produce the same corrected bias for the same learner | *(not yet disclosed)* |
 | Whether a learner read the note or copied the marked key | **PHYSICAL** — no sensor in this rig reports where the learner looked, and the flashcard reveal rings the correct key while the staff still shows the question | Press latency: a note read off the staff carries a reading cost that scales with how unfamiliar the note is, and a key copied off a highlight does not. It stands in if presses made while a key is marked cluster at a shorter latency that is flat across note difficulty, while presses made with nothing marked do not | *(not yet disclosed)* |
 
+| Whether a learner can READ a chart, or has only memorised the grooves the trainer offers | **OURS** — `useDrumsHistoryStore` already records every attempt with its `grooveId`, so which grooves this learner has met before is on disk; `gradeGrooveRun` never sees it, and a first-sight reading and a fourth rehearsal of the same bar produce the same per-pad numbers | First-attempt score on a groove with zero prior attempts, against the same learner’s score on one with three or more. The gap between them is the proxy for reading rather than recall; it stands in if that gap narrows as the notation improves and stays flat when only the audio preview does | *(not yet disclosed)* |
+
 **Not on this register**, and never admissible on it: note-off times, sustain-pedal events,
 velocity, release times. They are captured, on disk and unread — `orphan-signals` business, not
 blindness. `check-improve-log.mjs` fails a run that files them here.
@@ -149,6 +151,191 @@ struck out when the learner's own later answer contradicts it, never because it 
 | 2026-08-24 | 2026-08-24-1 | focus on having "flashcard" review styled learning. | |
 
 ## Runs
+
+## Run 2026-09-06-1
+
+- **Persona:** Rusty returner — played a kit in a school band, back on an e-drum pad this month, whose goal is to read and play a printed rock groove at 80 bpm without being told it first (drums)
+- **Tier:** L
+- **Pick source:** 1d
+- **Pick gap:** The Groove trainer never shows the pattern — no notation, no grid, no count; the learner must already know the groove by name, and the DR-05 gallery is a stub saying so
+- **Previous pick source:** 1c
+- **Class:** VOID
+- **Claim:** After this ships, a learner who is on the Groove trainer and does not already know the selected groove will be able to read the pattern off the screen before they play it — which limb plays on which eighth, and where the hi-hat opens — and we will know because the Groove trainer screen shows a percussion staff for the selected groove, and a first attempt played from nothing but what that screen shows scores every pad n of n, where the same learner playing the other standard reading of the title `Money Beat (Open Hat)` scored `Open hi-hat — 0 of 2, 2 missed, 2 extra` (drive D8).
+- **Refutation condition:** Read the rendered staff and only the staff — a notehead's pad from (vertical position, glyph shape), its instant from the drawn count row, the amount of music from the drawn `×N` — convert to milliseconds at the run's own tempo, play exactly that through the real pads, and demand every pad reports n of n. Nothing read from `referenceGrooves.ts`, from `planGrooveRun`, or from the grader. If the staff and the grader disagree on any groove the picker offers, the claim is false.
+- **Metric:** PersistedDrumsHistory.attempts
+- **Baseline:** 0 events, newly instrumented
+
+  *On the Metric field.* The checker takes a bare declared field, so the counting rule cannot
+  live on that line: read `attempts` as each `DrumsGrooveAttempt.pads[].matched` against its
+  own `.expected`, on a FIRST-EVER attempt at a groove the learner does not already know by
+  name — not the raw attempt count, which grows whenever the trainer is opened. Measured at
+  the drive as
+  `Open hi-hat — 0 of 2, 2 missed, 2 extra` (D8, driver drift 14.3 ms) against `2 of 2` for
+  the other standard reading of the same title (D7, drift 12.3 ms).
+- **Endorsement:** no
+- **Outcome:** abort
+
+### Ledger
+
+| Gap | Source | Class | Blocked | Reach | Teacherliness | Unmatchable | Sum | Cost |
+|---|---|---|---|---|---|---|---|---|
+| The Groove trainer never shows the pattern — no notation, no grid, no count; the learner must already know the groove by name, and the DR-05 gallery is a stub saying so | 1d | VOID | 3 | 3 | 3 | 1 | 10 | L |
+| Rudiments — single strokes, double strokes, paradiddles (Rockschool Groups A-C) have no drill | 1d | VOID | 2 | 3 | 3 | 1 | 9 | M |
+| Fills (Group D) and Ear Test 1 fill playback — no toms, no fill drill | 1d | VOID | 2 | 2 | 3 | 2 | 9 | L |
+| Three grooves, all one bar of straight-eighth rock — no fill, tom, ride, crash, sixteenths or other metre | 1b | THIN | 2 | 3 | 2 | 1 | 8 | M |
+| 100 drums attempts persist with per-pad offsets; only the latest renders, and drums has no Progress screen | 1c | BLIND | 1 | 3 | 2 | 2 | 8 | S |
+| Velocity: ghost/accent exist in core with zero importers; pads carry no velocity, so dynamics cannot be produced or graded | 1e | BLIND | 1 | 2 | 3 | 2 | 8 | M |
+
+Leader G1 at 10, runner-up at 9, leader-gap 1. Rule checks: no harm gate fires; no prerequisite
+is itself a ledger row; `prevPickSource` is `1c` and this pick is `1d`, so continue-then-rotate
+is satisfied; the previous drums run's thread `drums-groove-then-velocity` was closed abandoned,
+so no continuation binds; the pick is VOID, so the innovation quota is satisfied; this is drums
+run 2, so the every-fourth-run register cadence does not fire. **VOID forces tier L.**
+
+### Interview
+
+no answer this run
+
+The four questions were posted in chat at the top of the run, before any other source was read,
+and nothing arrived before §2. Nothing was simulated in their place. The method's fallback — the
+newest unstruck row of the standing Learner-said register — is a piano-side answer about review
+scheduling (2026-08-24: "focus on having 'flashcard' review styled learning."), and the
+persona rotation binds this run to drums, so it was carried into §2 as context and could not
+select the pick. Verbatim in `runs/2026-09-06-1/interview.md`.
+
+### Orphan signals
+
+12 rows shown, 198 suppressed by the top-12 cap, all age 3. The HIGH rows, verbatim in
+`runs/2026-09-06-1/orphan-signals.txt`: `TheoryQuizItem.answerSummary` (A, `theory.ts:114`),
+`MidiControlChange.controller` (B, `midi.ts:37`), `ScoreNoteInput.velocity ?? DEFAULT_VELOCITY`
+(D, `score.ts:163`), `EarSessionState.cards` (A, `session.ts:107`), `MidiPolyAftertouch.pressure`
+(B, `midi.ts:50`), `EarItem.contextKey` (A, `item.ts:86`), `Tuplet.actual` (B, `tuplet.ts:21`),
+`EarItem.contextTonicMidi` (A, `item.ts:56`), `PersistedAnnotations.byScoreId` (B,
+`persistedShapes.ts:56`), `AssessmentResult.counts` (A, `assessment.ts:70`); two LOW rows on
+`ScoreNote.durationTicks` and `MidiSustain.down`. Every one is piano-side, so none could select a
+drums pick; the drums-side orphan this run did score is the velocity row in the ledger table above.
+
+### Panel
+
+Four seats — Skeptic (Opus high), Regression hunter (Sonnet), Teacher (Opus), Rival (Opus high) —
+three rounds, prompts rendered from `docs/panel/` with the template hash unchanged across all
+three. Every report verbatim in `runs/2026-09-06-1/panel-r{1,2,3}-<role>.md`.
+
+| Round | BLOCKER | MAJOR | MINOR | Answered by |
+|---|---|---|---|---|
+| 1 | 1 | 9 | 15 | `00999cd` |
+| 2 | 2 | 8 | 20 | `d765c31` |
+| 3 | 1 | 9 | 26 | — (abort) |
+
+**Round 1** — the Skeptic's BLOCKER killed the run's own refutation condition: with `relYOf`
+stubbed to `return 1.5`, every notehead in every groove drew on one line and the spec still
+reported `4 passed`, exit 0, because it compared `data-note-id` against the model those ids came
+from. The condition was replaced with one that reads the drawing — position, glyph shape, the
+count row, the drawn `×N` — and re-proved on the sabotaged tree. That replacement is the reason
+the spec is kept in its round-1 form and not reverted with the code.
+
+**Round 2** — three seats found the same root cause independently by instrumenting
+`AudioContext` in the live page: a Listen preview of `Money Beat (Open Hat)` scheduled audio
+byte-identical to a preview of `Money Beat`, because `hhOpen` and `hhClosed` shared pitch 88 and
+a 60 ms ring. Two more: the preview played one bar while the staff drew `×2`, and the result
+panel kept a verdict and a per-pad score under a groove it had never graded.
+
+**Round 3** — all four seats independently re-ran the round-2 repros and confirmed all three
+fixes. The Skeptic re-adjudicated the replaced condition with a new sabotage on the horizontal
+axis (every notehead drawn one eighth right): `3 failed, 1 passed`, exit 1, against `4 passed`,
+exit 0 on the built tree — `CONDITION: SOUND`. It still returned `VERDICT: REFUTED` and the
+Teacher `ENDORSE: NO`, on defects the round-2 fix commit introduced:
+
+- **Teacher, BLOCKER** — Listen encodes "open" as a pitch a minor third ABOVE the closed hat.
+  Musically false: an open hi-hat is one instrument with the damping removed, not a higher second
+  one, and the tone proxy is disclosed nowhere on screen. `gmNoteOf`, which does separate 42 from
+  46, still reaches no audio path. Filed as `T.32`.
+- **Skeptic MAJOR / Teacher MAJOR / Hunter MINOR / Rival MINOR** — the `resultPlanRef` gate
+  un-hides (cycling back to the same groove resurrects the identical verdict with no run played)
+  and fires on tempo changes (one click of Slower deletes the per-limb sentences at the moment
+  the learner is acting on them). Filed as `T.31`, with the shape all four converged on.
+- **All four seats** — `OPEN_TONE_MS`'s own comment checks the wrong bound: `MIN_BPM` is 40, not
+  the 80 it calls the floor; the binding case is `MAX_BPM` 200; and the audible voice is
+  `padToneMs + RELEASE_S` = 490 ms, not 240, which at 200 bpm covers the next three strokes.
+  Folded into `T.32`.
+- **Rival** — the same commit silently widened the LEARNER's own pad confirmation tone, so an
+  open-hat pad press rings 490 ms against every other pad's 310 ms, breaking `PAD_TONE_MS`'s
+  stated "sixteenths at 200 bpm do not blur" invariant. Same shape as the round-2 BLOCKER,
+  mirrored. Folded into `T.32`.
+- **Regression hunter, MAJOR** — `e2e/improve-DR-09.spec.ts` had been RED at HEAD since the slice
+  `64de051`, which added a second, wrong statement of the pad-to-key mapping ("K the open hat" on
+  grooves with no open-hat pad). Re-verified independently: `1 failed, 182 passed` over the whole
+  e2e suite at the slice HEAD. It shipped because `npm run verify` is `check:* + typecheck + lint
+  + test:all` and never invokes Playwright — which is `T.18`, still open. **Closed by the
+  revert:** `4 passed` on the reverted tree.
+
+The standing cross-seat consensus that outlives the revert is written into `T.30` for whoever
+rebuilds: chiefly that the drum key draws notehead SHAPE only, so snare and kick are
+byte-identical ellipses in the legend, and a reading with those two swapped scores
+`0 of 4, 4 missed, 4 extra` on both limbs.
+
+### Proof
+
+- **RED at the spec commit.** In a detached worktree at `46cec4c`, on `E2E_PORT=5471`:
+  `4 failed`, `EXIT=1` (`runs/2026-09-06-1/prove/red-as-committed.txt`). The replaced,
+  non-void spec run against the same tree on `E2E_PORT=5472`: `4 failed`, `EXIT=1`
+  (`prove/red-head-spec.txt`) — so the condition that actually guards the claim is red at the
+  spec commit too, not only the one that was later proved void.
+- **GREEN at the implementation HEAD.** `E2E_PORT=5473`, `d765c31`: `4 passed (12.9s)`,
+  `EXIT=0` (`prove/green-head.txt`).
+- **The refutation condition, run.** It is those four tests. On `d765c31` every pad reported
+  n of n on all three grooves the picker offers, played from nothing but the drawing, with worst
+  driver drift under 25 ms. The staff and the grader agreed.
+- **Held-out goal — a groove that is not in 4/4.** Amended at §4 and recorded there rather than
+  quietly swapped: the goal written at §3 was `ghostFunkBar`, and the geometry builder's brief
+  then named it as a required example, so it stopped being held out. The replacement was a 3/4
+  waltz — kick on 1, snare on 2 and 3, hi-hat on every eighth — added as CONTENT only. Result:
+  `src/core/drums/engrave/staff.ts` untouched in the diff (`prove/heldout-waltz.diff`, one file
+  changed), and the gallery drew the time signature `3/4`, a count row reading exactly
+  `1 & 2 & 3 &`, six hi-hat crosses at even 2.2-space spacing, the kick in the bottom space on
+  beat 1 and the snare in the third space on 2 and 3, in a bar 372 px wide with zero horizontal
+  overflow — identical at 1280 and 1024, dark and light
+  (`prove/waltz-gallery.json`, `prove/vp-waltz/*.png`). The aria-label read
+  "Waltz Groove in 3/4. Kick: 1. Snare: 2, 3. Hi-hat: every eighth." The renderer generalised.
+  The only breakage was two hard-coded `toHaveLength(4)` counts in
+  `referenceGrooves.test.ts:20` and `musicxml/roundTrip.test.ts:47`; no geometry test moved.
+- **Adaptivity claims:** n/a. This slice makes no adaptivity claim — it renders one authored
+  score per groove, with no branch on learner state.
+- **Experience gate at the implementation HEAD.** `npm run verify` green: 250 files, 5045 tests.
+  Whole e2e suite: `1 failed, 182 passed` — the DR-09 regression above, which is the finding, not
+  a flake. Visual pass on Groove at both widths and both themes, console clean.
+- **Experience gate after the revert.** `npm run verify` green: 244 files, 4944 tests
+  (`prove/verify-after-revert.txt`). Visual pass on Groove: four screenshots, console clean in all
+  four, receipt written. `e2e/improve-DR-09.spec.ts` `4 passed`; `e2e/improve-DR-05.spec.ts`
+  `4 failed, EXIT=1` — the durable red artefact this abort keeps.
+- **Ledger correction, disclosed.** The round-3 Skeptic `panel` event was first recorded with
+  `minors: 10` where the report carries 11 (`grep -c "^MINOR "`). The last line of
+  `runs/ledger.ndjson` was corrected in place before it was ever committed, and
+  `improve-run.mjs audit` re-run clean. It is the only in-place edit this run made to the ledger.
+
+### Previous run's metric verdict
+
+**none.** Run 2026-08-24-1 declared `PersistedFlashcards.cardsById`, counted as stored cards with
+`lapses >= 1 && reps >= 1`, at a baseline of 0. That run's own hand-off predicted this reading:
+the rotation sends the next run to drums, and no piano session ran between the two. Every arm of
+this run's §1c drive used a cold profile with IndexedDB empty at the start, so the store this
+metric reads has no card that has been missed and re-learned — it would read 0 by construction,
+which is not a reading. Recorded as `verdict --none`. Two piano runs now stand unresolved, and
+the next piano run inherits an unread metric rather than a number.
+
+### Cannot-sense register
+
+Added — **whether a learner can READ a chart, or has only memorised the grooves the trainer offers** (screen: Groove trainer, its result panel) — **OURS**, because `useDrumsHistoryStore` already records every attempt with its `grooveId`, so which grooves this learner has met before is on disk, and `gradeGrooveRun` never sees it: a first-sight reading and a fourth rehearsal of the same bar produce the same per-pad numbers. This run's entire claim was about the first of those two and it had no way to tell them apart. Countability challenge in the standing table.
+
+### Next steps
+
+- **The gate that let this run's own regression ship.** `T.18` — `npm run verify` has no e2e step, so `e2e/improve-DR-09.spec.ts` sat red at HEAD for two commits and three panel rounds before a seat found it by hand. It is the cheapest row here and it is why the next run cannot trust a green `verify` either.
+- **The cheapest learner-facing lie on the drums side.** `T.31` — the Groove trainer keeps a graded marking under a groove and a tempo it never graded, driven and reproduced on the current tree. Pre-dates DR-05 and survives its revert, so it is fixable without rebuilding anything.
+- **The wrong musical fact.** `T.32` — the open and the closed hi-hat share one voice, so the trainer cannot say "open" in sound, and `gmNoteOf` reaches no audio path at all. Four seats converged on the shape of the fix: release the open hat at the next hi-hat event, not on a wall-clock constant.
+- **The baseline this run measured, still unfixed.** `T.33` — a wrong hi-hat articulation is graded as a miss plus an extra and named as neither. `Open hi-hat — 0 of 2, 2 missed, 2 extra` is the drive's own D8 line.
+- **One invariant, cheap.** `T.34` — `validateGrooveScore` accepts an `hhOpen` note with no `open` articulation, so authored content is one omission away from a groove that is open in the model and closed on the page.
+- **The rebuild.** `T.30` — DR-05 itself, with the spec kept RED and proved sound, the held-out 3/4 result showing the geometry generalises, and the panel's standing consensus written into the row. Largest of these and the one a learner feels most; a run of its own.
+- **Before the next `/improve-app` can `start`:** the rotation sends the next run to piano, which inherits `PersistedFlashcards.cardsById` still at 0 — two runs now with no metric reading. It needs a real piano session in the running app before `verdict` can say anything, and `T.22` (three of four level-1 decks exhausted inside a minute) is why one session may still not produce one.
 
 ## Run 2026-08-24-1
 
