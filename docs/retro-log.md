@@ -16,6 +16,117 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
+## 2026-09-07 (second session) — the e2e suite is now a commit gate, it found master already red, and then it found itself untrustworthy
+
+- **user-reported defects since last session:** 0.
+- **slices proven / started:** 2 / 2. `T.18` — `npm run verify` now ends in
+  `scripts/e2e-gate.mjs`, so no commit lands on an e2e-red tree (`5e70c9a` the gate, `775aee0`
+  the tick plus the ROADMAP archive pass). Then `T.26` — the gate was red two runs in three
+  until the two specs whose claim is about time stopped competing with eleven browsers for the
+  machine they measure.
+- **gate catches before commit:** 4.
+  1. **The gate's first full run proved its own row's claim on the spot.** At `fcb35ce`, with
+     `npm run verify` green, the Playwright suite was **red — 5 failures**. Four are
+     `improve-DR-05.spec.ts`, whose implementation was reverted when run `2026-09-06-1` aborted
+     on the BLOCKER ratchet; the fifth was flaky. Nothing in the process could see that, which
+     is exactly what `T.18` said for two runs and what nobody could prove until the suite ran
+     inside `verify`.
+  2. **Two specs flake under 12 workers and would have made the gate untrustworthy.**
+     `rhythm-live-feedback` (taps 90ms off a beat) and `osmd-teardown` (engraves a large score
+     for 45s) each failed once in three full runs and passed **3/3 when run alone**. Found by
+     running the suite repeatedly before wiring it in, not after. The gate grants one retry
+     under `E2E_GATE` and prints every test that needed one; a claim spec that is genuinely red
+     fails every attempt, so the retry costs the gate nothing against what it exists to catch.
+  3. **A scoped run reported a false problem.** `node scripts/e2e-gate.mjs -- e2e/smoke.spec.ts`
+     said the `improve-DR-05` entry "matched no test in this run" — true, and meaningless, because
+     the run was one file. Fixed with a `scoped` flag and a unit test, before the gate was trusted.
+  4. **The ROADMAP archive pointer undercounted its own section** — "all 35 tasks (UI-01…UI-35)"
+     where grep of the archive found UI-36, UI-37 and UI-38 as well, all closed. Corrected to
+     38 tasks, 37 shipped, UI-38 dropped as a false premise.
+- **docs budget:** `ROADMAP.md` was at **93% of 28000 tokens** — the 90% warning is the signal to
+  schedule a compress pass, so the pass was done in the same commit as the tick: the finished
+  UI/UX overhaul section (371 lines, 32151 characters, all 38 tasks closed) moved to
+  `docs/roadmap-archive-ui-overhaul-2026-09-07.md` behind a one-paragraph pointer. `docs:budget`
+  now warns about nothing.
+- **cost note:** most of the session's wall clock was **measuring, not building** — a baseline
+  full-suite run, three gate runs, a deliberate sabotage run for the RED proof, and an end-to-end
+  `verify`. That was the right place for it: every number in the tick is a reading, and the
+  flaky-spec finding only exists because the suite was run more than once.
+- **hypothesis:** the weakest part of the process was that **`verify` graded a smaller tree than
+  the one being committed.** Unit tests, types, lint, CSS, docs and the improve-log all had a
+  commit gate; the 186 Playwright specs — the only layer that renders the app — had none, and
+  the session-level answer (`verify:full`) had already been shown inert once. A gate that only
+  runs when someone remembers is not a gate.
+- **change:** `npm run check:e2e` → `scripts/e2e-gate.mjs`, appended to `verify`. Two things
+  hold at once. It **takes a free port of its own and forbids `reuseExistingServer`**, because
+  run `2026-08-21-1`'s first RED check reported "4 passed" at a commit where the screen did not
+  exist — a stale dev server on 5173 was still serving the tree it was started in. And a spec
+  that is **red on purpose** is declared as DATA in `e2e/expected-red.json` — spec, test, the
+  open roadmap id it waits on, a reason of at least 20 characters — because a gate that cannot
+  say "expected red until `T.30` lands" gets switched off the first time it is inconvenient.
+  The registry cannot be used as a mute button: an entry naming a spec file that does not exist,
+  citing a ticked roadmap row, carrying a thin reason, or **whose tests start passing** all turn
+  the gate red. 19 unit tests pin both directions. Sabotage proof: a broken `smoke.spec.ts` gave
+  `FAILED: smoke.spec.ts › the app boots …`, exit 1, on port 60117; restored, `ok — 186 test(s),
+  1 expected-red` in 88s. **Measured cost: `npm run verify` end to end, exit 0 in 118s**, 5008
+  unit tests plus 186 specs. **Review by 2026-10-07 (or 4 sessions):** keep if it refuses at
+  least one commit that unit tests would have passed; revisit if the 118s pushes sessions toward
+  batching commits, which would trade one gate for a worse habit.
+- **the gate's own first three runs said it was not fit to be a gate, and that is the session's
+  most useful result.** The retro above was written after ONE green run. Running it three times
+  in a row on an idle machine gave **RED, RED, green** — and neither red was a defect in the app:
+  `osmd-teardown` timed out at 60s (roadmap T.26, filed for exactly this), and
+  `rhythm-live-feedback` read `late` for a tap it sent on the beat. Both survived the retry the
+  gate grants, so the retry — the thing the first write-up leaned on — was answering the wrong
+  question. A gate that is red two runs in three is worse than no gate: it teaches the reader to
+  re-run until green, which is the habit the gate exists to prevent.
+  Three things were changed, each measured:
+  1. **The gate prints the failing assertion.** It deletes its own JSON report with its temp dir,
+     so "FAILED: x › y" made the reader re-run a suite that might not reproduce. Two unit tests
+     pin it (last attempt's message, colour stripped). It paid for itself twice within the hour.
+  2. **`@serial` specs run in a second, two-worker pass** (`SERIAL_TAG` in `scripts/e2e-gate.mjs`).
+     `osmd-teardown` throttles its own CPU 12x on purpose; eleven other browsers on top of that
+     is a slowdown of a different order. Not a weakened assertion — the same assertion, given a
+     machine to run on. T.26 closed on it, with the half of its proof line that is NOT done
+     stated in the tick rather than rounded up.
+  3. **`rhythm-live-feedback`'s hit arm no longer races the Start click.** It used to tap onset 0
+     — tick 0, the instant the run begins — and assert 'hit' inside a ~50ms window, which asks one
+     browser click to land within 50ms of another. It now taps candidate onset marks, the
+     technique every other arm in that spec already used. Measuring the click latency that
+     defeated it (45-75ms on this machine, floored by a +5ms aim still reading 'late' and capped
+     by a -25ms aim still reading 'hit') showed the other arms were mis-aimed too: the nominal
+     +90ms "late" tap was really landing at 130-165ms, straddling the 150ms tolerance edge, which
+     is why both its samples read 'extra' at once. Aims are now band centre MINUS measured
+     latency, over six candidate marks instead of two. Sabotage-proven in both directions: the
+     'hit' arm at -400 and the 'early' arm at -30 each turn the spec red. The 'late' arm does
+     not, and the spec now says so in its own comment rather than implying a precision it has not
+     got.
+  **After: three consecutive full runs, green / green / green, zero flaky, 118-122s each** — down
+  from 154-159s, because the two specs that burned a retry each are no longer failing first.
+- **experiment verdicts due:**
+  - **The `verify:full` reorder** (set 2026-09-06, review-by 2026-09-24) — **superseded, early,
+    by its own stated escape clause.** It said: "revisit if the real answer turns out to be
+    running the e2e suite per commit, which costs 1.4 minutes and is a different trade." That is
+    what happened, and the measured trade is smaller than the estimate: e2e inside `verify` costs
+    88s of a 118s run. `verify:full` keeps the reorder and now runs e2e twice; that is fine and
+    was left alone rather than optimised, because `verify:full` is the once-a-session command.
+  - **The ROADMAP budget raise** (set 2026-08-11, review-by 2026-09-11) — **not due, and its
+    prediction held.** It said that if the file climbs on proof prose the answer is the archive
+    pass, not another raise. The file climbed on proof prose, the archive pass was done, and the
+    number was not raised.
+  - Nothing else is due. Nearest are the efficiency-guide "a failing check may be a defect"
+    clause (2026-09-15), the disclosure sweep (2026-09-19), the third-party-render gate
+    (2026-09-20), and the stale-triage guard (2026-09-25).
+
+**One thing this session did not fix.** Three worktree claims — `DR-02`, `DR-06`, `U.3` — have
+sat for **three weeks**, and `DR-02`'s worktree is dirty with uncommitted work. `worktrees.mjs
+status` prints all three every session and nothing acts on them. The e2e gate makes that worse
+in one specific way: those branches were written before the gate existed, so whether they are
+mergeable is now a question nobody has asked. Filed as the first thing to look at next session,
+before any new slice.
+
+---
+
 ## 2026-09-07 (/improve-app run 2026-09-06-2) — the first ship in four runs, and the last fix nobody read
 
 - **user-reported defects since last session:** 0.
