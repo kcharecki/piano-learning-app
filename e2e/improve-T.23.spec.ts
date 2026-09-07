@@ -155,3 +155,27 @@ test('an imperfect authentic cadence is still refused, and the answer named has 
 
   expect(errors).toEqual([])
 })
+
+test('a key struck twice inside one chord is a repeat, not a doubling (panel r2)', async ({
+  page,
+}) => {
+  const errors = collectErrors(page)
+  await openCadenceDrill(page)
+
+  const dominant = chordNotes('V')
+  const tonic = chordNotes('I')
+  // The learner clicks the leading tone twice — a slip of the hand, one note
+  // sounding. Before this fix the grader counted the press list, so this was
+  // graded a doubled leading tone and booked the SRS card a lapse
+  // (panel r2 skeptic, driven live, lapses 12 -> 13).
+  const third = dominant[1]
+  if (third === undefined) throw new Error('the dominant triad has no third')
+  const withRepeat = [...dominant.slice(0, 2), third, ...dominant.slice(2)]
+
+  await playChord(page, withRepeat)
+  await playChord(page, [...tonic, Math.min(...tonic) + 12])
+
+  await expect(page.getByTestId('theory-feedback')).toHaveText('Correct')
+
+  expect(errors).toEqual([])
+})

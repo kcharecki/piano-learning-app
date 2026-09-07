@@ -41,6 +41,12 @@
  * register (`core/drills/cadenceGrading.ts`). Press order within a group is
  * still free.
  *
+ * A buffer the learner cannot see or empty is worse than no buffer, because a
+ * stray press is then invisible until it has already cost the answer. So the
+ * hint reads the held notes back BY NAME, not as a count, and `Clear` drops
+ * them (panel r2). Repeats stay in the buffer on purpose — the grader counts
+ * doublings over distinct sounding notes, so a re-struck key is one note.
+ *
  * ## Timing
  *
  * Unlike the flashcard drill, a theory answer's grade is not time-pressured
@@ -115,6 +121,7 @@ import {
   type Card,
   type Grade,
 } from '@core/srs/scheduler.ts'
+import { midiToName } from '@core/theory/pitch.ts'
 import type { DateSource, MidiInput, Rng } from '@core/ports/index.ts'
 import { midi, PIANO_HIGHEST_MIDI, PIANO_LOWEST_MIDI, type Midi } from '@core/shared/units.ts'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -485,6 +492,16 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
     closeGroup(item, pending)
   }
 
+  /**
+   * Drop everything held. A buffer the learner cannot empty turns one stray
+   * press into a wrong answer they can watch coming and cannot stop
+   * (panel r2 skeptic).
+   */
+  function clearPending(): void {
+    pendingRef.current = []
+    setPendingNotes([])
+  }
+
   /** Grade the buffered notes as one finished group. */
   function closeGroup(answered: TheoryQuizItem, group: readonly Midi[]): void {
     if (group.length === 0) return
@@ -615,9 +632,19 @@ export function TheoryDrillPanel(props: TheoryDrillPanelProps) {
               >
                 Submit chord
               </button>
+              <button
+                type="button"
+                className="btn-ghost"
+                data-testid="theory-clear-chord"
+                disabled={pendingNotes.length === 0}
+                onClick={clearPending}
+              >
+                Clear
+              </button>
               <p data-testid="theory-submit-hint">
-                Play every note of the chord, then submit it.
-                {pendingNotes.length > 0 && ` ${String(pendingNotes.length)} held.`}
+                {pendingNotes.length === 0
+                  ? 'Play every note of the chord, then submit it.'
+                  : `Holding ${pendingNotes.map((n) => midiToName(n)).join(' + ')}.`}
               </p>
             </div>
           )}

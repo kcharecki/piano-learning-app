@@ -133,6 +133,19 @@ describe('cadenceGroupMatches — the leading tone is not doubled', () => {
     // C4 E4 E5 C6 — a thin final tonic, not a wrong one: no leading tone in it.
     expect(cadenceGroupMatches(PAC, 1, notes(60, 64, 76, 84))).toBe(true)
   })
+
+  it('accepts a leading tone STRUCK TWICE — a repeat is one note, not a doubling', () => {
+    // G4 B4 B4 D5. `played` is a press list, so the cadence panel hands a
+    // re-struck key over as a repeat. Failing that is failing a slip of the
+    // hand (panel r2 skeptic, driven: lapses 12 -> 13).
+    expect(cadenceGroupMatches(PAC, 0, notes(67, 71, 71, 74))).toBe(true)
+  })
+
+  it('still refuses the leading tone in two DIFFERENT octaves, repeats or not', () => {
+    // G4 B4 B4 B5 D5 — one repeat AND one real doubling. The repeat must not
+    // launder the doubling away.
+    expect(cadenceGroupMatches(PAC, 0, notes(67, 71, 71, 83, 74))).toBe(false)
+  })
 })
 
 describe('cadenceGroupMatches — the third is found by interval, not by position', () => {

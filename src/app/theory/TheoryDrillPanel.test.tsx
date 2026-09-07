@@ -122,6 +122,39 @@ describe('TheoryDrillPanel', () => {
     expect(screen.getByTestId('theory-prompt')).toHaveTextContent(expected.prompt)
   })
 
+  it('names the held notes and lets the learner take them back (panel r2)', async () => {
+    // The buffer was a bare count, so a stray press was invisible until it had
+    // already cost the answer. It now reads back by name and empties on Clear.
+    const user = userEvent.setup()
+    render(
+      <TheoryDrillPanel
+        rng={scriptedRng([0])}
+        midiInput={new FakeMidiInput()}
+        initialKind="build-cadence"
+      />,
+    )
+
+    const keyboard = screen.getByRole('group', { name: 'On-screen keyboard' })
+    const press = async (note: number) =>
+      user.click(within(keyboard).getByRole('button', { name: midiToName(asMidi(note)) }))
+    const hint = screen.getByTestId('theory-submit-hint')
+    const clear = screen.getByTestId('theory-clear-chord')
+
+    expect(clear).toBeDisabled()
+    expect(hint).toHaveTextContent('Play every note of the chord')
+
+    for (const note of [67, 71, 74]) await press(note)
+    expect(hint).toHaveTextContent('Holding G4 + B4 + D5.')
+    expect(clear).toBeEnabled()
+
+    await user.click(clear)
+    expect(hint).toHaveTextContent('Play every note of the chord')
+    expect(clear).toBeDisabled()
+    expect(screen.getByTestId('theory-submit-chord')).toBeDisabled()
+    // Cleared, not graded: no group was closed.
+    expect(screen.getByTestId('theory-progress')).toHaveTextContent('0 / 2')
+  })
+
   it('a cadence group is closed by the learner, not by the reveal note count (panel r1)', async () => {
     // Both round-1 seats drove this. `finalChordPitches` spells a four-note
     // final tonic, so closing on that count made the fifth-less realisation

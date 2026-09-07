@@ -89,9 +89,15 @@ export function cadenceGroupMatches(
   if (!playedClasses.includes(rootClass)) return false
   if (!playedClasses.includes(thirdClass)) return false
 
+  // A doubling is two DIFFERENT notes of one pitch class, so count over the
+  // distinct sounding pitches. `played` is a press list: the cadence panel
+  // buffers presses, so striking one key twice arrives here as a repeat, and
+  // counting it as a doubling failed a learner for a slip of the hand
+  // (panel r2 skeptic, who drove `G4, B4, B4, D5` and watched lapses 12 -> 13).
   const leadingToneClass = (cadence.tonicPitchClass + 11) % 12
   if (chordClasses.includes(leadingToneClass)) {
-    if (playedClasses.filter((pc) => pc === leadingToneClass).length > 1) return false
+    const sounding = [...new Set(played)].map(pitchClass)
+    if (sounding.filter((pc) => pc === leadingToneClass).length > 1) return false
   }
 
   const isFinal = index === cadence.chords.length - 1
