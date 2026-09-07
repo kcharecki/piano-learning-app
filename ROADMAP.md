@@ -130,7 +130,7 @@ Full histories of completed tasks: `docs/roadmap-archive-*.md` and git history.
       *Proof: a level-1 deck sustains the segment's own duration without exhausting, measured
       against the session plan's minutes rather than a number picked here.*
 
-- [ ] T.23 **Every perfect authentic cadence the drill draws has its leading tone falling a fifth.**
+- [x] T.23 **Every perfect authentic cadence the drill draws has its leading tone falling a fifth.**
       Panel MAJOR, /improve-app run 2026-08-24-1 (Teacher seat, round 2), unresolved at the
       re-panel cap. `finalChordPitches` (`src/core/theory/harmony.ts`) hands the tonic chord a
       doubled-tonic soprano, which leaves 7 nowhere to go: C major reveals "G4 + B4 + D5,
@@ -141,6 +141,14 @@ Full histories of completed tasks: `docs/roadmap-archive-*.md` and git history.
       *Proof: for every key and every cadence type the drill can draw, the leading tone of a
       perfect authentic cadence resolves upward by a semitone - a property test over the
       generator, not an example.*
+      Closed by /improve-app run 2026-09-06-2 (`1ec9195`, `6e48805`, `101336f`, `9c77e95`).
+      `finalChordPitches` adds the tonic an octave above the triad rather than swapping it for
+      the top note, so the fifth survives and 7 has a C above it under every voice reading;
+      `cadenceGroupMatches` then grades the cadence by its own requirements instead of by that
+      one voicing. Proof as written: `theory.test.ts` exhausts the generator over every level
+      and collects all 15 keys x 4 types, then asserts every leading tone in a PAC's dominant
+      has the semitone above it present in the final chord. Shipped `shipped-not-clean` — the
+      last two fixes landed after the tier's last panel round. Leaves `T.39`.
 
 - [ ] T.24 **The same accidental is spelled two ways two lines apart.**
       Panel MINOR, /improve-app run 2026-08-24-1 (Teacher seat, round 2), deferred with reason:
@@ -322,7 +330,7 @@ Full histories of completed tasks: `docs/roadmap-archive-*.md` and git history.
       *Proof: for every drill item the panel can render, every note of its answer is reachable
       from the QWERTY map the panel prints under it.*
 
-- [ ] T.38 **An answer group closes on the expected note COUNT, so a correct realisation with a
+- [x] T.38 **An answer group closes on the expected note COUNT, so a correct realisation with a
       different number of notes cannot be entered.** Found while shipping `T.23` in /improve-app
       run 2026-09-06-2, and named in that slice's commit body as a known limitation.
       `TheoryDrillPanel.tsx` completes a group when the press count reaches
@@ -333,6 +341,21 @@ Full histories of completed tasks: `docs/roadmap-archive-*.md` and git history.
       express it.
       *Proof: a driven spec that plays a three-note correct realisation of a four-note cadence
       answer and gets a verdict — any verdict — rather than an unclosed group.*
+      Closed by `101336f` in the same run: `'build-cadence'` buffers presses until the learner
+      submits the chord. Every other kind still closes on count, where the expected length IS
+      the answer's length, so closing on it is exact. Proof: `TheoryDrillPanel.test.tsx`
+      plays the three-note realisation and gets `Correct`.
+
+- [ ] T.39 **A cadence refusal names notes but never the rule, and the rules it polices are not
+      the ones the prompt states.** Filed from /improve-app run 2026-09-06-2, panel round 2
+      MINOR. The prompt says `Play a perfect authentic cadence in C major.`; the definition is
+      V–I, both root position, tonic in the highest voice. `G4 B4 B5` satisfies all three and is
+      refused, because `cadenceGrading.ts` also forbids a doubled leading tone — a real
+      convention the drill never states. The feedback answers `Not quite — it was G4 + B4 + D5,
+      …`, naming notes and not the rule, so the refusal cannot teach. Meanwhile a doubled third
+      is permitted, so the learner cannot tell which standard is in force.
+      *Proof: the refusal names the convention it applied, and a driven session shows a learner
+      who reads the feedback can correct the doubling without guessing.*
 
 ## Phases 0-2 — Foundation, M1 playable core, M2 feedback & reading — all done
 

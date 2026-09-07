@@ -784,3 +784,59 @@ describe('describeTheoryAnswer', () => {
     )
   })
 })
+
+describe('build-cadence — the leading tone resolves upward (roadmap T.23)', () => {
+  /**
+   * Every cadence item the generator can draw, at every level the selector
+   * offers, collected by exhausting the draw rather than by rebuilding the key
+   * list here — a test that spells its own keys cannot catch the generator
+   * widening past them.
+   */
+  function everyCadenceItem(): readonly TheoryQuizItem[] {
+    const byId = new Map<string, TheoryQuizItem>()
+    for (let level = 1; level <= MAX_THEORY_LEVEL; level += 1) {
+      for (let seed = 0; seed < 400; seed += 1) {
+        const item = buildTheoryQuiz('build-cadence', level, seededRng(seed))
+        byId.set(item.id, item)
+      }
+    }
+    return [...byId.values()]
+  }
+
+  const ITEMS = everyCadenceItem()
+
+  it('draws every cadence type, in every key the level range reaches', () => {
+    const types = new Set(ITEMS.map((i) => i.id.split('-').slice(2, -1).join('-')))
+    expect([...types].sort()).toEqual(['deceptive', 'half', 'perfect-authentic', 'plagal'])
+    // 15 keys: seven flats through seven sharps.
+    const keys = new Set(ITEMS.map((i) => i.id.split('-').at(-1)))
+    expect(keys.size).toBe(15)
+  })
+
+  it('gives the leading tone of a perfect authentic cadence somewhere to rise to', () => {
+    const pacs = ITEMS.filter((i) => i.id.startsWith('build-cadence-perfect-authentic-'))
+    expect(pacs.length).toBe(15)
+    for (const item of pacs) {
+      const cadence = item.cadence
+      expect(cadence).toBeDefined()
+      if (cadence === undefined) continue
+      const leadingToneClass = (cadence.tonicPitchClass + 11) % 12
+      const dominant = at(item.answer, 0)
+      const final = at(item.answer, 1)
+      const leadingTones = dominant.filter((n) => n % 12 === leadingToneClass)
+      // The dominant of a major key HAS the leading tone; if it stopped
+      // containing one this assertion is what says so.
+      expect(leadingTones.length, `${item.id} dominant has no leading tone`).toBeGreaterThan(0)
+      for (const lt of leadingTones) {
+        // A semitone up from that very note must be present in the final
+        // chord. This is the original T.23 defect: the answer named a tonic
+        // chord whose highest note was below the leading tone, so under the
+        // obvious voice reading 7 fell a fifth instead of rising a semitone.
+        expect(
+          final.includes((lt + 1) as Midi),
+          `${item.id}: no ${String(lt + 1)} above the leading tone ${String(lt)} in ${final.join()}`,
+        ).toBe(true)
+      }
+    }
+  })
+})
