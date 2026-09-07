@@ -1,0 +1,12 @@
+{
+  "readMe": "Specs that are RED on purpose, read by scripts/e2e-gate.mjs (roadmap T.18). This project commits a claim spec BEFORE the feature it claims, so a gate that cannot say 'red until X lands' would be switched off the first time it was inconvenient. Every entry needs a roadmap id that is still an OPEN box in ROADMAP.md, and a reason. An entry whose tests start passing turns the gate red: tick the row and delete the entry. `test` is the exact test title, or \"*\" for every test in the file.",
+  "expectedRed": [
+    {
+      "spec": "improve-DR-05.spec.ts",
+      "test": "*",
+      "roadmap": "T.30",
+      "reason": "The percussion staff was built (64de051) and reverted when /improve-app run 2026-09-06-1 aborted on the BLOCKER ratchet. The spec is kept, in its strengthened form, as the proof a rebuild has to pass: 4 failed on the reverted tree, 4 passed on the implementation.",
+      "filed": "2026-09-07"
+    }
+  ]
+}

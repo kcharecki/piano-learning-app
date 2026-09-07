@@ -97,7 +97,7 @@ the wrong layer.
 
 ```bash
 npm test           # fast core suite — run constantly
-npm run verify     # docs budget + typecheck + lint + all tests — before every commit
+npm run verify     # docs budget + typecheck + lint + all tests + e2e gate — before every commit
 npm run checkpoint # verify, then git commit
 npm run dev        # app at http://localhost:5173
 ```

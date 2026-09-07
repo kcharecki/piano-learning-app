@@ -50,7 +50,12 @@ delegation policy, the retro — applies to both. The loop below is `/next`'s al
 Green tests alone have shipped inert features here repeatedly — the roadmap archive records
 over a dozen "tests green, feature dead in the browser" defects. The browser drive is the gate.
 
-1. `npm run verify` green (`verify:full` at least once per session).
+1. `npm run verify` green (`verify:full` at least once per session). Since 2026-09-07 that
+   includes the Playwright suite, through `scripts/e2e-gate.mjs` (roadmap T.18) — the gate takes
+   a free port of its own and forbids server reuse, so a stale dev server cannot grade the wrong
+   tree. A spec that is RED on purpose (a claim spec committed before its feature) is declared in
+   `e2e/expected-red.json` with the roadmap id it waits on; nothing else may be red, and an entry
+   whose tests start passing turns the gate red so somebody ticks the row.
 2. **Driven proof on real content** — the task's proof action performed in the running app
    against a real piece or full drill flow, never only a six-bar fixture. Evidence captured:
    screenshot, console, or a driven e2e asserting behaviour (not presence).
