@@ -75,7 +75,14 @@ function collectErrors(page: Page): string[] {
   return errors
 }
 
-test('navigating away from Practice while a large score is still engraving throws nothing', async ({
+/**
+ * `@serial` (roadmap T.26): `scripts/e2e-gate.mjs` runs this one outside the
+ * parallel pass. It throttles the CPU 12x on purpose, so twelve other browsers
+ * competing for the same main thread is a slowdown ON TOP of the one it wants
+ * — measured as two 60s timeouts in three consecutive gate runs on an idle
+ * machine, both surviving the retry, against 49s when it runs uncontended.
+ */
+test('navigating away from Practice while a large score is still engraving throws nothing @serial', async ({
   page,
 }) => {
   test.setTimeout(60_000)

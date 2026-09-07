@@ -21,13 +21,16 @@ import { defineConfig, devices } from '@playwright/test'
  *    was still serving the tree it was started in.
  *  - **one retry.** Not to be lenient: a claim spec that is red, or a spec
  *    pinned to copy that changed, fails every attempt, so retries cost the
- *    gate nothing against what it exists to catch. What they buy is trust.
- *    Two specs here assert on wall-clock behaviour (`rhythm-live-feedback`
- *    taps 90ms off a beat; `osmd-teardown` engraves a large score for 45s),
- *    and under 12 parallel workers on a developer machine each one failed
- *    once in three full runs and passed 3/3 when run alone. A gate that goes
- *    red one commit in three is a gate somebody switches off. The retry is
- *    visible: `e2e-gate.mjs` prints every test that needed one.
+ *    gate nothing against what it exists to catch. What they buy is trust
+ *    against one-off scheduling noise, and the retry is visible —
+ *    `e2e-gate.mjs` prints every test that needed one.
+ *
+ *    Retries were NOT enough on their own, and the measurement is worth
+ *    keeping: three consecutive gate runs on an idle machine went RED, RED,
+ *    green, both reds surviving the retry (`osmd-teardown` timing out at 60s,
+ *    `rhythm-live-feedback` reading `late` for an on-time tap). Specs whose
+ *    claim is about time itself now carry `@serial` and run in a second,
+ *    two-worker pass — see `SERIAL_TAG` in `scripts/e2e-gate.mjs`.
  */
 const port = Number(process.env.E2E_PORT ?? 5173)
 

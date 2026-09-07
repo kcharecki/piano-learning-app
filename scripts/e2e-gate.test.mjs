@@ -75,7 +75,57 @@ describe('flattenReport', () => {
    */
   it('separates flaky from failed rather than folding one into the other', () => {
     const flaky = { suites: [{ specs: [{ file: 'a.spec.ts', title: 'sometimes', tests: [{ status: 'flaky' }] }] }] }
-    expect(flattenReport(flaky)[0]).toEqual({ spec: 'a.spec.ts', title: 'sometimes', failed: false, flaky: true, skipped: false })
+    expect(flattenReport(flaky)[0]).toEqual({ spec: 'a.spec.ts', title: 'sometimes', failed: false, flaky: true, skipped: false, error: '' })
+  })
+
+  /**
+   * The gate deletes the JSON report with its temp dir, and a failure that
+   * only happens under full-suite load may not reproduce when somebody re-runs
+   * the spec alone — so the message has to travel with the verdict.
+   */
+  it('carries the failing attempt’s own error message, stripped of colour and flattened', () => {
+    const esc = String.fromCharCode(27)
+    const failed = {
+      suites: [
+        {
+          specs: [
+            {
+              file: 'a.spec.ts',
+              title: 'breaks',
+              tests: [
+                {
+                  status: 'unexpected',
+                  results: [{ error: { message: `${esc}[31mExpected: "hit"${esc}[39m\n\nReceived: "late"\n` } }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    }
+    expect(flattenReport(failed)[0]?.error).toBe('Expected: "hit" | Received: "late"')
+  })
+
+  it('reports the LAST attempt’s message, which is the one the retry left behind', () => {
+    const twice = {
+      suites: [
+        {
+          specs: [
+            {
+              file: 'a.spec.ts',
+              title: 'breaks twice',
+              tests: [
+                {
+                  status: 'unexpected',
+                  results: [{ error: { message: 'first attempt' } }, { error: { message: 'second attempt' } }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    }
+    expect(flattenReport(twice)[0]?.error).toBe('second attempt')
   })
 
   it('survives a report with no suites at all rather than throwing over it', () => {

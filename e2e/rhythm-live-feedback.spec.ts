@@ -23,12 +23,13 @@ import { expect, test, type ConsoleMessage, type Page } from '@playwright/test'
  *    note. So onset 1 is always at EXACTLY 500ms or EXACTLY 1000ms; there is
  *    no third option.
  *
- * Tapping both of those candidate marks, shifted by a constant `+90`/`-90`
- * ms, therefore guarantees that whichever one is the real onset 1 lands
- * 'late'/'early' (90ms sits comfortably inside `toleranceTicks` but outside
- * `hitWindowTicks` for both drills' tolerance tables — see
- * `tapClassifier.ts`), without this spec ever needing to know which mark it
- * actually was. The other mark (not a real onset) lands 'extra' instead —
+ * Tapping every mark an onset can fall on, shifted by a constant offset,
+ * therefore guarantees that the marks which ARE real onsets land with the
+ * verdict that offset implies — 'late' at `+45`, 'early' at `-155` (both
+ * comfortably inside `toleranceTicks` and outside `hitWindowTicks` for both
+ * drills' tolerance tables — see `tapClassifier.ts`), and 'hit' at `-25`,
+ * inside the hit window — without this spec ever needing to know which mark
+ * it actually was. The other mark (not a real onset) lands 'extra' instead —
  * also asserted on, so a stub that flashed unconditionally could not pass.
  *
  * ## Proving Stop grades only the elapsed prefix
@@ -75,11 +76,50 @@ import { expect, test, type ConsoleMessage, type Page } from '@playwright/test'
  * instead, trading a little headroom against 'extra' for a lot more headroom
  * against jitter erasing the 'early' verdict altogether.
  */
-const LATE_OFFSET_MS = 90
-const EARLY_OFFSET_MS = -130
+/**
+ * What the late arm can and cannot prove, stated rather than implied: with
+ * 45-75ms of click latency always added, an aim of +5 also lands inside the
+ * late band, and a run with that aim passes. So this constant chooses where
+ * the tap LANDS; the assertion distinguishes the VOCABULARY — a tap after the
+ * onset reads 'late' or 'extra' and never 'hit' or 'early' — not the
+ * magnitude. The 'early' arm does not have this weakness: latency works
+ * against it, so its aim is load-bearing, and moving it to -30 turns the spec
+ * red.
+ */
+const LATE_OFFSET_MS = 45
+const EARLY_OFFSET_MS = -155
 
-/** Onset 1 is always at exactly one of these two marks — see the module doc. */
-const ONSET_1_CANDIDATE_MARKS = [500, 1000]
+/**
+ * Where the 'hit' arm aims.
+ *
+ * Every aim here is BAND CENTRE MINUS THE MEASURED LATENCY, not band centre.
+ * A click's own round trip (CDP, dispatch, React commit) only ever pushes a
+ * tap later than its target, and on this machine it is worth 25-75ms: the
+ * -25ms hit aim passes, which caps it at 75ms, and a +10ms late aim still
+ * reads 'late' rather than 'hit', which floors it at 40ms. So a nominal +90
+ * late aim was really landing at 130-165ms, straddling the 150ms tolerance
+ * edge — which is exactly the failure the gate caught, both samples reading
+ * 'extra' at once. The aims below sit at the centre of their bands AFTER that
+ * latency is added: hit 0 (-25 + ~25-75), late ~100 (+45), early ~-100
+ * (-155).
+ */
+const HIT_AIM_MS = -25
+
+/**
+ * Every mark an onset can possibly fall on, over the first six beats.
+ *
+ * Level-1 durations are only ever a quarter (500ms) or a half (1000ms) at the
+ * fixed 120bpm, and onset 0 is at tick 0, so every onset in the pattern lands
+ * on a multiple of 500ms — about half of these marks are real onsets and the
+ * rest are not, whatever the draw. Two marks used to be enough, because two
+ * marks always contain onset 1. They are not enough against JITTER: a tap
+ * aimed 90ms late is 'late' only while the click's own latency keeps it under
+ * the ~150ms tolerance, and the gate caught both of two samples overshooting
+ * into 'extra' at once. Six marks is the same claim over more samples — every
+ * deliberately-late tap still has to read 'late' or 'extra', never 'hit', and
+ * at least one has to read 'late'.
+ */
+const ONSET_CANDIDATE_MARKS = [500, 1000, 1500, 2000, 2500, 3000]
 
 function collectErrors(page: Page): string[] {
   const errors: string[] = []
@@ -115,7 +155,21 @@ async function tapScheduleAndCollectVerdicts(
   return verdicts
 }
 
-test('the sight-tap drill shows a live hit/early/late verdict per tap, and a manual Stop grades only the elapsed prefix (roadmap U.3)', async ({
+/**
+ * `@serial`: `scripts/e2e-gate.mjs` runs this one outside the parallel pass.
+ * The offsets above are tuned against click-latency jitter, and twelve
+ * parallel browsers push the jitter past the tuning.
+ *
+ * That was not the whole of it, and the second half was a defect in this spec
+ * rather than in the load. Run 1 used to tap ONSET 0 — tick 0, the instant
+ * `Start` begins the run — and assert 'hit' inside a ~50ms window, which asks
+ * one browser click to land within 50ms of another with two visibility polls
+ * in between. It read `late` on the gate, on an idle machine, and again on the
+ * retry. The claim is right and is not widened here: an on-time tap still has
+ * to read 'hit'. It is now made on a candidate onset-1 mark, the same
+ * technique every other arm already used.
+ */
+test('the sight-tap drill shows a live hit/early/late verdict per tap, and a manual Stop grades only the elapsed prefix (roadmap U.3) @serial', async ({
   page,
 }) => {
   test.setTimeout(60_000)
@@ -130,35 +184,49 @@ test('the sight-tap drill shows a live hit/early/late verdict per tap, and a man
 
   const tapButton = page.getByRole('button', { name: 'Tap' })
 
-  // ---- Run 1: onset 0 tapped exactly on time is 'hit'; whichever of the two
-  // possible onset-1 marks is real lands 'late' when shifted +90ms.
+  // ---- Run 1: an on-time tap on a real onset is 'hit'.
+  //
+  // On the CANDIDATE ONSET MARKS, not on onset 0. Onset 0 is at tick 0, which
+  // is the instant `Start` starts the run, and the hit window is ~50ms — so
+  // "tap onset 0 exactly on time" asks a browser click to arrive inside 50ms
+  // of the click that began the run, with two visibility polls in between.
+  // That raced, and lost: the gate read `late` here on an idle machine and
+  // again on its retry. Every other arm already proves its claim without
+  // knowing which mark is the real onset, and this one now does too.
   await page.getByRole('button', { name: 'Start' }).click()
   await expect(page.getByTestId('rhythm-tapping-status')).toBeVisible()
   await expect(tapButton).toBeEnabled()
 
-  const lateSchedule = [
-    { mark: 0, offsetMs: 0 },
-    ...ONSET_1_CANDIDATE_MARKS.map((mark) => ({ mark, offsetMs: LATE_OFFSET_MS })),
-  ]
+  const hitSchedule = ONSET_CANDIDATE_MARKS.map((mark) => ({ mark, offsetMs: HIT_AIM_MS }))
+  const hitVerdicts = await tapScheduleAndCollectVerdicts(page, tapButton, 'rhythm-tap-verdict', hitSchedule)
+  expect(hitVerdicts.every((v) => v === 'hit' || v === 'extra')).toBe(true)
+  expect(hitVerdicts).toContain('hit')
+  await page.getByRole('button', { name: 'Stop' }).click()
+  await expect(page.getByTestId('rhythm-accuracy')).toBeVisible()
+
+  // ---- Run 2: every candidate mark that is a real onset lands 'late' when
+  // shifted late, and no deliberately-late tap may read 'hit'.
+  await page.getByRole('button', { name: 'Again' }).click()
+  await expect(page.getByTestId('rhythm-tapping-status')).toBeVisible()
+  const lateSchedule = ONSET_CANDIDATE_MARKS.map((mark) => ({ mark, offsetMs: LATE_OFFSET_MS }))
   const lateVerdicts = await tapScheduleAndCollectVerdicts(page, tapButton, 'rhythm-tap-verdict', lateSchedule)
-  expect(lateVerdicts[0]).toBe('hit')
-  expect(lateVerdicts.slice(1).every((v) => v === 'late' || v === 'extra')).toBe(true)
+  expect(lateVerdicts.every((v) => v === 'late' || v === 'extra')).toBe(true)
   expect(lateVerdicts).toContain('late')
   await page.getByRole('button', { name: 'Stop' }).click()
   await expect(page.getByTestId('rhythm-accuracy')).toBeVisible()
 
-  // ---- Run 2: the -90ms-shifted candidate marks land 'early' on whichever
-  // one is the real onset 1 (same guarantee, opposite sign).
+  // ---- Run 3: the early-shifted candidate marks land 'early' on the ones
+  // that are real onsets (same guarantee, opposite sign).
   await page.getByRole('button', { name: 'Again' }).click()
   await expect(page.getByTestId('rhythm-tapping-status')).toBeVisible()
-  const earlySchedule = ONSET_1_CANDIDATE_MARKS.map((mark) => ({ mark, offsetMs: EARLY_OFFSET_MS }))
+  const earlySchedule = ONSET_CANDIDATE_MARKS.map((mark) => ({ mark, offsetMs: EARLY_OFFSET_MS }))
   const earlyVerdicts = await tapScheduleAndCollectVerdicts(page, tapButton, 'rhythm-tap-verdict', earlySchedule)
   expect(earlyVerdicts.every((v) => v === 'early' || v === 'extra')).toBe(true)
   expect(earlyVerdicts).toContain('early')
   await page.getByRole('button', { name: 'Stop' }).click()
   await expect(page.getByTestId('rhythm-accuracy')).toBeVisible()
 
-  // ---- Run 3 (baseline): tap NOTHING, let the 4-bar (8000ms), rest-free
+  // ---- Run 4 (baseline): tap NOTHING, let the 4-bar (8000ms), rest-free
   // pattern play out on its own — every onset (at least 8, complexity 1's
   // quarter-note floor over 4 bars of 4/4) ends up graded missed.
   await page.getByRole('button', { name: 'Again' }).click()
@@ -167,7 +235,7 @@ test('the sight-tap drill shows a live hit/early/late verdict per tap, and a man
   const naturalMissed = Number(await page.getByTestId('rhythm-missed').textContent())
   expect(naturalMissed).toBeGreaterThan(0)
 
-  // ---- Run 4 (the actual safety proof): tap nothing here either, but Stop
+  // ---- Run 5 (the actual safety proof): tap nothing here either, but Stop
   // at a controlled ~3000ms checkpoint — comfortably mid-pattern, 5000ms
   // still left to run — instead of letting it play to the end. Only the
   // onsets whose window closed by then may be graded missed; the whole

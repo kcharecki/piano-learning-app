@@ -47,6 +47,26 @@ import { pathToFileURL } from 'node:url'
 const DEFAULT_REGISTRY = 'e2e/expected-red.json'
 
 /**
+ * Specs whose claim is about time itself run in a second pass, two workers
+ * wide, instead of alongside eleven other browsers.
+ *
+ * Measured on this machine (24 cores, Playwright's default 12 workers), three
+ * consecutive gate runs on an otherwise idle machine: **RED, RED, green**.
+ * Both reds were `osmd-teardown` timing out at 60s — the spec throttles the
+ * CPU 12x on purpose to widen an engrave window, and twelve-way contention on
+ * top of that is a different order of slowdown (roadmap T.26 filed exactly
+ * this). The third red was `rhythm-live-feedback` reading `late` where it taps
+ * on the beat, because the click's own round trip had already eaten the 50ms
+ * hit window (roadmap U.3's spec).
+ *
+ * Retries do not help either one: both failed the retry too. A gate that is
+ * red two runs in three is a gate that gets switched off, and the honest fix
+ * is not to weaken what they assert — an on-time tap really must read `hit` —
+ * but to stop making them compete for the main thread while they measure it.
+ */
+const SERIAL_TAG = '@serial'
+
+/**
  * Playwright's JSON report nests suites by file and by describe block. Flatten
  * it to the only thing the gate reasons about: one row per test, carrying the
  * spec file it lives in and whether it passed.
@@ -62,11 +82,51 @@ const DEFAULT_REGISTRY = 'e2e/expected-red.json'
  * make the gate go red about one commit in three, which is how gates get
  * switched off. So it is reported, by name, and does not fail the run.
  *
+ * Each row carries the failing attempt's own error message, because the JSON
+ * report lives in a temp directory this script deletes — a gate that says
+ * only "FAILED: x › y" makes the reader re-run the whole suite to find out
+ * why, and under load that re-run may not reproduce.
+ *
  * @param {unknown} report
- * @returns {Array<{spec: string, title: string, failed: boolean, flaky: boolean, skipped: boolean}>}
+ * @returns {Array<{spec: string, title: string, failed: boolean, flaky: boolean, skipped: boolean, error: string}>}
  */
+/**
+ * Playwright colours its error messages. Built from a char code rather than
+ * written as an escape in a regex literal, because a raw ESC byte in source
+ * survives editors and diffs badly and `no-control-regex` exists to say so.
+ */
+const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g')
+
+/**
+ * The last attempt's error message, flattened to one line and capped.
+ *
+ * The LAST attempt, not the first: with a retry granted, the first attempt's
+ * error on a flaky test is the interesting one and the last is missing, while
+ * on a genuinely red test both say the same thing — so falling back through
+ * the attempts in reverse gets the message either way.
+ *
+ * @param {any} test
+ * @returns {string}
+ */
+function firstErrorOf(test) {
+  const attempts = [...(test?.results ?? [])].reverse()
+  for (const attempt of attempts) {
+    const message = attempt?.error?.message ?? attempt?.errors?.[0]?.message ?? ''
+    if (message === '') continue
+    return String(message)
+      .replace(ANSI, '')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line !== '')
+      .slice(0, 4)
+      .join(' | ')
+      .slice(0, 400)
+  }
+  return ''
+}
+
 export function flattenReport(report) {
-  /** @type {Array<{spec: string, title: string, failed: boolean, flaky: boolean, skipped: boolean}>} */
+  /** @type {Array<{spec: string, title: string, failed: boolean, flaky: boolean, skipped: boolean, error: string}>} */
   const rows = []
   /** @param {any} suite */
   const walk = (suite) => {
@@ -78,6 +138,7 @@ export function flattenReport(report) {
           failed: test.status === 'unexpected',
           flaky: test.status === 'flaky',
           skipped: test.status === 'skipped',
+          error: firstErrorOf(test),
         })
       }
     }
@@ -238,44 +299,74 @@ async function main() {
   }
 
   let tempDir = ''
-  let jsonFile = reportPath
   let ranOutput = ''
+  /** @type {Array<{spec: string, title: string, failed: boolean, flaky: boolean, skipped: boolean, error: string}>} */
+  let results = []
   if (reportPath === '') {
     tempDir = mkdtempSync(join(tmpdir(), 'e2e-gate-'))
-    jsonFile = join(tempDir, 'report.json')
     const port = process.env.E2E_PORT ?? String(await freePort())
-    process.stdout.write(`e2e gate: playwright on port ${port}, no server reuse, one retry\n`)
-    const run = spawnSync(
-      process.execPath,
-      [resolve('node_modules/@playwright/test/cli.js'), 'test', '--reporter=json', ...passthrough],
-      {
-        encoding: 'utf8',
-        env: {
-          ...process.env,
-          E2E_PORT: port,
-          E2E_GATE: '1',
-          PLAYWRIGHT_JSON_OUTPUT_NAME: jsonFile,
-        },
-        maxBuffer: 64 * 1024 * 1024,
-      },
+    process.stdout.write(
+      `e2e gate: playwright on port ${port}, no server reuse, one retry, ${SERIAL_TAG} specs in a second uncontended pass\n`,
     )
-    ranOutput = `${run.stdout ?? ''}${run.stderr ?? ''}`
+    /**
+     * @param {string} label
+     * @param {readonly string[]} extraArgs
+     * @returns {{ ok: boolean }}
+     */
+    const pass = (label, extraArgs) => {
+      const jsonFile = join(tempDir, `${label}.json`)
+      const run = spawnSync(
+        process.execPath,
+        [
+          resolve('node_modules/@playwright/test/cli.js'),
+          'test',
+          '--reporter=json',
+          ...extraArgs,
+          ...passthrough,
+        ],
+        {
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            E2E_PORT: port,
+            E2E_GATE: '1',
+            PLAYWRIGHT_JSON_OUTPUT_NAME: jsonFile,
+          },
+          maxBuffer: 64 * 1024 * 1024,
+        },
+      )
+      ranOutput += `${run.stdout ?? ''}${run.stderr ?? ''}`
+      try {
+        results = [...results, ...flattenReport(JSON.parse(readFileSync(jsonFile, 'utf8')))]
+      } catch {
+        return { ok: false }
+      }
+      return { ok: true }
+    }
+    // The parallel pass, minus the specs that cannot survive one.
+    const parallel = pass('parallel', ['--grep-invert', SERIAL_TAG])
+    // Two workers, not one: the tagged specs live in different files, so two
+    // browsers finish in the time the slowest one takes and neither is
+    // competing with eleven others for the main thread.
+    const serial = pass('serial', ['--grep', SERIAL_TAG, '--workers=2'])
+    if (!parallel.ok && !serial.ok) {
+      console.error('e2e gate: playwright produced no JSON report — the run itself failed.')
+      if (ranOutput !== '') console.error(ranOutput.slice(-4000))
+      rmSync(tempDir, { recursive: true, force: true })
+      process.exit(1)
+      return
+    }
+    rmSync(tempDir, { recursive: true, force: true })
+  } else {
+    try {
+      results = flattenReport(JSON.parse(readFileSync(reportPath, 'utf8')))
+    } catch {
+      console.error(`e2e gate: ${reportPath} is not a readable Playwright JSON report.`)
+      process.exit(1)
+      return
+    }
   }
 
-  /** @type {unknown} */
-  let report
-  try {
-    report = JSON.parse(readFileSync(jsonFile, 'utf8'))
-  } catch {
-    console.error('e2e gate: playwright produced no JSON report — the run itself failed.')
-    if (ranOutput !== '') console.error(ranOutput.slice(-4000))
-    if (tempDir !== '') rmSync(tempDir, { recursive: true, force: true })
-    process.exit(1)
-    return
-  }
-  if (tempDir !== '') rmSync(tempDir, { recursive: true, force: true })
-
-  const results = flattenReport(report)
   const roadmapFile = resolve(process.cwd(), 'ROADMAP.md')
   const verdict = e2eGateVerdict({
     results,
@@ -291,7 +382,14 @@ async function main() {
   }
   if (!verdict.ok) {
     console.error(`e2e gate: RED — ${verdict.problems.length} problem(s) over ${ran} test(s).`)
-    for (const problem of verdict.problems) console.error(`  ${problem}`)
+    for (const problem of verdict.problems) {
+      console.error(`  ${problem}`)
+      // The JSON report is deleted with the temp dir, and a failure under
+      // full-suite load may not reproduce on a re-run, so the message goes
+      // out with the verdict or it is gone.
+      const failure = results.find((r) => r.failed && problem.endsWith(`${r.spec} › ${r.title}`))
+      if (failure !== undefined && failure.error !== '') console.error(`    ${failure.error}`)
+    }
     console.error('  Expected-red specs are declared in e2e/expected-red.json, never in a comment.')
     process.exit(1)
     return

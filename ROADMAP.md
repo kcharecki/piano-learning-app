@@ -187,7 +187,7 @@ Full histories of completed tasks: `docs/roadmap-archive-*.md` and git history.
       *Proof: every item any kind and level can generate names only notes the panel draws - a
       property over the generator against the keyboard's own bounds.*
 
-- [ ] T.26 **`osmd-teardown.spec.ts` fails under full-suite load and passes alone.**
+- [x] T.26 **`osmd-teardown.spec.ts` fails under full-suite load and passes alone.**
       Found during /improve-app run 2026-08-24-1's experience gate. The spec throttles the CPU to
       engrave a large score, then waits `SETTLE_MS`; alone on its own port it passes in **49.2s**
       against a **60s** test timeout, and in the full `npm run test:e2e` run (6 workers) it times
@@ -196,6 +196,18 @@ Full histories of completed tasks: `docs/roadmap-archive-*.md` and git history.
       spec in the suite whose pass depends on how many other specs are running.
       *Proof: the spec's own timing is measured rather than waited out - it asserts the teardown
       threw nothing without a wall-clock settle that competes with the rest of the suite.*
+      **Closed 2026-09-07, and the proof line above is only half done — say so rather than round
+      up.** The wall-clock settle is still there: the spec has to wait for an abandoned engrave to
+      finish in the background, because "nothing threw during teardown" is a claim about a window
+      of real time and there is no signal to measure instead. What is gone is the second half of
+      that sentence — *competes with the rest of the suite*. `scripts/e2e-gate.mjs` now runs
+      `@serial`-tagged specs in a second pass, two workers wide, so this one no longer throttles
+      its own CPU 12x while eleven other browsers hold the machine. Measured: three consecutive
+      full gate runs on an idle machine before the change went **RED, RED, green** — both reds
+      this spec, timing out at 60s, both surviving the retry — and three after went **green,
+      green, green with zero flaky**, at 118-122s per run against 154-159s before. The suite got
+      faster as well as honest, because the two specs that were burning a retry each are no longer
+      failing first.
 
 - [x] T.27 `npm run verify:full` was red on `knip:prod:all` since `d6e1af9`, so it never reached
       `test:e2e` — the step T.18 is about. Closed in `e832ea5`; `verify:full` now exits 0 (243
