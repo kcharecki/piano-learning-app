@@ -152,6 +152,191 @@ struck out when the learner's own later answer contradicts it, never because it 
 
 ## Runs
 
+## Run 2026-09-06-2
+
+- **Persona:** Confident intermediate — can read and play, wants theory that survives contact with a teacher (piano)
+- **Tier:** Floor
+- **Pick source:** 1c
+- **Pick gap:** The cadence drill accepts exactly one voicing, and the one it accepts has no fifth — a textbook-correct PAC is marked `Not quite`
+- **Previous pick source:** 1d
+- **Class:** MIS-GRADED
+- **Claim:** After this ships, a learner who is on the Theory screen's Cadence topic will be able to play a perfect authentic cadence the way a teacher writes one — the dominant, then a complete root-position tonic triad with the tonic as the highest voice — and be told they are right, and when they are wrong the answer the drill names will be a tonic chord that has its fifth; and we will know because the Theory drills screen answers `Correct` to `G4 B4 D5, C4 E4 G4 C5` in C major, where today it answers `Not quite — it was G4 + B4 + D5, C4 + E4 + C5` (drive arm C, 2026-09-07).
+- **Refutation condition:** Play, through the real on-screen keyboard on `/theory` with Topic = Cadence at level 1, a perfect authentic cadence in the key the prompt names, deriving the notes from `chordForRomanNumeral`/`chordMidi` and never from a hardcoded pitch list, and demand `Correct` plus a scheduled card; then, in a fresh context, play the IMPERFECT realisation — the same chords with the fifth on top — and demand `Not quite` and demand the answer the drill NAMES contains the fifth. Both arms must pass; a fix that buys arm 1 by loosening the grader into "the right pitch classes in any arrangement" fails arm 2.
+- **Metric:** PersistedFlashcards.cardsById
+- **Baseline:** 5
+- **Endorsement:** n/a — Floor tier
+- **Outcome:** shipped-not-clean
+- **Thread:** pac-voice-leading, run 1 of 3
+
+  *On the Metric field.* The checker takes a bare declared field, so the counting rule cannot
+  live on that line: read `cardsById['build-cadence-perfect-authentic-C'].lapses`, and only
+  on an attempt that is musically correct: the defect was that a right answer booked an `again`
+  review, so a falling count means nothing on its own and a rising one is only evidence when the
+  attempt that raised it deserved to pass. Round 2's BLOCKER was found exactly this way — the
+  card moved 12 to 13 on a correct dominant whose leading tone had been struck twice.
+
+### Ledger
+
+| Gap | Source | Class | Blocked | Reach | Teacherliness | Unmatchable | Sum | Cost |
+|---|---|---|---|---|---|---|---|---|
+| Repertoire play discards every dynamic — `ScoreNoteInput.velocity` is captured, validated, stored and read by nothing, so a piece played at one flat volume is graded identically to one shaped | 1e | VOID | 1 | 2 | 3 | 1 | 7 | M |
+| The cadence drill accepts exactly one voicing, and the one it accepts has no fifth — a textbook-correct PAC is marked `Not quite` | 1c | MIS-GRADED | 2 | 2 | 3 | 1 | 8 | S |
+| The session planner reads neither the onboarding goal nor the persisted level — "experienced" + "theory" and `levelState` level 3 with `overridden: true` still produce a level-1 five-finger plan and zero theory minutes | 1c | MIS-GATED | 2 | 3 | 2 | 1 | 8 | M |
+| Pedalling is captured and never shown — `MidiSustain.down` reaches the app and nothing reads it | 1e | VOID | 1 | 1 | 3 | 1 | 6 | M |
+| Ear training keeps `EarItem.contextKey` / `contextTonicMidi` and never plays or names the key an interval sits in | 1e | VOID | 1 | 2 | 2 | 1 | 6 | M |
+| No transposition drill of any kind (ABRSM Gr5 theory item 4; `transposeMelody` and every spelling: no hits) | 1d | VOID | 1 | 2 | 2 | 1 | 6 | M |
+| No ornament recognition (Gr5 item 11), no terms-and-signs drill (item 10), no clef beyond treble/bass (item 3) | 1d | VOID | 1 | 1 | 2 | 1 | 5 | L |
+| No melody-harmonisation drill — "choice of suitable chords at cadential points" (Gr5 item 8) is the applied half of the cadence topic and is absent | 1d | VOID | 1 | 1 | 2 | 1 | 5 | M |
+| `AssessmentResult.counts` written and never read — the assessment says a verdict and cannot say what it counted | 1e | BLIND | 1 | 1 | 2 | 0 | 4 | S |
+| The theory drill's typing hint offers `A S D F G H J K L ;` = MIDI 48–64 (C3–E4); every cadence answer needs G4–D5, so the offered input cannot answer the prompt it is offered under | 1c | UNREACHABLE | 1 | 1 | 1 | 0 | 3 | S |
+| Tuplets are parsed, stored and engraved; `Tuplet.actual` is read by nothing and no drill asks for an irregular division (Gr5 item 2) | 1e | THIN | 0 | 1 | 1 | 1 | 3 | M |
+
+Raw leader is the velocity row at 7 + age 3 = 10; the pick is the cadence row at 8, because the
+**continue-then-rotate** rule fired: `2026-08-24-1`, the previous run on this instrument, named
+`T.23` as its continuation in writing, so that continuation **is** the pick and source rotation
+does not apply. Harm gate did not fire — a false fact drilled daily is MIS-GRADED, not the
+physical or attentional defect HARMFUL requires. Prerequisites-win did not fire: `buildChord`,
+`Chord` and `SpelledPitch` are all shipped. Innovation quota did not fire: piano's last pick was
+BLIND, one miss, and the quota needs two consecutively. Register cadence not due — piano run 3.
+
+### Interview
+
+no answer this run. The learner set a standing goal ("I will not be available to answer your
+questions or make decisions") before the run started, so no reply arrived and none was simulated.
+
+### Orphan signals
+
+Top 12 of 211, all at age 3 (`node scripts/orphan-signals.mjs`):
+
+```
+A     TheoryQuizItem.answerSummary                     src/core/drills/theory.ts:134        HIGH   3
+B     MidiControlChange.controller                     src/core/ports/midi.ts:37            HIGH   3
+D     ScoreNoteInput.velocity ?? DEFAULT_VELOCITY      src/core/notation/score.ts:163       HIGH   3
+A     EarSessionState.cards                            src/core/eartraining/session.ts:107  HIGH   3
+B     MidiPolyAftertouch.pressure                      src/core/ports/midi.ts:50            HIGH   3
+A     EarItem.contextKey                               src/core/eartraining/item.ts:86      HIGH   3
+B     Tuplet.actual                                    src/core/notation/tuplet.ts:21       HIGH   3
+A     EarItem.contextTonicMidi                         src/core/eartraining/item.ts:56      HIGH   3
+B     PersistedAnnotations.byScoreId                   src/app/state/persistedShapes.ts:56  HIGH   3
+A     AssessmentResult.counts                          src/core/practice/assessment.ts:70   HIGH   3
+A     MatchResult.expected -> ScoreNote.durationTicks  src/core/notation/score.ts:60        LOW    3
+B     MidiSustain.down                                 src/core/ports/midi.ts:24            LOW    3
+```
+
+`ScoreNoteInput.velocity` is the ledger's raw leader and is now filed as `T.36`; five more of
+these rows are ledger entries above. Nothing here is new this run — every row is at age 3, which
+is itself the finding: the orphan list has not moved in three runs.
+
+### Panel
+
+**Round 1 — Skeptic (Opus): 2 BLOCKER, 1 MAJOR, 1 MINOR.** Duty-0a sabotage passed: the
+condition failed against a sabotaged tree, so it is not vacuous.
+
+- BLOCKER, root position was checked only on `'perfect-authentic'`, so a plagal cadence answered
+  `F4 A4 C5` then `E4 G4 C5` — an inverted tonic — was told `Correct`. **Fixed** `6e48805`.
+- BLOCKER, the grader read "the third" positionally out of `Chord.notes`, which on a
+  second-inversion chord is the fifth. **Fixed** `6e48805`.
+- MAJOR, a dominant with its leading tone doubled and its fifth dropped (`G4 B4 B5`) was accepted.
+  **Fixed** `6e48805`. The second half of the same finding — a final tonic with a doubled third
+  and no fifth (`C4 E4 E5 C6`) — was **deliberately not changed**: doubling a major triad's third
+  is ordinary four-part writing, and round 2 was told to attack that decision, and upheld it.
+- MINOR, the file header claimed blanket octave-insensitivity, which cadences do not have.
+  **Fixed** `101336f`.
+
+**Round 1 — Regression hunter (Sonnet): 1 MAJOR.** The fifth-less final tonic the grader is
+written to accept could not be entered at all, because the panel closed a group on the reveal's
+note count and hung at `1 / 2`. **Fixed** `101336f`, by making the learner close a cadence chord.
+Inference was tried first and rejected on evidence: closing when the grader would accept what is
+played cuts a four-voice dominant at three notes, closing on a foreign pitch class leaves a wrong
+final chord never terminating, and IV's own C is also I's root so a plagal cadence mis-cuts either
+way. That reasoning is written into the file header so it is not re-derived.
+
+**Round 2 — Skeptic (Opus): 1 BLOCKER, 1 MAJOR, 1 MINOR.** Re-ran all six earlier repros and
+confirmed each FIXED. Judged the refutation condition's arm-2 revert "a strengthening, not a
+weakening".
+
+- BLOCKER, an interaction between the run's own two fix commits: `6e48805` counted leading-tone
+  doublings over the raw press list and `101336f` started holding repeats in the buffer, so one
+  key struck twice was graded a doubled leading tone — driven live, `lapses` 12 to 13 on a correct
+  dominant, while the same double press on the root was free. **Fixed** `9c77e95`.
+- MAJOR, the cadence buffer was invisible and uneditable — a count with no names and no way to
+  take a press back, so a slip could only be submitted or abandoned. **Fixed** `9c77e95`.
+- MINOR, the refusal names notes and never the rule, and the conventions it polices are not the
+  ones the prompt states. **Filed `T.39`** — the feedback string is a content change wider than
+  this slice.
+
+**Round 2 — Regression hunter (Sonnet): nothing found.** Re-ran all six round-1 repros
+independently and reached the same verdicts. New attempts round 1 did not make: the deceptive
+cadence driven live for the first time in both a correct and an incorrect arm, and the Progress
+screen — the neighbouring screen reading the same SRS store this diff writes into — driven and
+visual-passed. It traced one suspicious observation (the Progress "Theory retention" widget
+showing an empty state after real cadence activity) to a deliberate pre-existing prefix filter in
+`useDashboard.ts`, untouched by this diff, and correctly declined to file it.
+
+**The BLOCKER count fell 2 to 1.** Floor tier allows one re-panel, so round 2 was the last, and
+`9c77e95` — which closes that BLOCKER and that MAJOR — has been reviewed by no seat. That is the
+whole reason this run is `shipped-not-clean` and not `clean`, and it is a real gap, not a
+formality: the fixes carry a mutation check, an e2e arm and a visual pass, but not an adversarial
+read.
+
+### Proof
+
+RED at the spec commit `ea98a39`, in a detached worktree on `E2E_PORT=5391`:
+
+```
+  2 failed
+    [chromium] improve-T.23.spec.ts:101:1 a perfect authentic cadence played the way a teacher writes one is marked correct (T.23)
+    [chromium] improve-T.23.spec.ts:125:1 an imperfect authentic cadence is still refused, and the answer named has its fifth (T.23)
+RED EXIT: 1
+```
+
+GREEN on HEAD, `E2E_PORT=5392`:
+
+```
+  ok 3 an imperfect authentic cadence is still refused, and the answer named has its fifth (T.23) (1.4s)
+  ok 2 a perfect authentic cadence played the way a teacher writes one is marked correct (T.23) (1.4s)
+  ok 1 a key struck twice inside one chord is a repeat, not a doubling (panel r2) (1.5s)
+
+  3 passed (3.4s)
+GREEN EXIT: 0
+```
+
+The refutation condition is that spec, both arms, and both pass. `npm run verify` green at HEAD:
+245 files / 4987 tests. Visual pass clean at 1280 and 1024 in both themes, console clean in all
+four, with the Submit and Clear controls captured both empty and holding three named notes. Full
+record in `runs/2026-09-06-2/prove.md`.
+
+### Previous run's metric verdict
+
+**2 events, both scoring zero.** `2026-09-06-1` declared `PersistedDrumsHistory.attempts` against
+a baseline of "0 events, newly instrumented". Read live from IndexedDB `settings.drumsHistory` at
+the close of this run:
+
+```
+2026-09-06T17:13:14.654Z  quarter-note-rock  80bpm  kick 0 of 4 | hhClosed 0 of 8 | snare 0 of 4
+2026-09-06T17:14:47.948Z  quarter-note-rock  80bpm  kick 0 of 4 | hhClosed 0 of 8 | snare 0 of 4
+```
+
+Both predate that run's revert, and both are the same groove, so by its own counting rule there
+is exactly one first-ever attempt and it scored 0 of 16 pads. The instrumentation works; the
+feature it was instrumented to measure was reverted whole, so the number says nothing about
+whether showing the groove helps. **What it means for the next pick:** the drums metric is still
+unanswered and will stay unanswered until DR-05 is rebuilt, so a drums run should not declare a
+new metric before it settles this one.
+
+### Cannot-sense register
+
+none this run
+
+### Next steps
+
+- `T.39` — a cadence refusal names notes but never the rule; this run's only unfixed panel finding.
+- `T.36` — repertoire play discards every dynamic; raw ledger leader at 10, deferred twice by the thread rule, nothing left to defer it.
+- `T.35` — Today's session reads neither the onboarding goal nor the persisted level.
+- `T.37` — the theory drill's typing hint offers a range that cannot answer its own prompt.
+- `T.30` — the drums key draws notehead shape and not staff position; the standing blocker on rebuilding DR-05, without which the drums metric above stays unanswered.
+- `T.24` — the same accidental spelled two ways two lines apart, still open from `2026-08-24-1`; and `ROADMAP.md` is at 93% of its 28000-token budget, so the next run that touches it should expect a compress pass.
+
 ## Run 2026-09-06-1
 
 - **Persona:** Rusty returner — played a kit in a school band, back on an e-drum pad this month, whose goal is to read and play a printed rock groove at 80 bpm without being told it first (drums)

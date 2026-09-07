@@ -501,6 +501,30 @@ export const defaultGit = {
       return ''
     }
   },
+  /**
+   * Source commits made after `isoTs`, newest first, as "<sha> <subject>" lines. Bookkeeping
+   * paths are excluded on purpose: a run's own log, retro, roadmap and run directory are always
+   * written after the last panel, so counting those would make `clean` unreachable for every
+   * run rather than for the runs that actually edited code late.
+   */
+  sourceCommitsSince: (isoTs) => {
+    try {
+      return git([
+        'log',
+        `--since=${isoTs}`,
+        '--format=%h %s',
+        '--',
+        '.',
+        ':(exclude)docs',
+        ':(exclude)runs',
+        ':(exclude)ROADMAP.md',
+      ])
+        .split('\n')
+        .filter(Boolean)
+    } catch {
+      return []
+    }
+  },
   headChangedPaths: () => {
     try {
       return git(['diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD'])
@@ -1102,6 +1126,26 @@ const cmdFinish = runCommand((args, ctx) => {
         `finish refused: --outcome clean requires zero BLOCKER and zero MAJOR at round ${cleanRound} — ` +
           failing.map((p) => `${p.role} reported ${p.blockers} blocker(s), ${p.majors} major(s)`).join('; ') +
           '. Fix the findings (or ship shipped-not-clean / abort) rather than editing the numbers.',
+      )
+    }
+  }
+
+  // `clean` is the one outcome that claims a round saw everything that shipped. A source commit
+  // landing after the last panel makes that claim false, and until now nothing checked it: this
+  // loop's last two runs both had their most interesting defect in a FIX rather than in the
+  // slice, which is exactly the code a tier's final round cannot reach. Not applied to
+  // `shipped-not-clean` or `abort` — neither claims review, and refusing them would push the
+  // late fix off the branch instead of into the log.
+  if (outcome === 'clean') {
+    const lastPanel = runEvents.filter((e) => e.event === 'panel').at(-1)
+    const late = lastPanel === undefined ? [] : ctx.git.sourceCommitsSince(lastPanel.ts)
+    if (late.length > 0) {
+      throw new RuleViolation(
+        `finish refused: --outcome clean claims round ${cleanRound} reviewed what ships, but ` +
+          `${late.length} source commit(s) landed after the last panel (${lastPanel.ts}): ` +
+          late.join('; ') +
+          '. Re-panel those commits, or finish as `shipped-not-clean` and say in the log that ' +
+          'they shipped unreviewed.',
       )
     }
   }

@@ -182,7 +182,12 @@ node scripts/improve-run.mjs finish --outcome <clean|shipped-not-clean|abort> [-
 ```
 
 `finish` refuses without the marks, the verdict, the spec, the slice, a full seat sweep at the
-declared clean round, and a falling BLOCKER count. Then the `docs/PROCESS.md` retro in
+declared clean round, and a falling BLOCKER count. It also refuses `clean` when any **source**
+commit landed after the last panel event — `clean` claims a round saw what ships, and a fix
+written after that round was read by nobody. Bookkeeping paths (`docs/`, `runs/`, `ROADMAP.md`)
+do not count, since every run writes those last. `shipped-not-clean` and `abort` are unaffected:
+neither claims review, and blocking them would push the late fix off the branch instead of into
+the log, where it has to be named. Then the `docs/PROCESS.md` retro in
 `docs/retro-log.md`, then release every claim taken at §0 and §2:
 
 ```bash

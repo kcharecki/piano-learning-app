@@ -30,6 +30,7 @@ function cleanGit(overrides = {}) {
     headSha: () => 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef',
     headChangedPaths: () => [],
     verifyCommit: () => true,
+    sourceCommitsSince: () => [],
     showFile: () => "test('spec', () => { expect(1).toBe(1) })",
     ...overrides,
   }
@@ -632,6 +633,39 @@ describe('blocker ratchet', () => {
     expect(runCli(['status', '--ledger', ledger, '--now', now], { git }).stdout.join(' ')).not.toMatch(/did not fall/)
     expectExit(
       runCli(['finish', '--outcome', 'clean', '--clean-round', '2', '--ledger', ledger, '--now', now], { git }),
+      0,
+    )
+  })
+
+  it('refuses clean when a source commit landed after the last panel', () => {
+    const { ledger, now, panelDir, file, git } = runReadyForPanels()
+    floorPanelSweep(ledger, now, git, panelDir, file, 1, { blockers: 3 })
+    floorPanelSweep(ledger, now, git, panelDir, file, 2, { blockers: 0 })
+
+    // The fix for the last round's findings is the code no seat has read. `clean` claims that
+    // round saw what ships, so it has to see this.
+    const lateGit = cleanGit({
+      sourceCommitsSince: () => ['9c77e95 fix(theory): a re-struck key is one note'],
+    })
+    const late = runCli(
+      ['finish', '--outcome', 'clean', '--clean-round', '2', '--ledger', ledger, '--now', now],
+      { git: lateGit },
+    )
+    expectExit(late, 1)
+    expect(late.stderr.join(' ')).toMatch(/landed after the last panel/)
+    expect(late.stderr.join(' ')).toMatch(/9c77e95/)
+  })
+
+  it('lets the same late commit finish as shipped-not-clean — that outcome claims no review', () => {
+    const { ledger, now, panelDir, file, git } = runReadyForPanels()
+    floorPanelSweep(ledger, now, git, panelDir, file, 1, { blockers: 3 })
+    floorPanelSweep(ledger, now, git, panelDir, file, 2, { blockers: 1 })
+
+    const lateGit = cleanGit({
+      sourceCommitsSince: () => ['9c77e95 fix(theory): a re-struck key is one note'],
+    })
+    expectExit(
+      runCli(['finish', '--outcome', 'shipped-not-clean', '--ledger', ledger, '--now', now], { git: lateGit }),
       0,
     )
   })

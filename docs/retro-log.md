@@ -16,6 +16,86 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
+## 2026-09-07 (/improve-app run 2026-09-06-2) — the first ship in four runs, and the last fix nobody read
+
+- **user-reported defects since last session:** 0.
+- **slices proven / started:** 1 / 1. `T.23` (MIS-GRADED, piano, tier Floor) — the cadence drill
+  accepted exactly one voicing, and the one it accepted had no fifth. Four commits on `master`,
+  outcome `shipped-not-clean`. First run since `2026-08-24-1` to ship anything, and the first
+  since then to close the roadmap row it picked.
+- **gate catches before commit:** 5.
+  1. **Round 1's Skeptic found two BLOCKERs in the slice**, both real: root position was
+     enforced only on `'perfect-authentic'`, so an inverted tonic passed a plagal cadence; and
+     "the third" was read positionally out of `Chord.notes`, which on a second-inversion chord is
+     the fifth. Neither is visible from the tests that were green when the slice was committed.
+  2. **Round 1's Regression hunter found the fix's own input path unusable** — the grader now
+     accepted a fifth-less final tonic that the panel made unenterable, because a group closed on
+     the reveal's note count. The slice was right and could not be reached.
+  3. **Round 2's Skeptic found a BLOCKER made by the two round-1 fixes together**, not by the
+     slice: one counted doublings over the raw press list, the other started holding repeats in a
+     buffer, so a key struck twice was graded a doubled leading tone. Driven live, `lapses`
+     12 → 13 on a correct dominant. Nothing in either commit is wrong alone.
+  4. **`check-improve-log.mjs` refused the log entry five times** — a Metric naming a field no
+     persisted shape declares, a Claim outside the template shape, a Thread line with prose where
+     the cap goes, a cannot-sense entry that argued instead of saying `none this run`, and a
+     Next-steps line citing no roadmap id. Every one was a real weakening.
+  5. **The visual-pass receipt gate** refused the fix commit, because the pass had been written
+     to a custom `--out` the checker does not read. Right refusal for a slightly wrong reason.
+- **docs budget:** `ROADMAP.md` at 93% of 28000 after `T.39` was filed. Warning, not failure. It
+  is now the top item on the next run's hand-off.
+- **cost note:** `mark 8` recorded **537.9%** of budget, up from 220% last run. Two different
+  causes, worth separating. The first is real: two panel rounds, four seats, each driving the app
+  live, and one seat alone ran 24 minutes and 232 tool calls. The second is not: the main thread
+  sat idle through most of that, because a seat drives the same dev server and the same working
+  tree, so editing source under a live drive would invalidate its evidence. That is a correct
+  constraint and an expensive one — the parallelism the process assumes between seats does not
+  extend to the orchestrator.
+- **hypothesis:** the process measures whether the panel is **converging** and never whether the
+  code that ships was **read**. The ratchet asks "is each round finding fewer BLOCKERs than the
+  last", and this run answered yes, 2 → 1. But a tier's last round is by definition followed by
+  fixes no seat sees, and this run's last two — the doubling BLOCKER and the invisible-buffer
+  MAJOR — shipped with a mutation check, an e2e arm and a visual pass, and no adversarial read at
+  all. That is the second time in two runs that the most interesting defect lived **in a fix
+  rather than in the slice** (`2026-09-06-1`'s round 3 found two faults in `d765c31`, both in the
+  fix, both deleted by the revert an hour later). Fixes are the least-reviewed code in this loop
+  and the process has no line that says so out loud.
+- **change:** `improve-run.mjs finish` now **computes the commits made after the last recorded
+  `panel` event and refuses `--outcome clean` if there are any**, naming them. `clean` is the
+  outcome that claims a round saw everything; a commit landing after that round makes the claim
+  false, and until now nothing checked it — this run reached `clean`-ineligibility by seat counts
+  alone, which is luck, not a gate. `shipped-not-clean` and `abort` are unaffected: they do not
+  claim review, and blocking them would only push the fix off the branch and out of the log.
+  Bookkeeping paths are excluded from the count — `docs/`, `runs/`, `ROADMAP.md` — because a
+  run's own log, retro and roadmap edits are always written after the last panel, and counting
+  those would make `clean` unreachable for every run rather than for the runs that edited code
+  late. Mutation-checked in both directions, one test each: forcing the condition false fails
+  "refuses clean when a source commit landed after the last panel" and nothing else; widening the
+  gate from `clean` to every outcome fails "lets the same late commit finish as
+  shipped-not-clean" and nothing else. 52 other tests are untouched by both.
+  **Review by 2026-12-07 (or 4 `/improve-app` runs):** keep if it refuses a `clean` that a
+  post-panel fix would have made untrue; revert if it only ever fires on runs that would have
+  been ineligible for `clean` anyway on seat counts, which would make it a second lock on a door
+  the ratchet already holds.
+- **experiment verdicts due:**
+  - **BLOCKER-count ratchet** (review-by 2026-10-05 / 4 runs) — **not yet due** (3 runs since,
+    calendar date a month out). Second live firing opportunity and it did not fire: 2 → 1 is a
+    fall, `panel` printed no warning, and `finish` allowed `shipped-not-clean`. That is the first
+    evidence the ratchet distinguishes convergence from non-convergence rather than simply
+    stopping runs, which is what the abort-heavy record so far could not show.
+  - **The `panel`-refuses-after-latch gate** added last run (review-by 2026-11-06) — **not due,
+    and it did not fire**, because the ratchet never latched. Untested in anger, still.
+  - Nothing else is due. Nearest are the third-party-render gate (2026-09-20) and the
+    `verify:full` reorder (2026-09-24).
+
+**What shipping-not-clean actually bought.** `T.23` is closed with the property test its row
+asked for — every key and every cadence type the generator draws, the leading tone of a perfect
+authentic cadence has the semitone above it in the final chord — exhausting the draw rather than
+restating the key list, so a generator that widens past today's 15 keys stays covered. `T.38` is
+closed by the same run that filed it. `T.39` is filed and is the only unfixed panel finding. And
+the run leaves one thing it did not have before: a cadence drill that grades the cadence rather
+than one voicing, which is the difference between a drill a teacher would recognise and a drill
+that teaches a false fact once a day.
+
 ## 2026-09-06 (/improve-app run 2026-09-06-1) — the third abort, and a stop condition that fired and was ignored
 
 - **user-reported defects since last session:** 0.
