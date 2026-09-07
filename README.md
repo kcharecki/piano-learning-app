@@ -26,6 +26,22 @@ Web MIDI is not available in Safari or Firefox.
 | `npm run verify` | Typecheck + lint + all tests. The gate before every commit. |
 | `npm run checkpoint` | Verify, then commit. |
 | `npm run dev` / `build` | Vite dev server / production build. |
+| `npm run preview` | Serves the production build on the deployed base path. |
+
+## Hosted build
+
+Every push to `master` builds and publishes to GitHub Pages via
+[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml):
+
+**https://kcharecki.github.io/piano-learning-app/**
+
+It is the same app — the whole thing is static, all content is bundled at build time, and every
+learner record lives in that browser's IndexedDB. So the hosted copy shares no data with a local
+one, and a MIDI keyboard still needs Chrome or Edge.
+
+Because Pages serves the app from a repository subpath, the production build sets
+`base: '/piano-learning-app/'` (`vite.config.ts`); the dev server stays on `/`. Enabling this once
+in the repository requires **Settings → Pages → Source: GitHub Actions**.
 
 ## How it is built
 

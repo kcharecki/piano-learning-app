@@ -4,15 +4,39 @@
     {
       "name": "dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "port": 5173
     },
     {
       "//": "Second port for a parallel session (docs/WORKTREES.md): the main checkout holds 5173, so a concurrent session that needs its own browser drives this one instead of fighting for it.",
       "name": "dev-alt",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--", "--port", "5273", "--strictPort"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5273",
+        "--strictPort"
+      ],
       "port": 5273
+    },
+    {
+      "//": "Serves the PRODUCTION build (dist/) on the GitHub Pages base path, so a deploy change can be driven before it ships. Run `npm run build` first; the app lives at http://localhost:4173/piano-learning-app/.",
+      "name": "preview",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "preview",
+        "--",
+        "--port",
+        "4173",
+        "--strictPort"
+      ],
+      "port": 4173
     }
   ]
 }

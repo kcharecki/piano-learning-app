@@ -18,9 +18,16 @@
  * `App.tsx`'s async `restoreSession` ever runs — already lands on whichever
  * instrument the learner left off in. See `instrumentStore.ts`'s module
  * comment for the full reasoning and its honest limit.
+ *
+ * Every path crossing the boundary between `route.ts` and the History API
+ * goes through `basePath.ts`. Route paths are rooted at `/`; browser paths
+ * are rooted at wherever the app is hosted, which on GitHub Pages is
+ * `/piano-learning-app/`. Skipping that translation makes the deployed app
+ * fall back to the default screen on every reload and deep link.
  */
 import { useCallback, useEffect, useState } from 'react'
 import { parseAppRoute, serializeAppRoute, type AppRoute } from './route.ts'
+import { BASE_URL, toBrowserPath, toRoutePath } from './basePath.ts'
 import { readInstrumentHint } from '@app/state/instrumentStore.ts'
 
 export type NavigateOptions = {
@@ -37,7 +44,7 @@ export type UseRouteResult = {
 }
 
 function currentAppRoute(): AppRoute {
-  return parseAppRoute(window.location.pathname, readInstrumentHint())
+  return parseAppRoute(toRoutePath(window.location.pathname, BASE_URL), readInstrumentHint())
 }
 
 export function useRoute(): UseRouteResult {
@@ -48,7 +55,7 @@ export function useRoute(): UseRouteResult {
     // the route it fell back to (an unknown path, or a bare `/`) — replace
     // it so the address bar shows the real destination without adding a
     // Back-button stop for a URL the learner never actually chose.
-    const canonical = serializeAppRoute(route)
+    const canonical = toBrowserPath(serializeAppRoute(route), BASE_URL)
     if (window.location.pathname !== canonical) {
       window.history.replaceState(null, '', canonical)
     }
@@ -66,7 +73,7 @@ export function useRoute(): UseRouteResult {
   }, [])
 
   const navigate = useCallback((next: AppRoute, options?: NavigateOptions): void => {
-    const path = serializeAppRoute(next)
+    const path = toBrowserPath(serializeAppRoute(next), BASE_URL)
     if (options?.replace === true) {
       window.history.replaceState(null, '', path)
     } else {
