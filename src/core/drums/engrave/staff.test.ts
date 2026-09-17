@@ -3,11 +3,21 @@ import { describe, expect, it } from 'vitest'
 import { at, invariant } from '@core/shared/invariant.ts'
 import { measureDurationTicks } from '@core/notation/score.ts'
 import { SIXTEENTH } from '@core/shared/units.ts'
-import { makeGrooveScore, type DynamicsClass, type GrooveScoreInput } from '@core/drums/model/groove.ts'
+import { makeGrooveScore, type DynamicsClass, type GrooveScore, type GrooveScoreInput } from '@core/drums/model/groove.ts'
 import { MAPPED_PADS, type MappedDrumPad } from '@core/drums/model/pad.ts'
 import { ghostFunkBar, moneyBeat, moneyBeatOpenHat, quarterNoteRock } from '@core/drums/model/referenceGrooves.ts'
 import { engraveGroove } from './staff.ts'
-import { CLEF_WIDTH, REPEAT_BARLINE_RESERVE, SLOT_WIDTH, TIME_SIGNATURE_WIDTH, type EngravedNote, type StaffLayout } from './layout.ts'
+import {
+  CLEF_WIDTH,
+  COUNT_ROW_DESCENT,
+  REPEAT_BARLINE_RESERVE,
+  SLOT_WIDTH,
+  STICKING_ROW_DESCENT,
+  STICKING_ROW_GAP,
+  TIME_SIGNATURE_WIDTH,
+  type EngravedNote,
+  type StaffLayout,
+} from './layout.ts'
 
 // -------------------------------------------------------------------- helpers
 
@@ -635,6 +645,75 @@ describe('engraveGroove — properties', () => {
     fc.assert(
       fc.property(grooveScoreArb, (score) => {
         expect(engraveGroove(score)).toEqual(engraveGroove(score))
+      }),
+    )
+  })
+})
+
+// ------------------------------------------------------------ sticking row
+
+/** `grooveScoreArb`'s notes never set `sticking` — this is the one thing that adds it, uniformly. */
+function withStickingOnEveryNote(score: GrooveScore): GrooveScore {
+  return {
+    ...score,
+    notes: score.notes.map((note, i) => ({ ...note, sticking: i % 2 === 0 ? ('R' as const) : ('L' as const) })),
+  }
+}
+
+describe('engraveGroove — sticking row (roadmap DR-10)', () => {
+  it('produces no stickings, and the pre-DR-10 height (count row + its own descent, nothing more), when no note carries one', () => {
+    fc.assert(
+      fc.property(grooveScoreArb, (score) => {
+        const layout = engraveGroove(score)
+        expect(layout.stickings).toHaveLength(0)
+        if (layout.counts.length > 0) {
+          const countRowY = Math.max(...layout.counts.map((c) => c.y))
+          expect(layout.height).toBeCloseTo(countRowY + COUNT_ROW_DESCENT)
+        }
+      }),
+    )
+  })
+
+  it("adds one sticking entry per note, at that note's own x, sharing one y, when every note carries one", () => {
+    fc.assert(
+      fc.property(grooveScoreArb, (score) => {
+        if (score.notes.length === 0) return
+        const stuck = withStickingOnEveryNote(score)
+        const plain = engraveGroove(score)
+        const layout = engraveGroove(stuck)
+
+        expect(layout.stickings).toHaveLength(stuck.notes.length)
+        const ys = new Set(layout.stickings.map((s) => s.y))
+        expect(ys.size).toBe(1)
+
+        const noteById = new Map(layout.notes.map((n) => [n.id, n]))
+        for (const sticking of layout.stickings) {
+          const note = noteById.get(sticking.noteId)
+          invariant(note !== undefined, `no engraved note for sticking ${sticking.noteId}`)
+          expect(sticking.x).toBe(note.x)
+          expect(sticking.letter).toBe(note.sticking)
+        }
+
+        // The row costs exactly its own reserved band — nothing more, nothing
+        // that also nudges the notes, the staff or the count row.
+        expect(layout.height - plain.height).toBeCloseTo(STICKING_ROW_GAP + STICKING_ROW_DESCENT)
+        expect(layout.width).toBe(plain.width)
+        expect(layout.notes.map((n) => n.x)).toEqual(plain.notes.map((n) => n.x))
+        expect(layout.counts).toEqual(plain.counts)
+      }),
+    )
+  })
+
+  it('every sticking y sits below the count row and within the canvas', () => {
+    fc.assert(
+      fc.property(grooveScoreArb, (score) => {
+        if (score.notes.length === 0) return
+        const layout = engraveGroove(withStickingOnEveryNote(score))
+        const countY = Math.max(...layout.counts.map((c) => c.y))
+        for (const sticking of layout.stickings) {
+          expect(sticking.y).toBeGreaterThan(countY)
+          expect(sticking.y).toBeLessThanOrEqual(layout.height)
+        }
       }),
     )
   })

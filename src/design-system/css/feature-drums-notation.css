@@ -173,6 +173,16 @@
   font-size: 1.3px;
 }
 
+/* ---------- Sticking row (roadmap DR-10) ----------
+   Sits below the count row, in the band `staff.ts` reserves for it
+   (`STICKING_ROW_GAP`/`STICKING_ROW_DESCENT`). `aria-hidden` on the whole row
+   is set in the component, same reasoning as the count row above it. */
+.groove-sticking {
+  fill: var(--text-3);
+  font-family: var(--font-ui);
+  font-size: 1.3px;
+}
+
 /* ---------- Drum key ----------
    The legend under a `GrooveStaff` (roadmap DR-05): one row per pad the
    score actually uses, in staff order. A wide screen lays rows out as a

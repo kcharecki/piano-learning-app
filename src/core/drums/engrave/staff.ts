@@ -51,6 +51,7 @@
 import { at, invariant } from '@core/shared/invariant.ts'
 import { measureDurationTicks } from '@core/notation/score.ts'
 import { TICKS_PER_QUARTER } from '@core/shared/units.ts'
+import type { Sticking } from '@core/drums/model/articulation.ts'
 import type { DynamicsClass, GrooveNote, GrooveScore } from '@core/drums/model/groove.ts'
 import { staffPositionOf, type MappedDrumPad, type Notehead, type StaffStep, type Voice } from '@core/drums/model/pad.ts'
 import {
@@ -67,6 +68,8 @@ import {
   RIGHT_MARGIN,
   SLOT_WIDTH,
   STEM_LENGTH,
+  STICKING_ROW_DESCENT,
+  STICKING_ROW_GAP,
   TIME_SIGNATURE_WIDTH,
   type EngraveOptions,
   type EngravedBeam,
@@ -75,6 +78,7 @@ import {
   type EngravedLine,
   type EngravedNote,
   type EngravedRest,
+  type EngravedSticking,
   type NoteMark,
   type StaffLayout,
 } from './layout.ts'
@@ -230,6 +234,7 @@ type DraftNote = {
   readonly voice: Voice
   readonly dynamics: DynamicsClass
   readonly marks: NoteMark[]
+  readonly sticking: Sticking | undefined
   stemToY: number
   flags: number
   markAnchorY: number
@@ -249,6 +254,7 @@ function draftNotes(score: GrooveScore, staffTopY: number, x: (tick: number) => 
       voice: note.voice,
       dynamics: note.dynamics,
       marks: marksOf(note),
+      sticking: note.sticking,
       stemToY: 0, // placeholder — assignBaseStems fills every note before this is ever read
       flags: 0, // placeholder — assignFlags fills every note once beaming is known
       markAnchorY: 0, // placeholder — assignMarkAnchors fills every note once stemToY is final
@@ -579,11 +585,25 @@ export function engraveGroove(score: GrooveScore, options: EngraveOptions = {}):
     stemToY: d.stemToY,
     flags: d.flags,
     markAnchorY: d.markAnchorY,
+    ...(d.sticking === undefined ? {} : { sticking: d.sticking }),
   }))
+
+  // The sticking row sits below the count row's own reserved descent — see
+  // `STICKING_ROW_GAP`'s doc. It costs no height at all when no note in the
+  // score carries a sticking, which is what keeps `engraveGroove` on a score
+  // with no stickings and on the same score with every sticking stripped
+  // byte-identical.
+  const stickingRowY = countRowY + COUNT_ROW_DESCENT + STICKING_ROW_GAP
+  const stickings: EngravedSticking[] = notes
+    .filter((n): n is EngravedNote & { sticking: NonNullable<EngravedNote['sticking']> } => n.sticking !== undefined)
+    .map((n) => ({ noteId: n.id, x: n.x, y: stickingRowY, letter: n.sticking }))
 
   return {
     width: finalBarlineX + RIGHT_MARGIN,
-    height: countRowY + COUNT_ROW_DESCENT,
+    height:
+      stickings.length > 0
+        ? stickingRowY + STICKING_ROW_DESCENT
+        : countRowY + COUNT_ROW_DESCENT,
     staffLines: buildStaffLines(staffTopY, finalBarlineX),
     barlines: buildBarlines(score, x, finalBarlineX),
     timeSignature: {
@@ -596,6 +616,7 @@ export function engraveGroove(score: GrooveScore, options: EngraveOptions = {}):
     beams,
     rests: buildRests(score, staffTopY, x),
     counts: buildCounts(score, gridStep, countRowY, x),
+    stickings,
     playCount,
     repeatLabel:
       playCount > 1

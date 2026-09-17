@@ -23,6 +23,7 @@ import type {
   EngravedLine,
   EngravedNote,
   EngravedRest,
+  EngravedSticking,
   EngravedTimeSignature,
   NoteMark,
   StaffLayout,
@@ -288,6 +289,32 @@ function CountRow({ counts }: { readonly counts: readonly EngravedCount[] }): Re
 }
 
 /**
+ * The sticking row (roadmap DR-10): one "R"/"L" letter under each note that
+ * carries one, at the row `staff.ts` reserved below the count row. Decorative
+ * to a screen reader, same reasoning as `CountRow` — the figure's own
+ * `aria-label` is the accessible statement of the pattern, not this row.
+ */
+function StickingRow({ stickings }: { readonly stickings: readonly EngravedSticking[] }): ReactElement | null {
+  if (stickings.length === 0) return null
+  return (
+    <g className="groove-sticking-row" aria-hidden="true">
+      {stickings.map((sticking) => (
+        <text
+          key={sticking.noteId}
+          className="groove-sticking"
+          x={sticking.x}
+          y={sticking.y}
+          textAnchor="middle"
+          data-note-id={sticking.noteId}
+        >
+          {sticking.letter}
+        </text>
+      ))}
+    </g>
+  )
+}
+
+/**
  * The meter, stated once at the head of the staff. `ts.y` is the top staff
  * line's own `y` (the contract in `layout.ts`); the two digits stack over
  * the staff's middle, one per half, so they read the way a printed time
@@ -418,6 +445,7 @@ export function GrooveStaff({ layout, label, grooveId }: GrooveStaffProps): Reac
         <Note key={note.id} note={note} />
       ))}
       <CountRow counts={layout.counts} />
+      <StickingRow stickings={layout.stickings} />
       {layout.repeatLabel !== undefined && (
         <g className="groove-repeat-label-group" aria-hidden="true">
           <text

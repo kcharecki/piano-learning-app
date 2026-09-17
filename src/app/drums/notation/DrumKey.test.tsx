@@ -89,6 +89,7 @@ function layoutWith(notes: readonly EngravedNote[]): StaffLayout {
     beams: [],
     rests: [],
     counts: [],
+    stickings: [],
     playCount: 1,
     repeatLabel: undefined,
   }

@@ -50,6 +50,7 @@
  * opening is stated by the staff beginning, not by a redundant line drawn
  * through the first note of the bar.
  */
+import type { Sticking } from '@core/drums/model/articulation.ts'
 import type { DynamicsClass } from '@core/drums/model/groove.ts'
 import type { MappedDrumPad, Notehead, Voice } from '@core/drums/model/pad.ts'
 
@@ -104,6 +105,8 @@ export type EngravedNote = {
    * downward, so it is just above the notehead.
    */
   readonly markAnchorY: number
+  /** Copied from the score's own `GrooveNote.sticking` when that note has one. */
+  readonly sticking?: Sticking
 }
 
 /**
@@ -184,6 +187,18 @@ export type EngravedRepeatLabel = {
   readonly y: number
 }
 
+/**
+ * One sticking letter drawn under a note, in the sticking row below the count
+ * row (roadmap DR-10). `x` always equals the note's own `x`; every entry in
+ * `StaffLayout.stickings` shares one `y`, the sticking row's baseline.
+ */
+export type EngravedSticking = {
+  readonly noteId: string
+  readonly x: number
+  readonly y: number
+  readonly letter: Sticking
+}
+
 export type StaffLayout = {
   readonly width: number
   readonly height: number
@@ -202,6 +217,14 @@ export type StaffLayout = {
   readonly beams: readonly EngravedBeam[]
   readonly rests: readonly EngravedRest[]
   readonly counts: readonly EngravedCount[]
+  /**
+   * One per note whose `GrooveNote.sticking` is set, in the score's note
+   * order. Empty when no note in the score carries a sticking. When empty,
+   * `height` and every other number in this layout are byte-identical to a
+   * layout of the same score with every sticking stripped — the sticking row
+   * costs nothing when nothing uses it.
+   */
+  readonly stickings: readonly EngravedSticking[]
   /**
    * How many times the drawn music is played through. The figure states one
    * bar; the trainer grades two, so before this the chart and the marking
@@ -302,3 +325,16 @@ export const EDGE_PAD = 0.25
 export const COUNT_ROW_GAP = 1.5
 /** Room below the count row's baseline for the glyphs' descenders and a margin. */
 export const COUNT_ROW_DESCENT = 1.5
+/**
+ * Gap between the count row's own reserved descent and the sticking row's
+ * baseline (roadmap DR-10). Smaller than `COUNT_ROW_GAP`: the count row
+ * itself already provides the separation from the staff's ink, so this only
+ * has to keep the two label rows from touching, not clear a stem or a mark.
+ */
+export const STICKING_ROW_GAP = 1.2
+/**
+ * Room below the sticking row's baseline for a margin. Smaller than
+ * `COUNT_ROW_DESCENT`: a sticking letter is a single bare capital ("R"/"L")
+ * with no descender to clear, unlike the count row's "e"/"&"/"a".
+ */
+export const STICKING_ROW_DESCENT = 0.8

@@ -10,7 +10,10 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { invariant } from '@core/shared/invariant.ts'
 import type { EngravedBeam, EngravedNote, NoteMark, StaffLayout } from '@core/drums/engrave/layout.ts'
 import { MARK_ANCHOR_GAP, MARK_RESERVE, REPEAT_BARLINE_RESERVE, SLOT_WIDTH } from '@core/drums/engrave/layout.ts'
+import { engraveGroove } from '@core/drums/engrave/staff.ts'
 import type { MappedDrumPad, Notehead, Voice } from '@core/drums/model/pad.ts'
+import { rudimentToScore } from '@core/drums/rudiment/score.ts'
+import { rudimentById } from '@content/drums/rudiments.ts'
 import { GHOST_BULGE, GHOST_GAP_X, GrooveStaff } from './GrooveStaff.tsx'
 
 afterEach(cleanup)
@@ -37,6 +40,7 @@ function baseLayout(overrides: Partial<StaffLayout> = {}): StaffLayout {
       { text: '1', x: 4, y: 11.5 },
       { text: 'e', x: 7, y: 11.5 },
     ],
+    stickings: [],
     playCount: 1,
     repeatLabel: undefined,
     ...overrides,
@@ -410,6 +414,32 @@ describe('GrooveStaff', () => {
         <GrooveStaff layout={baseLayout({ barlines: [39], playCount: 1 })} label="test groove" grooveId="g1" />,
       )
       expect(container.querySelector('.groove-repeat-label')).toBeNull()
+    })
+  })
+
+  describe('sticking row', () => {
+    it('renders the single paradiddle as 8 sticking letters reading R L R R L R L L in x order', () => {
+      const rudiment = rudimentById('single-paradiddle')
+      invariant(rudiment !== undefined, 'expected single-paradiddle in the rudiment library')
+      const score = rudimentToScore(rudiment, 1)
+      const layout = engraveGroove(score)
+
+      const { container } = render(<GrooveStaff layout={layout} label="Single Paradiddle" grooveId="g1" />)
+
+      const texts = [...container.querySelectorAll('.groove-sticking')].sort(
+        (a, b) => Number(a.getAttribute('x')) - Number(b.getAttribute('x')),
+      )
+      expect(texts).toHaveLength(8)
+      expect(texts.map((t) => t.textContent)).toEqual(['R', 'L', 'R', 'R', 'L', 'R', 'L', 'L'])
+
+      const group = container.querySelector('.groove-sticking-row')
+      expect(group).toHaveAttribute('aria-hidden', 'true')
+    })
+
+    it('renders no sticking letters for a score engraved without stickings', () => {
+      const { container } = render(<GrooveStaff layout={baseLayout()} label="test groove" grooveId="g1" />)
+      expect(container.querySelectorAll('.groove-sticking')).toHaveLength(0)
+      expect(container.querySelector('.groove-sticking-row')).toBeNull()
     })
   })
 })
