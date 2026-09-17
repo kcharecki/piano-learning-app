@@ -19,7 +19,7 @@ import { at, invariant } from '@core/shared/invariant.ts'
 import { err, ok, type Result } from '@core/shared/result.ts'
 import { ticks, type Ticks } from '@core/shared/units.ts'
 import { measureDurationTicks, type TimeSignature } from '@core/notation/score.ts'
-import { isArticulation, isSticking, type Articulation, type Sticking } from './articulation.ts'
+import { ARTICULATIONS, isArticulation, isSticking, type Articulation, type Sticking } from './articulation.ts'
 import { isMappedDrumPad, type MappedDrumPad, padOrderIndex, voiceOf, type Voice } from './pad.ts'
 import type { VelocityClass } from './velocity.ts'
 
@@ -138,11 +138,27 @@ function measureIndexAtTick(measures: readonly GrooveMeasure[], tick: number): n
 }
 
 /**
+ * Dedupe and sort into `ARTICULATIONS`'s canonical order (`flam, drag, buzz,
+ * open, choke`) — the same order the MusicXML bridge reads/writes in
+ * (`./musicxml/parse.ts` reconstructs an articulation list in exactly this
+ * order; `./musicxml/write.ts` emits `<other-ornament>`/`<tremolo>` before
+ * `<technical>` in exactly this order), so a `GrooveScore` built here never
+ * disagrees with one parsed from XML about ordering.
+ */
+function canonicalizeArticulations(articulations: readonly Articulation[]): readonly Articulation[] {
+  const present = new Set(articulations)
+  return ARTICULATIONS.filter((a) => present.has(a))
+}
+
+/**
  * `'open'` is never a free-standing input — it is tied to the pad, the same
  * way `voice` is (see the module doc). `hhOpen` always carries it (added if
  * absent, never duplicated); every other pad rejects it outright, because a
  * closed hat (or any non-hi-hat pad) "with open" is a contradiction the model
- * must not be able to represent (roadmap T.34).
+ * must not be able to represent (roadmap T.34). Every pad's articulations
+ * come out deduplicated and canonically ordered (`canonicalizeArticulations`),
+ * so a derived 'open' always lands in its canonical slot rather than at the
+ * end of whatever order the input happened to use.
  */
 function deriveArticulations(
   pad: MappedDrumPad,
@@ -153,11 +169,8 @@ function deriveArticulations(
     pad === 'hhOpen' || !hasOpen,
     `'open' articulation is only valid on hhOpen, got pad "${pad}"`,
   )
-  if (pad !== 'hhOpen') return articulations
-  // Dedupe: an input that already carries 'open' (possibly more than once)
-  // must not come out with it twice. `Set` preserves first-seen order, so
-  // this never reorders the other articulations either.
-  return [...new Set<Articulation>([...articulations, 'open'])]
+  const withOpen: readonly Articulation[] = pad === 'hhOpen' ? [...articulations, 'open' as const] : articulations
+  return canonicalizeArticulations(withOpen)
 }
 
 function buildNotes(

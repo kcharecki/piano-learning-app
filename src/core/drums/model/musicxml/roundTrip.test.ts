@@ -67,37 +67,13 @@ const titleArb = fc
   .map((chars) => chars.join('').trim())
 
 /**
- * Inserts `'open'` at its `ARTICULATIONS`-canonical position (immediately
- * before `'choke'`, the only articulation after it in that list) when it is
- * missing. Needed because `makeGrooveScore`'s `deriveArticulations` (T.34)
- * derives `'open'` onto every `hhOpen` note that lacks it by APPENDING it —
- * e.g. `['choke']` -> `['choke', 'open']` — while `parseDrumMusicXml` always
- * reconstructs an hhOpen note's articulations in canonical order (`'open'`
- * read off `<technical><open/>`, ahead of `'choke'` off `<other-technical>`
- * — see `../musicxml/parse.ts`). Left alone, a generated fixture missing
- * `'open'` would round-trip to a differently-ORDERED (not merely
- * differently-derived) array and fail this file's byte-for-byte equality
- * checks even though the derivation itself is correct. Giving the fixture
- * `'open'` in its canonical slot up front makes `deriveArticulations` a
- * no-op, so the fixture already matches what a round trip produces.
- */
-function withCanonicalOpen(arts: readonly Articulation[]): readonly Articulation[] {
-  if (arts.includes('open')) return arts
-  const chokeIndex = arts.indexOf('choke')
-  return chokeIndex === -1
-    ? [...arts, 'open']
-    : [...arts.slice(0, chokeIndex), 'open', ...arts.slice(chokeIndex)]
-}
-
-/**
  * `'open'` is dropped from any pad other than `hhOpen` — `makeGrooveScore`
- * now rejects that combination outright (T.34), same fix as
- * `../groove.test.ts`'s `noteInputArb`, so this arbitrary must not hand
- * `makeGrooveScore` input that can no longer occur. For `hhOpen` itself,
- * `'open'` is forced present (canonically placed) rather than left to
- * chance — see `withCanonicalOpen`'s doc for why leaving it out breaks the
- * round-trip equality checks in this file even though it is still valid
- * input.
+ * rejects that combination outright (T.34), so this arbitrary must not hand
+ * it input that can no longer occur. For `hhOpen` itself, `'open'` is left to
+ * chance: `makeGrooveScore` derives it when absent and canonicalises every
+ * note's articulations to `ARTICULATIONS` order (see `../groove.ts`), and
+ * `parseDrumMusicXml` reconstructs that same canonical order off the XML, so
+ * the fixture needs no special placement to round-trip byte-for-byte.
  */
 function noteInputArb(barTicks: number) {
   return fc.tuple(mappedPadArb, fc.integer({ min: 0, max: barTicks - 1 })).chain(([pad, tick]) =>
@@ -109,7 +85,7 @@ function noteInputArb(barTicks: number) {
         dynamics: fc.constantFrom<DynamicsClass>('accent', 'normal', 'ghost'),
         articulations: fc
           .subarray(ARTICULATIONS as unknown as Articulation[])
-          .map((arts) => (pad === 'hhOpen' ? withCanonicalOpen(arts) : arts.filter((a) => a !== 'open'))),
+          .map((arts) => (pad === 'hhOpen' ? arts : arts.filter((a) => a !== 'open'))),
         sticking: fc.constantFrom(...STICKINGS) as fc.Arbitrary<Sticking>,
       },
       { requiredKeys: ['pad', 'tick', 'durationTicks', 'dynamics', 'articulations'] },

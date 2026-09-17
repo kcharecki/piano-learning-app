@@ -393,3 +393,35 @@ describe('property: any well-formed input builds a self-consistent GrooveScore',
     )
   })
 })
+
+describe('property: articulations are always deduplicated and canonically ordered', () => {
+  /**
+   * `ARTICULATIONS` (`./articulation.ts`) is the single canonical order the
+   * MusicXML bridge reads and writes in — see `canonicalizeArticulations` in
+   * `./groove.ts`. For any pad and any input articulation list ('open' only
+   * ever legal on hhOpen), `makeGrooveScore` must produce exactly the subset
+   * of `ARTICULATIONS`, in that order, that the input carries — plus 'open'
+   * itself whenever the pad is hhOpen, since it is derived unconditionally.
+   */
+  it('makeGrooveScore produces exactly ARTICULATIONS.filter(present-or-derived-open)', () => {
+    fc.assert(
+      fc.property(
+        mappedPadArb,
+        fc.subarray(ARTICULATIONS as unknown as Articulation[]),
+        (pad, rawArticulations) => {
+          const input = pad === 'hhOpen' ? rawArticulations : rawArticulations.filter((a) => a !== 'open')
+          const score = makeGrooveScore({
+            id: 'g',
+            measureCount: 1,
+            notes: [{ pad, tick: 0, durationTicks: 240, articulations: input }],
+          })
+          const note = score.notes[0]
+          expect(note).toBeDefined()
+          if (note === undefined) return
+          const expected = ARTICULATIONS.filter((a) => input.includes(a) || (pad === 'hhOpen' && a === 'open'))
+          expect(note.articulations).toEqual(expected)
+        },
+      ),
+    )
+  })
+})
