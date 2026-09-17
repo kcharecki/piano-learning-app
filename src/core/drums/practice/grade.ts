@@ -36,6 +36,7 @@
  * one instant's window and greedy nearest-first assignment is optimal — there
  * is no search here, and no tuning that could make one necessary.
  */
+import { invariant } from '@core/shared/invariant.ts'
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import type { GrooveRunPlan, UnisonPair } from './plan.ts'
 
@@ -70,14 +71,23 @@ export type GroovePadResult = {
   readonly pad: MappedDrumPad
   /** How many strokes the score asks for. Zero for a pad the groove does not use. */
   readonly expected: number
-  /** How many strokes the learner played on this pad. */
+  /**
+   * How many strokes the learner played on this pad, MINUS any that the
+   * articulation-slip pass (see `ARTICULATION_SIBLINGS`) reassigned entirely
+   * to a sibling pad's row — a slipped hit is counted there (`slipped`), not
+   * here. Chosen so `hits === matched + extra` keeps holding on every row,
+   * played pads included, once slips have been resolved.
+   */
   readonly hits: number
   readonly matched: number
+  /** Invariant on every row: `expected === matched + missed + slipped`. */
   readonly missed: number
   readonly extra: number
-  /** Mean of (hit - instant) over matched strokes. Positive is late. Undefined when nothing matched. */
+  /** Expected instants on this pad that were struck on time, but on its sibling articulation (open vs closed hat). Neither matched nor missed. */
+  readonly slipped: number
+  /** Mean of (hit - instant) over matched strokes plus any slipped-in hits (the instant was played, only the articulation was wrong). Undefined when neither happened. */
   readonly meanOffsetMs: number | undefined
-  /** Standard deviation of those offsets about `meanOffsetMs`. Undefined when nothing matched. */
+  /** Standard deviation of those offsets about `meanOffsetMs`. Undefined when neither happened. */
   readonly spreadMs: number | undefined
   /** Second-half mean minus first-half mean. Positive means the limb is falling behind. */
   readonly driftMs: number | undefined
@@ -89,13 +99,44 @@ export type UnisonGap = {
   readonly gapMs: number
 }
 
+/**
+ * Sibling articulation pairs (roadmap T.33) — pads that notate the same limb
+ * doing the same physical stroke with one flag flipped (open vs. closed
+ * hi-hat). One entry per pair; `gradeGrooveRun`'s slip pass tries both
+ * directions of every pair (expected-on-A-played-on-B, then the reverse), so
+ * listing `['hhOpen', 'hhClosed']` once catches a learner who played open for
+ * closed AND one who played closed for open.
+ */
+export const ARTICULATION_SIBLINGS: readonly (readonly [MappedDrumPad, MappedDrumPad])[] = [
+  ['hhOpen', 'hhClosed'],
+]
+
+/** One (expected, played) direction of a sibling-articulation mixup, and how many times it happened. */
+export type ArticulationSlip = {
+  readonly expected: MappedDrumPad
+  readonly played: MappedDrumPad
+  readonly count: number
+}
+
 export type GrooveRunResult = {
+  /**
+   * False if any row is missed/extra beyond pairing, spread or drift is out
+   * of budget, a unison pair flams beyond the limit, OR any row slipped an
+   * articulation — a pattern played with the wrong hi-hat state throughout is
+   * not steady, independent of its timing.
+   */
   readonly steady: boolean
-  /** Total presses across every pad. Zero means nothing registered — a rig problem, not a timing one. */
+  /**
+   * Literal press count, before any slip reassignment — `sum(pads[].hits)` is
+   * smaller by the slip total. Zero means nothing registered — a rig
+   * problem, not a timing one.
+   */
   readonly totalHits: number
   readonly pads: readonly GroovePadResult[]
   /** Only pairs the score writes together, and only when both actually matched something. */
   readonly unison: readonly UnisonGap[]
+  /** One entry per (expected, played) direction with count > 0, in ARTICULATION_SIBLINGS order, expected-first direction before the reverse. */
+  readonly articulation: readonly ArticulationSlip[]
   /**
    * The whole pattern sitting a whole number of subdivisions off the grid,
    * positive for behind. Claimed only when EVERY pad that was played agrees
@@ -110,18 +151,40 @@ export type GrooveRunResult = {
   }
 }
 
+/**
+ * One matched (or slip-reassigned) stroke: the notated instant it answers,
+ * and how far off the hit landed. Carrying `instant` alongside `offset` —
+ * not just the bare number — is what lets a pad's offsets be put back into
+ * instant order after the articulation-slip pass has appended some out of
+ * order (see `applyArticulationSlips` and where `sortedOffsets` is built in
+ * `gradeGrooveRun`).
+ */
+type OffsetSample = {
+  readonly instant: number
+  readonly offset: number
+}
+
 type Pairing = {
-  readonly offsets: readonly number[]
+  readonly offsets: readonly OffsetSample[]
   readonly matched: number
+  /** `expected` instants that found no hit within `windowMs`, in input order. */
+  readonly unmatchedExpected: readonly number[]
+  /** `hits` that were not claimed by any instant, in input order. */
+  readonly unmatchedHits: readonly number[]
 }
 
 /**
  * Nearest-first assignment of `hits` to `expected` inside `windowMs`. Optimal
- * because the windows do not overlap — see the module comment.
+ * because the windows do not overlap — see the module comment. Also reports
+ * what was left over on each side, which the articulation-slip pass (below)
+ * re-pairs across a sibling pad.
  */
 function pair(expected: readonly number[], hits: readonly number[], windowMs: number): Pairing {
   const taken = new Array<boolean>(hits.length).fill(false)
-  const offsets: number[] = []
+  const offsets: OffsetSample[] = []
+  const unmatchedExpected: number[] = []
+  // `expected` is time-ordered, so a hit equidistant between two adjacent
+  // instants is claimed by whichever instant is processed first: the earlier one.
   for (const instant of expected) {
     let bestIndex = -1
     let bestDistance = Number.POSITIVE_INFINITY
@@ -136,11 +199,15 @@ function pair(expected: readonly number[], hits: readonly number[], windowMs: nu
         bestIndex = i
       }
     }
-    if (bestIndex < 0) continue
+    if (bestIndex < 0) {
+      unmatchedExpected.push(instant)
+      continue
+    }
     taken[bestIndex] = true
-    offsets.push((hits[bestIndex] ?? 0) - instant)
+    offsets.push({ instant, offset: (hits[bestIndex] ?? 0) - instant })
   }
-  return { offsets, matched: offsets.length }
+  const unmatchedHits = hits.filter((_, i) => taken[i] !== true)
+  return { offsets, matched: offsets.length, unmatchedExpected, unmatchedHits }
 }
 
 /** How many of `expected`, shifted by `shiftMs`, find a hit. Counting only — no assignment kept. */
@@ -229,6 +296,66 @@ function runSlipSteps(
   return agreed
 }
 
+/** Mutable per-pad working state the slip pass reads and rewrites — collapsed into a `GroovePadResult` at the end. */
+type PadState = {
+  readonly pad: MappedDrumPad
+  readonly expected: number
+  /** Starts as the literal press count; decremented when a hit here is reassigned away as a slip (see the doc on `GroovePadResult.hits`). */
+  hits: number
+  readonly matched: number
+  /** Still-unmatched expected instants, mutated down as the slip pass claims them. */
+  missedInstants: readonly number[]
+  /** Still-unclaimed hits on this pad, mutated down as the slip pass reassigns them. */
+  extraHits: readonly number[]
+  /**
+   * Matched offsets, plus one appended per hit the slip pass reassigns TO
+   * this pad (as the expected side). NOT necessarily in instant order once
+   * the slip pass has appended to it — every reader sorts by `instant`
+   * first (see `sortedOffsets` in `gradeGrooveRun`).
+   */
+  offsets: readonly OffsetSample[]
+  slipped: number
+}
+
+/**
+ * The articulation-slip pass (roadmap T.33): for each sibling pair and each
+ * direction (expected pad E, played pad P), greedily re-pairs E's remaining
+ * missed instants against P's remaining extra hits, nearest-first inside
+ * `windowMs` — exactly `pair`'s own logic, just run a second time across a
+ * different pad. Runs strictly AFTER the per-pad pairing in `gradeGrooveRun`,
+ * so a hit or instant already matched to its own pad is never touched: only
+ * what pairing left over on both sides is up for grabs here.
+ */
+function applyArticulationSlips(
+  states: ReadonlyMap<MappedDrumPad, PadState>,
+  windowMs: number,
+): readonly ArticulationSlip[] {
+  const articulation: ArticulationSlip[] = []
+  for (const siblingPair of ARTICULATION_SIBLINGS) {
+    const directions: readonly (readonly [MappedDrumPad, MappedDrumPad])[] = [
+      [siblingPair[0], siblingPair[1]],
+      [siblingPair[1], siblingPair[0]],
+    ]
+    for (const [expectedPad, playedPad] of directions) {
+      const expectedState = states.get(expectedPad)
+      const playedState = states.get(playedPad)
+      if (expectedState === undefined || playedState === undefined) continue
+      if (expectedState.missedInstants.length === 0 || playedState.extraHits.length === 0) continue
+
+      const slip = pair(expectedState.missedInstants, playedState.extraHits, windowMs)
+      if (slip.matched === 0) continue
+
+      expectedState.missedInstants = slip.unmatchedExpected
+      expectedState.offsets = [...expectedState.offsets, ...slip.offsets]
+      expectedState.slipped += slip.matched
+      playedState.extraHits = slip.unmatchedHits
+      playedState.hits -= slip.matched
+      articulation.push({ expected: expectedPad, played: playedPad, count: slip.matched })
+    }
+  }
+  return articulation
+}
+
 /** Grade `hits` against `plan`. Pure and total: no clock, no ordering assumptions on `hits`. */
 export function gradeGrooveRun(plan: GrooveRunPlan, hits: readonly GrooveHit[]): GrooveRunResult {
   const hitsByPad = new Map<MappedDrumPad, number[]>()
@@ -239,43 +366,66 @@ export function gradeGrooveRun(plan: GrooveRunPlan, hits: readonly GrooveHit[]):
   }
   for (const list of hitsByPad.values()) list.sort((a, b) => a - b)
 
-  const offsetsByPad = new Map<MappedDrumPad, readonly number[]>()
-  const pads: GroovePadResult[] = []
-  for (const padPlan of plan.pads) {
-    const padHits = hitsByPad.get(padPlan.pad) ?? []
-    const { offsets, matched } = pair(padPlan.expectedMs, padHits, plan.windowMs)
-    offsetsByPad.set(padPlan.pad, offsets)
-    pads.push({
-      pad: padPlan.pad,
-      expected: padPlan.expectedMs.length,
+  // A press on a pad this groove never asks for is not silently dropped: it
+  // gets its own row with nothing expected, so it counts against the verdict
+  // the same way any other spurious stroke does. Planned pads come first (in
+  // the score's own pad order), then any hit-only pads, in first-seen order —
+  // the same ordering the two separate loops used to produce.
+  const padOrder: MappedDrumPad[] = plan.pads.map((padPlan) => padPlan.pad)
+  const planned = new Set(padOrder)
+  for (const pad of hitsByPad.keys()) {
+    if (!planned.has(pad)) padOrder.push(pad)
+  }
+
+  const expectedMsByPad = new Map(plan.pads.map((padPlan) => [padPlan.pad, padPlan.expectedMs]))
+  // Snapshot of each pad's OWN matched offsets, before the slip pass can add
+  // any borrowed from elsewhere — unison gaps compare limbs on their own
+  // timing only, never inflated by a sibling's slipped-in offsets.
+  const originalOffsetsByPad = new Map<MappedDrumPad, readonly OffsetSample[]>()
+  const states = new Map<MappedDrumPad, PadState>()
+  for (const pad of padOrder) {
+    const expectedMs = expectedMsByPad.get(pad) ?? []
+    const padHits = hitsByPad.get(pad) ?? []
+    const { offsets, matched, unmatchedExpected, unmatchedHits } = pair(expectedMs, padHits, plan.windowMs)
+    originalOffsetsByPad.set(pad, offsets)
+    states.set(pad, {
+      pad,
+      expected: expectedMs.length,
       hits: padHits.length,
       matched,
-      missed: padPlan.expectedMs.length - matched,
-      extra: padHits.length - matched,
-      meanOffsetMs: matched === 0 ? undefined : mean(offsets),
-      spreadMs: matched === 0 ? undefined : standardDeviation(offsets),
-      driftMs: drift(offsets),
+      missedInstants: unmatchedExpected,
+      extraHits: unmatchedHits,
+      offsets,
+      slipped: 0,
     })
   }
 
-  // A press on a pad this groove never asks for is not silently dropped: it
-  // gets its own row with nothing expected, so it counts against the verdict
-  // the same way any other spurious stroke does.
-  const planned = new Set(plan.pads.map((padPlan) => padPlan.pad))
-  for (const [pad, padHits] of hitsByPad) {
-    if (planned.has(pad)) continue
-    pads.push({
-      pad,
-      expected: 0,
-      hits: padHits.length,
-      matched: 0,
-      missed: 0,
-      extra: padHits.length,
-      meanOffsetMs: undefined,
-      spreadMs: undefined,
-      driftMs: undefined,
-    })
-  }
+  const articulation = applyArticulationSlips(states, plan.windowMs)
+
+  const pads: GroovePadResult[] = padOrder.map((pad) => {
+    const state = states.get(pad)
+    invariant(state !== undefined, `pad state missing for ${pad}`)
+    // The slip pass appends its offsets at the end of `state.offsets`,
+    // regardless of where the slipped-in instant sits among the pad's own —
+    // so `drift()`'s first-half/second-half split (positional, over strokes
+    // "ordered by the instant they answer") would be corrupted by a slip
+    // anywhere but the tail. Sort back to instant order before any stat that
+    // is order-sensitive; mean/spread do not care, but doing it once here
+    // keeps every stat reading the same, correctly-ordered list.
+    const sortedOffsets = [...state.offsets].sort((a, b) => a.instant - b.instant).map((o) => o.offset)
+    return {
+      pad: state.pad,
+      expected: state.expected,
+      hits: state.hits,
+      matched: state.matched,
+      missed: state.missedInstants.length,
+      extra: state.extraHits.length,
+      slipped: state.slipped,
+      meanOffsetMs: sortedOffsets.length === 0 ? undefined : mean(sortedOffsets),
+      spreadMs: sortedOffsets.length === 0 ? undefined : standardDeviation(sortedOffsets),
+      driftMs: drift(sortedOffsets),
+    }
+  })
 
   const limits = {
     spreadMs: plan.windowMs * STEADY_SPREAD_FRACTION,
@@ -289,16 +439,20 @@ export function gradeGrooveRun(plan: GrooveRunPlan, hits: readonly GrooveHit[]):
   // the money beat, where they share no instant at all).
   const unison: UnisonGap[] = []
   for (const [a, b] of plan.unisonPairs) {
-    const aOffsets = offsetsByPad.get(a) ?? []
-    const bOffsets = offsetsByPad.get(b) ?? []
+    const aOffsets = originalOffsetsByPad.get(a) ?? []
+    const bOffsets = originalOffsetsByPad.get(b) ?? []
     if (aOffsets.length === 0 || bOffsets.length === 0) continue
-    unison.push({ pads: [a, b], gapMs: Math.abs(mean(aOffsets) - mean(bOffsets)) })
+    unison.push({
+      pads: [a, b],
+      gapMs: Math.abs(mean(aOffsets.map((o) => o.offset)) - mean(bOffsets.map((o) => o.offset))),
+    })
   }
 
   const totalHits = hits.length
   const steady =
     totalHits > 0 &&
     pads.every((row) => row.missed === 0 && row.extra === 0) &&
+    pads.every((row) => row.slipped === 0) &&
     pads.every((row) => row.spreadMs === undefined || row.spreadMs <= limits.spreadMs) &&
     pads.every((row) => row.driftMs === undefined || Math.abs(row.driftMs) <= limits.driftMs) &&
     unison.every((gap) => gap.gapMs <= limits.flamMs)
@@ -308,6 +462,7 @@ export function gradeGrooveRun(plan: GrooveRunPlan, hits: readonly GrooveHit[]):
     totalHits,
     pads,
     unison,
+    articulation,
     slipSteps: runSlipSteps(plan, hitsByPad),
     limits,
   }

@@ -195,6 +195,89 @@ describe('validateGrooveScore: backstops for a hand-built (not makeGrooveScore-b
   })
 })
 
+describe('hhOpen <-> "open" articulation (roadmap T.34)', () => {
+  it.each(MAPPED_PADS)(
+    'a one-note score on %s built through makeGrooveScore always validates ok',
+    (pad) => {
+      const score = makeGrooveScore({ id: 'g', measureCount: 1, notes: [{ pad, tick: 0, durationTicks: 240 }] })
+      expect(validateGrooveScore(score).ok).toBe(true)
+    },
+  )
+
+  it('derives "open" on hhOpen when absent', () => {
+    const score = makeGrooveScore({
+      id: 'g',
+      measureCount: 1,
+      notes: [{ pad: 'hhOpen', tick: 0, durationTicks: 240 }],
+    })
+    const note = score.notes[0]
+    expect(note).toBeDefined()
+    if (note === undefined) return
+    expect(note.articulations).toEqual(['open'])
+  })
+
+  it('never duplicates "open" when it is already given for hhOpen', () => {
+    const score = makeGrooveScore({
+      id: 'g',
+      measureCount: 1,
+      notes: [{ pad: 'hhOpen', tick: 0, durationTicks: 240, articulations: ['open'] }],
+    })
+    const note = score.notes[0]
+    expect(note).toBeDefined()
+    if (note === undefined) return
+    expect(note.articulations).toEqual(['open'])
+  })
+
+  it('dedupes an input that already holds "open" twice for hhOpen', () => {
+    const score = makeGrooveScore({
+      id: 'g',
+      measureCount: 1,
+      notes: [{ pad: 'hhOpen', tick: 0, durationTicks: 240, articulations: ['open', 'open'] }],
+    })
+    const note = score.notes[0]
+    expect(note).toBeDefined()
+    if (note === undefined) return
+    expect(note.articulations).toEqual(['open'])
+  })
+
+  it('rejects "open" on every pad other than hhOpen', () => {
+    for (const pad of MAPPED_PADS) {
+      if (pad === 'hhOpen') continue
+      expect(() =>
+        makeGrooveScore({
+          id: 'g',
+          measureCount: 1,
+          notes: [{ pad, tick: 0, durationTicks: 240, articulations: ['open'] }],
+        }),
+      ).toThrow(InvariantError)
+    }
+  })
+
+  it.each(MAPPED_PADS)(
+    'property: a hand-built copy of a %s note is err exactly when it breaks the hhOpen<->open tie',
+    (pad) => {
+      const score = makeGrooveScore({ id: 'g', measureCount: 1, notes: [{ pad, tick: 0, durationTicks: 240 }] })
+      expect(validateGrooveScore(score).ok).toBe(true)
+
+      const note = score.notes[0]
+      expect(note).toBeDefined()
+      if (note === undefined) return
+
+      if (pad === 'hhOpen') {
+        // a copy with 'open' removed from an hhOpen note is err
+        const stripped = { ...note, articulations: [] }
+        const bad = { ...score, notes: [stripped] }
+        expect(validateGrooveScore(bad).ok).toBe(false)
+      } else {
+        // a copy with 'open' added to any other pad is err
+        const withOpen = { ...note, articulations: ['open' as const] }
+        const bad = { ...score, notes: [withOpen] }
+        expect(validateGrooveScore(bad).ok).toBe(false)
+      }
+    },
+  )
+})
+
 describe('notesInMeasure', () => {
   it('returns only the notes in that measure, empty for an out-of-range index', () => {
     const score = makeGrooveScore({
@@ -218,7 +301,13 @@ describe('notesInMeasure', () => {
 const mappedPadArb = fc.constantFrom(...MAPPED_PADS)
 const BAR_TICKS = 1920 // one 4/4 bar at TICKS_PER_QUARTER=480
 
-/** A note input guaranteed to fit inside a single 4/4 bar. */
+/**
+ * A note input guaranteed to fit inside a single 4/4 bar. `'open'` is dropped
+ * from any pad other than `hhOpen` — `makeGrooveScore` now rejects that
+ * combination outright (T.34), so, same as `dedupeOverlaps` below for
+ * overlapping hits, the arbitrary must not hand it input that can no longer
+ * occur.
+ */
 const noteInputArb = fc
   .tuple(mappedPadArb, fc.integer({ min: 0, max: BAR_TICKS - 1 }))
   .chain(([pad, tick]) =>
@@ -227,7 +316,9 @@ const noteInputArb = fc
       tick: fc.constant(tick),
       durationTicks: fc.integer({ min: 1, max: BAR_TICKS - tick }),
       dynamics: fc.constantFrom<DynamicsClass>('accent', 'normal', 'ghost'),
-      articulations: fc.subarray(ARTICULATIONS as unknown as Articulation[]),
+      articulations: fc
+        .subarray(ARTICULATIONS as unknown as Articulation[])
+        .map((arts) => (pad === 'hhOpen' ? arts : arts.filter((a) => a !== 'open'))),
     }),
   )
 

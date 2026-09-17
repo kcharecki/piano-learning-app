@@ -73,7 +73,8 @@ export function moneyBeatOpenHat(): GrooveScore {
     measureCount: 1,
     notes: [
       ...hihatTicks.map((tick) => ({ pad: 'hhClosed' as const, tick, durationTicks: 240 })),
-      { pad: 'hhOpen' as const, tick: 1680, durationTicks: 240, articulations: ['open' as const] },
+      // 'open' is derived by `makeGrooveScore` for every hhOpen note (T.34) — not hand-set here.
+      { pad: 'hhOpen' as const, tick: 1680, durationTicks: 240 },
       { pad: 'kick' as const, tick: 0, durationTicks: 480 },
       { pad: 'kick' as const, tick: 960, durationTicks: 480 },
       { pad: 'snare' as const, tick: 480, durationTicks: 480 },

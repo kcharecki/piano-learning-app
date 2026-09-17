@@ -142,6 +142,26 @@ describe('property: swing pairing restarts at every measure boundary (G1)', () =
   })
 })
 
+/**
+ * Inserts `'open'` at its `ARTICULATIONS`-canonical position (immediately
+ * before `'choke'`, the only articulation after it in that list) when it is
+ * missing. `makeGrooveScore`'s `deriveArticulations` (T.34) derives `'open'`
+ * onto every `hhOpen` note that lacks it by APPENDING it — e.g. `['choke']`
+ * -> `['choke', 'open']` — which would otherwise make a round-tripped
+ * `hhOpen` cell's `articulations` differ (in content, not just order) from
+ * the fixture's own, since `gridToScore`/`scoreToGrid` copy a note's
+ * articulations verbatim. Giving the fixture `'open'` up front makes that
+ * derivation a no-op, so the fixture already matches what a round trip
+ * produces.
+ */
+function withCanonicalOpen(arts: readonly Articulation[]): readonly Articulation[] {
+  if (arts.includes('open')) return arts
+  const chokeIndex = arts.indexOf('choke')
+  return chokeIndex === -1
+    ? [...arts, 'open']
+    : [...arts.slice(0, chokeIndex), 'open', ...arts.slice(chokeIndex)]
+}
+
 describe('property: grid round-trip (grid -> score -> grid) is lossless', () => {
   const subdivisionArb: fc.Arbitrary<Subdivision> = fc.constantFrom('eighth', 'sixteenth', 'triplet')
 
@@ -162,8 +182,28 @@ describe('property: grid round-trip (grid -> score -> grid) is lossless', () => 
       timeSignature: { beats: 4, beatType: 4 },
       swingPercent,
       measureCount: 1,
+      // 'open' is only ever valid on hhOpen (T.34) — makeGrooveScore throws
+      // otherwise, so it is stripped from every other pad's cells here, and
+      // forced present (canonically placed — see `withCanonicalOpen`) on
+      // every hhOpen cell so `deriveArticulations`'s auto-derivation is a
+      // no-op and the round trip is exact. The cell arb itself has no idea
+      // which pad's row it will end up in, so this happens once the pad is
+      // known, here.
       cellsPerMeasure: perMeasure,
-      rows: MAPPED_PADS.map((pad, i): GrooveGridRow => ({ pad, cells: cellsPerRow[i] ?? [] })),
+      rows: MAPPED_PADS.map((pad, i): GrooveGridRow => ({
+        pad,
+        cells: (cellsPerRow[i] ?? []).map((cell) =>
+          cell === undefined
+            ? cell
+            : {
+                ...cell,
+                articulations:
+                  pad === 'hhOpen'
+                    ? withCanonicalOpen(cell.articulations)
+                    : cell.articulations.filter((a) => a !== 'open'),
+              },
+        ),
+      })),
     }))
   })
 

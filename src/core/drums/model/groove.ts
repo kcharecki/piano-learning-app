@@ -137,6 +137,29 @@ function measureIndexAtTick(measures: readonly GrooveMeasure[], tick: number): n
   return -1
 }
 
+/**
+ * `'open'` is never a free-standing input — it is tied to the pad, the same
+ * way `voice` is (see the module doc). `hhOpen` always carries it (added if
+ * absent, never duplicated); every other pad rejects it outright, because a
+ * closed hat (or any non-hi-hat pad) "with open" is a contradiction the model
+ * must not be able to represent (roadmap T.34).
+ */
+function deriveArticulations(
+  pad: MappedDrumPad,
+  articulations: readonly Articulation[],
+): readonly Articulation[] {
+  const hasOpen = articulations.includes('open')
+  invariant(
+    pad === 'hhOpen' || !hasOpen,
+    `'open' articulation is only valid on hhOpen, got pad "${pad}"`,
+  )
+  if (pad !== 'hhOpen') return articulations
+  // Dedupe: an input that already carries 'open' (possibly more than once)
+  // must not come out with it twice. `Set` preserves first-seen order, so
+  // this never reorders the other articulations either.
+  return [...new Set<Articulation>([...articulations, 'open'])]
+}
+
 function buildNotes(
   inputs: readonly GrooveNoteInput[],
   measures: readonly GrooveMeasure[],
@@ -159,11 +182,12 @@ function buildNotes(
     )
     const voice = voiceOf(n.pad)
     invariant(voice !== undefined, `groove note pad "${n.pad}" has no known voice`)
-    const articulations = n.articulations ?? []
-    for (const a of articulations) {
+    const rawArticulations = n.articulations ?? []
+    for (const a of rawArticulations) {
       invariant(isArticulation(a), `unknown articulation: ${a}`)
     }
     if (n.sticking !== undefined) invariant(isSticking(n.sticking), `unknown sticking: ${n.sticking}`)
+    const articulations = deriveArticulations(n.pad, rawArticulations)
     return {
       pad: n.pad,
       tick: ticks(n.tick),
@@ -298,6 +322,15 @@ export function validateGrooveScore(score: GrooveScore): Result<GrooveScore, str
     }
     if (n.sticking !== undefined && !isSticking(n.sticking)) {
       return err(`note ${n.id} has an unknown sticking: ${String(n.sticking)}`)
+    }
+    // The pad<->'open' tie `deriveArticulations` enforces at construction time
+    // — checked again here as the backstop for a hand-built or parsed score
+    // that bypassed `makeGrooveScore` (see the module doc).
+    if (n.pad === 'hhOpen' && !n.articulations.includes('open')) {
+      return err(`note ${n.id} is on hhOpen but lacks the 'open' articulation`)
+    }
+    if (n.pad !== 'hhOpen' && n.articulations.includes('open')) {
+      return err(`note ${n.id} has the 'open' articulation but pad ${n.pad} is not hhOpen`)
     }
     if (!Number.isInteger(n.tick) || n.tick < 0) return err(`note ${n.id} has an invalid tick`)
     if (!Number.isInteger(n.durationTicks) || n.durationTicks <= 0) {

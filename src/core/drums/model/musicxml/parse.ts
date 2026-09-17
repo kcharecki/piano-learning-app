@@ -238,12 +238,30 @@ function scanMeasure(
       if (pad === undefined) {
         return `${where}: note references an unrecognised instrument "${instrumentId ?? ''}"`
       }
+      const marks = marksOf(el)
+      // A hi-hat's open/closed STATE is carried by `<technical><open/>`, not
+      // by which GM note the instrument declares — a real-world file commonly
+      // marks an open hat as the CLOSED hat's own instrument (GM 42) plus
+      // `<open/>`, rather than a distinct instrument for GM 46. Promote that
+      // combination to hhOpen here, before the note ever reaches
+      // `makeGrooveScore` (whose hhOpen<->'open' tie is a programmer-error
+      // invariant, not a place to validate untrusted input — see `../groove.ts`).
+      // `<open/>` on any pad but the hi-hat family is a contradiction the
+      // model cannot represent (T.34): reported as a parse error naming the
+      // pad, not left to surface as that invariant's throw.
+      let resolvedPad = pad
+      if (marks.articulations.includes('open')) {
+        if (pad === 'hhClosed') resolvedPad = 'hhOpen'
+        else if (pad !== 'hhOpen') {
+          return `${where}: <technical><open/> is only valid on a hi-hat pad, got "${pad}"`
+        }
+      }
       scan.notes.push({
         measureIndex,
         offset,
         durationTicks: ticksResult.value,
-        pad,
-        ...marksOf(el),
+        pad: resolvedPad,
+        ...marks,
       })
     } else if (el.tag === 'backup' || el.tag === 'forward') {
       const ticksResult = durationTicksOf(el, scan.divisions, where)

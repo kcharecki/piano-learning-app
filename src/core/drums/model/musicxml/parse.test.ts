@@ -116,6 +116,75 @@ describe('parseDrumMusicXml: the foreign-file GM-note fallback', () => {
   })
 })
 
+describe('parseDrumMusicXml: hhClosed + <open/> promotes to hhOpen (real-world open-hat encoding)', () => {
+  // A real-world file commonly marks an open hat as the CLOSED hat's own GM
+  // instrument (42) plus <technical><open/></technical>, rather than
+  // declaring a distinct instrument for GM 46. Forces the padByGmNote
+  // fallback (no <instrument-name>), same as the "foreign-file GM-note
+  // fallback" tests above.
+  it('(a) GM 42 (hhClosed) + <open/> parses as an hhOpen note with articulations: ["open"]', () => {
+    const xml =
+      '<score-partwise>' +
+      '<part-list><score-part id="P1"><part-name>Drums</part-name>' +
+      '<score-instrument id="P1-I1"></score-instrument>' +
+      '<midi-instrument id="P1-I1"><midi-channel>10</midi-channel><midi-unpitched>43</midi-unpitched></midi-instrument>' +
+      '</score-part></part-list>' +
+      '<part id="P1"><measure number="1">' +
+      '<attributes><divisions>480</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>' +
+      '<note><unpitched><display-step>G</display-step><display-octave>5</display-octave></unpitched>' +
+      '<duration>480</duration><instrument id="P1-I1"/><voice>1</voice><type>quarter</type>' +
+      '<notations><technical><open/></technical></notations></note>' +
+      '</measure></part></score-partwise>'
+    const result = parseDrumMusicXml(xml, { id: 'g' })
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.value.notes[0]?.pad).toBe('hhOpen')
+      expect(result.value.notes[0]?.articulations).toEqual(['open'])
+    }
+  })
+
+  it('(b) GM 46 (hhOpen) with no <open/> still comes back hhOpen with articulations: ["open"] derived', () => {
+    const xml =
+      '<score-partwise>' +
+      '<part-list><score-part id="P1"><part-name>Drums</part-name>' +
+      '<score-instrument id="P1-I1"></score-instrument>' +
+      '<midi-instrument id="P1-I1"><midi-channel>10</midi-channel><midi-unpitched>47</midi-unpitched></midi-instrument>' +
+      '</score-part></part-list>' +
+      '<part id="P1"><measure number="1">' +
+      '<attributes><divisions>480</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>' +
+      '<note><unpitched><display-step>G</display-step><display-octave>5</display-octave></unpitched>' +
+      '<duration>480</duration><instrument id="P1-I1"/><voice>1</voice><type>quarter</type></note>' +
+      '</measure></part></score-partwise>'
+    const result = parseDrumMusicXml(xml, { id: 'g' })
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.value.notes[0]?.pad).toBe('hhOpen')
+      expect(result.value.notes[0]?.articulations).toEqual(['open'])
+    }
+  })
+
+  it('(c) <open/> on a non-hi-hat pad (snare, GM 38) is a parse err naming the pad', () => {
+    const xml =
+      '<score-partwise>' +
+      '<part-list><score-part id="P1"><part-name>Drums</part-name>' +
+      '<score-instrument id="P1-I1"></score-instrument>' +
+      '<midi-instrument id="P1-I1"><midi-channel>10</midi-channel><midi-unpitched>39</midi-unpitched></midi-instrument>' +
+      '</score-part></part-list>' +
+      '<part id="P1"><measure number="1">' +
+      '<attributes><divisions>480</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>' +
+      '<note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched>' +
+      '<duration>480</duration><instrument id="P1-I1"/><voice>1</voice><type>quarter</type>' +
+      '<notations><technical><open/></technical></notations></note>' +
+      '</measure></part></score-partwise>'
+    const result = parseDrumMusicXml(xml, { id: 'g' })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error).toContain('open')
+      expect(result.error).toContain('snare')
+    }
+  })
+})
+
 describe('parseDrumMusicXml: choke round-trips through <other-technical>choke</other-technical> (G4)', () => {
   it('choke alone parses back to articulations: ["choke"]', () => {
     const score = makeGrooveScore({

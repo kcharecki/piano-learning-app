@@ -66,6 +66,39 @@ const titleArb = fc
   .array(titleCharArb, { maxLength: 20 })
   .map((chars) => chars.join('').trim())
 
+/**
+ * Inserts `'open'` at its `ARTICULATIONS`-canonical position (immediately
+ * before `'choke'`, the only articulation after it in that list) when it is
+ * missing. Needed because `makeGrooveScore`'s `deriveArticulations` (T.34)
+ * derives `'open'` onto every `hhOpen` note that lacks it by APPENDING it —
+ * e.g. `['choke']` -> `['choke', 'open']` — while `parseDrumMusicXml` always
+ * reconstructs an hhOpen note's articulations in canonical order (`'open'`
+ * read off `<technical><open/>`, ahead of `'choke'` off `<other-technical>`
+ * — see `../musicxml/parse.ts`). Left alone, a generated fixture missing
+ * `'open'` would round-trip to a differently-ORDERED (not merely
+ * differently-derived) array and fail this file's byte-for-byte equality
+ * checks even though the derivation itself is correct. Giving the fixture
+ * `'open'` in its canonical slot up front makes `deriveArticulations` a
+ * no-op, so the fixture already matches what a round trip produces.
+ */
+function withCanonicalOpen(arts: readonly Articulation[]): readonly Articulation[] {
+  if (arts.includes('open')) return arts
+  const chokeIndex = arts.indexOf('choke')
+  return chokeIndex === -1
+    ? [...arts, 'open']
+    : [...arts.slice(0, chokeIndex), 'open', ...arts.slice(chokeIndex)]
+}
+
+/**
+ * `'open'` is dropped from any pad other than `hhOpen` — `makeGrooveScore`
+ * now rejects that combination outright (T.34), same fix as
+ * `../groove.test.ts`'s `noteInputArb`, so this arbitrary must not hand
+ * `makeGrooveScore` input that can no longer occur. For `hhOpen` itself,
+ * `'open'` is forced present (canonically placed) rather than left to
+ * chance — see `withCanonicalOpen`'s doc for why leaving it out breaks the
+ * round-trip equality checks in this file even though it is still valid
+ * input.
+ */
 function noteInputArb(barTicks: number) {
   return fc.tuple(mappedPadArb, fc.integer({ min: 0, max: barTicks - 1 })).chain(([pad, tick]) =>
     fc.record(
@@ -74,7 +107,9 @@ function noteInputArb(barTicks: number) {
         tick: fc.constant(tick),
         durationTicks: fc.integer({ min: 1, max: barTicks - tick }),
         dynamics: fc.constantFrom<DynamicsClass>('accent', 'normal', 'ghost'),
-        articulations: fc.subarray(ARTICULATIONS as unknown as Articulation[]),
+        articulations: fc
+          .subarray(ARTICULATIONS as unknown as Articulation[])
+          .map((arts) => (pad === 'hhOpen' ? withCanonicalOpen(arts) : arts.filter((a) => a !== 'open'))),
         sticking: fc.constantFrom(...STICKINGS) as fc.Arbitrary<Sticking>,
       },
       { requiredKeys: ['pad', 'tick', 'durationTicks', 'dynamics', 'articulations'] },
