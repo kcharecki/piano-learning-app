@@ -612,6 +612,29 @@ describe('createDrumSynth', () => {
       expect(accentedPeakValue).toBeGreaterThan(plainPeakValue)
     })
 
+    // Kills a mutant that ignores `gain` (roadmap DR-12: the drums metronome
+    // voices subdivision clicks quieter than the beat) or fails to treat
+    // `gain <= 0` as "no click at all" rather than an inaudibly quiet one.
+    it('gain scales the peak — 0.5 peaks at half the gain-1 peak — and gain 0 creates no oscillator', () => {
+      const fullCtx = makeCtx()
+      synth(fullCtx).click(false, millis(0), 1)
+      const fullGain = fullCtx.gains.at(-1)
+      if (fullGain === undefined) throw new Error('no gain created')
+      const fullPeak = firstPeakGain(fullGain)
+
+      const halfCtx = makeCtx()
+      synth(halfCtx).click(false, millis(0), 0.5)
+      const halfGain = halfCtx.gains.at(-1)
+      if (halfGain === undefined) throw new Error('no gain created')
+      const halfPeak = firstPeakGain(halfGain)
+
+      expect(halfPeak).toBeCloseTo(fullPeak / 2, 10)
+
+      const zeroCtx = makeCtx()
+      synth(zeroCtx).click(false, millis(0), 0)
+      expect(zeroCtx.oscillators).toHaveLength(0)
+    })
+
     // Kills a mutant that lets a click ring on (or stop immediately at start).
     it('a click stops within tens of milliseconds of its start', () => {
       const ctx = makeCtx()

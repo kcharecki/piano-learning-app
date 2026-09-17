@@ -463,7 +463,12 @@ export function createDrumSynth(opts: DrumSynthOptions): DrumAudioOutput {
     }
   }
 
-  function click(accented: boolean, atMs?: Millis): void {
+  function click(accented: boolean, atMs?: Millis, clickGain = 1): void {
+    // gain <= 0 schedules nothing — see `core/ports/drumAudio.ts`'s module
+    // comment. Checked before `getEngine()` so a fully-muted subdivision
+    // click never forces the `AudioContext` into existence either.
+    if (!(clickGain > 0)) return
+    const clampedGain = Math.min(1, clickGain)
     const eng = getEngine()
     if (eng === undefined) return
     ensureRunning(eng.ctx)
@@ -473,7 +478,7 @@ export function createDrumSynth(opts: DrumSynthOptions): DrumAudioOutput {
           ? eng.ctx.currentTime
           : toCtxSeconds(atMs, updateOffsetAnchor(eng.ctx), eng.ctx)
       const freq = accented ? ACCENTED_CLICK_FREQUENCY_HZ : CLICK_FREQUENCY_HZ
-      const peak = accented ? ACCENTED_CLICK_PEAK_GAIN : CLICK_PEAK_GAIN
+      const peak = (accented ? ACCENTED_CLICK_PEAK_GAIN : CLICK_PEAK_GAIN) * clampedGain
 
       const oscillator = eng.ctx.createOscillator()
       oscillator.type = 'square'

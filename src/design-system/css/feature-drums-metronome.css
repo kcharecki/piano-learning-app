@@ -1,0 +1,103 @@
+/* Drums metronome screen (roadmap DR-12). Layout scaffolding — `.page`,
+   `.page-header`, `.card`, `.card--sunken`, `.field`, `.field-row`,
+   `.field-inline`, `.stepper`, `.seg-control`, `.btn-primary`, `.btn-icon` —
+   comes from base.css/primitives.css, the same set `feature-metronome.css`
+   and `feature-drums-groove.css` build on; this file holds only what those
+   do not: the stage's centred layout, the transport row (Start/Stop plus
+   Tap), the two status lines' typography, and the disclosure's field
+   widths. */
+
+/* ---------- Stage: BPM, subdivision, placement, beat status ---------- */
+.drums-metronome-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  text-align: center;
+}
+
+.drums-metronome-bpm-field {
+  align-items: center;
+}
+.drums-metronome-bpm-field > label {
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+}
+
+.drums-metronome-seg-field {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.drums-metronome-beat-status {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-1);
+}
+
+/* ---------- Transport: Start/Stop plus the Tap pad ---------- */
+.drums-metronome-transport {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-3);
+}
+.drums-metronome-start-stop {
+  min-width: 9rem;
+}
+
+/* ---------- Return report ----------
+   Visible, unlike `feature-metronome.css`'s hidden `.metronome-status-sr`:
+   the whole point of the gap-click drill is reading how the return landed,
+   so this line is part of the screen, not a screen-reader-only echo of a
+   pulse the dots already showed. Reserves one line's height so the report
+   appearing after the first return does not shift the layout under it. */
+.drums-metronome-return-status {
+  text-align: center;
+  font-size: var(--text-md);
+  color: var(--text-2);
+  min-height: 1.5em;
+}
+
+/* ---------- Timing games disclosure ---------- */
+.drums-metronome-games-body {
+  margin-top: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+/* Same disclosure-chevron convention as `.metronome-config` (roadmap UI-25):
+   `summary`'s shared `display: flex` (primitives.css) removes the browser's
+   own marker, so without this the summary line reads as static card text. */
+.drums-metronome-games > summary {
+  gap: var(--space-2);
+}
+.drums-metronome-games > summary svg {
+  flex-shrink: 0;
+  color: var(--text-2);
+  transition: transform var(--dur-1) var(--ease-out);
+}
+.drums-metronome-games[open] > summary svg {
+  transform: rotate(180deg);
+}
+
+.drums-metronome-gap-fields .field,
+.drums-metronome-ramp-fields .field {
+  width: 8rem;
+}
+.drums-metronome-gap-fields .field > input,
+.drums-metronome-ramp-fields .field > input {
+  width: 100%;
+}
+
+.drums-metronome-field-label {
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+
+.drums-metronome-volume-field input[type="range"] {
+  max-width: 22rem;
+}
