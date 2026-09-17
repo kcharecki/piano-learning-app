@@ -1,0 +1,227 @@
+/* Rudiment trainer (roadmap DR-10). Layout scaffolding — `.page`,
+   `.page-header`, `.card`, `.btn-primary`, `.seg-control` — comes from
+   base.css/primitives.css; this file holds only what those do not: the
+   trainer card's own typography, the transport row, the single Tap pad, and
+   the library's tier sections and rows.
+
+   Result-panel classes (`.rudiment-verdict`, `.rudiment-graded-at`,
+   `.rudiment-pad-lines`) deliberately mirror `feature-drums-groove.css`'s own
+   `.groove-*` rules — same shape of information, same screen family — so a
+   learner who already knows the groove trainer reads this one for free. */
+
+/* ---------- Trainer card ---------- */
+.rudiment-title {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--text-1);
+}
+.rudiment-meta {
+  font-size: var(--text-sm);
+  color: var(--text-3);
+}
+.rudiment-transfer {
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  line-height: var(--leading-normal);
+  margin-top: var(--space-1);
+}
+.rudiment-honesty-note {
+  font-size: var(--text-sm);
+  color: var(--text-3);
+  line-height: var(--leading-normal);
+  margin-top: var(--space-2);
+}
+
+/* Holds its height whether it reads "Ready at 60 bpm" or "Plateau at 90 bpm:
+   3 failed passes" — the same reasoning `.groove-run-state` documents: a line
+   that appears and disappears shifts the transport row under the learner's
+   hand between one ladder step and the next. */
+.rudiment-ladder-status {
+  min-height: 1.5em;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  justify-content: center;
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+  margin-top: var(--space-3);
+}
+
+.rudiment-run-state {
+  min-height: 1.5em;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  justify-content: center;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Start/Stop and Listen side by side, same reasoning as the groove trainer's
+   own transport: Listen is what a learner who has not memorised the pattern
+   reaches for first, so it needs to be as findable as Start. Restart ladder
+   sits beside them rather than buried, since a plateau/ceiling/floor result
+   is exactly the moment a learner wants it. */
+.rudiment-transport {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+.rudiment-start,
+.rudiment-listen {
+  min-width: 160px;
+}
+
+.rudiment-mode-toggle {
+  margin-top: var(--space-3);
+}
+
+/* ---------- Tap pad ----------
+   A real touch surface, not a form button — same floor `.drum-pad` uses in
+   the groove trainer, since this is the same kind of control: something a
+   learner aims a hand or a drumstick at, not reads. */
+.rudiment-tap-pad {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 96px;
+  width: 100%;
+  margin-top: var(--space-4);
+  background: var(--bg-2);
+  border: var(--border-w) solid var(--border-2);
+  border-radius: var(--radius-2);
+  color: var(--text-1);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  /* Only the lit state animates — see `.drum-pad[data-lit="true"]`'s own
+     comment: a transition on the un-lit direction would leave the previous
+     stroke glowing into the next one at speed. */
+  transition: background var(--dur-1) var(--ease-out);
+}
+.rudiment-tap-pad:hover { background: var(--bg-3); }
+.rudiment-tap-pad[data-lit="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  transition: none;
+}
+
+/* ---------- Result ---------- */
+.rudiment-verdict {
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+  padding-left: var(--space-3);
+  border-left: var(--border-w-strong) solid var(--border-2);
+}
+.rudiment-verdict[data-clean="true"] {
+  color: var(--ok);
+  border-left-color: var(--ok);
+}
+.rudiment-verdict[data-clean="false"] {
+  color: var(--fb-wrong);
+  border-left-color: var(--fb-wrong);
+}
+.rudiment-graded-at {
+  font-size: var(--text-sm);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.rudiment-pad-lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.rudiment-pad-lines li {
+  font-size: var(--text-md);
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Library ---------- */
+.rudiment-library {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  margin-top: var(--space-4);
+}
+.rudiment-tier-heading {
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  color: var(--text-1);
+  margin-bottom: var(--space-2);
+}
+.rudiment-tier-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.rudiment-row-item { display: block; }
+
+/* One row, four columns: name, family, sticking, personal record. Grid
+   rather than flex so the sticking preview — the widest, most variable-length
+   column — never pushes the PR figure out of a shared vertical line the way a
+   flex row's wrapping would. */
+.rudiment-row {
+  display: grid;
+  grid-template-columns: 1.5fr 0.8fr 2fr 1fr;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-2);
+  border: var(--border-w) solid var(--border-1);
+  border-radius: var(--radius-1);
+  color: var(--text-1);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-1) var(--ease-out), border-color var(--dur-1) var(--ease-out);
+}
+.rudiment-row:hover { background: var(--bg-3); }
+.rudiment-row[data-selected="true"] {
+  border-color: var(--accent);
+  background: var(--bg-3);
+}
+.rudiment-row-name {
+  font-weight: var(--weight-medium);
+}
+.rudiment-row-family {
+  font-size: var(--text-sm);
+  color: var(--text-3);
+  text-transform: capitalize;
+}
+.rudiment-row-sticking {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  letter-spacing: var(--tracking-caps);
+  overflow-wrap: break-word;
+}
+.rudiment-row-pr {
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* Narrow screens: the four-column row is too tight to read — stack it. */
+@media (max-width: 640px) {
+  .rudiment-row {
+    grid-template-columns: 1fr;
+    text-align: left;
+  }
+  .rudiment-row-pr { text-align: left; }
+}
