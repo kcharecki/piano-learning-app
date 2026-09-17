@@ -45,7 +45,18 @@
   align-items: center;
   gap: var(--space-4);
 }
-.groove-start {
+/* Start and Listen sit side by side: Listen is what a learner who does not
+   know the groove reaches for first, so it has to be as findable as Start
+   rather than tucked somewhere below it. They wrap on a narrow screen so
+   neither ever loses its label. */
+.groove-transport {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-3);
+}
+.groove-start,
+.groove-listen {
   min-width: 160px;
 }
 /* The one line the learner reads mid-run, so it holds its height whether it
@@ -128,14 +139,10 @@
 }
 
 /* ---------- Between the pads and the result ---------- */
-.groove-key-hint,
 .groove-last-run {
   font-size: var(--text-sm);
-  color: var(--text-3);
-  margin-top: var(--space-3);
-}
-.groove-last-run {
   color: var(--text-2);
+  margin-top: var(--space-3);
 }
 
 /* ---------- Result ---------- */
@@ -160,6 +167,14 @@
 .groove-verdict[data-steady="false"] {
   color: var(--fb-wrong);
   border-left-color: var(--fb-wrong);
+}
+/* Always present once a result is (roadmap T.31): the result survives a
+   tempo change, so the tempo control on screen can no longer be trusted to
+   say what tempo these figures were graded at — this line has to. */
+.groove-graded-at {
+  font-size: var(--text-sm);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
 }
 
 /* One line per limb. Tabular numerals so the millisecond figures line up

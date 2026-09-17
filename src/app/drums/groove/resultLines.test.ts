@@ -5,11 +5,18 @@
  * way the screen could quietly lie about what happened.
  */
 import { describe, expect, it } from 'vitest'
-import type { GroovePadResult, GrooveRunResult } from '@core/drums/practice/grade.ts'
+import type { ArticulationSlip, GroovePadResult, GrooveRunResult } from '@core/drums/practice/grade.ts'
 import { gradeGrooveRun } from '@core/drums/practice/grade.ts'
-import { moneyBeat, quarterNoteRock } from '@core/drums/model/referenceGrooves.ts'
+import { moneyBeat, moneyBeatOpenHat, quarterNoteRock } from '@core/drums/model/referenceGrooves.ts'
 import { planGrooveRun, type GrooveRunPlan } from '@core/drums/practice/plan.ts'
-import { diagnosisSentences, lastRunText, padLineText, verdictText } from './resultLines.ts'
+import {
+  articulationSentence,
+  diagnosisSentences,
+  gradedAtText,
+  lastRunText,
+  padLineText,
+  verdictText,
+} from './resultLines.ts'
 
 function moneyBeatPlan(bpm = 80): GrooveRunPlan {
   return planGrooveRun(moneyBeat(), bpm)
@@ -23,6 +30,10 @@ function row(overrides: Partial<GroovePadResult>): GroovePadResult {
     matched: 4,
     missed: 0,
     extra: 0,
+    // Not rendered by anything under test in this file — `padLineText` never
+    // reads it — but a concurrent slice added it to `GroovePadResult` as a
+    // required field, so a fixture that never sets it still needs a value.
+    slipped: 0,
     meanOffsetMs: 0,
     spreadMs: 0,
     driftMs: 0,
@@ -90,6 +101,80 @@ describe('padLineText', () => {
     ]) {
       expect(padLineText(candidate)).toMatch(/, .+$/)
     }
+  })
+
+  /**
+   * Roadmap T.33. An expected instant struck on time but on the sibling
+   * articulation is neither a match nor a miss — it has to say so in plain
+   * words rather than just vanish from the count (`expected === matched +
+   * missed + slipped`, so a silently-dropped `slipped` reads as `expected`
+   * strokes that no bucket accounts for).
+   *
+   * Kills the mutant that drops the `row.slipped > 0` guard (or negates it)
+   * and the mutant that swaps `slipPhrase`'s sibling/own word order.
+   */
+  it('names a closed-for-open slip on an hhOpen row', () => {
+    expect(
+      padLineText(row({ pad: 'hhOpen', expected: 4, matched: 2, missed: 0, extra: 0, slipped: 2, meanOffsetMs: 0 })),
+    ).toBe('Open hi-hat — 2 of 4, dead on, 2 played closed instead of open')
+  })
+
+  /** The reverse direction of the same mixup. Kills a mutant that hard-codes one direction's wording for both pads. */
+  it('names an open-for-closed slip on an hhClosed row', () => {
+    expect(
+      padLineText(row({ pad: 'hhClosed', expected: 16, matched: 14, missed: 0, extra: 0, slipped: 2, meanOffsetMs: 0 })),
+    ).toBe('Hi-hat — 14 of 16, dead on, 2 played open instead of closed')
+  })
+
+  /**
+   * A row with `slipped === 0` must render byte-identical to how it did
+   * before this feature existed. Kills the mutant that appends the slip
+   * phrase unconditionally regardless of `row.slipped`.
+   */
+  it('never mentions slips on a row that had none', () => {
+    expect(padLineText(row({ pad: 'hhClosed', expected: 8, matched: 6, missed: 2, extra: 0, slipped: 0 }))).toBe(
+      'Hi-hat — 6 of 8, dead on, 2 missed',
+    )
+  })
+})
+
+describe('articulationSentence', () => {
+  /**
+   * The exact wording DR-09/T.33 promises: evidence-bearing, naming the count
+   * against the pad's own expected total. Kills the mutant that swaps
+   * `slip.expected`/`slip.played` in the sentence, and the mutant that reads
+   * `slip.count` for the expected total instead of the row's own `expected`.
+   */
+  it('names a closed-for-open slip, with the count out of the expected row\'s own total', () => {
+    const result = { pads: [row({ pad: 'hhOpen', expected: 4, matched: 2, slipped: 2 })] } as unknown as GrooveRunResult
+    const slip: ArticulationSlip = { expected: 'hhOpen', played: 'hhClosed', count: 2 }
+    expect(articulationSentence(slip, result)).toBe(
+      'The hi-hat was played closed where the score asks for open (2 of 4).',
+    )
+  })
+
+  /** The reverse direction. Kills a mutant that hard-codes 'open'/'closed' rather than reading `slip`. */
+  it('names an open-for-closed slip', () => {
+    const result = { pads: [row({ pad: 'hhClosed', expected: 16, matched: 14, slipped: 2 })] } as unknown as GrooveRunResult
+    const slip: ArticulationSlip = { expected: 'hhClosed', played: 'hhOpen', count: 2 }
+    expect(articulationSentence(slip, result)).toBe(
+      'The hi-hat was played open where the score asks for closed (2 of 16).',
+    )
+  })
+
+  /**
+   * No row for `slip.expected` should never happen in practice (the slip came
+   * FROM grading that pad), but the fallback must still produce a total
+   * rather than throw. Kills the mutant that reads `expectedRow.expected`
+   * without the `?? slip.count` fallback (a crash on `undefined`, not just a
+   * wrong number).
+   */
+  it('falls back to the slip count itself when the expected pad has no row', () => {
+    const result = { pads: [] } as unknown as GrooveRunResult
+    const slip: ArticulationSlip = { expected: 'hhOpen', played: 'hhClosed', count: 3 }
+    expect(articulationSentence(slip, result)).toBe(
+      'The hi-hat was played closed where the score asks for open (3 of 3).',
+    )
   })
 })
 
@@ -186,6 +271,73 @@ describe('diagnosisSentences', () => {
     expect(diagnosisSentences(late, rockPlan)[0]).toContain('1 beat behind the click')
     expect(quarters.subdivisionMs).not.toBe(quarters.beatMs)
   })
+
+  /**
+   * Roadmap T.33, built through the real grader rather than a hand-built
+   * `GrooveRunResult`: money beat's hi-hat is struck on time, but the first
+   * two eighths are played on the open pad instead of closed. Every other
+   * pad is hit exactly on time, so the ONLY thing wrong with this run is the
+   * articulation mixup — it must still be named, and named first.
+   *
+   * Kills the mutant that orders the articulation sentence after the timing
+   * sentences instead of before them.
+   */
+  it('names an articulation slip first among the diagnosis sentences', () => {
+    const hhClosedPlan = plan.pads.find((padPlan) => padPlan.pad === 'hhClosed')
+    if (hhClosedPlan === undefined) throw new Error('the money beat has a hi-hat')
+    const slipCount = 2
+    const hits = plan.pads.flatMap((padPlan) =>
+      padPlan.expectedMs.map((ms, i) => ({
+        pad: padPlan.pad === 'hhClosed' && i < slipCount ? ('hhOpen' as const) : padPlan.pad,
+        ms,
+      })),
+    )
+    const graded = gradeGrooveRun(plan, hits)
+    expect(graded.steady).toBe(false)
+    const hhClosedRow = graded.pads.find((r) => r.pad === 'hhClosed')
+    expect(hhClosedRow?.slipped).toBe(slipCount)
+    expect(diagnosisSentences(graded, plan)[0]).toBe(
+      `The hi-hat was played open where the score asks for closed (${slipCount} of ${hhClosedRow?.expected}).`,
+    )
+  })
+
+  /**
+   * The reverse direction, on a groove that actually notates an open hi-hat:
+   * both of moneyBeatOpenHat's open-hat instants (one per graded bar) are
+   * played closed instead.
+   *
+   * Kills the mutant that only wires up one direction of `ARTICULATION_SIBLINGS`.
+   */
+  it('names the reverse (open played closed) direction on a groove with a real open hi-hat', () => {
+    const openPlan = planGrooveRun(moneyBeatOpenHat(), 80)
+    const hits = openPlan.pads.flatMap((padPlan) =>
+      padPlan.expectedMs.map((ms) => ({
+        pad: padPlan.pad === 'hhOpen' ? ('hhClosed' as const) : padPlan.pad,
+        ms,
+      })),
+    )
+    const graded = gradeGrooveRun(openPlan, hits)
+    const hhOpenRow = graded.pads.find((r) => r.pad === 'hhOpen')
+    expect(hhOpenRow?.slipped).toBeGreaterThan(0)
+    expect(diagnosisSentences(graded, openPlan)[0]).toBe(
+      `The hi-hat was played closed where the score asks for open (${hhOpenRow?.slipped} of ${hhOpenRow?.expected}).`,
+    )
+  })
+
+  /**
+   * A steady run (including one with no slips at all) must print nothing —
+   * unchanged behaviour. Kills the mutant that checks `result.articulation`
+   * before the `result.steady` early return, which would print a sentence
+   * fragment (or throw on an absent row) even for a perfect run.
+   */
+  it('prints nothing extra when there are no articulation slips', () => {
+    const perfect = gradeGrooveRun(
+      plan,
+      plan.pads.flatMap((padPlan) => padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms }))),
+    )
+    expect(perfect.articulation).toEqual([])
+    expect(diagnosisSentences(perfect, plan)).toEqual([])
+  })
 })
 
 describe('lastRunText', () => {
@@ -194,5 +346,17 @@ describe('lastRunText', () => {
     expect(lastRunText('Money Beat', 70, false)).toBe(
       'Last run: Money Beat at 70 bpm — not there yet',
     )
+  })
+})
+
+describe('gradedAtText', () => {
+  /**
+   * Roadmap T.31: once a result survives a tempo change, the tempo control on
+   * screen can no longer be trusted to say what tempo the figures beside it
+   * were actually measured at — this line has to, on its own, every time.
+   */
+  it('names the exact tempo it was graded at', () => {
+    expect(gradedAtText(80)).toBe('Graded at 80 bpm')
+    expect(gradedAtText(200)).toBe('Graded at 200 bpm')
   })
 })

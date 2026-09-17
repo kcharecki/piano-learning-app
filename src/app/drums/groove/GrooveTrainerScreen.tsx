@@ -2,11 +2,22 @@
  * The groove trainer (roadmap DR-09/T.17) — the first drum screen that
  * actually teaches something.
  *
- * A learner picks one of three grooves, sets a tempo, gets a bar of count-in
- * and then plays two graded bars on the pads. The result names **each limb
- * separately**: its own count and its own mean offset. "You were off" is the
- * failure mode this screen exists to avoid, so every sentence it prints
- * attributes the problem to a pad.
+ * A learner picks one of three grooves, reads it off the staff, sets a tempo,
+ * gets a bar of count-in and then plays two graded bars on the pads. The
+ * result names **each limb separately**: its own count and its own mean
+ * offset. "You were off" is the failure mode this screen exists to avoid, so
+ * every sentence it prints attributes the problem to a pad.
+ *
+ * ## The staff is the statement of the task (DR-05)
+ *
+ * This screen shipped without one, and graded a pattern it never stated. Two
+ * standard readings of its own title `Money Beat (Open Hat)` exist; driving it
+ * proved the app grades one of them, states neither, and after a wrong guess
+ * reports `Open hi-hat — 0 of 2, 2 missed, 2 extra` without ever disclosing
+ * where the hat actually opens. So the staff sits directly under the title and
+ * above the transport, and it is engraved from the same `GrooveScore` the
+ * grader plans from — the picture and the marking cannot disagree, because
+ * there is only one source for both.
  *
  * ## The persona has no e-kit
  *
@@ -26,6 +37,26 @@
  * default to steal and stay live throughout, which is also what makes the
  * "tap a pad and see if it lights up" advice on an empty run actionable.
  *
+ * ## The count-in counts forward, in the chart's own vocabulary
+ *
+ * An adversarial review caught this screen counting the bar in backwards:
+ * `runStateText` printed 4, 3, 2, 1, so the digit "1" landed on the last beat
+ * BEFORE the downbeat — one beat before the 1 the count row under the staff
+ * and the learner's own reading of the chart call beat 1. A teacher counts a
+ * bar in forwards; `useGrooveRun.countInBeat` now does too, ascending
+ * 1…`countInBeats` and never printing anything else.
+ *
+ * ## Listen: the pattern before you play it
+ *
+ * This screen's persona does not already know the groove, and until now its
+ * `AudioOutput` only ever spoke back — a click track and a confirmation tone
+ * on the learner's OWN press — never the pattern itself. One press of Listen
+ * would have settled the two-readings ambiguity the DR-05 staff work above
+ * exists because of. `useGrooveRun.preview()` plays one pass of exactly what
+ * the staff draws, with a click under it, and grades nothing; the button
+ * lives beside Start rather than replacing it, and is disabled only while a
+ * graded run is on, so its own audio can never overlap the run's click track.
+ *
  * ## What is deliberately NOT here
  *
  * No tempo ramp. The rebuild brief lists one (T.17.6), and a ramp that reads
@@ -36,15 +67,20 @@
  */
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Icon } from '@app/ui/Icon.tsx'
+import { DrumKey } from '@app/drums/notation/DrumKey.tsx'
+import { GrooveStaff } from '@app/drums/notation/GrooveStaff.tsx'
 import { useDrumsHistoryStore } from '@app/state/drumsHistoryStore.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
+import { describeGroove } from '@core/drums/engrave/describe.ts'
+import { engraveGroove } from '@core/drums/engrave/staff.ts'
+import type { StaffLayout } from '@core/drums/engrave/layout.ts'
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import { grooveTrainerLibrary } from '@core/drums/practice/library.ts'
 import type { GrooveRunResult } from '@core/drums/practice/grade.ts'
 import { MAX_BPM, MIN_BPM, planGrooveRun, type GrooveRunPlan } from '@core/drums/practice/plan.ts'
-import type { AudioOutput, Clock } from '@core/ports/index.ts'
+import type { Clock, DrumAudioOutput } from '@core/ports/index.ts'
 import { GROOVE_PAD_KEY, GROOVE_PAD_LABEL, keyLabel, sortPadsForDisplay } from './padLabels.ts'
-import { diagnosisSentences, lastRunText, padLineText, verdictText } from './resultLines.ts'
+import { diagnosisSentences, gradedAtText, lastRunText, padLineText, verdictText } from './resultLines.ts'
 import { useGrooveRun, type GrooveRunPhase, type PadFlash } from './useGrooveRun.ts'
 
 /** The persona's goal tempo for the Debut rock groove, and the tempo the screen opens on. */
@@ -56,7 +92,7 @@ const PAD_FLASH_MS = 90
 export type GrooveTrainerScreenProps = {
   /** Injection seams for tests; each defaults to the real browser adapter. */
   readonly clock?: Clock
-  readonly audio?: () => AudioOutput
+  readonly audio?: () => DrumAudioOutput
   readonly frameDriver?: FrameDriver
 }
 
@@ -69,6 +105,37 @@ export function GrooveTrainerScreen(props: GrooveTrainerScreenProps) {
   // groove and the picker needs no "nothing installed" branch.
   const groove = library[grooveIndex] ?? library[0]
   const plan = useMemo(() => planGrooveRun(groove, bpm), [groove, bpm])
+
+  // The staff and its spoken description are both derived from the same
+  // `GrooveScore` the grader plans its run from, so the picture, the sentence
+  // and the marking can never describe three different patterns. That is the
+  // whole point: before this, the screen's entire statement of the task was
+  // its title, and two standard readings of "Money Beat (Open Hat)" scored
+  // 2 of 2 and 0 of 2 against a grader that named neither.
+  //
+  // `playCount` carries that same discipline one step further: the figure
+  // draws one bar, but the trainer grades `plan.gradedBars`, so the engraving
+  // has to say "play this twice" itself rather than let the drawn bar and the
+  // graded bars disagree about how long the task is.
+  //
+  // How many times is `plan.gradedBars` bars divided by the bars the score
+  // actually writes out, which is `planGrooveRun`'s own `loops` — a two-bar
+  // groove graded over two bars is played once, not twice. Deriving it the
+  // same way keeps the drawn repeat and the graded window from drifting apart
+  // the moment a multi-bar groove is added.
+  const playCount = Math.max(1, Math.ceil(plan.gradedBars / groove.measures.length))
+  const layout = useMemo(
+    () => engraveGroove(groove, { playCount }),
+    [groove, playCount],
+  )
+  // The spoken description carries the repeat for the same reason the drawn
+  // staff does: the figure states one bar and the run grades `gradedBars`, so
+  // a description that stopped at the bar line would understate the task by
+  // exactly as much as the picture used to.
+  const staffLabel = useMemo(
+    () => describeGroove(groove, (pad) => GROOVE_PAD_LABEL[pad], { playCount }),
+    [groove, playCount],
+  )
 
   const attempts = useDrumsHistoryStore((state) => state.attempts)
   const addAttempt = useDrumsHistoryStore((state) => state.addAttempt)
@@ -96,6 +163,8 @@ export function GrooveTrainerScreen(props: GrooveTrainerScreenProps) {
   return (
     <Trainer
       plan={plan}
+      layout={layout}
+      staffLabel={staffLabel}
       bpm={bpm}
       onBpm={setBpm}
       onStep={(delta) => setGrooveIndex((i) => (i + delta + library.length) % library.length)}
@@ -114,17 +183,30 @@ export function GrooveTrainerScreen(props: GrooveTrainerScreenProps) {
 
 type TrainerProps = {
   readonly plan: GrooveRunPlan
+  /** Engraved upstream, where the `GrooveScore` lives — `Trainer` stays presentational. */
+  readonly layout: StaffLayout
+  readonly staffLabel: string
   readonly bpm: number
   readonly onBpm: (bpm: number) => void
   readonly onStep: (delta: number) => void
   readonly onFinished: (result: GrooveRunResult) => void
   readonly lastRunLine: string | undefined
   readonly clock?: Clock
-  readonly audio?: () => AudioOutput
+  readonly audio?: () => DrumAudioOutput
   readonly frameDriver?: FrameDriver
 }
 
-function Trainer({ plan, bpm, onBpm, onStep, onFinished, lastRunLine, ...seams }: TrainerProps) {
+function Trainer({
+  plan,
+  layout,
+  staffLabel,
+  bpm,
+  onBpm,
+  onStep,
+  onFinished,
+  lastRunLine,
+  ...seams
+}: TrainerProps) {
   const run = useGrooveRun({
     plan,
     onFinished,
@@ -133,6 +215,13 @@ function Trainer({ plan, bpm, onBpm, onStep, onFinished, lastRunLine, ...seams }
     ...(seams.frameDriver === undefined ? {} : { driver: seams.frameDriver }),
   })
   const running = run.phase === 'count-in' || run.phase === 'playing'
+  // `running` alone gates the Space-is-the-kick binding (see the module
+  // comment) and must never widen to cover a preview — Space stays the
+  // learner's own kick throughout. `busy` is the broader "something is
+  // sounding on its own schedule" state that the groove picker and the tempo
+  // field key off, since retuning or swapping grooves mid-preview would pull
+  // the plan out from under audio already scheduled against it.
+  const busy = running || run.phase === 'preview'
 
   const pads = useMemo(
     () => sortPadsForDisplay(plan.pads, (padPlan) => padPlan.pad).map((padPlan) => padPlan.pad),
@@ -143,10 +232,11 @@ function Trainer({ plan, bpm, onBpm, onStep, onFinished, lastRunLine, ...seams }
   const lit = useFlash(run.flash)
 
   const resultRows = useMemo(
-    () => (run.result === undefined ? [] : sortPadsForDisplay(run.result.pads, (row) => row.pad)),
+    () =>
+      run.result === undefined ? [] : sortPadsForDisplay(run.result.result.pads, (row) => row.pad),
     [run.result],
   )
-  const diagnosis = run.result === undefined ? [] : diagnosisSentences(run.result, plan)
+  const diagnosis = run.result === undefined ? [] : diagnosisSentences(run.result.result, plan)
 
   const beatsPerBar = Math.max(1, Math.round(plan.barMs / plan.beatMs))
   const activeBeat = running && run.beatIndex >= 0 ? run.beatIndex % beatsPerBar : -1
@@ -165,7 +255,7 @@ function Trainer({ plan, bpm, onBpm, onStep, onFinished, lastRunLine, ...seams }
           type="button"
           className="btn-icon"
           aria-label="Previous groove"
-          disabled={running}
+          disabled={busy}
           onClick={() => onStep(-1)}
         >
           <Icon name="chevron-left" />
@@ -180,15 +270,35 @@ function Trainer({ plan, bpm, onBpm, onStep, onFinished, lastRunLine, ...seams }
           type="button"
           className="btn-icon"
           aria-label="Next groove"
-          disabled={running}
+          disabled={busy}
           onClick={() => onStep(1)}
         >
           <Icon name="chevron-right" />
         </button>
       </div>
 
+      {/* The statement of the task, directly under the title and above the
+          transport: everything below this is HOW you attempt the task, and
+          until now the screen had no place that said WHAT the task was. */}
+      <div className="card groove-notation">
+        <GrooveStaff layout={layout} label={staffLabel} grooveId={plan.grooveId} />
+        {/* The legend belongs to the figure but sits OUTSIDE the staff's own
+            SVG: its glyphs are the same ellipses and crosses the staff draws,
+            and the refutation condition reads pads off the drawing by shape
+            and vertical position, so a legend inside `[data-groove-staff]`
+            would be read as six more noteheads on the wrong lines. */}
+        <DrumKey
+          layout={layout}
+          labelFor={(pad) => GROOVE_PAD_LABEL[pad]}
+          keyFor={(pad) => {
+            const key = GROOVE_PAD_KEY[pad]
+            return key === undefined ? undefined : keyLabel(key)
+          }}
+        />
+      </div>
+
       <div className="card groove-stage">
-        <TempoField bpm={bpm} onBpm={onBpm} disabled={running} />
+        <TempoField bpm={bpm} onBpm={onBpm} disabled={busy} />
 
         <div className="groove-beats" aria-hidden="true">
           {Array.from({ length: beatsPerBar }, (_, i) => (
@@ -196,18 +306,43 @@ function Trainer({ plan, bpm, onBpm, onStep, onFinished, lastRunLine, ...seams }
           ))}
         </div>
 
-        <button
-          type="button"
-          className="btn-primary groove-start"
-          aria-label={running ? 'Stop' : 'Start'}
-          onClick={running ? run.stop : run.start}
-        >
-          <Icon name={running ? 'stop' : 'play'} />
-          {running ? 'Stop' : 'Start'}
-        </button>
+        {/* Start is the primary action and Listen is deliberately not: a
+            learner reaches for Listen first, but only one control on a screen
+            may be the one a glance finds (docs/DESIGN.md). */}
+        <div className="groove-transport">
+          <button
+            type="button"
+            className="btn-primary groove-start"
+            aria-label={running ? 'Stop' : 'Start'}
+            disabled={run.phase === 'preview'}
+            onClick={running ? run.stop : run.start}
+          >
+            <Icon name={running ? 'stop' : 'play'} />
+            {running ? 'Stop' : 'Start'}
+          </button>
+
+          {/* The Rival-seat finding: this trainer's own persona does not
+              already know the groove, and every shipping rival lets a learner
+              hear a pattern before playing it. One press here would have
+              settled the two-readings ambiguity `Money Beat (Open Hat)`
+              shipped with. Gated on `running`, not `busy`, so the control
+              that starts a preview stays reachable right up until a graded
+              run actually begins — only the run itself, not another preview,
+              should be able to take it away. */}
+          <button
+            type="button"
+            className="groove-listen"
+            aria-label={run.phase === 'preview' ? 'Stop listening' : 'Listen'}
+            disabled={running}
+            onClick={run.phase === 'preview' ? run.stop : run.preview}
+          >
+            <Icon name={run.phase === 'preview' ? 'stop' : 'ear'} />
+            {run.phase === 'preview' ? 'Stop listening' : 'Listen'}
+          </button>
+        </div>
 
         <p role="status" aria-label="Run state" className="groove-run-state">
-          {runStateText(run.phase, run.countInLeft, run.bar, plan.gradedBars)}
+          {runStateText(run.phase, run.countInBeat, run.bar, plan.gradedBars)}
         </p>
       </div>
 
@@ -216,11 +351,6 @@ function Trainer({ plan, bpm, onBpm, onStep, onFinished, lastRunLine, ...seams }
           <Pad key={pad} pad={pad} lit={lit === pad} onHit={run.hit} />
         ))}
       </div>
-
-      <p className="groove-key-hint">
-        No kit? J is the hi-hat, K the open hat, F the snare and Space the kick — right hand, right
-        hand, left hand, right foot.
-      </p>
 
       {/* The summary of the PREVIOUS session, for a learner arriving fresh. Once this
           run has its own result panel the line is stale by definition, and printing
@@ -232,9 +362,14 @@ function Trainer({ plan, bpm, onBpm, onStep, onFinished, lastRunLine, ...seams }
 
       {run.result !== undefined && (
         <section className="card groove-result" aria-label="Result">
-          <p className="groove-verdict" data-steady={run.result.steady ? 'true' : 'false'}>
-            {verdictText(run.result)}
+          <p className="groove-verdict" data-steady={run.result.result.steady ? 'true' : 'false'}>
+            {verdictText(run.result.result)}
           </p>
+          {/* Always shown, so a learner who retunes after a run can still see
+              what tempo the verdict they are reading actually came from
+              (roadmap T.31) — the result itself survives the retune, but the
+              tempo control on screen has already moved on. */}
+          <p className="groove-graded-at">{gradedAtText(run.result.bpm)}</p>
           <ul className="groove-pad-lines">
             {resultRows.map((row) => (
               <li key={row.pad}>{padLineText(row)}</li>
@@ -257,22 +392,28 @@ function Trainer({ plan, bpm, onBpm, onStep, onFinished, lastRunLine, ...seams }
 
 function runStateText(
   phase: GrooveRunPhase,
-  countInLeft: number,
+  countInBeat: number,
   bar: number,
   gradedBars: number,
 ): string {
   switch (phase) {
     case 'idle':
       return 'Ready when you are'
+    // Counts forward, 1 through the last count-in beat, in the chart's own
+    // vocabulary — a teacher counts a bar in forwards, and beat 1 here must
+    // land on the same instant the staff calls beat 1 (a MAJOR review finding:
+    // this used to count DOWN, so "1" printed on the beat before the downbeat).
     case 'count-in':
-      return `Counting in — ${countInLeft}`
+      return `Counting in — ${countInBeat}`
     // The e2e pad driver takes the graded window's opening from this text
     // starting with "Playing" (see `e2e/drum-pads.ts`); no other phase's
-    // wording may start with that word.
+    // wording may start with that word — including this one below.
     case 'playing':
       return `Playing — bar ${bar} of ${gradedBars}`
     case 'graded':
       return 'Run finished'
+    case 'preview':
+      return 'Listening — the groove as written'
   }
 }
 

@@ -149,9 +149,17 @@ test('held-out goal, generalisation trap: hats played open where they should be 
   await expect(result(page).getByText('Steady run')).toHaveCount(0)
   await expect(result(page).getByText('Not there yet')).toBeVisible()
 
-  // Both hat rows are named, because both were wrong in different ways.
-  await expect(result(page).getByText(/^Hi-hat — .*missed/)).toBeVisible()
-  await expect(result(page).getByText(/^Open hi-hat — .*extra/)).toBeVisible()
+  // Both hat rows are named, because both were wrong in different ways —
+  // and named as the one mistake they are (roadmap T.33): an instant struck
+  // on time on the sibling hat is a slipped articulation, never a miss on
+  // one row plus an extra on the other.
+  await expect(result(page).getByText(/^Hi-hat — .*played open instead of closed/)).toBeVisible()
+  await expect(result(page).getByText(/^Open hi-hat — .*played closed instead of open/)).toBeVisible()
+  await expect(result(page).getByText(/missed/)).toHaveCount(0)
+  await expect(result(page).getByText(/extra/)).toHaveCount(0)
+  await expect(
+    result(page).getByText(/hi-hat was played open where the score asks for closed/),
+  ).toBeVisible()
 
   // The limbs that played correctly are not blamed for it.
   await expect(result(page).getByText(/^Snare — 4 of 4, /)).toBeVisible()

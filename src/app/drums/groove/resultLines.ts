@@ -19,11 +19,14 @@
  * chooses nothing for the learner to fix. Worst first, then stop.
  */
 import {
+  ARTICULATION_SIBLINGS,
   worstUnisonGap,
+  type ArticulationSlip,
   type GroovePadResult,
   type GrooveRunResult,
 } from '@core/drums/practice/grade.ts'
 import type { GrooveRunPlan } from '@core/drums/practice/plan.ts'
+import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import { GROOVE_PAD_LABEL } from './padLabels.ts'
 
 /** How many diagnosis sentences the panel will show at once. See the module comment. */
@@ -47,6 +50,42 @@ function offsetPhrase(meanOffsetMs: number): string {
 }
 
 /**
+ * `pad`'s sibling in `ARTICULATION_SIBLINGS` (roadmap T.33) — the other
+ * articulation of the same physical stroke (open vs. closed hi-hat) — or
+ * `undefined` if `pad` is not part of any sibling pair. Reads the pair table
+ * itself rather than hard-coding `hhOpen`/`hhClosed` here a second time, so a
+ * future sibling pair needs no change in this file.
+ */
+function siblingPadOf(pad: MappedDrumPad): MappedDrumPad | undefined {
+  for (const [a, b] of ARTICULATION_SIBLINGS) {
+    if (a === pad) return b
+    if (b === pad) return a
+  }
+  return undefined
+}
+
+/** Learner-facing word for a pad's own articulation flavour, e.g. `hhOpen` -> `'open'`. */
+const ARTICULATION_WORD: Partial<Readonly<Record<MappedDrumPad, string>>> = {
+  hhOpen: 'open',
+  hhClosed: 'closed',
+}
+
+function articulationWord(pad: MappedDrumPad): string {
+  return ARTICULATION_WORD[pad] ?? GROOVE_PAD_LABEL[pad].toLowerCase()
+}
+
+/**
+ * What a slipped pad's line says after its count: the sibling articulation the
+ * learner actually played, and the one the score asked for. Only ever called
+ * with `row.slipped > 0`.
+ */
+function slipPhrase(row: GroovePadResult): string {
+  const sibling = siblingPadOf(row.pad)
+  if (sibling === undefined) return `${row.slipped} played the wrong articulation`
+  return `${row.slipped} played ${articulationWord(sibling)} instead of ${articulationWord(row.pad)}`
+}
+
+/**
  * One pad's line: its count, then its own offset, then what it got wrong.
  *
  * A pad with `expected === 0` is one the learner played that this groove never
@@ -62,6 +101,10 @@ export function padLineText(row: GroovePadResult): string {
   if (row.meanOffsetMs !== undefined) parts.push(offsetPhrase(row.meanOffsetMs))
   if (row.missed > 0) parts.push(`${row.missed} missed`)
   if (row.extra > 0) parts.push(`${row.extra} extra`)
+  // Roadmap T.33: an expected instant struck on time but on the sibling
+  // articulation is neither a match nor a miss — it gets its own words here
+  // rather than silently vanishing from the count.
+  if (row.slipped > 0) parts.push(slipPhrase(row))
   return `${label} — ${row.matched} of ${row.expected}, ${parts.join(', ')}`
 }
 
@@ -97,6 +140,39 @@ function worstOver(
   return worst
 }
 
+/** Learner-facing family name for a sibling-articulation sentence, e.g. `hhOpen`/`hhClosed` -> `'hi-hat'`. */
+const ARTICULATION_FAMILY_NAME: Partial<Readonly<Record<MappedDrumPad, string>>> = {
+  hhOpen: 'hi-hat',
+  hhClosed: 'hi-hat',
+}
+
+/**
+ * The sentence for one direction of a sibling-articulation mixup (roadmap
+ * T.33), e.g. "The hi-hat was played closed where the score asks for open (2
+ * of 4)." — evidence-bearing like every other diagnosis sentence: it names
+ * the count `slip` actually happened, out of how many the score asked for on
+ * `slip.expected`'s own row.
+ *
+ * A pure, separately-exported function (rather than inlined in
+ * `diagnosisSentences`) so the wording is unit-tested on its own, same as
+ * every other sentence builder in this file.
+ */
+export function articulationSentence(slip: ArticulationSlip, result: GrooveRunResult): string {
+  const expectedRow = result.pads.find((row) => row.pad === slip.expected)
+  const expectedCount = expectedRow?.expected ?? slip.count
+  const familyName = ARTICULATION_FAMILY_NAME[slip.expected] ?? GROOVE_PAD_LABEL[slip.expected].toLowerCase()
+  return `The ${familyName} was played ${articulationWord(slip.played)} where the score asks for ${articulationWord(slip.expected)} (${slip.count} of ${expectedCount}).`
+}
+
+/** The `ArticulationSlip` that explains the most struck-but-mislabelled instants, or `undefined` when there are none. */
+function worstArticulationSlip(result: GrooveRunResult): ArticulationSlip | undefined {
+  let worst: ArticulationSlip | undefined
+  for (const slip of result.articulation) {
+    if (worst === undefined || slip.count > worst.count) worst = slip
+  }
+  return worst
+}
+
 /**
  * Why the run was not steady, worst cause first — empty for a steady run,
  * because a learner who got it right does not need a list of things that were
@@ -118,6 +194,13 @@ export function diagnosisSentences(
   }
 
   const sentences: string[] = []
+
+  // Roadmap T.33: an articulation mixup is named first — a pattern played
+  // with the wrong hi-hat state throughout is a different fix from a timing
+  // problem, and conflating the two under a timing sentence would send a
+  // learner practising the wrong thing.
+  const worstSlip = worstArticulationSlip(result)
+  if (worstSlip !== undefined) sentences.push(articulationSentence(worstSlip, result))
 
   if (result.slipSteps !== undefined) {
     const steps = Math.abs(result.slipSteps)
@@ -156,4 +239,14 @@ export function diagnosisSentences(
 /** The one-line summary of a stored attempt, shown when the learner comes back to the screen. */
 export function lastRunText(title: string, bpm: number, steady: boolean): string {
   return `Last run: ${title} at ${bpm} bpm — ${steady ? 'steady' : 'not there yet'}`
+}
+
+/**
+ * Always shown alongside a result (roadmap T.31), because the result now
+ * survives a tempo change: without this line, a learner who retuned after a
+ * run would be reading per-limb offsets with no way to tell what tempo they
+ * were measured at.
+ */
+export function gradedAtText(bpm: number): string {
+  return `Graded at ${bpm} bpm`
 }
