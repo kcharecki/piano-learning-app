@@ -34,10 +34,8 @@ import type {
   PianoScreenId,
 } from '@app/shell/route.ts'
 import { useRoute } from '@app/shell/routing.ts'
+import { DRUMS_NAV_GROUPS, DRUMS_NAV_PRIMARY, DRUMS_SCREEN_LABEL, renderDrumsScreen } from '@app/shell/drumsShell.tsx'
 import { useInstrumentStore } from '@app/state/instrumentStore.ts'
-import { DrumsTodayScreen } from '@app/drums/DrumsTodayScreen.tsx'
-import { NotationDevGallery } from '@app/drums/notation/NotationDevGallery.tsx'
-import { GrooveTrainerScreen } from '@app/drums/groove/GrooveTrainerScreen.tsx'
 import { ReferencePanel } from '@app/reference/ReferencePanel.tsx'
 import { SettingsScreen } from '@app/onboarding/SettingsScreen.tsx'
 import { ScoreScreen } from '@app/score/ScoreScreen.tsx'
@@ -130,38 +128,6 @@ const PIANO_NAV_GROUPS: readonly NavGroup<PianoScreenId>[] = [
     ],
   },
   { label: 'Progress', items: [pianoNavItem('progress'), pianoNavItem('settings')] },
-]
-
-/**
- * What the topbar calls each Drums screen (roadmap DR-01, DR-09). Every screen
- * is here, including `drums-notation-dev`, which is URL-only and has no nav
- * button: the topbar names wherever the learner actually is, and reading that
- * name off the nav table meant a screen with no nav entry was silently
- * labelled "Today" — the wrong page name, not a missing one.
- */
-const DRUMS_SCREEN_LABEL: Record<DrumsScreenId, string> = {
-  'drums-today': 'Today',
-  'drums-groove': 'Groove',
-  'drums-notation-dev': 'Notation gallery',
-}
-
-/**
- * Drums' own nav table (roadmap DR-01) — Today plus, since DR-09, the groove
- * trainer. The type-level split from `PIANO_NAV_ITEMS`/`PIANO_NAV_GROUPS` (see
- * `route.ts`'s `DrumsScreenId`) means adding a Drums screen can never
- * accidentally collide with a piano one.
- */
-const DRUMS_NAV_PRIMARY: NavItem<DrumsScreenId> = {
-  id: 'drums-today',
-  label: DRUMS_SCREEN_LABEL['drums-today'],
-  icon: 'target',
-}
-
-const DRUMS_NAV_GROUPS: readonly NavGroup<DrumsScreenId>[] = [
-  {
-    label: 'Practice',
-    items: [{ id: 'drums-groove', label: DRUMS_SCREEN_LABEL['drums-groove'], icon: 'rhythm' }],
-  },
 ]
 
 /**
@@ -400,18 +366,6 @@ function renderPianoScreen(
       return <DashboardScreen />
     case 'settings':
       return <SettingsScreen onGoToToday={goToToday} />
-  }
-}
-
-/** Drums' own screen renderer (roadmap DR-01), grows per phase. */
-function renderDrumsScreen(screen: DrumsScreenId, goToGroove: () => void) {
-  switch (screen) {
-    case 'drums-today':
-      return <DrumsTodayScreen onOpenGroove={goToGroove} />
-    case 'drums-groove':
-      return <GrooveTrainerScreen />
-    case 'drums-notation-dev':
-      return <NotationDevGallery />
   }
 }
 

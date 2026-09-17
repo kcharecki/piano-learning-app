@@ -61,7 +61,14 @@ const PIANO_SCREEN_ID_SET: ReadonlySet<string> = new Set<string>(PIANO_SCREEN_ID
  * later DR item that adds a drums screen adds its id here, exactly like
  * `PIANO_SCREEN_IDS` above.
  */
-export const DRUMS_SCREEN_IDS = ['drums-today', 'drums-groove', 'drums-notation-dev'] as const
+export const DRUMS_SCREEN_IDS = [
+  'drums-today',
+  'drums-groove',
+  'drums-reading',
+  'drums-rudiments',
+  'drums-metronome',
+  'drums-notation-dev',
+] as const
 
 export type DrumsScreenId = (typeof DRUMS_SCREEN_IDS)[number]
 
@@ -79,6 +86,10 @@ const DRUMS_SCREEN_SEGMENTS: Record<DrumsScreenId, string> = {
   // DR-09's groove trainer (`/drums/groove`) — the drums nav's first real
   // destination beyond Today.
   'drums-groove': 'groove',
+  // DR-11's rhythm reading trainer (`/drums/reading`).
+  'drums-reading': 'reading',
+  'drums-rudiments': 'rudiments',
+  'drums-metronome': 'metronome',
   // DR-05's development gallery (`/drums/notation-dev`): URL-only, never a
   // nav item — the renderer's proof surface, kept alongside the trainer
   // because it shows every notation case, not just the three the trainer

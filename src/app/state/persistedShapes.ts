@@ -11,6 +11,8 @@
  */
 import type { Hand, Score } from '@core/notation/score.ts'
 import type { MidiEvent } from '@core/ports/index.ts'
+import { isReadingLevel, type ReadingLevel, type ReadingRunRecord } from '@core/drums/reading/index.ts'
+import type { RudimentRecord } from '@app/state/drumsRudimentStore.ts'
 import { MAX_TEMPO_SCALE, MIN_TEMPO_SCALE } from '@core/timing/tempo.ts'
 import type { LoopRange } from '@core/timing/transport.ts'
 import { MAX_LEVEL, MIN_LEVEL } from '@core/sightreading/adaptive.ts'
@@ -74,6 +76,17 @@ export type PersistedTechniqueHistory = {
 
 export type PersistedDrumsHistory = {
   readonly attempts: readonly DrumsGrooveAttempt[]
+}
+
+/** The rhythm reading trainer's level and recent runs (roadmap DR-11) — see `drumsReadingStore.ts`. */
+export type PersistedDrumsReading = {
+  readonly level: ReadingLevel
+  readonly runs: readonly ReadingRunRecord[]
+}
+
+/** The rudiment trainer's per-rudiment personal records (roadmap DR-10) — see `drumsRudimentStore.ts`. */
+export type PersistedDrumsRudiments = {
+  readonly records: Readonly<Record<string, RudimentRecord>>
 }
 
 export type PersistedLevelState = {
@@ -430,6 +443,51 @@ export function isValidDrumsGrooveAttempt(value: unknown): value is DrumsGrooveA
     Number.isFinite(a.at) &&
     typeof a.steady === 'boolean'
   )
+}
+
+function isValidReadingRunRecord(value: unknown): value is ReadingRunRecord {
+  if (typeof value !== 'object' || value === null) return false
+  const r = value as Record<string, unknown>
+  return (
+    typeof r.level === 'number' &&
+    isReadingLevel(r.level) &&
+    typeof r.accuracy === 'number' &&
+    r.accuracy >= 0 &&
+    r.accuracy <= 1
+  )
+}
+
+export function isValidDrumsReading(value: unknown): value is PersistedDrumsReading {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return (
+    typeof v.level === 'number' &&
+    isReadingLevel(v.level) &&
+    Array.isArray(v.runs) &&
+    v.runs.every(isValidReadingRunRecord)
+  )
+}
+
+function isValidRudimentRecord(value: unknown): value is RudimentRecord {
+  if (typeof value !== 'object' || value === null) return false
+  const r = value as Record<string, unknown>
+  return (
+    typeof r.bestCleanBpm === 'number' &&
+    Number.isFinite(r.bestCleanBpm) &&
+    r.bestCleanBpm > 0 &&
+    typeof r.lastBpm === 'number' &&
+    Number.isFinite(r.lastBpm) &&
+    r.lastBpm > 0 &&
+    typeof r.at === 'number' &&
+    Number.isFinite(r.at)
+  )
+}
+
+export function isValidDrumsRudiments(value: unknown): value is PersistedDrumsRudiments {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  if (typeof v.records !== 'object' || v.records === null || Array.isArray(v.records)) return false
+  return Object.values(v.records).every(isValidRudimentRecord)
 }
 
 export function isValidDrumsHistory(value: unknown): value is PersistedDrumsHistory {

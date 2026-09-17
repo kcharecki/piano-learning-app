@@ -6,7 +6,7 @@
  * `Store` port, so it is exercised in tests with an in-memory fake and the
  * real zustand stores, never a browser database.
  *
- * Fourteen independent slices are persisted, each following the same shape
+ * Fifteen independent slices are persisted, each following the same shape
  * (validate → `restoreSlice` on the way in, `createWriteQueue` +  a
  * `subscribe` on the way out):
  *  - the score session (`useScoreStore`) — the original roadmap-1.23 slice.
@@ -158,6 +158,8 @@
 import type { Store } from '@core/ports/index.ts'
 import { COLLECTIONS } from '@core/ports/store.ts'
 import { createWriteQueue } from '@app/state/writeQueue.ts'
+import { restoreSlice, type PersistedSlice } from '@app/state/persistenceSlice.ts'
+import { restoreDrumsSlices, persistDrumsSlices } from '@app/state/persistence.drums.ts'
 import { useScoreStore, type ScoreStoreState } from '@app/state/scoreStore.ts'
 import { useSightReadingStore } from '@app/state/sightReadingStore.ts'
 import { useFlashcardStore } from '@app/state/flashcardStore.ts'
@@ -170,10 +172,6 @@ import {
 } from '@app/state/progressStore.ts'
 import { useRepertoireStore, MAX_STORED_REPERTOIRE_PIECES } from '@app/state/repertoireStore.ts'
 import { useTechniqueStore, MAX_STORED_TECHNIQUE_ATTEMPTS } from '@app/state/techniqueStore.ts'
-import {
-  useDrumsHistoryStore,
-  MAX_STORED_DRUMS_ATTEMPTS,
-} from '@app/state/drumsHistoryStore.ts'
 import { useLevelStore } from '@app/state/levelStore.ts'
 import { useEarTrainingStore } from '@app/state/earTrainingStore.ts'
 import { useThemeStore } from '@app/state/themeStore.ts'
@@ -181,7 +179,6 @@ import { useInstrumentStore } from '@app/state/instrumentStore.ts'
 import {
   isValidAnnotations,
   isValidAssessments,
-  isValidDrumsHistory,
   isValidFlashcards,
   isValidInstrument,
   isValidLevelState,
@@ -194,7 +191,6 @@ import {
   isValidTheme,
   type PersistedAnnotations,
   type PersistedAssessments,
-  type PersistedDrumsHistory,
   type PersistedFlashcards,
   type PersistedInstrument,
   type PersistedLevelState,
@@ -215,6 +211,8 @@ export type {
   PersistedAnnotations,
   PersistedAssessments,
   PersistedDrumsHistory,
+  PersistedDrumsReading,
+  PersistedDrumsRudiments,
   PersistedFlashcards,
   PersistedInstrument,
   PersistedLevelState,
@@ -259,15 +257,16 @@ export const PRACTICE_LOG_KEY = 'practiceLog'
 export const TECHNIQUE_COLLECTION = COLLECTIONS.techniqueHistory
 export const TECHNIQUE_KEY = 'techniqueHistory'
 
-/**
- * Collection + key the groove trainer's finished runs live under (roadmap
- * DR-09/T.17). Reuses `COLLECTIONS.settings` under its own key rather than
- * declaring a new collection — same reasoning as `LEVELS_COLLECTION` below:
- * a new key in an object store that already exists needs no IndexedDB
- * migration, and this slice is small and written once per run.
- */
-export const DRUMS_HISTORY_COLLECTION = COLLECTIONS.settings
-export const DRUMS_HISTORY_KEY = 'drumsHistory'
+// The drum slices (groove history, reading, rudiments) live in
+// `persistence.drums.ts`; their keys are re-exported so tests keep one import site.
+export {
+  DRUMS_HISTORY_COLLECTION,
+  DRUMS_HISTORY_KEY,
+  DRUMS_READING_COLLECTION,
+  DRUMS_READING_KEY,
+  DRUMS_RUDIMENTS_COLLECTION,
+  DRUMS_RUDIMENTS_KEY,
+} from '@app/state/persistence.drums.ts'
 
 /**
 /** Collection + key the repertoire library lives under (roadmap 2.33, REQ-3.8.2/3.8.3/3.8.4). */
@@ -324,7 +323,6 @@ let applyingRestoredAssessments = false
 let applyingRestoredRecordings = false
 let applyingRestoredPracticeLog = false
 let applyingRestoredTechniqueHistory = false
-let applyingRestoredDrumsHistory = false
 let applyingRestoredRepertoire = false
 let applyingRestoredLevels = false
 let applyingRestoredEarTraining = false
@@ -332,43 +330,7 @@ let applyingRestoredTheme = false
 let applyingRestoredInstrument = false
 
 /**
- * Reads `key` from `collection`, validates it, and — only if valid — applies
- * it with `setGuard` held `true` for the (synchronous) duration of `apply`.
- * Never throws: a store error, a `isValid` that itself throws, or an invalid
- * payload all resolve to `false` and leave the caller's state on its
- * defaults, because a learner who cannot start the app has lost more than a
- * learner who lost their saved state. The `get` and `isValid` call share one
- * `try` deliberately — a throwing validator must degrade exactly like a
- * throwing store, not escape uncaught and abort every OTHER slice's restore
- * behind it (see `restoreSession`'s "each independent" contract).
- */
-async function restoreSlice<T>(
-  store: Store,
-  collection: string,
-  key: string,
-  isValid: (value: unknown) => value is T,
-  setGuard: (guarding: boolean) => void,
-  apply: (value: T) => void,
-): Promise<boolean> {
-  let raw: T
-  try {
-    const value = await store.get<unknown>(collection, key)
-    if (!isValid(value)) return false
-    raw = value
-  } catch {
-    return false
-  }
-  setGuard(true)
-  try {
-    apply(raw)
-  } finally {
-    setGuard(false)
-  }
-  return true
-}
-
-/**
- * Restores all thirteen persisted slices (see the module comment for the full
+ * Restores all fifteen persisted slices (see the module comment for the full
  * list). Each is validated and applied independently, so a corrupt or
  * missing slice never prevents the others from restoring. Returns whether
  * the SCORE session specifically was restored, the original roadmap-1.23
@@ -508,19 +470,7 @@ export async function restoreSession(store: Store): Promise<boolean> {
         .hydrate({ attempts: data.attempts.slice(0, MAX_STORED_TECHNIQUE_ATTEMPTS) }),
   )
 
-  await restoreSlice(
-    store,
-    DRUMS_HISTORY_COLLECTION,
-    DRUMS_HISTORY_KEY,
-    isValidDrumsHistory,
-    (guarding) => {
-      applyingRestoredDrumsHistory = guarding
-    },
-    (data) =>
-      useDrumsHistoryStore
-        .getState()
-        .hydrate({ attempts: data.attempts.slice(0, MAX_STORED_DRUMS_ATTEMPTS) }),
-  )
+  await restoreDrumsSlices(store)
 
   await restoreSlice(
     store,
@@ -595,16 +545,6 @@ function toSession(state: ScoreStoreState): PersistedSession | undefined {
     musicXml: state.loaded.musicXml,
     settings: state.settings,
   }
-}
-
-/**
- * What every `persistXxx` below hands back to `startPersisting`: how to stop
- * listening, and how to best-effort-drain whatever this slice's queue is
- * currently holding (roadmap follow-up F.2's page-hide flush).
- */
-type PersistedSlice = {
-  readonly unsubscribe: () => void
-  readonly flush: () => void
 }
 
 /**
@@ -721,21 +661,6 @@ function persistTechniqueHistory(store: Store): PersistedSlice {
   return { unsubscribe, flush: write.flush }
 }
 
-/** Subscribes to the groove trainer's history and writes `attempts` on every change. */
-function persistDrumsHistory(store: Store): PersistedSlice {
-  const write = createWriteQueue<PersistedDrumsHistory>(
-    store,
-    DRUMS_HISTORY_COLLECTION,
-    DRUMS_HISTORY_KEY,
-  )
-  const unsubscribe = useDrumsHistoryStore.subscribe((state, prevState) => {
-    if (applyingRestoredDrumsHistory) return
-    if (state.attempts === prevState.attempts) return
-    write({ attempts: state.attempts })
-  })
-  return { unsubscribe, flush: write.flush }
-}
-
 /** Subscribes to the repertoire store and writes `pieces` on every change. */
 function persistRepertoire(store: Store): PersistedSlice {
   const write = createWriteQueue<PersistedRepertoire>(store, REPERTOIRE_COLLECTION, REPERTOIRE_KEY)
@@ -791,7 +716,7 @@ function persistInstrument(store: Store): PersistedSlice {
 }
 
 /**
- * Starts persisting all fourteen slices, registers the page-hide flush
+ * Starts persisting all fifteen slices, registers the page-hide flush
  * listener pair (roadmap follow-up F.2 — see the module comment), and
  * returns one combined unsubscribe that tears both down. See the module
  * comment for the mandatory `restoreSession` → `startPersisting` call order.
@@ -806,7 +731,7 @@ export function startPersisting(store: Store): () => void {
     persistRecordings(store),
     persistPracticeLog(store),
     persistTechniqueHistory(store),
-    persistDrumsHistory(store),
+    ...persistDrumsSlices(store),
     persistRepertoire(store),
     persistLevels(store),
     persistEarTraining(store),

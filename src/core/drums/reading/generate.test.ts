@@ -45,9 +45,16 @@ describe('generateReadingExercise', () => {
     )
   })
 
-  it('never produces an all-rest bar at level >= 2', () => {
+  /**
+   * Roadmap DR-11 review (MAJOR 3): a rest-only bar used to be allowed at
+   * level 1 — `fillMeasure` only forced an onset at level >= 2 — so a
+   * quiet-enough seed could hand a learner a bar with zero onsets to tap
+   * against, which then graded as 0 of 0 (a silent "failure" the learner did
+   * nothing to cause). Every level now gets the same guarantee.
+   */
+  it('never produces an all-rest bar, at any level (property)', () => {
     fc.assert(
-      fc.property(seedArb, fc.integer({ min: 2, max: MAX_READING_LEVEL }) as fc.Arbitrary<ReadingLevel>, measuresArb, (seed, level, measures) => {
+      fc.property(seedArb, levelArb, measuresArb, (seed, level, measures) => {
         const score = generateReadingExercise({ level, measures }, seededRng(seed))
         for (const measure of score.measures) {
           const end = measure.startTick + measure.durationTicks

@@ -11,13 +11,15 @@
  * its measure) is upheld here by construction, before a single note input is
  * built.
  *
- * A bar that is nothing but silence teaches nothing above level 1 (where
- * quarter rests are still an honest exercise in reading whole beats of rest),
- * so `fillMeasure` detects an all-rest bar at level >= 2 and swaps one
+ * A bar that is nothing but silence teaches nothing to read — even at level 1,
+ * where the point is reading quarter notes AND quarter rests, a bar that
+ * lands all four rests is zero onsets to grade a tap against — so
+ * `fillMeasure` detects an all-rest bar at every level and swaps one
  * rest-only cell for an onset-bearing cell of the same span — see
  * `forceOnset`. That swap only ever needs to touch a 1-beat cell, because the
  * only zero-onset cell in the whole table is the 1-beat `q_rest`; no 2-beat
- * cell is ever silent.
+ * cell is ever silent. Level 1's own vocabulary carries `q_note` for exactly
+ * this, so the swap never has to reach outside the level it is fixing.
  */
 import { invariant } from '@core/shared/invariant.ts'
 import { pick, type Rng } from '@core/ports/rng.ts'
@@ -86,7 +88,7 @@ export function fillMeasure(
     picked.push(cell)
     remaining -= cell.beats
   }
-  if (level >= 2 && !hasOnset(picked)) return forceOnset(picked, vocabulary)
+  if (!hasOnset(picked)) return forceOnset(picked, vocabulary)
   return picked
 }
 

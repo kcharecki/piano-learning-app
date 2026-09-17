@@ -1,0 +1,116 @@
+/* Rhythm reading trainer (roadmap DR-11). Layout scaffolding — `.page`,
+   `.page-header`, `.card`, `.field`, `.stepper`, `.btn-primary`, `.beat` —
+   comes from base.css/primitives.css/feature-metronome.css, the same set
+   `feature-drums-groove.css` builds on; this file holds only what those do
+   not: the level line, the transport row, and the single Tap pad. */
+
+.reading-level {
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+
+/* ---------- Stage: tempo, pulse, transport, tap pad ---------- */
+.reading-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+}
+.reading-tempo-field {
+  align-items: center;
+}
+.reading-beats {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+.reading-transport {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-3);
+}
+.reading-start,
+.reading-listen,
+.reading-next {
+  min-width: 160px;
+}
+/* Same treatment `.groove-run-state` gives its own live region: unset the
+   `[role="status"]` chip primitives.css draws by default, since this line
+   sits directly under the transport rather than beside a form field. */
+.reading-run-state {
+  min-height: 1.5em;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  justify-content: center;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* One pad, not a row of them — the whole point of pad-agnostic grading is
+   that WHERE you tap does not matter, so there is exactly one big target
+   rather than a kit's worth of choices that all do the same thing. */
+.reading-tap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 200px;
+  min-height: 120px;
+  padding: var(--space-4);
+  background: var(--bg-2);
+  border: var(--border-w) solid var(--border-2);
+  border-radius: var(--radius-2);
+  color: var(--text-1);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transition: background var(--dur-1) var(--ease-out);
+}
+.reading-tap:hover {
+  background: var(--bg-3);
+}
+.reading-tap[data-lit='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  transition: none;
+}
+
+/* ---------- Result ---------- */
+.reading-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+.reading-verdict {
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+  padding-left: var(--space-3);
+  border-left: var(--border-w-strong) solid var(--border-2);
+}
+.reading-verdict[data-clean='true'] {
+  color: var(--ok);
+  border-left-color: var(--ok);
+}
+.reading-verdict[data-clean='false'] {
+  color: var(--fb-wrong);
+  border-left-color: var(--fb-wrong);
+}
+.reading-detail {
+  font-size: var(--text-md);
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+}
+.reading-level-change {
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  color: var(--text-2);
+}
+.reading-level-change[data-direction='up'] {
+  color: var(--ok);
+}
