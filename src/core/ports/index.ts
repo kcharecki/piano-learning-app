@@ -13,6 +13,7 @@ export type {
   Unsubscribe,
 } from './midi.ts'
 export type { AudioOutput } from './audio.ts'
+export type { DrumAudioOutput } from './drumAudio.ts'
 export type { Store, CollectionName } from './store.ts'
 
 // This barrel carries TYPES only. The value exports (seededRng, COLLECTIONS,
