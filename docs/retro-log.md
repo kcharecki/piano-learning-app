@@ -16,14 +16,17 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
-## 2026-09-17 — the drum session: five slices in two waves, two Opus reviews, one gate refusal that was the point
+## 2026-09-17/18 — the drum session: nine slices in three waves, four Opus reviews, and a review fix that needed reviewing
 
 - **user-reported defects since last session:** 0.
-- **slices proven / started:** 5 / 5. `T.30`–`T.34` closed (`1ff79e7`, `98c0a9b`, `0cf90ed`,
-  `3960a5c`), DR-05 done, DR-06/07/09 advanced, and DR-10/11/12 landed as core-only slices
-  (`17e4b4f`) whose gates are their future screens'. Orchestrated: main thread integrated and
-  committed only; ~14 Sonnet builders/fixers, 2 Opus adversarial reviews (synth, grader).
-- **gate catches before commit:** 3.
+- **slices proven / started:** 9 / 9. `T.30`–`T.34` closed (`1ff79e7`, `98c0a9b`, `0cf90ed`,
+  `3960a5c`), DR-05 done, DR-06/07/09 advanced, DR-10/11/12 landed as core-only slices
+  (`17e4b4f`) in wave 2 and got their screens in wave 3 (`897c05f` sticking row,
+  `4084575` rudiments, `1a68f51` reading + wiring, `8687e4c` metronome), each driven in the
+  running app, e2e-covered and visual-passed in both themes at both widths. Orchestrated:
+  main thread integrated and committed only; ~20 Sonnet builders/fixers, 4 Opus adversarial
+  reviews (synth, grader, reading hook, metronome scheduler).
+- **gate catches before commit:** 7.
   1. **The e2e gate refused the T.33 slice, and that refusal is the gate's review-by clause
      satisfied.** `improve-DR-09-heldout.spec.ts` was a baseline capture asserting the wrong
      behaviour (`Open hi-hat — 0 of 2, 2 missed, 2 extra`); unit tests were green. The gate
@@ -37,17 +40,36 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
      the fixers patched them test-side with a `withCanonicalOpen()` shim in two files instead
      of reporting the source's append-vs-canonical order. Recorded as an open note in
      `docs/drums/ROADMAP.md`; the source fix is one sort.
+  4. **The reading review's own fix would have frozen the level.** Opus flagged that a
+     demotion could be undone by pre-promotion runs; the Sonnet fixer answered with a
+     decision boundary keyed on the store's run count, reset on every `next()`. Read on the
+     main thread before commit: the reset meant one-run-per-exercise learners could never
+     promote, and the 30-run cap meant the boundary never moved again once reached. The
+     real fix was smaller — the newest contiguous same-level streak, nothing else.
+  5. **Two BLOCKERs in a metronome that sounded fine in a unit test.** Every click was
+     dispatched at a wall time already past, which the synth clamps to "now" — four beats
+     in one frame become one thud — and a hidden tab replayed up to 512 bars on return. The
+     piano metronome hook had documented and fixed both weeks earlier; the drum
+     hook re-derived the trap from scratch.
+  6. **`max-lines` refused two spine files** (`persistence.ts` 527, `Shell.tsx` 507) mid-wiring.
+     Split by concept, not by size: the drum persistence slices and the Drums half of the
+     shell each got their own module.
+  7. **The metronome review's fix had a fix of its own.** A minor finding (the tempo
+     map grew one mark per manual bpm change) was answered by coalescing same-bar marks
+     into one — which re-timed ticks already dispatched under the replaced mark and shifted
+     every later click by up to ~100 ms on a fast drag. Read on the main thread: append
+     only, pinned by a property test in `core/timing/metronomeRun.test.ts`.
 - **docs budget:** no warnings.
 - **cost note:** integration, not building. Five agents' work landed on one tree, then one
   full `verify`, one visual pass, and a commit chain that failed once on shell quoting
   (five heredocs in one command) and was redone with one message file per commit.
-- **hypothesis:** the weakest part is the seam between a core-only slice and its screen:
-  DR-10/11/12 are "done" in `src/core` under 944 green drum tests and prove nothing to a
-  learner until a screen exists. The roadmap now says `[~]` with "no screen yet" so the
-  state is at least honest.
-- **change:** none. The e2e gate earned its keep this session (catch 1); nothing else
-  failed in a way a rule would fix. Revisit the core-only pattern if wave 3 leaves any of
-  DR-10/11/12 screenless.
+- **hypothesis:** a review finding is not a fix specification. Both wave-3 reviews were
+  right; two fixers' answers to right findings were wrong in a way only reading the diff
+  against the data it touches could catch. The expensive seat is not the reviewer, it
+  is whoever reads the fix — and this session that was the main thread, three times.
+- **change:** one. Review-driven fixes to timing, grading or adaptation code are read on
+  the main thread before commit, diff against the data shape they touch, not just their
+  own tests. Recorded in `docs/PROCESS.md`'s review step.
 
 ## 2026-09-07 (second session) — the e2e suite is now a commit gate, it found master already red, and then it found itself untrustworthy
 

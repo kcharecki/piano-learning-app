@@ -109,6 +109,12 @@ over a dozen "tests green, feature dead in the browser" defects. The browser dri
   (`docs/efficiency-guide.md` Appendix A) — never "read CLAUDE.md and…". Opus adversarially
   reviews correctness-critical code (theory, timing, matching); that is where it has
   repeatedly earned its cost.
+  **Experiment since 2026-09-18** — a review finding is not a fix specification: the
+  fix a builder writes for a timing, grading or adaptation finding is read on the main
+  thread before commit, against the data shape it touches, not just its own tests. Two
+  wave-3 fixes were wrong in ways their green tests could not see (a level boundary that
+  froze at the store's cap; a tempo mark that re-timed clicks already dispatched).
+  **Review-by 2026-10-16**: keep if it catches one more, drop if it only costs a read.
 - **Fan-out is earned, not default.** The 6-module pipelined workflow round exists for
   genuinely independent core modules. Most remaining work is wiring, UX and content — serial
   in nature, browser-verified — and gets a single builder or is done directly. Do not build

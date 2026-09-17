@@ -167,14 +167,29 @@ item lands inside a slice that drives something (specs state their proof surface
 - [~] DR-10 ‖ Rudiment trainer — the 40 in Wooton tiers, tempo ladder, evenness, PRs
       → [spec](features/DR-10-rudiment-trainer.md). Core landed 2026-09-17 (`17e4b4f`):
       `content/drums/rudiments*.ts` (40 PAS), `core/drums/rudiment/` score conversion +
-      tempo ladder. No screen; engraver draws no sticking letters yet.
-- [~] DR-11 ‖ Rhythm reading trainer — Reed-ordered generator, one-line staff, tap-graded
+      tempo ladder. Screen landed 2026-09-18 (`4084575`, wired `1a68f51`): the 40 in four
+      tiers with their stickings, sticking letters under the staff (`897c05f`), Practise →
+      tempo ladder up / up-then-down over the groove run, per-rudiment PRs persisted
+      (`drumsRudiments`). Open: evenness scoring; `ladderText` hard-codes the ladder's
+      default pass/fail counts; six tier-3/4 stickings still unverified against PAS.
+- [x] DR-11 ‖ Rhythm reading trainer — Reed-ordered generator, one-line staff, tap-graded
       → [spec](features/DR-11-rhythm-reading-trainer.md). Core landed 2026-09-17
       (`17e4b4f`): `core/drums/reading/` cells, 7 levels, generator, accuracy-gated
-      adapter. No screen yet.
-- [~] DR-12 ‖ Metronome suite — subdivisions, 2&4, gap click with measured drift, random
+      adapter. Screen landed 2026-09-18 (`1a68f51`): the five-line staff with the snare voice
+      instead of the spec's one-line staff (spec adjusted — one engraver, not two), count-in,
+      Listen, Tap pad, graded result, level adapted over the newest same-level streak of
+      runs, level + last 30 runs persisted (`drumsReading`). Opus-reviewed: five majors
+      fixed before commit (level lost on direct load, rest-only level-1 exercise, stale
+      "Run finished", ping-pong on demotion, untested reverse).
+- [x] DR-12 ‖ Metronome suite — subdivisions, 2&4, gap click with measured drift, random
       mute, ramp → [spec](features/DR-12-metronome-suite.md). Core landed 2026-09-17
-      (`17e4b4f`): `core/timing/clickFilters.ts`. No screen yet.
+      (`17e4b4f`): `core/timing/clickFilters.ts`. Screen landed 2026-09-18 (`8687e4c`):
+      subdivision 1–4, click placement, gap bars with measured return drift, random mute,
+      tempo ramp as appended `TempoMark`s. Opus timing review before commit: clicks were
+      dispatched in the past (collapsed by the synth's clamp) and a hidden tab replayed up
+      to 512 bars — now look-ahead scheduling and a one-bar backlog skip, with the bar
+      arithmetic moved to `core/timing/metronomeRun.ts`. Open: `everyNBars` is not
+      count-in aware; MIDI-out.
 - [ ] DR-13 ‖ Beat builder — GrooveScribe-style grid ⇄ live notation, library, share-URL;
       the content-authoring tool → [spec](features/DR-13-beat-builder.md)
 - [ ] DR-15 Coordination trainer — limb layering, kick permutations, hh foot/openings,
@@ -298,3 +313,22 @@ advanced, DR-10/11/12 core-only. Open notes a later slice must pick up:
 - `webaudio.ts` and `drumSynth.ts` duplicate the epoch-anchor drift filter; extract when a
   third caller appears.
 - Engraver renders no sticking letters (R/L under noteheads) — DR-10's screen needs them.
+
+### 2026-09-18 — orchestrated drum session, wave 3
+
+Four slices (`897c05f`, `4084575`, `1a68f51`, `8687e4c`) plus `3986178`: DR-10/11/12 each got
+their screen, the engraver its sticking row. Closed from the list above: the
+`deriveArticulations` order (one canonical sort in `groove.ts`, both shims deleted) and the
+sticking letters. Still open: `everyNBars` count-in awareness, the six unverified
+stickings, MIDI-out channel, the duplicated epoch-anchor filter. New notes:
+
+- Two reviews earned their cost: Opus found five majors in the reading hook and two
+  blockers in the metronome scheduler under green suites, and the main thread's read of
+  the reading fix found that the fix itself (a decision boundary keyed on store length)
+  would have stopped adaptation for good once the 30-run cap was reached. Review-driven
+  fixes to timing or grading code get read on the main thread before commit.
+- `persistence.ts` and `Shell.tsx` both crossed the 500-line limit this wave; the drum
+  slices now live in `persistence.drums.ts` / `persistenceSlice.ts` and `drumsShell.tsx`.
+  The next Drums screen goes into those, not the spine files.
+- The Drums Today screen still links only to the groove trainer; reading, rudiments and
+  the metronome are reachable from the nav rail only.
