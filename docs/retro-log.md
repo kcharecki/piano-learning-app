@@ -16,6 +16,39 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
+## 2026-09-17 — the drum session: five slices in two waves, two Opus reviews, one gate refusal that was the point
+
+- **user-reported defects since last session:** 0.
+- **slices proven / started:** 5 / 5. `T.30`–`T.34` closed (`1ff79e7`, `98c0a9b`, `0cf90ed`,
+  `3960a5c`), DR-05 done, DR-06/07/09 advanced, and DR-10/11/12 landed as core-only slices
+  (`17e4b4f`) whose gates are their future screens'. Orchestrated: main thread integrated and
+  committed only; ~14 Sonnet builders/fixers, 2 Opus adversarial reviews (synth, grader).
+- **gate catches before commit:** 3.
+  1. **The e2e gate refused the T.33 slice, and that refusal is the gate's review-by clause
+     satisfied.** `improve-DR-09-heldout.spec.ts` was a baseline capture asserting the wrong
+     behaviour (`Open hi-hat — 0 of 2, 2 missed, 2 extra`); unit tests were green. The gate
+     turned red until the spec asserted the articulation sentence instead. First refusal of a
+     commit that unit tests would have passed, 10 days after the clause was written.
+  2. **Both Opus reviews found defects a green suite hid.** Synth: the choke restarted the
+     envelope at full peak (a click), no `ctx.resume()` on a suspended context, a permanent
+     failure latch. Grader: `driftMs` corrupted because slipped offsets were appended out of
+     instant order. Every finding got a regression test before the fix.
+  3. **A tightened invariant broke three test arbitraries** (`open` only on `hhOpen`), and
+     the fixers patched them test-side with a `withCanonicalOpen()` shim in two files instead
+     of reporting the source's append-vs-canonical order. Recorded as an open note in
+     `docs/drums/ROADMAP.md`; the source fix is one sort.
+- **docs budget:** no warnings.
+- **cost note:** integration, not building. Five agents' work landed on one tree, then one
+  full `verify`, one visual pass, and a commit chain that failed once on shell quoting
+  (five heredocs in one command) and was redone with one message file per commit.
+- **hypothesis:** the weakest part is the seam between a core-only slice and its screen:
+  DR-10/11/12 are "done" in `src/core` under 944 green drum tests and prove nothing to a
+  learner until a screen exists. The roadmap now says `[~]` with "no screen yet" so the
+  state is at least honest.
+- **change:** none. The e2e gate earned its keep this session (catch 1); nothing else
+  failed in a way a rule would fix. Revisit the core-only pattern if wave 3 leaves any of
+  DR-10/11/12 screenless.
+
 ## 2026-09-07 (second session) — the e2e suite is now a commit gate, it found master already red, and then it found itself untrustworthy
 
 - **user-reported defects since last session:** 0.

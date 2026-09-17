@@ -258,7 +258,7 @@ Full histories of completed tasks: `docs/roadmap-archive-*.md` and git history.
       *Proof: one convention, named in `docs/DESIGN.md`, and the e2e gate narrowed to it — the
       spec that today accepts either marker accepts only the chosen one.*
 
-- [ ] T.30 **The Groove trainer still cannot show the learner what to play, and
+- [x] T.30 **The Groove trainer still cannot show the learner what to play, and
       `e2e/improve-DR-05.spec.ts` is RED saying so.** `/improve-app` run 2026-09-06-1 built the
       percussion staff (`64de051`) and polished it twice (`00999cd`, `d765c31`), then aborted on
       the BLOCKER ratchet — 1 BLOCKER at round 1, 2 at round 2, 1 at round 3, so the count never
@@ -281,8 +281,11 @@ Full histories of completed tasks: `docs/roadmap-archive-*.md` and git history.
       `0 of 4, 4 missed, 4 extra` on both limbs. Full findings verbatim in
       `runs/2026-09-06-1/panel-r{1,2,3}-*.md`.
       *Proof: the spec above, green, on a tree whose `staff.ts` still draws a waltz.*
+      **Done 2026-09-17 (`98c0a9b`):** engraver and renderer restored; `improve-DR-05.spec.ts`
+      4/4 and its `expected-red.json` entry deleted (registry now empty). DrumKey rows are
+      mini staffs: pad = (position read from the layout, shape), stems by voice.
 
-- [ ] T.31 **The Groove trainer keeps a graded marking under a groove and a tempo it never
+- [x] T.31 **The Groove trainer keeps a graded marking under a groove and a tempo it never
       graded.** Pre-dates DR-05 and survives its revert. `useGrooveRun.ts:249` returns `result`
       gated on nothing but `result !== undefined`, so a verdict and a per-pad score stay on screen
       through every groove change and every tempo change. Driven on the current tree
@@ -298,8 +301,10 @@ Full histories of completed tasks: `docs/roadmap-archive-*.md` and git history.
       across a tempo change, retire it only on a groove change.
       *Proof: a driven spec that grades a run, changes groove, and asserts the Result region is
       gone — and changes tempo, and asserts it is still there and says which tempo it graded.*
+      **Done 2026-09-17 (`3960a5c`):** `e2e/groove-result-retire.spec.ts` drives exactly that;
+      result clears on `plan.grooveId` change, survives tempo, stamped "Graded at N bpm".
 
-- [ ] T.32 **The trainer gives the open and the closed hi-hat one voice, so it cannot say "open"
+- [x] T.32 **The trainer gives the open and the closed hi-hat one voice, so it cannot say "open"
       in sound.** `useGrooveRun.ts:96` maps `hhClosed` and `hhOpen` to the same pitch 88 for the
       same `PAD_TONE_MS` 60, so a learner pressing the open-hat pad hears a closed hat. `gmNoteOf`
       (`core/drums/model/pad.ts:178`) does separate 42 from 46 and reaches no audio path at all —
@@ -310,8 +315,10 @@ Full histories of completed tasks: `docs/roadmap-archive-*.md` and git history.
       hat is released at the NEXT hi-hat event, not by a wall-clock constant.
       *Proof: an instrumented AudioContext showing the open-hat voice ending at the next hi-hat
       onset at 40, 80 and 200 bpm, and differing from the closed hat at all three.*
+      **Done 2026-09-17 (`0cf90ed`):** `adapters/audio/drumSynth.ts` chokes the open voice at
+      the next hat strike; fast-check property over 40–200 bpm on a recording AudioContext.
 
-- [ ] T.33 **A wrong hi-hat articulation is graded as two errors and named as neither.** Grading
+- [x] T.33 **A wrong hi-hat articulation is graded as two errors and named as neither.** Grading
       is strictly per pad (`core/drums/practice/grade.ts:246-254`), so a learner who plays a closed
       hat where the score writes an open one scores `hhOpen — 0 of n, n missed` AND
       `hhClosed — … n extra`: two failures for one mistake, and no sentence anywhere says "you
@@ -320,8 +327,11 @@ Full histories of completed tasks: `docs/roadmap-archive-*.md` and git history.
       names the articulation; the app double-counts it.
       *Proof: a graded run playing every instant right with the hat closed throughout reports one
       articulation error naming the hat, not a miss row and an extra row.*
+      **Done 2026-09-17 (`1ff79e7`):** `grade.ts` pairs sibling hats as `slipped`;
+      `improve-DR-09-heldout.spec.ts` now asserts "played open instead of closed" and zero
+      missed/extra rows — the e2e gate refused the slice until that spec was updated.
 
-- [ ] T.34 **`validateGrooveScore` accepts an `hhOpen` note with no `open` articulation.** The
+- [x] T.34 **`validateGrooveScore` accepts an `hhOpen` note with no `open` articulation.** The
       validator checks only that each articulation is a known one (`groove.ts:296`); nothing ties
       the pad to the sign. `moneyBeatOpenHat` sets `articulations: ['open']` by hand, so authored
       content is one omission away from a groove that is open in the model, closed on the page and
@@ -329,6 +339,8 @@ Full histories of completed tasks: `docs/roadmap-archive-*.md` and git history.
       `Result` error in the validator.
       *Proof: a property test over every `MappedDrumPad` — an `hhOpen` note without `open` is an
       `err`, and one with it round-trips.*
+      **Done 2026-09-17 (`1ff79e7`):** invariant in `makeGrooveScore`, `err` both directions
+      in the validator, property test over `MAPPED_PADS`; the parser promotes GM 42 + `<open/>`.
 
 - [ ] T.35 **Today's session reads neither the onboarding goal nor the persisted level.** Ledger
       row G3 of /improve-app run 2026-09-06-2 (source 1c, class MIS-GATED, sum 8 — deferred by the

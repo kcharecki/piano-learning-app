@@ -141,24 +141,40 @@ item lands inside a slice that drives something (specs state their proof surface
       [spec](features/DR-02-edrum-midi-input.md)
 - [ ] DR-03 ‖ Fallback inputs — keyboard map with dynamics modifiers, on-screen pads,
       capability banner → [spec](features/DR-03-fallback-inputs.md)
-- [ ] DR-05 Notation rendering — own SVG groove renderer (trainer surfaces) + OSMD
-      strategy for charts → [spec](features/DR-05-drum-notation-rendering.md)
-- [ ] DR-06 ‖ Drum audio — synthesized kit behind a `DrumAudioOutput` port, MIDI-out
-      route to the module → [spec](features/DR-06-drum-audio-output.md)
-- [ ] DR-07 Hit timing scorer — matcher, windows, velocity classes, per-limb stats;
-      **Opus adversarial review required** → [spec](features/DR-07-hit-timing-scorer.md)
+- [x] DR-05 Notation rendering — own SVG groove renderer (trainer surfaces) + OSMD
+      strategy for charts → [spec](features/DR-05-drum-notation-rendering.md). Landed
+      2026-09-17 (`98c0a9b`, root T.30): `core/drums/engrave/` + `app/drums/notation/`,
+      drum key drawn by position and shape; `improve-DR-05.spec.ts` 4/4. OSMD chart
+      strategy deferred to DR-28.
+- [~] DR-06 ‖ Drum audio — synthesized kit behind a `DrumAudioOutput` port, MIDI-out
+      route to the module → [spec](features/DR-06-drum-audio-output.md). Synth landed
+      2026-09-17 (`0cf90ed`, root T.32): 16 voices, open hat choked by the next hat strike,
+      Opus-reviewed. MIDI-out on channel 10 pending: `MidiOutput` port carries no channel.
+- [~] DR-07 Hit timing scorer — matcher, windows, velocity classes, per-limb stats;
+      **Opus adversarial review required** → [spec](features/DR-07-hit-timing-scorer.md).
+      `core/drums/practice/grade.ts` is the matcher today (greedy pairing, inclusive window,
+      articulation slips — Opus-reviewed 2026-09-17, `1ff79e7`). Velocity classes and
+      per-level windows still open.
 - [ ] DR-08 Latency calibration + input monitor → [spec](features/DR-08-latency-calibration.md)
 
 ## Phase D1 — The trainers: where practice happens
 
-- [ ] DR-09 Groove trainer — the core loop: per-hit feedback, loop, BPM, per-limb mute,
-      wait mode, results → [spec](features/DR-09-groove-trainer.md)
-- [ ] DR-10 ‖ Rudiment trainer — the 40 in Wooton tiers, tempo ladder, evenness, PRs
-      → [spec](features/DR-10-rudiment-trainer.md)
-- [ ] DR-11 ‖ Rhythm reading trainer — Reed-ordered generator, one-line staff, tap-graded
-      → [spec](features/DR-11-rhythm-reading-trainer.md)
-- [ ] DR-12 ‖ Metronome suite — subdivisions, 2&4, gap click with measured drift, random
-      mute, ramp → [spec](features/DR-12-metronome-suite.md)
+- [~] DR-09 Groove trainer — the core loop: per-hit feedback, loop, BPM, per-limb mute,
+      wait mode, results → [spec](features/DR-09-groove-trainer.md). `/drums/groove` has
+      staff, Listen through the synth, graded results with articulation sentences, result
+      retired on groove change (`3960a5c`). Still open: per-hit live feedback, loop,
+      per-limb mute, wait mode.
+- [~] DR-10 ‖ Rudiment trainer — the 40 in Wooton tiers, tempo ladder, evenness, PRs
+      → [spec](features/DR-10-rudiment-trainer.md). Core landed 2026-09-17 (`17e4b4f`):
+      `content/drums/rudiments*.ts` (40 PAS), `core/drums/rudiment/` score conversion +
+      tempo ladder. No screen; engraver draws no sticking letters yet.
+- [~] DR-11 ‖ Rhythm reading trainer — Reed-ordered generator, one-line staff, tap-graded
+      → [spec](features/DR-11-rhythm-reading-trainer.md). Core landed 2026-09-17
+      (`17e4b4f`): `core/drums/reading/` cells, 7 levels, generator, accuracy-gated
+      adapter. No screen yet.
+- [~] DR-12 ‖ Metronome suite — subdivisions, 2&4, gap click with measured drift, random
+      mute, ramp → [spec](features/DR-12-metronome-suite.md). Core landed 2026-09-17
+      (`17e4b4f`): `core/timing/clickFilters.ts`. No screen yet.
 - [ ] DR-13 ‖ Beat builder — GrooveScribe-style grid ⇄ live notation, library, share-URL;
       the content-authoring tool → [spec](features/DR-13-beat-builder.md)
 - [ ] DR-15 Coordination trainer — limb layering, kick permutations, hh foot/openings,
@@ -267,3 +283,18 @@ independence, odd meters, brushes, soloing.
 ## Session notes
 
 Append here as drum sessions land (same convention as the root roadmap).
+
+### 2026-09-17 — orchestrated drum session, wave 1 + 2
+
+Five slices (`1ff79e7`…`17e4b4f`): root T.30–T.34 closed, DR-05 done, DR-06/07/09
+advanced, DR-10/11/12 core-only. Open notes a later slice must pick up:
+
+- `deriveArticulations` appends `open` at the end while the parser's canonical order is
+  flam/drag → buzz → open → choke; two test files carry a `withCanonicalOpen()` shim for it.
+  Fix at the source (sort once in `makeGrooveScore`) and delete both shims.
+- `clickFilters.everyNBars` is not count-in aware; a screen with a count-in must offset it.
+- Six rudiment stickings are flagged uncertain in `rudiments.tier34.ts` — check against PAS.
+- MIDI-out on channel 10 needs a channel on the `MidiOutput` port first.
+- `webaudio.ts` and `drumSynth.ts` duplicate the epoch-anchor drift filter; extract when a
+  third caller appears.
+- Engraver renders no sticking letters (R/L under noteheads) — DR-10's screen needs them.
