@@ -741,4 +741,44 @@ describe('TheoryDrillPanel', () => {
     // where level 4 and any level above it render identically.
     expect(atMaxPrompt).not.toBe(belowMaxPrompt)
   })
+  /**
+   * Roadmap T.19/T.39. The verdict named the whole answer and nothing else, so
+   * a learner who missed one note of eight read the same eight names as one
+   * who missed all of them, and a cadence refused for a convention the prompt
+   * never states read only the notes it had mostly played.
+   */
+  it('prints the reason under the verdict, naming the position that broke', async () => {
+    const user = userEvent.setup()
+    render(<TheoryDrillPanel rng={scriptedRng([0])} midiInput={new FakeMidiInput()} />)
+
+    const item = buildTheoryQuiz('build-scale', 1, scriptedRng([0]))
+    const keyboard = screen.getByRole('group', { name: 'On-screen keyboard' })
+    // Right up to the third degree, then a semitone off it.
+    const notes = item.answer.slice(0, 3).map((group) => group[0] as number)
+    const wrong = [...notes.slice(0, 2), notes[2] as number + 1]
+    for (const note of wrong) {
+      await user.click(within(keyboard).getByRole('button', { name: midiToName(asMidi(note)) }))
+    }
+
+    expect(screen.getByTestId('theory-feedback')).toHaveTextContent(/not quite/i)
+    const reason = screen.getByTestId('theory-feedback-reason')
+    expect(reason).toHaveTextContent('Note 3:')
+    expect(reason).toHaveTextContent(pitchDisplayName(fromMidi(asMidi(notes[2] as number))))
+  })
+
+  it('prints no reason line at all on a correct answer', async () => {
+    const user = userEvent.setup()
+    render(<TheoryDrillPanel rng={scriptedRng([0])} midiInput={new FakeMidiInput()} />)
+
+    const item = buildTheoryQuiz('build-scale', 1, scriptedRng([0]))
+    const keyboard = screen.getByRole('group', { name: 'On-screen keyboard' })
+    for (const group of item.answer) {
+      await user.click(
+        within(keyboard).getByRole('button', { name: midiToName(asMidi(group[0] as number)) }),
+      )
+    }
+
+    expect(screen.getByTestId('theory-feedback')).toHaveTextContent(/^correct$/i)
+    expect(screen.queryByTestId('theory-feedback-reason')).toBeNull()
+  })
 })

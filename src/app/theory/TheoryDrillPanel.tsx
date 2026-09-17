@@ -98,13 +98,13 @@ import { createBrowserRng } from '@app/sightreading/rng.ts'
 import {
   ALL_THEORY_KINDS,
   buildTheoryQuiz,
-  gradeTheoryStep,
   MAX_THEORY_LEVEL,
   theoryQuizFromId,
   type TheoryAnswerResult,
   type TheoryQuizItem,
   type TheoryQuizKind,
 } from '@core/drills/theory.ts'
+import { gradeTheoryStep } from '@core/drills/theoryGrading.ts'
 import {
   advanceEcho,
   ECHO_START,
@@ -219,13 +219,28 @@ function rangeFor(): { readonly low: Midi; readonly high: Midi } {
  * not teach. The grade is dropped from the wrong-answer copy: "again" is SRS
  * vocabulary, not learner vocabulary (DESIGN.md rule 7), and the answer is
  * what the sentence is now for.
+ *
+ * The second line is `result.reason` — which group broke and, for a cadence,
+ * which convention broke it (roadmap `T.19`, `T.39`). Naming the answer alone
+ * still leaves a learner to diff two lists of note names in their head, and a
+ * cadence refused on a rule the prompt never states cannot be diffed at all:
+ * `G4 B4 B5` meets every requirement the prompt gives and is still refused.
+ * Core computes the sentence — it is the only thing that knows which check
+ * failed — and this renders it.
+ *
+ * One live region around both lines rather than one each: a screen reader
+ * announces a `role="status"` when its content changes, and two sibling
+ * regions changing in the same commit can interleave.
  */
 function AnswerFeedback({ result }: { readonly result: TheoryAnswerResult | undefined }) {
   if (result === undefined) return null
   return (
-    <p role="status" data-testid="theory-feedback">
-      {result.correct ? 'Correct' : `Not quite — it was ${result.expected}`}
-    </p>
+    <div role="status" className="theory-verdict">
+      <p data-testid="theory-feedback">
+        {result.correct ? 'Correct' : `Not quite — it was ${result.expected}`}
+      </p>
+      {result.reason !== '' && <p data-testid="theory-feedback-reason">{result.reason}</p>}
+    </div>
   )
 }
 

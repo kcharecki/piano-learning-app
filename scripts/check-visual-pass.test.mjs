@@ -123,11 +123,15 @@ describe('readReceipt', () => {
 })
 
 describe('the CLI', () => {
+  // The parent's own VISUAL_PASS_SKIP must not leak in: a commit made with
+  // the escape hatch set runs this suite from the pre-commit hook, and the
+  // unknown-flag case below would then exit 0 for the wrong reason.
+  const { VISUAL_PASS_SKIP: _inherited, ...cleanEnv } = process.env
   const run = (args, env = {}) =>
     execFileSync(process.execPath, ['scripts/check-visual-pass.mjs', ...args], {
       encoding: 'utf8',
       cwd: process.cwd(),
-      env: { ...process.env, ...env },
+      env: { ...cleanEnv, ...env },
     })
 
   it('lets an explicit, stated skip through — the auditable alternative to --no-verify', () => {

@@ -107,7 +107,7 @@ Full histories of completed tasks: `docs/roadmap-archive-*.md` and git history.
       and passed 3/3 alone, and a gate that goes red one commit in three is a gate somebody
       switches off.
 
-- [ ] T.19 **The theory reveal names the whole answer and never says which note was wrong.**
+- [x] T.19 **The theory reveal names the whole answer and never says which note was wrong.**
       Panel MINOR, /improve-app run 2026-08-24-1 (Teacher seat, round 1), deferred with reason:
       §6 requires BLOCKERs and MAJORs, and this is new copy on the verdict line rather than a
       defect in that slice. `gradeTheoryStep` already computes `matchedGroups` and the panel
@@ -117,6 +117,13 @@ Full histories of completed tasks: `docs/roadmap-archive-*.md` and git history.
       B". The value is already on the result — this is a rendering decision, not a computation.
       *Proof: a multi-group item missed at group n names group n, and the e2e arm asserts n from
       the presses it made rather than from anything the app printed.*
+      Done 2026-09-08 with `T.39` — one defect in one line of copy. `TheoryAnswerResult` carries
+      a `reason` the grader writes (`describeGroupMiss`, `src/core/drills/theory.ts`) and the
+      panel renders as a second paragraph in the SAME live region, because two sibling
+      `role="status"` regions changing in one commit can interleave. Driven in the running app:
+      `Note 3: you played F4, it is E4.` E2E `e2e/theory-refusal-reason.spec.ts` counts the
+      position from the presses it made. Sabotage: returning `''` from `describeGroupMiss`
+      turned 4 of 207 tests red.
 
 - [ ] T.20 **The flashcard reveal's black-key vocabulary is sharps only.**
       Panel MINOR, /improve-app run 2026-08-24-1 (Teacher seat, round 1), deferred with reason:
@@ -375,7 +382,7 @@ Full histories of completed tasks: `docs/roadmap-archive-*.md` and git history.
       the answer's length, so closing on it is exact. Proof: `TheoryDrillPanel.test.tsx`
       plays the three-note realisation and gets `Correct`.
 
-- [ ] T.39 **A cadence refusal names notes but never the rule, and the rules it polices are not
+- [x] T.39 **A cadence refusal names notes but never the rule, and the rules it polices are not
       the ones the prompt states.** Filed from /improve-app run 2026-09-06-2, panel round 2
       MINOR. The prompt says `Play a perfect authentic cadence in C major.`; the definition is
       V–I, both root position, tonic in the highest voice. `G4 B4 B5` satisfies all three and is
@@ -385,6 +392,13 @@ Full histories of completed tasks: `docs/roadmap-archive-*.md` and git history.
       is permitted, so the learner cannot tell which standard is in force.
       *Proof: the refusal names the convention it applied, and a driven session shows a learner
       who reads the feedback can correct the doubling without guessing.*
+      Done 2026-09-08. `cadenceGroupMatches` became `cadenceGroupVerdict`, returning which of
+      seven `CadenceRule`s refused the group; `describeCadenceRule` writes it as the standard AND
+      the note it lands on, because neither alone can be acted on. Refusal order is pinned by
+      test. Driven in the running app on `G4 B4 B5`: `First chord: The leading tone, B, may sound
+      only once. Doubling it is the one doubling harmony rules out, because both copies want to
+      rise to the tonic and cannot both do it.` The e2e arm then plays the correction that
+      sentence names and gets `Correct`, which is the whole claim — the refusal is actionable.
 
 ## Phases 0-2 — Foundation, M1 playable core, M2 feedback & reading — all done
 

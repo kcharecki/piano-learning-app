@@ -190,3 +190,31 @@
 .theory-chord-notation .chord-staff .notation-frame {
   max-width: 100%;
 }
+
+/* ---------- The verdict, and the line under it that says why ----------
+   Two paragraphs in one live region (roadmap T.19/T.39): the verdict names
+   the answer, the reason names the group or the convention that refused it.
+   The reason is support for the sentence above it, so it takes the hint size
+   and colour `.theory-submit-row > p` already uses rather than reading as a
+   second verdict of equal weight.
+
+   The verdict has to be restated at body weight, because `[role="status"]`
+   (primitives) styles the whole region at `--text-sm`/`--text-2` — sized for
+   a one-line status strip. That was the verdict's own styling while the
+   verdict WAS the region; now it wraps two paragraphs, and inheriting it
+   left both lines identical in size and colour, so nothing said which one
+   was the answer. */
+.theory-drill-panel .theory-verdict {
+  display: grid;
+  gap: var(--space-1);
+}
+.theory-drill-panel .theory-verdict > p {
+  margin: 0;
+  font-size: var(--text-md);
+  color: var(--text-1);
+}
+.theory-drill-panel .theory-verdict > p + p {
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  max-width: 46ch;
+}

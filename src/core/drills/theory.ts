@@ -15,7 +15,10 @@
  *
  * ## Grading is octave-insensitive by default
  *
- * `gradeTheoryStep` compares each played group against the expected one by
+ * Grading itself lives in `theoryGrading.ts` and the sentences it writes in
+ * `theoryFeedback.ts`; this file builds the items they read. The contract is
+ * stated here because it is a property of the ITEMS: `gradeTheoryStep`
+ * compares each played group against the expected one by
  * **pitch class**, not exact MIDI number: a learner who plays the right chord
  * or scale an octave up has still built the right thing. The one exception
  * the contract calls for is `'build-scale'`, which stays order- and
@@ -50,7 +53,7 @@ import { buildChord, isTriad, type Chord, type ChordQuality, type Inversion } fr
 import { intervalLongName, makeInterval, SIMPLE_INTERVALS, transposeSpelled, tryTransposeSpelled, type Interval, type IntervalQuality } from '@core/theory/intervals.ts'
 import { CIRCLE_OF_FIFTHS, keyFromFifths, keyName, keyOf, type Key, type Mode } from '@core/theory/keys.ts'
 import { chordForRomanNumeral, type CadenceType } from '@core/theory/harmony.ts'
-import { cadenceGroupMatches, type CadenceAnswer } from './cadenceGrading.ts'
+import { type CadenceAnswer } from './cadenceGrading.ts'
 
 // ---------------------------------------------------------------------------
 // public shape
@@ -153,6 +156,23 @@ export type TheoryAnswerResult = {
    * whether a correct answer is worth echoing back is the caller's call.
    */
   readonly expected: string
+  /**
+   * Why this attempt was refused, in one sentence for the learner, or `''`
+   * when there is nothing to add beyond {@link expected}.
+   *
+   * `expected` names the whole answer and nothing else, so a learner who got
+   * seven of eight scale degrees right read exactly what a learner who got
+   * none read (roadmap `T.19`), and a cadence refused for a convention the
+   * prompt never states — doubling the leading tone — read back the notes it
+   * had mostly played (roadmap `T.39`). Both are the same missing half: the
+   * grader knows which group broke and which rule broke it, and threw that
+   * away at the return statement.
+   *
+   * Always present, `''` on a correct answer. Not a second copy of `expected`:
+   * where a refusal has no rule beyond "those are different notes", and the
+   * item is a single group, this stays empty rather than restating it.
+   */
+  readonly reason: string
 }
 
 // ---------------------------------------------------------------------------
@@ -539,7 +559,7 @@ function buildCadenceItem(level: number, rng: Rng): TheoryQuizItem {
  *
  * The tonic is ADDED above the triad, not swapped in for its top note. Doing
  * the latter deleted the fifth, so the answer this drill named — and, before
- * `cadenceGroupMatches`, the only one it accepted — was a tonic chord with no
+ * `cadenceGroupVerdict`, the only one it accepted — was a tonic chord with no
  * fifth: C major revealed "C4 + E4 + C5" (roadmap `T.23`). It also left the
  * leading tone with nowhere to rise to under the obvious voice reading, which
  * is how `T.23` was originally filed; a final chord containing the tonic an
@@ -740,123 +760,4 @@ const ID_PARSERS: Readonly<Record<TheoryQuizKind, (rest: string) => TheoryQuizIt
   'build-interval': parseIntervalId,
   'name-key-signature': parseKeySignatureId,
   'build-cadence': parseCadenceId,
-}
-
-// ---------------------------------------------------------------------------
-// gradeTheoryStep
-// ---------------------------------------------------------------------------
-
-/** Pitch classes, sorted — the octave-insensitive form one group is compared in. */
-function pitchClasses(group: readonly Midi[]): number[] {
-  return [...group].map((n) => ((n % 12) + 12) % 12).sort((a, b) => a - b)
-}
-
-function groupsMatch(
-  kind: TheoryQuizKind,
-  expected: readonly Midi[],
-  played: readonly Midi[],
-): boolean {
-  if (expected.length !== played.length) return false
-  const e = pitchClasses(expected)
-  const p = pitchClasses(played)
-  if (!e.every((v, i) => v === p[i])) return false
-  // 'build-chord' additionally grades inversion: the pitch-class set alone is
-  // invariant under inversion, but the lowest sounding note is not — a first
-  // inversion prompt is only answered by playing the third in the bass.
-  if (kind === 'build-chord') {
-    return Math.min(...played) % 12 === Math.min(...expected) % 12
-  }
-  return true
-}
-
-/**
- * `build-scale`'s extra order/direction check: the played MIDI numbers must be
- * strictly increasing across groups, exactly like the expected answer is.
- * Pitch-class matching alone accepts any octave placement per note, so a
- * scrambled-octave rendition of the right pitch classes would otherwise pass.
- */
-function isStrictlyAscending(groups: readonly (readonly Midi[])[]): boolean {
-  let prev = -Infinity
-  for (const group of groups) {
-    const note = at(group, 0) as number
-    if (note <= prev) return false
-    prev = note
-  }
-  return true
-}
-
-/**
- * `build-interval`'s extra direction/size check: the signed semitone gap from
- * the played root to the played target must equal the expected gap exactly
- * (octave-insensitive only as a whole, via the caller transposing both groups
- * together) — pitch-class matching alone cannot tell a major 6th above from a
- * minor 3rd below, or a unison from an octave.
- */
-function intervalMatches(
-  expected: readonly (readonly Midi[])[],
-  played: readonly (readonly Midi[])[],
-): boolean {
-  const expectedRoot = at(at(expected, 0), 0) as number
-  const expectedTarget = at(at(expected, 1), 0) as number
-  const playedRoot = at(at(played, 0), 0) as number
-  const playedTarget = at(at(played, 1), 0) as number
-  return playedTarget - playedRoot === expectedTarget - expectedRoot
-}
-
-/**
- * Fold one played group (one key, or one chord) into an in-progress attempt.
- * Pure: state in, state out. Octave-insensitive by default — a learner
- * playing C major an octave up has built the right chord.
- *
- * `playedSoFar` is every group played in this attempt, in order; this is a
- * pure function of that whole history rather than an incremental reducer, so
- * a caller re-derives the result from its own accumulated state each time
- * rather than trusting one carried forward.
- */
-/**
- * The notes that answer an item, named for a learner: `'C4, D4, E4'` for a
- * sequence, `'C4 + E4 + G4'` for a chord, both joined with `', '` when an
- * item is several groups of several notes (a cadence).
- *
- * Octave-bearing on purpose. Grading is octave-insensitive, so this is not the
- * *only* right answer — but "C, E, G" leaves a learner who played the chord
- * two octaves down with nothing to check against, and the register the item
- * was built in is the one its prompt implies.
- */
-export function describeTheoryAnswer(item: TheoryQuizItem): string {
-  if (item.answerSummary !== undefined) return item.answerSummary
-  return item.spelledAnswer
-    .map((group) => group.map(pitchDisplayName).join(' + '))
-    .join(', ')
-}
-
-export function gradeTheoryStep(
-  item: TheoryQuizItem,
-  playedSoFar: readonly (readonly Midi[])[],
-): TheoryAnswerResult {
-  const expectedText = describeTheoryAnswer(item)
-  let matchedGroups = 0
-  for (const played of playedSoFar) {
-    const expected = item.answer[matchedGroups]
-    if (expected === undefined) {
-      return { correct: false, matchedGroups, done: true, expected: expectedText }
-    }
-    // A cadence is graded on the cadence's own requirements; every other kind
-    // still matches the spelled answer note for note.
-    const ok =
-      item.cadence !== undefined
-        ? cadenceGroupMatches(item.cadence, matchedGroups, played)
-        : groupsMatch(item.kind, expected, played)
-    if (!ok) return { correct: false, matchedGroups, done: true, expected: expectedText }
-    matchedGroups++
-  }
-  const done = matchedGroups === item.answer.length
-  if (!done) return { correct: false, matchedGroups, done, expected: expectedText }
-  if (item.kind === 'build-scale' && !isStrictlyAscending(playedSoFar)) {
-    return { correct: false, matchedGroups, done: true, expected: expectedText }
-  }
-  if (item.kind === 'build-interval' && !intervalMatches(item.answer, playedSoFar)) {
-    return { correct: false, matchedGroups, done: true, expected: expectedText }
-  }
-  return { correct: true, matchedGroups, done, expected: expectedText }
 }
