@@ -15,6 +15,7 @@ import { midi, millis } from '@core/shared/units.ts'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { useDrumsHistoryStore } from '@app/state/drumsHistoryStore.ts'
+import { LOCAL_INPUT_ID, useDrumsLatencyStore } from '@app/state/drumsLatencyStore.ts'
 import type { DrumAudioOutput } from '@core/ports/index.ts'
 import { GrooveTrainerScreen } from './GrooveTrainerScreen.tsx'
 
@@ -79,6 +80,7 @@ function lastHitText(): string {
 
 beforeEach(() => {
   useDrumsHistoryStore.setState({ attempts: [] })
+  useDrumsLatencyStore.setState({ offsets: {} })
 })
 
 describe('GrooveTrainerScreen', () => {
@@ -379,6 +381,43 @@ describe('GrooveTrainerScreen', () => {
     })
 
     /**
+     * DR-08 latency calibration, wired at the screen level: a stored offset
+     * for the local input (`LOCAL_INPUT_ID`) is read by `GrooveTrainerScreen`
+     * and passed to `useGrooveRun` as `inputOffsetMs`, which subtracts it from
+     * every hit's clock reading (`useGrooveRun.test.ts` proves the subtraction
+     * itself). Quarter-Note Rock's kick sits on instant 0 of the graded
+     * window, i.e. exactly `BAR_MS` — a hit 40ms after that is "late" (past
+     * the 25ms on-time threshold) unless a 40ms offset is on record, in which
+     * case it reads on time.
+     */
+    it('a stored offset for the local input shifts a late hit back to on-time', async () => {
+      useDrumsLatencyStore
+        .getState()
+        .setOffset(LOCAL_INPUT_ID, { offsetMs: 40, spreadMs: 2, samples: 16, at: 0 })
+      const { user, frameAt } = setup()
+      await user.click(screen.getByRole('button', { name: 'Start' }))
+      frameAt(BAR_MS)
+      frameAt(BAR_MS + 40)
+
+      await user.keyboard(' ')
+      expect(lastHitText()).toBe('Kick on time, +0 ms')
+      expect(screen.getByRole('status', { name: 'Last hit' })).toHaveAttribute(
+        'data-kind',
+        'on-time',
+      )
+    })
+
+    it('the same hit reads late with no offset stored', async () => {
+      const { user, frameAt } = setup()
+      await user.click(screen.getByRole('button', { name: 'Start' }))
+      frameAt(BAR_MS)
+      frameAt(BAR_MS + 40)
+
+      await user.keyboard(' ')
+      expect(screen.getByRole('status', { name: 'Last hit' })).toHaveAttribute('data-kind', 'late')
+    })
+
+    /**
      * MAJOR finding 1: Quarter-Note Rock's kick and hi-hat share an instant
      * at the very start of every bar, so a learner striking both at once
      * must not have the second pointerdown's `lastHit` overwrite the first
@@ -454,6 +493,166 @@ describe('GrooveTrainerScreen', () => {
       // The tally from the pass that graded survives Stop — it is the record
       // of what actually happened, not a live readout that vanishes with it.
       expect(screen.getByText('0 of 1 pass steady')).toBeInTheDocument()
+    })
+  })
+
+  /**
+   * Wait mode (roadmap DR-09 "wait mode"): no clock, no click track, no
+   * grading — the run advances only when every pad written on the current
+   * instant has been struck. The state machine itself is `wait.test.ts`'s
+   * job; this is wiring — the switch, the disabled controls, and that the
+   * status line and the struck pads move the same way a learner would see.
+   *
+   * Quarter-Note Rock (the default groove) at 80 bpm has 8 unison steps —
+   * verified directly against `waitSteps`/`sortPadsForDisplay` below rather
+   * than assumed: hi-hat is on every quarter, so every step pairs it with
+   * either the kick (beats 1 and 3) or the snare (beats 2 and 4), and the
+   * trainer's own DISPLAY order (`padOrderIndex`) puts the kick/snare name
+   * before "Hi-hat", not after.
+   */
+  describe('Wait mode (roadmap DR-09 "wait mode")', () => {
+    it('is off by default, toggles on click, and turns Loop off and disables it', async () => {
+      const { user } = setup()
+      const waitToggle = screen.getByRole('switch', { name: 'Wait' })
+      expect(waitToggle).toHaveAttribute('aria-checked', 'false')
+
+      await user.click(screen.getByRole('switch', { name: 'Loop' }))
+      expect(screen.getByRole('switch', { name: 'Loop' })).toHaveAttribute('aria-checked', 'true')
+
+      await user.click(waitToggle)
+      expect(waitToggle).toHaveAttribute('aria-checked', 'true')
+      const loopToggle = screen.getByRole('switch', { name: 'Loop' })
+      expect(loopToggle).toHaveAttribute('aria-checked', 'false')
+      expect(loopToggle).toBeDisabled()
+    })
+
+    it('disables every mute switch while Wait is on', async () => {
+      const { user } = setup()
+      await user.click(screen.getByRole('switch', { name: 'Wait' }))
+      for (const label of ['Kick', 'Snare', 'Hi-hat']) {
+        expect(screen.getByRole('switch', { name: `Play ${label}` })).toBeDisabled()
+      }
+    })
+
+    it('disables Wait, Tempo, Listen and groove stepping while a wait run is on, same as a graded run', async () => {
+      const { user } = setup()
+      await user.click(screen.getByRole('switch', { name: 'Wait' }))
+      await user.click(screen.getByRole('button', { name: 'Start' }))
+
+      expect(screen.getByRole('switch', { name: 'Wait' })).toBeDisabled()
+      expect(screen.getByRole('spinbutton', { name: /tempo/i })).toBeDisabled()
+      expect(screen.getByRole('button', { name: 'Listen' })).toBeDisabled()
+      expect(screen.getByRole('button', { name: 'Next groove' })).toBeDisabled()
+      expect(screen.getByRole('button', { name: 'Previous groove' })).toBeDisabled()
+    })
+
+    it('names the first unison step on Start, in trainer display order', async () => {
+      const { user } = setup()
+      await user.click(screen.getByRole('switch', { name: 'Wait' }))
+      await user.click(screen.getByRole('button', { name: 'Start' }))
+
+      expect(runState()).toBe('Waiting for Kick + Hi-hat — bar 1, beat 1 (step 1 of 8)')
+      expect(screen.getByRole('button', { name: 'Kick' })).toHaveAttribute('data-required', 'true')
+      expect(screen.getByRole('button', { name: 'Hi-hat' })).toHaveAttribute(
+        'data-required',
+        'true',
+      )
+      expect(screen.getByRole('button', { name: 'Snare' })).not.toHaveAttribute('data-required')
+    })
+
+    it('a stroke on a pad the current step does not need is inert — it still flashes, but the text and the required pads do not change', async () => {
+      const { user } = setup()
+      await user.click(screen.getByRole('switch', { name: 'Wait' }))
+      await user.click(screen.getByRole('button', { name: 'Start' }))
+
+      await user.click(screen.getByRole('button', { name: 'Snare' }))
+      expect(runState()).toBe('Waiting for Kick + Hi-hat — bar 1, beat 1 (step 1 of 8)')
+      expect(screen.getByRole('button', { name: 'Snare' })).toHaveAttribute('data-lit', 'true')
+      // Still nothing graded — an inert stroke is not a verdict either.
+      expect(screen.getByRole('button', { name: 'Snare' })).not.toHaveAttribute('data-verdict')
+    })
+
+    it('striking every pad of the current step advances to the next one and flips which pads are required', async () => {
+      const { user } = setup()
+      await user.click(screen.getByRole('switch', { name: 'Wait' }))
+      await user.click(screen.getByRole('button', { name: 'Start' }))
+
+      await user.click(screen.getByRole('button', { name: 'Hi-hat' }))
+      // One of the two pads is now satisfied — the text names only what's left.
+      expect(runState()).toBe('Waiting for Kick — bar 1, beat 1 (step 1 of 8)')
+      await user.click(screen.getByRole('button', { name: 'Kick' }))
+
+      expect(runState()).toBe('Waiting for Snare + Hi-hat — bar 1, beat 2 (step 2 of 8)')
+      expect(screen.getByRole('button', { name: 'Snare' })).toHaveAttribute('data-required', 'true')
+      expect(screen.getByRole('button', { name: 'Hi-hat' })).toHaveAttribute(
+        'data-required',
+        'true',
+      )
+      expect(screen.getByRole('button', { name: 'Kick' })).not.toHaveAttribute('data-required')
+    })
+
+    it('completing every step shows the Done text and hands Start back', async () => {
+      const { user } = setup()
+      await user.click(screen.getByRole('switch', { name: 'Wait' }))
+      await user.click(screen.getByRole('button', { name: 'Start' }))
+
+      const pairs: readonly [string, string][] = [
+        ['Kick', 'Hi-hat'],
+        ['Snare', 'Hi-hat'],
+        ['Kick', 'Hi-hat'],
+        ['Snare', 'Hi-hat'],
+        ['Kick', 'Hi-hat'],
+        ['Snare', 'Hi-hat'],
+        ['Kick', 'Hi-hat'],
+        ['Snare', 'Hi-hat'],
+      ]
+      for (const [a, b] of pairs) {
+        await user.click(screen.getByRole('button', { name: a }))
+        await user.click(screen.getByRole('button', { name: b }))
+      }
+
+      expect(runState()).toBe(
+        'Done — every stroke landed. Start again or switch Wait off for a graded run.',
+      )
+      expect(screen.getByRole('button', { name: 'Start' })).toBeEnabled()
+      // Nothing here was ever graded — a wait run leaves no history.
+      expect(useDrumsHistoryStore.getState().attempts).toHaveLength(0)
+    })
+
+    /**
+     * F1: `run.lastHit`'s verdict survives a finished graded run (by design —
+     * see `useGrooveRun`'s module comment), and the Last hit line rendered it
+     * unconditionally — so switching Wait on and starting a wait run, which
+     * grades nothing, still showed the previous graded verdict.
+     */
+    it('does not carry a finished graded run’s last-hit verdict into a wait run', async () => {
+      const { user, frameAt } = setup()
+      await user.click(screen.getByRole('button', { name: 'Start' }))
+      frameAt(BAR_MS)
+      await user.keyboard(' ') // kick, on time — sets a graded verdict
+      expect(lastHitText()).toBe('Kick on time, +0 ms')
+
+      frameAt(BAR_MS + GRADED_MS) // finish the graded run; lastHit survives it
+      expect(lastHitText()).toBe('Kick on time, +0 ms')
+
+      await user.click(screen.getByRole('switch', { name: 'Wait' }))
+      await user.click(screen.getByRole('button', { name: 'Start' }))
+
+      expect(lastHitText()).toBe('')
+      expect(screen.getByRole('status', { name: 'Last hit' })).not.toHaveAttribute('data-kind')
+    })
+
+    it('Stop mid-run returns to the idle sentence', async () => {
+      const { user } = setup()
+      await user.click(screen.getByRole('switch', { name: 'Wait' }))
+      await user.click(screen.getByRole('button', { name: 'Start' }))
+      await user.click(screen.getByRole('button', { name: 'Kick' }))
+
+      await user.click(screen.getByRole('button', { name: 'Stop' }))
+      expect(runState()).toBe(
+        'Wait mode: the run moves on only when you strike every note of the current beat',
+      )
+      expect(screen.getByRole('button', { name: 'Start' })).toBeEnabled()
     })
   })
 

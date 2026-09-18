@@ -41,6 +41,13 @@ export type PadProps = {
    * `useGrooveRun`, not here.
    */
   readonly muted?: boolean
+  /**
+   * Rendered as `data-required="true"` (roadmap DR-09 "wait mode") — the
+   * screen passes this for exactly the pads the current wait step is still
+   * waiting on, so the learner can see what to hit next without reading the
+   * status line. Purely a display hint: `onHit` fires the same regardless.
+   */
+  readonly required?: boolean
 }
 
 /**
@@ -48,7 +55,7 @@ export type PadProps = {
  * A mouse press fires both, so the ref swallows the click that follows its own
  * pointerdown rather than counting the stroke twice.
  */
-export function Pad({ pad, lit, onHit, verdict, muted }: PadProps) {
+export function Pad({ pad, lit, onHit, verdict, muted, required }: PadProps) {
   const fromPointer = useRef(false)
   const key = GROOVE_PAD_KEY[pad]
   return (
@@ -59,6 +66,7 @@ export function Pad({ pad, lit, onHit, verdict, muted }: PadProps) {
       data-lit={lit ? 'true' : undefined}
       data-verdict={verdict}
       data-muted={muted ? 'true' : undefined}
+      data-required={required ? 'true' : undefined}
       onPointerDown={() => {
         fromPointer.current = true
         onHit(pad)

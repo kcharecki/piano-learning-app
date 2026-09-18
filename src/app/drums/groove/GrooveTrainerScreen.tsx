@@ -68,11 +68,12 @@
  * runs, which is its own slice; this screen grades one tempo at a time and
  * says so.
  */
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '@app/ui/Icon.tsx'
 import { DrumKey } from '@app/drums/notation/DrumKey.tsx'
 import { GrooveStaff } from '@app/drums/notation/GrooveStaff.tsx'
 import { useDrumsHistoryStore } from '@app/state/drumsHistoryStore.ts'
+import { LOCAL_INPUT_ID, offsetFor, useDrumsLatencyStore } from '@app/state/drumsLatencyStore.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { describeGroove } from '@core/drums/engrave/describe.ts'
 import { engraveGroove } from '@core/drums/engrave/staff.ts'
@@ -95,6 +96,8 @@ import {
   verdictText,
 } from './resultLines.ts'
 import { useGrooveRun, type GrooveRunPhase } from './useGrooveRun.ts'
+import { useWaitRun } from './useWaitRun.ts'
+import { waitStateText } from './waitText.ts'
 
 /** The persona's goal tempo for the Debut rock groove, and the tempo the screen opens on. */
 const DEFAULT_BPM = 80
@@ -231,6 +234,13 @@ function Trainer({
   // out from under audio already scheduled against the current run.
   const [loop, setLoop] = useState(false)
 
+  // Wait mode (roadmap DR-09 "wait mode") — local, transport-level state for
+  // the same reason `loop` is. Turning it on turns Loop off: the two graded
+  // ideas ("repeat the window" and "there is no window, only a playhead that
+  // waits on you") do not compose, and wait mode's own `useWaitRun` is always
+  // mounted below regardless of this switch, exactly like `run` is.
+  const [wait, setWait] = useState(false)
+
   // The pads the learner has switched off (roadmap DR-09 "per-limb mute") —
   // local, transport-level state for the same reason `loop` is. Reset when
   // the groove changes, mid-render, the exact pattern `useGrooveRun` uses for
@@ -243,31 +253,54 @@ function Trainer({
     setMuted(new Set())
   }
 
+  // An e-drum kit over Web MIDI (roadmap DR-02) lands on whichever hit
+  // handler is live, so a real stroke is graded (or walks the wait playhead)
+  // exactly like a tap. The kit is mounted BEFORE the runs because the graded
+  // run needs to know which input is live: the rig's stored latency offset
+  // (roadmap DR-08) is keyed by the e-kit's device id, or `LOCAL_INPUT_ID`
+  // for the pads and keys. Neither run's `hit` exists yet at this point, so
+  // the kit lands on a ref the effect below keeps pointed at the live one —
+  // the same one-render-late discipline the hook itself uses for `onHit`.
+  const hitRef = useRef<(pad: MappedDrumPad) => void>(() => {})
+  const ekit = useDrumMidiInput({
+    onHit: (pad) => hitRef.current(pad),
+    ...(seams.midiInput === undefined ? {} : { midiInput: seams.midiInput }),
+  })
+  const inputId = ekit.deviceId ?? LOCAL_INPUT_ID
+  const inputOffsetMs = useDrumsLatencyStore((state) => offsetFor(state, inputId))
+
   const run = useGrooveRun({
     plan,
     onFinished,
     loop,
     muted,
+    inputOffsetMs,
     ...(seams.clock === undefined ? {} : { clock: seams.clock }),
     ...(seams.audio === undefined ? {} : { audio: seams.audio }),
     ...(seams.frameDriver === undefined ? {} : { driver: seams.frameDriver }),
   })
 
-  // An e-drum kit over Web MIDI (roadmap DR-02) lands on the same `run.hit`
-  // the pads and keys use, so a real stroke is graded exactly like a tap.
-  // `onHit` is read through a ref inside the hook, so `run.hit`'s identity
-  // changing per run never resubscribes the device.
-  const ekit = useDrumMidiInput({
-    onHit: run.hit,
-    ...(seams.midiInput === undefined ? {} : { midiInput: seams.midiInput }),
+  // Wait mode's own run — always mounted, exactly like `run` above, so
+  // flipping the Wait switch never has to construct or tear down a hook.
+  // Which one actually drives Start/Stop/the pads is decided below by `wait`.
+  const waitRun = useWaitRun({
+    plan,
+    ...(seams.audio === undefined ? {} : { audio: seams.audio }),
   })
-  const running = run.phase === 'count-in' || run.phase === 'playing'
+  useEffect(() => {
+    hitRef.current = wait ? waitRun.hit : run.hit
+  }, [wait, waitRun.hit, run.hit])
+  const gradedRunning = run.phase === 'count-in' || run.phase === 'playing'
+  const waitRunning = waitRun.phase === 'waiting'
   // `running` alone gates the Space-is-the-kick binding (see the module
   // comment) and must never widen to cover a preview — Space stays the
-  // learner's own kick throughout. `busy` is the broader "something is
-  // sounding on its own schedule" state that the groove picker and the tempo
-  // field key off, since retuning or swapping grooves mid-preview would pull
-  // the plan out from under audio already scheduled against it.
+  // learner's own kick throughout. A wait run counts as "running" for this
+  // too: Space is the kick the moment either kind of run is on. `busy` is the
+  // broader "something is sounding on its own schedule" state that the
+  // groove picker and the tempo field key off, since retuning or swapping
+  // grooves mid-preview would pull the plan out from under audio already
+  // scheduled against it.
+  const running = gradedRunning || waitRunning
   const busy = running || run.phase === 'preview'
 
   const pads = useMemo(
@@ -275,8 +308,8 @@ function Trainer({
     [plan],
   )
 
-  useKeyboardPads(pads, run.hit, running)
-  const lit = useFlash(run.flash)
+  useKeyboardPads(pads, wait ? waitRun.hit : run.hit, running)
+  const lit = useFlash(wait ? waitRun.flash : run.flash)
 
   const resultRows = useMemo(
     () =>
@@ -286,7 +319,19 @@ function Trainer({
   const diagnosis = run.result === undefined ? [] : diagnosisSentences(run.result.result, plan)
 
   const beatsPerBar = Math.max(1, Math.round(plan.barMs / plan.beatMs))
-  const activeBeat = running && run.beatIndex >= 0 ? run.beatIndex % beatsPerBar : -1
+  // Beat progress is a graded-run reading only — a wait run has no clock, so
+  // it never lights one of these dots.
+  const activeBeat = gradedRunning && run.beatIndex >= 0 ? run.beatIndex % beatsPerBar : -1
+
+  // The pads the CURRENT wait step is still waiting on — empty whenever wait
+  // mode is off or no wait run is in progress, so `Pad`'s `required` prop
+  // never lights up outside an actual wait run.
+  const requiredPads = useMemo(() => {
+    if (!wait || waitRun.phase !== 'waiting') return new Set<MappedDrumPad>()
+    const step = waitRun.steps[waitRun.state.stepIndex]
+    if (step === undefined) return new Set<MappedDrumPad>()
+    return new Set(step.pads.filter((pad) => !waitRun.state.satisfied.includes(pad)))
+  }, [wait, waitRun.phase, waitRun.steps, waitRun.state])
 
   return (
     <div className="page page--focus groove-screen">
@@ -362,7 +407,7 @@ function Trainer({
             className="btn-primary groove-start"
             aria-label={running ? 'Stop' : 'Start'}
             disabled={run.phase === 'preview'}
-            onClick={running ? run.stop : run.start}
+            onClick={running ? (wait ? waitRun.stop : run.stop) : wait ? waitRun.start : run.start}
           >
             <Icon name={running ? 'stop' : 'play'} />
             {running ? 'Stop' : 'Start'}
@@ -399,16 +444,41 @@ function Trainer({
             aria-checked={loop}
             aria-label="Loop"
             className="groove-loop-toggle"
-            disabled={busy}
+            disabled={busy || wait}
             onClick={() => setLoop((value) => !value)}
           >
             <Icon name="rhythm" />
             Loop
           </button>
+
+          {/* Wait mode (roadmap DR-09 "wait mode"): no clock, no click track,
+              no grading — the run advances only when every pad written on the
+              current instant has been struck. Turning it on turns Loop off
+              (see the state comment above) and disables the mute switches
+              below, since muting and waiting do not combine — see
+              `useWaitRun.ts` and `wait.ts` for the mechanics. */}
+          <button
+            type="button"
+            role="switch"
+            aria-checked={wait}
+            aria-label="Wait"
+            className="groove-wait-toggle"
+            disabled={busy}
+            onClick={() => {
+              const next = !wait
+              setWait(next)
+              if (next) setLoop(false)
+            }}
+          >
+            <Icon name="clock" />
+            Wait
+          </button>
         </div>
 
         <p role="status" aria-label="Run state" className="groove-run-state">
-          {runStateText(run.phase, run.countInBeat, run.bar, plan.gradedBars, loop, run.pass)}
+          {wait
+            ? waitStateText(waitRun.phase, waitRun.steps, waitRun.state, plan)
+            : runStateText(run.phase, run.countInBeat, run.bar, plan.gradedBars, loop, run.pass)}
         </p>
 
         {/* Per-hit live feedback (roadmap DR-09): every accepted hit gets an
@@ -428,9 +498,9 @@ function Trainer({
           aria-label="Last hit"
           aria-live="off"
           className="groove-live-hit"
-          data-kind={run.lastHit?.kind}
+          data-kind={wait ? undefined : run.lastHit?.kind}
         >
-          {run.lastHit === undefined ? '' : liveHitText(run.lastHit)}
+          {wait || run.lastHit === undefined ? '' : liveHitText(run.lastHit)}
         </p>
 
         <p role="status" aria-label="E-kit" className="groove-ekit">
@@ -456,7 +526,7 @@ function Trainer({
               aria-checked={isOn}
               aria-label={`Play ${GROOVE_PAD_LABEL[pad]}`}
               className="groove-limb-toggle"
-              disabled={busy || (isOn && onCount === 1)}
+              disabled={busy || wait || (isOn && onCount === 1)}
               onClick={() =>
                 setMuted((prev) => {
                   const next = new Set(prev)
@@ -485,16 +555,20 @@ function Trainer({
           // graded — so a pad switched off AFTER a run could otherwise still
           // carry that run's stale `data-verdict` alongside `data-muted`.
           // Muting a pad retires its old verdict along with it.
+          // No verdicts in wait mode (roadmap DR-09 "wait mode") — it grades
+          // nothing, so `hitByPad`'s colours belong to a graded run only.
           const isMuted = muted.has(pad)
-          const verdict = isMuted ? undefined : run.hitByPad.get(pad)?.kind
+          const verdict = isMuted || wait ? undefined : run.hitByPad.get(pad)?.kind
+          const isRequired = requiredPads.has(pad)
           return (
             <Pad
               key={pad}
               pad={pad}
               lit={lit === pad}
-              onHit={run.hit}
+              onHit={wait ? waitRun.hit : run.hit}
               muted={isMuted}
               {...(verdict === undefined ? {} : { verdict })}
+              {...(isRequired ? { required: true } : {})}
             />
           )
         })}

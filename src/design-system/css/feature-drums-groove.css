@@ -75,7 +75,13 @@
    `.btn-primary`'s shape — Start stays the one control a glance finds
    (docs/DESIGN.md); Loop is a secondary setting beside it, not a second
    primary action. */
-.groove-loop-toggle {
+/* `.groove-wait-toggle` shares every one of these visual rules (roadmap
+   DR-09 "wait mode") — same pill, same sliding knob, same checked fill —
+   since it sits right beside Loop in the same transport row and a learner
+   reading the two as different SHAPES of control, rather than two settings
+   of the same kind, would be the wrong signal. */
+.groove-loop-toggle,
+.groove-wait-toggle {
   --_h: 14px;
   position: relative;
   width: auto;
@@ -87,7 +93,8 @@
   border: var(--border-w) solid var(--border-2);
   color: var(--text-2);
 }
-.groove-loop-toggle::after {
+.groove-loop-toggle::after,
+.groove-wait-toggle::after {
   top: 50%;
   left: auto;
   right: calc(var(--space-2) + var(--_h) * 0.9);
@@ -99,13 +106,15 @@
     right var(--dur-1) var(--ease-out),
     background var(--dur-1);
 }
-.groove-loop-toggle[aria-checked='true'] {
+.groove-loop-toggle[aria-checked='true'],
+.groove-wait-toggle[aria-checked='true'] {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--on-accent);
   box-shadow: none;
 }
-.groove-loop-toggle[aria-checked='true']::after {
+.groove-loop-toggle[aria-checked='true']::after,
+.groove-wait-toggle[aria-checked='true']::after {
   right: var(--space-2);
   background: var(--on-accent);
   transform: translateY(-50%);
@@ -189,6 +198,21 @@
 .drum-pad[data-lit='true'] .drum-pad-key {
   color: var(--on-accent);
   border-color: var(--on-accent);
+}
+
+/* ---------- Wait mode: required pad (roadmap DR-09 "wait mode") ----------
+   An inset ring on whichever pad(s) the current step is still waiting on — a
+   `box-shadow`, not a border-color change, so it layers over `[data-verdict]`
+   and `[data-muted]` instead of competing with either for the same property
+   (wait mode never sets a verdict, but a pad can still be muted-looking here
+   if the learner switched it off before turning Wait on... except muting is
+   disabled while Wait is on, so in practice this never has to resolve that
+   conflict — the ring still composes cleanly if that ever changes). Uses
+   `--accent`, the same token `.groove-loop-toggle`/`.groove-wait-toggle`'s
+   checked fill and the primitives.css focus ring already use for "this is
+   the live target". */
+.drum-pad[data-required='true'] {
+  box-shadow: inset 0 0 0 var(--border-w-strong) var(--accent);
 }
 
 /* ---------- Between the pads and the result ---------- */
