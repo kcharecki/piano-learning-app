@@ -26,10 +26,11 @@ import { RUDIMENTS, rudimentById } from '@content/drums/rudiments.ts'
 import { describeGroove } from '@core/drums/engrave/describe.ts'
 import { engraveGroove } from '@core/drums/engrave/staff.ts'
 import type { LadderMode, Rudiment } from '@core/drums/rudiment/index.ts'
+import { isEvenEnough } from '@core/drums/rudiment/index.ts'
 import type { Clock, DrumAudioOutput } from '@core/ports/index.ts'
 import { at } from '@core/shared/invariant.ts'
 import { RudimentLibrary } from './RudimentLibrary.tsx'
-import { ladderText, measuresOnly } from './rudimentRun.ts'
+import { evennessText, ladderText, measuresOnly } from './rudimentRun.ts'
 import { useRudimentTrainer } from './useRudimentTrainer.ts'
 
 /** The rudiment the trainer opens on — the first thing a learner meets in tier 1. */
@@ -99,7 +100,8 @@ function Trainer({ rudiment, records, onSelect, ...seams }: TrainerProps) {
       <div className="page-header">
         <h1>Rudiments</h1>
         <p className="page-header-subtitle">
-          Pick a rudiment, read it off the staff, then climb the tempo ladder one clean pass at a time.
+          Pick a rudiment, read it off the staff, then climb the tempo ladder one clean pass at a
+          time.
         </p>
       </div>
 
@@ -156,7 +158,11 @@ function Trainer({ rudiment, records, onSelect, ...seams }: TrainerProps) {
           </button>
         </div>
 
-        <div role="radiogroup" aria-label="Ladder mode" className="rudiment-mode-toggle seg-control">
+        <div
+          role="radiogroup"
+          aria-label="Ladder mode"
+          className="rudiment-mode-toggle seg-control"
+        >
           <button
             type="button"
             role="radio"
@@ -188,15 +194,31 @@ function Trainer({ rudiment, records, onSelect, ...seams }: TrainerProps) {
         </button>
 
         <p role="status" aria-label="Run state" className="rudiment-run-state">
-          {runStateText(trainer.run.phase, trainer.run.countInBeat, trainer.run.bar, trainer.plan.gradedBars)}
+          {runStateText(
+            trainer.run.phase,
+            trainer.run.countInBeat,
+            trainer.run.bar,
+            trainer.plan.gradedBars,
+          )}
         </p>
 
-        {trainer.run.result !== undefined && (
+        {trainer.run.result !== undefined && trainer.lastClean !== undefined && (
           <section className="card rudiment-result" aria-label="Result">
-            <p className="rudiment-verdict" data-clean={trainer.lastClean === true ? 'true' : 'false'}>
+            <p
+              className="rudiment-verdict"
+              data-clean={trainer.lastClean === true ? 'true' : 'false'}
+            >
               {trainer.lastClean === true ? 'Clean pass' : 'Not clean'}
             </p>
             <p className="rudiment-graded-at">{gradedAtText(trainer.run.result.bpm)}</p>
+            {trainer.lastEvenness !== undefined && (
+              <p
+                className="rudiment-evenness"
+                data-even={isEvenEnough(trainer.lastEvenness) ? 'true' : 'false'}
+              >
+                {evennessText(trainer.lastEvenness)}
+              </p>
+            )}
             <ul className="rudiment-pad-lines">
               {trainer.run.result.result.pads.map((row) => (
                 <li key={row.pad}>{padLineText(row)}</li>
@@ -211,7 +233,12 @@ function Trainer({ rudiment, records, onSelect, ...seams }: TrainerProps) {
   )
 }
 
-function runStateText(phase: GrooveRunPhase, countInBeat: number, bar: number, gradedBars: number): string {
+function runStateText(
+  phase: GrooveRunPhase,
+  countInBeat: number,
+  bar: number,
+  gradedBars: number,
+): string {
   switch (phase) {
     case 'idle':
       return 'Ready when you are'

@@ -22,6 +22,7 @@ import { at } from '@core/shared/invariant.ts'
 import type { GrooveRunResult } from '@core/drums/practice/grade.ts'
 import type { Rudiment } from '@core/drums/rudiment/index.ts'
 import type { TempoLadderState } from '@core/drums/rudiment/index.ts'
+import { isEvenEnough } from '@core/drums/rudiment/index.ts'
 
 /** One 4/4 bar at `TICKS_PER_QUARTER = 480`: 4 beats * 480. Mirrors `score.ts`'s own private constant — not exported there. */
 const BAR_TICKS = 1920
@@ -63,9 +64,28 @@ export function stickingPreview(rudiment: Rudiment): string {
   return rudiment.strokes.map((stroke) => stroke.sticking).join(' ')
 }
 
-/** A run only counts as a clean pass when it was steady AND no pad row missed or added a hit. */
-export function isCleanPass(result: GrooveRunResult): boolean {
-  return result.steady && result.pads.every((pad) => pad.missed === 0 && pad.extra === 0)
+/**
+ * A run only counts as a clean pass when it was steady, no pad row missed or
+ * added a hit, AND the strokes were even enough (roadmap DR-10's evenness
+ * axis — see `@core/drums/rudiment/evenness.ts`). The engine's own steady
+ * verdict is judged on spread and drift about each pad's mean, which a single
+ * badly-placed stroke can still slip past if the rest of the run is tight
+ * enough to keep the average inside budget; evenness catches exactly that
+ * case by looking at the worst single gap instead.
+ */
+export function isCleanPass(result: GrooveRunResult, evenness: number): boolean {
+  return (
+    result.steady &&
+    result.pads.every((pad) => pad.missed === 0 && pad.extra === 0) &&
+    isEvenEnough(evenness)
+  )
+}
+
+/** The evenness line for the result panel: the score as a percentage, then a plain verdict. */
+export function evennessText(evenness: number): string {
+  const pct = Math.round(evenness * 100)
+  const verdict = isEvenEnough(evenness) ? 'even enough' : 'uneven: one gap was well off the rest'
+  return `Evenness ${pct}% — ${verdict}`
 }
 
 /**

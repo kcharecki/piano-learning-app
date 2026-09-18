@@ -170,8 +170,16 @@ item lands inside a slice that drives something (specs state their proof surface
       tempo ladder. Screen landed 2026-09-18 (`4084575`, wired `1a68f51`): the 40 in four
       tiers with their stickings, sticking letters under the staff (`897c05f`), Practise →
       tempo ladder up / up-then-down over the groove run, per-rudiment PRs persisted
-      (`drumsRudiments`). Open: evenness scoring; `ladderText` hard-codes the ladder's
-      default pass/fail counts; six tier-3/4 stickings still unverified against PAS.
+      (`drumsRudiments`). Evenness landed 2026-09-18: the trainer records each stroke on
+      the engine's clock and a pass is clean only when it is steady, complete AND even
+      (worst gap vs median, the piano side's `evennessOf`, clean bar 0.8); the same slice
+      fixed the verdict being retired in the commit it was graded whenever the ladder
+      stepped the tempo. Open: `ladderText` hard-codes the ladder's default pass/fail
+      counts (`tempoLadder.ts` does not export them); six tier-3/4 stickings still
+      unverified against PAS; the stroke record reads the engine's phase through a
+      render-mirrored ref, so a stroke in the first frame of the window (or any stroke
+      while the tab is hidden and frames are paused) is graded but not scored for
+      evenness.
 - [x] DR-11 ‖ Rhythm reading trainer — Reed-ordered generator, one-line staff, tap-graded
       → [spec](features/DR-11-rhythm-reading-trainer.md). Core landed 2026-09-17
       (`17e4b4f`): `core/drums/reading/` cells, 7 levels, generator, accuracy-gated

@@ -3,7 +3,16 @@ import { RUDIMENTS } from '@content/drums/rudiments.ts'
 import type { GroovePadResult, GrooveRunResult } from '@core/drums/practice/grade.ts'
 import type { Rudiment } from '@core/drums/rudiment/index.ts'
 import type { TempoLadderState } from '@core/drums/rudiment/index.ts'
-import { barsOf, cyclesForBars, isCleanPass, ladderText, measuresOnly, stickingPreview } from './rudimentRun.ts'
+import { RUDIMENT_CLEAN_EVENNESS } from '@core/drums/rudiment/index.ts'
+import {
+  barsOf,
+  cyclesForBars,
+  evennessText,
+  isCleanPass,
+  ladderText,
+  measuresOnly,
+  stickingPreview,
+} from './rudimentRun.ts'
 
 const BAR_TICKS = 1920
 
@@ -100,20 +109,36 @@ describe('stickingPreview', () => {
 })
 
 describe('isCleanPass', () => {
-  it('is true for a steady run with no missed or extra hits', () => {
-    expect(isCleanPass(result())).toBe(true)
+  it('is true for a steady run with no missed or extra hits, played evenly', () => {
+    expect(isCleanPass(result(), 1)).toBe(true)
+    expect(isCleanPass(result(), RUDIMENT_CLEAN_EVENNESS)).toBe(true)
   })
 
   it('is false when the run was not steady, even with no missed/extra rows', () => {
-    expect(isCleanPass(result({ steady: false }))).toBe(false)
+    expect(isCleanPass(result({ steady: false }), 1)).toBe(false)
   })
 
   it('is false when any pad missed a hit', () => {
-    expect(isCleanPass(result({ pads: [padRow({ missed: 1 })] }))).toBe(false)
+    expect(isCleanPass(result({ pads: [padRow({ missed: 1 })] }), 1)).toBe(false)
   })
 
   it('is false when any pad played an extra hit', () => {
-    expect(isCleanPass(result({ pads: [padRow({ extra: 1 })] }))).toBe(false)
+    expect(isCleanPass(result({ pads: [padRow({ extra: 1 })] }), 1)).toBe(false)
+  })
+
+  it('is false when the run was otherwise clean but the strokes were not even enough', () => {
+    expect(isCleanPass(result(), RUDIMENT_CLEAN_EVENNESS - 0.01)).toBe(false)
+  })
+})
+
+describe('evennessText', () => {
+  it('reports the percentage and an even-enough verdict at or above the clean bar', () => {
+    expect(evennessText(1)).toBe('Evenness 100% — even enough')
+    expect(evennessText(RUDIMENT_CLEAN_EVENNESS)).toBe('Evenness 80% — even enough')
+  })
+
+  it('reports the percentage and an uneven verdict below the clean bar', () => {
+    expect(evennessText(0.5)).toBe('Evenness 50% — uneven: one gap was well off the rest')
   })
 })
 

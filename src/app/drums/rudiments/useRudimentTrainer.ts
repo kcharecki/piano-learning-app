@@ -8,22 +8,23 @@
  * `RudimentTrainerScreen.tsx` is the only caller; this hook owns every piece
  * of grading/ladder/persistence logic so that component stays presentational.
  *
- * ## Why the plan's `grooveId` carries the bpm
+ * ## Why the plan's `grooveId` must NOT carry the bpm
  *
  * `useGrooveRun` retires its `result` exactly when `plan.grooveId` changes
  * (see that hook's own module comment) — a groove change is a different
  * chart, so the marking must not survive it. `rudimentToScore` names its
  * score `rudiment-<id>-x<cycles>`, which stays FIXED across a whole ladder
- * run (the cycle count depends only on the rudiment and the bar target, never
- * on tempo) — so without help, `useGrooveRun` would leave a stale verdict on
- * screen labelled with a bpm the ladder has already left behind. The tempo
- * ladder moving the tempo is the same kind of event here as a groove change
- * is for the groove trainer, so `plan.grooveId` is overridden below to
- * `<rudiment.id>@<bpm>`, built fresh from `planGrooveRun`'s own result (which
- * has no notion of the ladder) — this makes a tempo step read as "a new
- * chart" to that retirement rule, which is exactly the behaviour wanted here.
+ * run, and that is what this hook passes through unchanged. An earlier cut
+ * overrode it to `<id>@<bpm>` so a tempo step would read as a new chart and
+ * clear the verdict; but the ladder steps the tempo on EVERY failed pass and
+ * after every completed clean streak, so the verdict was retired in the same
+ * commit it was graded — the learner saw "Not clean" for no frame at all.
+ * A tempo step is not a chart change: the verdict carries the bpm it was
+ * graded at (`GradedRun.bpm`, shown by the screen), so it stays readable
+ * until the next run replaces it or the rudiment itself changes.
  */
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createBrowserClock } from '@app/practice/clock.ts'
 import { useGrooveRun, type GrooveRunApi } from '@app/drums/groove/useGrooveRun.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { useDrumsRudimentStore } from '@app/state/drumsRudimentStore.ts'
@@ -31,7 +32,9 @@ import type { GrooveScore } from '@core/drums/model/groove.ts'
 import type { GrooveRunResult } from '@core/drums/practice/grade.ts'
 import { planGrooveRun, type GrooveRunPlan } from '@core/drums/practice/plan.ts'
 import {
+  MIN_EVENNESS_STROKES,
   recordPass,
+  rudimentEvenness,
   rudimentToScore,
   startLadder,
   type LadderMode,
@@ -61,6 +64,12 @@ export type RudimentTrainerApi = {
   readonly config: TempoLadderConfig
   readonly run: GrooveRunApi
   readonly lastClean: boolean | undefined
+  /**
+   * 0..1 evenness of the strokes as played on the last finished run — see
+   * `@core/drums/rudiment/evenness.ts`. `undefined` before any run finishes,
+   * and for a run with fewer than `MIN_EVENNESS_STROKES` strokes.
+   */
+  readonly lastEvenness: number | undefined
   restart(): void
   tap(): void
 }
@@ -88,10 +97,19 @@ export function useRudimentTrainer(options: UseRudimentTrainerOptions): Rudiment
   const nowFn = options.now ?? Date.now
   const recordRun = useDrumsRudimentStore((state) => state.recordRun)
 
+  // One clock, shared by the groove engine and the evenness record below —
+  // see the module comment: two independent `createBrowserClock()` calls
+  // would not necessarily agree on their epoch, and evenness needs its onsets
+  // measured against the exact same clock `useGrooveRun` grades against.
+  const clockRef = useRef<Clock | undefined>(undefined)
+  if (clockRef.current === undefined) clockRef.current = options.clock ?? createBrowserClock()
+  const clock = clockRef.current
+
   const config = useMemo(() => ladderConfigFor(rudiment, mode), [rudiment, mode])
 
   const [ladder, setLadder] = useState<TempoLadderState>(() => startLadder(config))
   const [lastClean, setLastClean] = useState<boolean | undefined>(undefined)
+  const [lastEvenness, setLastEvenness] = useState<number | undefined>(undefined)
 
   // The ladder resets when the RUDIMENT changes — not on a mode toggle, and
   // not on every render just because `config` is a fresh object each time.
@@ -103,26 +121,46 @@ export function useRudimentTrainer(options: UseRudimentTrainerOptions): Rudiment
     setSeenRudimentId(rudiment.id)
     setLadder(startLadder(config))
     setLastClean(undefined)
+    setLastEvenness(undefined)
   }
 
   const cycles = useMemo(() => cyclesForBars(rudiment, bars), [rudiment, bars])
   const scoreBars = useMemo(() => barsOf(rudiment, cycles), [rudiment, cycles])
   const score = useMemo(() => rudimentToScore(rudiment, cycles), [rudiment, cycles])
 
-  const plan = useMemo((): GrooveRunPlan => {
-    const base = planGrooveRun(score, ladder.bpm, { gradedBars: scoreBars })
-    // See the module comment: the ladder moving the tempo must read as a new
-    // chart to `useGrooveRun`'s own result-retirement rule.
-    return { ...base, grooveId: `${rudiment.id}@${ladder.bpm}` }
-  }, [score, ladder.bpm, scoreBars, rudiment.id])
+  // The plan keeps `rudimentToScore`'s own grooveId — see the module comment
+  // on why a tempo step must not read as a chart change.
+  const plan = useMemo(
+    (): GrooveRunPlan => planGrooveRun(score, ladder.bpm, { gradedBars: scoreBars }),
+    [score, ladder.bpm, scoreBars],
+  )
+
+  // The learner's own stroke instants for the run currently in progress, in
+  // onset order — fed to `rudimentEvenness` when the run finishes. Cleared
+  // whenever the phase becomes 'count-in' (a fresh run starting), so a stale
+  // tap from a previous attempt never survives into the next one's score.
+  const tapsRef = useRef<number[]>([])
+
+  // Mirrors `run.phase` into a ref so `tap()` (a stable callback) can read the
+  // CURRENT phase without depending on it — `useGrooveRun` does the same
+  // thing internally for its own phase checks. This lags the engine by at
+  // most one frame: a stroke played in the very first frame of the graded
+  // window may still see phaseRef holding 'count-in' and be excluded from the
+  // evenness record, even though the engine itself already grades it.
+  const phaseRef = useRef<GrooveRunApi['phase']>('idle')
 
   const onFinished = useCallback(
     (result: GrooveRunResult): void => {
-      const clean = isCleanPass(result)
+      const taps = tapsRef.current
+      const evenness = rudimentEvenness(taps)
+      const clean = isCleanPass(result, evenness)
       const gradedBpm = plan.bpm
       const next = recordPass(ladder, clean, config)
       setLadder(next)
       setLastClean(clean)
+      // Under MIN_EVENNESS_STROKES the score is 1 by definition, not by
+      // playing — no line is more honest than "100% even" over silence.
+      setLastEvenness(taps.length >= MIN_EVENNESS_STROKES ? evenness : undefined)
       // Contract: persist only once the ladder has a personal best to report
       // (`bestCleanBpm !== undefined`). That stays true forever once any pass
       // has ever been clean, so a later failed run still re-records the SAME
@@ -143,19 +181,32 @@ export function useRudimentTrainer(options: UseRudimentTrainerOptions): Rudiment
   const run = useGrooveRun({
     plan,
     onFinished,
-    ...(options.clock === undefined ? {} : { clock: options.clock }),
+    clock,
     ...(options.audio === undefined ? {} : { audio: options.audio }),
     ...(options.driver === undefined ? {} : { driver: options.driver }),
   })
 
+  // Mirrored during render, not inside an effect: an effect would not commit
+  // until after this render's `tap()` closures could already run (e.g. a
+  // pointer handler firing between commits), which is exactly the one-frame
+  // lag the module comment above already accounts for — mirroring later
+  // would only make that lag worse.
+  phaseRef.current = run.phase
+
+  useEffect(() => {
+    if (run.phase === 'count-in') tapsRef.current = []
+  }, [run.phase])
+
   const restart = useCallback((): void => {
     setLadder(startLadder(config))
     setLastClean(undefined)
+    setLastEvenness(undefined)
   }, [config])
 
   const tap = useCallback((): void => {
     run.hit('snare')
-  }, [run])
+    if (phaseRef.current === 'playing') tapsRef.current.push(clock.now())
+  }, [run, clock])
 
-  return { score, plan, ladder, config, run, lastClean, restart, tap }
+  return { score, plan, ladder, config, run, lastClean, lastEvenness, restart, tap }
 }

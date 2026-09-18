@@ -106,8 +106,10 @@
      stroke glowing into the next one at speed. */
   transition: background var(--dur-1) var(--ease-out);
 }
-.rudiment-tap-pad:hover { background: var(--bg-3); }
-.rudiment-tap-pad[data-lit="true"] {
+.rudiment-tap-pad:hover {
+  background: var(--bg-3);
+}
+.rudiment-tap-pad[data-lit='true'] {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--on-accent);
@@ -121,11 +123,11 @@
   padding-left: var(--space-3);
   border-left: var(--border-w-strong) solid var(--border-2);
 }
-.rudiment-verdict[data-clean="true"] {
+.rudiment-verdict[data-clean='true'] {
   color: var(--ok);
   border-left-color: var(--ok);
 }
-.rudiment-verdict[data-clean="false"] {
+.rudiment-verdict[data-clean='false'] {
   color: var(--fb-wrong);
   border-left-color: var(--fb-wrong);
 }
@@ -133,6 +135,18 @@
   font-size: var(--text-sm);
   color: var(--text-3);
   font-variant-numeric: tabular-nums;
+}
+/* Muted by default — evenness is a secondary axis alongside the pass/fail
+   verdict above it. Below the clean bar it borrows the same warning token
+   `.rudiment-verdict[data-clean="false"]` uses, so "something needs work"
+   reads consistently across both lines. */
+.rudiment-evenness {
+  font-size: var(--text-sm);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.rudiment-evenness[data-even='false'] {
+  color: var(--fb-wrong);
 }
 .rudiment-pad-lines {
   display: flex;
@@ -169,7 +183,9 @@
   padding: 0;
   margin: 0;
 }
-.rudiment-row-item { display: block; }
+.rudiment-row-item {
+  display: block;
+}
 
 /* One row, four columns: name, family, sticking, personal record. Grid
    rather than flex so the sticking preview — the widest, most variable-length
@@ -188,10 +204,14 @@
   color: var(--text-1);
   text-align: left;
   cursor: pointer;
-  transition: background var(--dur-1) var(--ease-out), border-color var(--dur-1) var(--ease-out);
+  transition:
+    background var(--dur-1) var(--ease-out),
+    border-color var(--dur-1) var(--ease-out);
 }
-.rudiment-row:hover { background: var(--bg-3); }
-.rudiment-row[data-selected="true"] {
+.rudiment-row:hover {
+  background: var(--bg-3);
+}
+.rudiment-row[data-selected='true'] {
   border-color: var(--accent);
   background: var(--bg-3);
 }
@@ -223,5 +243,7 @@
     grid-template-columns: 1fr;
     text-align: left;
   }
-  .rudiment-row-pr { text-align: left; }
+  .rudiment-row-pr {
+    text-align: left;
+  }
 }
