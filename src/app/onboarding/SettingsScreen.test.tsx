@@ -7,13 +7,19 @@
  * practice-plan editor, and that flipping a theme option touches the DOM
  * the way `themeStore.ts` promises.
  */
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FakeMidiInput, RecordingMidiOutput } from '@test/fakes.ts'
 import { initialLevelState } from '@core/progress/levels.ts'
 import { ok, err } from '@core/shared/result.ts'
-import { __resetMidiOutputRoute, type ConnectMidiOutput } from '@adapters/audio/audioRoute.ts'
+import type { MidiDevice, MidiOutput, Unsubscribe } from '@core/ports/midi.ts'
+import {
+  __resetMidiOutputRoute,
+  getPreferredMidiOutputPortId,
+  setPreferredMidiOutputPortId,
+  type ConnectMidiOutput,
+} from '@adapters/audio/audioRoute.ts'
 import {
   __resetDrumAudioRouteCache,
   getDrumAudioRoute,
@@ -22,6 +28,69 @@ import {
 import { useLevelStore } from '@app/state/levelStore.ts'
 import { useThemeStore } from '@app/state/themeStore.ts'
 import { SettingsScreen } from './SettingsScreen.tsx'
+
+/**
+ * `RecordingMidiOutput` (`@test/fakes.ts`) always lists exactly one fixed
+ * device — fine for every other test in this file, but the port-picker
+ * tests need a connection with several ports to choose between. Built here
+ * rather than in `fakes.ts` per this slice's brief (that file is out of
+ * scope for this change).
+ */
+class FakeMultiPortMidiOutput implements MidiOutput {
+  selectedDeviceId: string | null
+  private devices: readonly MidiDevice[]
+  private readonly deviceHandlers = new Set<(devices: readonly MidiDevice[]) => void>()
+
+  constructor(devices: readonly MidiDevice[], selectedDeviceId: string | null = devices[0]?.id ?? null) {
+    this.devices = devices
+    this.selectedDeviceId = selectedDeviceId
+  }
+
+  listDevices(): readonly MidiDevice[] {
+    return this.devices
+  }
+
+  onDevicesChanged(handler: (devices: readonly MidiDevice[]) => void): Unsubscribe {
+    this.deviceHandlers.add(handler)
+    return () => this.deviceHandlers.delete(handler)
+  }
+
+  selectDevice(deviceId: string | null): void {
+    this.selectedDeviceId = deviceId
+  }
+
+  /**
+   * Simulate hot-plug (mirrors `FakeMidiInput.setDevices`/
+   * `RecordingMidiOutput.setDevices`). Never re-picks `selectedDeviceId`
+   * itself — that mirrors the real `WebMidiOutputAdapter`, which leaves a
+   * vanished selection alone; see this slice's report.
+   */
+  setDevices(devices: readonly MidiDevice[]): void {
+    this.devices = devices
+    for (const handler of this.deviceHandlers) handler(devices)
+  }
+
+  /** Test-only: how many `onDevicesChanged` subscribers are currently live. */
+  get deviceHandlerCount(): number {
+    return this.deviceHandlers.size
+  }
+
+  /**
+   * Test-only: change the device list WITHOUT firing `onDevicesChanged` —
+   * simulates the exact race `selectMidiOutputPort`'s "no longer listed" err
+   * covers (a device vanishing in the moment between the select's last
+   * render and the learner's click, before hot-plug notice arrives), which
+   * `setDevices` above cannot reach since it re-renders the option list
+   * immediately.
+   */
+  vanishSilently(id: string): void {
+    this.devices = this.devices.filter((d) => d.id !== id)
+  }
+
+  noteOn(): void {}
+  noteOff(): void {}
+  allNotesOff(): void {}
+}
 
 /** Never resolves — a deterministic "no MIDI keyboard connected" state, same pattern `InputCapabilityBanner.test.tsx` uses. */
 const neverConnects = (): Promise<never> => new Promise(() => {})
@@ -300,6 +369,188 @@ describe('SettingsScreen', () => {
       )
       // the piano's own status line is untouched — its route is still webaudio
       expect(screen.getByText('Sound: built-in piano sounds')).toBeInTheDocument()
+    })
+  })
+
+  describe('MIDI output port (roadmap DR-06 wave 12)', () => {
+    const deviceA: MidiDevice = { id: 'a', name: 'Digital Piano', manufacturer: 'Yamaha' }
+    const deviceB: MidiDevice = { id: 'b', name: '', manufacturer: 'Roland' } // no name — falls back to manufacturer
+    const deviceC: MidiDevice = { id: 'c', name: '', manufacturer: '' } // neither — falls back to id
+
+    it('is absent before anything is connected', () => {
+      render(<SettingsScreen onGoToToday={vi.fn()} connectMidi={neverConnects} connectMidiOutput={neverConnectsOutput} />)
+
+      expect(screen.queryByLabelText('MIDI output port')).not.toBeInTheDocument()
+    })
+
+    it('lists every connected port, labelled name / manufacturer / id in that fallback order, with the selected one current', async () => {
+      const user = userEvent.setup()
+      // `connectMidiOutputRoute` re-picks a port on every connect (preferred,
+      // else the first) — a persisted preference is how the SELECTED port
+      // ends up being other than the first for this assertion.
+      setPreferredMidiOutputPortId(deviceB.id)
+      const midiOut = new FakeMultiPortMidiOutput([deviceA, deviceB, deviceC])
+      const connectMidiOutput: ConnectMidiOutput = () => Promise.resolve(ok({ output: midiOut }))
+      render(
+        <SettingsScreen onGoToToday={vi.fn()} connectMidi={neverConnects} connectMidiOutput={connectMidiOutput} />,
+      )
+
+      await user.click(screen.getByRole('radio', { name: 'My instrument' }))
+
+      const select = await screen.findByLabelText('MIDI output port')
+      expect(within(select).getByRole('option', { name: 'Digital Piano' })).toBeInTheDocument()
+      expect(within(select).getByRole('option', { name: 'Roland' })).toBeInTheDocument()
+      expect(within(select).getByRole('option', { name: 'c' })).toBeInTheDocument()
+      expect(select).toHaveValue(deviceB.id)
+    })
+
+    it('choosing a different port selects it on the live output, persists it, and updates the drum note', async () => {
+      const user = userEvent.setup()
+      const deviceD: MidiDevice = { id: 'd', name: 'Drum Module', manufacturer: 'Roland' }
+      setDrumAudioRoute('midi')
+      const midiOut = new FakeMultiPortMidiOutput([deviceA, deviceD], deviceA.id)
+      const connectMidiOutput: ConnectMidiOutput = () => Promise.resolve(ok({ output: midiOut }))
+      render(
+        <SettingsScreen onGoToToday={vi.fn()} connectMidi={neverConnects} connectMidiOutput={connectMidiOutput} />,
+      )
+      await screen.findByLabelText('MIDI output port')
+      expect(screen.getByText('Sending to Digital Piano on channel 10.')).toBeInTheDocument()
+
+      await user.selectOptions(screen.getByLabelText('MIDI output port'), deviceD.id)
+
+      expect(midiOut.selectedDeviceId).toBe(deviceD.id)
+      expect(getPreferredMidiOutputPortId()).toBe(deviceD.id)
+      expect(screen.getByText('Sending to Drum Module on channel 10.')).toBeInTheDocument()
+    })
+
+    it('a name of "" falls back to manufacturer in the drum note too, not a blank "Sending to  on channel 10."', async () => {
+      // roadmap DR-06 wave 12 review — regression test for the bug found
+      // while writing the port-picker tests: `describeDrumRouteNote` used to
+      // read `device?.name ?? 'your instrument'`, which only guards
+      // null/undefined, so a real device with an empty (but defined) `name`
+      // rendered a blank note. It must use the same name -> manufacturer ->
+      // id fallback as the select's own option labels.
+      setDrumAudioRoute('midi')
+      const midiOut = new FakeMultiPortMidiOutput([deviceB])
+      const connectMidiOutput: ConnectMidiOutput = () => Promise.resolve(ok({ output: midiOut }))
+      render(
+        <SettingsScreen onGoToToday={vi.fn()} connectMidi={neverConnects} connectMidiOutput={connectMidiOutput} />,
+      )
+
+      expect(await screen.findByText('Sending to Roland on channel 10.')).toBeInTheDocument()
+    })
+
+    describe('hot-plug', () => {
+      it('a device appearing after connect (onDevicesChanged) adds an option to the list', async () => {
+        setDrumAudioRoute('midi')
+        const midiOut = new FakeMultiPortMidiOutput([deviceA])
+        const connectMidiOutput: ConnectMidiOutput = () => Promise.resolve(ok({ output: midiOut }))
+        render(
+          <SettingsScreen onGoToToday={vi.fn()} connectMidi={neverConnects} connectMidiOutput={connectMidiOutput} />,
+        )
+        const select = await screen.findByLabelText('MIDI output port')
+        expect(within(select).queryByRole('option', { name: 'Roland' })).not.toBeInTheDocument()
+
+        act(() => {
+          midiOut.setDevices([deviceA, deviceB])
+        })
+
+        expect(await within(select).findByRole('option', { name: 'Roland' })).toBeInTheDocument()
+      })
+
+      it('unmounting the screen unsubscribes from onDevicesChanged', async () => {
+        setDrumAudioRoute('midi')
+        const midiOut = new FakeMultiPortMidiOutput([deviceA])
+        const connectMidiOutput: ConnectMidiOutput = () => Promise.resolve(ok({ output: midiOut }))
+        const { unmount } = render(
+          <SettingsScreen onGoToToday={vi.fn()} connectMidi={neverConnects} connectMidiOutput={connectMidiOutput} />,
+        )
+        await screen.findByLabelText('MIDI output port')
+        expect(midiOut.deviceHandlerCount).toBe(1)
+
+        unmount()
+
+        expect(midiOut.deviceHandlerCount).toBe(0)
+        // and firing after unmount must not throw — no listener is left to
+        // call a `setState` on an unmounted component.
+        expect(() => midiOut.setDevices([deviceA, deviceB])).not.toThrow()
+      })
+    })
+
+    // Roadmap DR-06 review AMBER 1 — the suite above only ever ADDED devices
+    // via `setDevices`; this is the first REMOVAL case, and the one that
+    // actually matters for "my drum module fell over mid-run": the selected
+    // port itself vanishing, not a new one appearing.
+    describe('the selected device is unplugged', () => {
+      it('the drum note says the output is unplugged (not a false "Sending to..."), and the select keeps the stale id, disabled', async () => {
+        setDrumAudioRoute('midi')
+        setPreferredMidiOutputPortId(deviceB.id)
+        const midiOut = new FakeMultiPortMidiOutput([deviceA, deviceB])
+        const connectMidiOutput: ConnectMidiOutput = () => Promise.resolve(ok({ output: midiOut }))
+        render(
+          <SettingsScreen onGoToToday={vi.fn()} connectMidi={neverConnects} connectMidiOutput={connectMidiOutput} />,
+        )
+        const select = await screen.findByLabelText('MIDI output port')
+        expect(select).toHaveValue(deviceB.id)
+        expect(screen.getByText('Sending to Roland on channel 10.')).toBeInTheDocument()
+
+        act(() => {
+          midiOut.setDevices([deviceA]) // deviceB — the SELECTED one — disappears; deviceA (unselected) stays
+        })
+
+        expect(
+          await screen.findByText('That MIDI output is unplugged — using the built-in synth.'),
+        ).toBeInTheDocument()
+        expect(screen.queryByText('Sending to Roland on channel 10.')).not.toBeInTheDocument()
+        // the select still reports the learner's actual (unreachable) pick,
+        // not a silent fall-back to whatever now enumerates first.
+        expect(select).toHaveValue(deviceB.id)
+        const staleOption = within(select).getByRole('option', { name: deviceB.id })
+        expect(staleOption).toBeDisabled()
+      })
+    })
+
+    describe('port-select error', () => {
+      it('an unlisted id renders the error under the select, in the drum note style, as an alert', async () => {
+        setDrumAudioRoute('midi')
+        const user = userEvent.setup()
+        const midiOut = new FakeMultiPortMidiOutput([deviceA, deviceB])
+        const connectMidiOutput: ConnectMidiOutput = () => Promise.resolve(ok({ output: midiOut }))
+        render(
+          <SettingsScreen onGoToToday={vi.fn()} connectMidi={neverConnects} connectMidiOutput={connectMidiOutput} />,
+        )
+        const select = await screen.findByLabelText('MIDI output port')
+        // the device vanishes between render and the click, with no
+        // hot-plug notice yet — exactly the race `selectMidiOutputPort`'s
+        // second `err` branch covers; the select's rendered options are
+        // still stale (still show deviceB) at the moment of the click.
+        midiOut.vanishSilently(deviceB.id)
+
+        await user.selectOptions(select, deviceB.id)
+
+        const alert = await screen.findByRole('alert')
+        expect(alert).toHaveTextContent('That MIDI output is no longer listed.')
+        expect(alert).toHaveClass('settings-audio-note')
+      })
+
+      it('a subsequent successful pick clears the error', async () => {
+        setDrumAudioRoute('midi')
+        const user = userEvent.setup()
+        const midiOut = new FakeMultiPortMidiOutput([deviceA, deviceB])
+        const connectMidiOutput: ConnectMidiOutput = () => Promise.resolve(ok({ output: midiOut }))
+        render(
+          <SettingsScreen onGoToToday={vi.fn()} connectMidi={neverConnects} connectMidiOutput={connectMidiOutput} />,
+        )
+        const select = await screen.findByLabelText('MIDI output port')
+        midiOut.vanishSilently(deviceB.id)
+        await user.selectOptions(select, deviceB.id)
+        expect(await screen.findByRole('alert')).toBeInTheDocument()
+
+        await user.selectOptions(select, deviceA.id) // a still-listed device succeeds
+
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+        expect(midiOut.selectedDeviceId).toBe(deviceA.id)
+      })
     })
   })
 

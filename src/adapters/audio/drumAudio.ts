@@ -101,11 +101,22 @@ function createDrumAudioRouter(
     return midiDrumOutput
   }
 
-  /** The output this call should play through, per this module's routing rule. */
+  /**
+   * The output this call should play through, per this module's routing
+   * rule. `output !== undefined` alone is not "connected" (roadmap DR-06
+   * review RED): `WebMidiOutputAdapter.listDevices()` drops a port the
+   * instant its `state` stops being `'connected'`, but `selectedDeviceId`
+   * itself is never cleared (see that adapter's own comment) — so an
+   * unplugged selection still passes `output !== undefined` while every
+   * `send()` on it is silently swallowed. Checking the selection is still
+   * among `listDevices()` here is what actually falls back to the synth.
+   */
   function pickTarget(): DrumAudioOutput {
     if (route() === 'midi') {
       const output = getMidi()
-      if (output !== undefined) return ensureMidiTarget(output)
+      if (output !== undefined && output.listDevices().some((d) => d.id === output.selectedDeviceId)) {
+        return ensureMidiTarget(output)
+      }
     }
     return synth
   }

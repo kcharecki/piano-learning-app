@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { RecordingMidiOutput } from '@test/fakes.ts'
 import { millis } from '@core/shared/units.ts'
-import type { MidiOutput } from '@core/ports/midi.ts'
+import type { MidiDevice, MidiOutput } from '@core/ports/midi.ts'
 import { DRUM_MIDI_CHANNEL } from '@adapters/audio/drumMidiOut.ts'
 
 // `createDrumAudioOutput`/`createDrumAudioOutputWith` memoize a
@@ -61,6 +61,35 @@ describe('createDrumAudioOutputWith — routing (DR-06)', () => {
       { kind: 'noteOn', note: 36, at: 1000, channel: DRUM_MIDI_CHANNEL },
       { kind: 'noteOff', note: 36, at: 1060, channel: DRUM_MIDI_CHANNEL },
     ])
+  })
+
+  // Roadmap DR-06 review RED: `getMidi()` returning a defined `MidiOutput`
+  // used to be treated as "connected" — but `WebMidiOutputAdapter` (and this
+  // fake, matching it) never clears `selectedDeviceId` when the device
+  // vanishes from `listDevices()`, it just makes `send()` a silent no-op.
+  // Before the `pickTarget` fix, this hit every strike swallowed with
+  // nothing routed to the synth either — total silence, mid-Groove-run, with
+  // no fallback and no error. Must fail against the pre-fix code.
+  it('a selected device that has been unplugged (non-undefined output, but no longer listed) falls back to the synth, not silence', async () => {
+    const { createDrumAudioOutputWith } = await import('@adapters/audio/drumAudio.ts')
+    const deviceA: MidiDevice = { id: 'a', name: 'Drum Module', manufacturer: 'Test' }
+    const midiOut = new RecordingMidiOutput([deviceA])
+    const contextFactory = vi.fn(() => {
+      throw new Error('fake environment has no real AudioContext — only call-tracking matters here')
+    })
+
+    const out = createDrumAudioOutputWith(contextFactory, {
+      route: () => 'midi',
+      midi: () => midiOut,
+    })
+    // the device disappears — `selectedDeviceId` is left stale, exactly like
+    // the real adapter (see `WebMidiOutputAdapter.currentPort()`'s comment).
+    midiOut.setDevices([])
+
+    out.strike('kick', 100, millis(0))
+
+    expect(midiOut.sent).toEqual([])
+    expect(contextFactory).toHaveBeenCalled()
   })
 
   it('route "midi" with no connected output falls back to the synth (the context factory is reached)', async () => {

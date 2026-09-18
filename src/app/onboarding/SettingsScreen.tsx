@@ -33,11 +33,12 @@
  */
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { MidiInput, Store } from '@core/ports/index.ts'
-import type { MidiOutput } from '@core/ports/midi.ts'
+import type { MidiDevice, MidiOutput } from '@core/ports/midi.ts'
 import {
   connectMidiOutputRoute,
   getAudioOutputRoute,
   getConnectedMidiOutput,
+  selectMidiOutputPort,
   setAudioOutputRoute,
   type AudioOutputRoute,
   type ConnectMidiOutput,
@@ -115,7 +116,31 @@ function describeDrumRouteNote(
   if (midiRouteStatus === 'error') return `Built-in synth: ${midiRouteError ?? 'connection failed'}`
   if (connected === undefined) return 'Using the built-in synth until a MIDI output connects.'
   const device = connected.listDevices().find((d) => d.id === connected.selectedDeviceId)
-  return `Sending to ${device?.name ?? 'your instrument'} on channel 10.`
+  // roadmap DR-06 wave 12 review AMBER 1: once a connection exists,
+  // `selectedDeviceId` is always set (`connectMidiOutputRoute` always calls
+  // `selectDevice` on at least one found device) — so `device === undefined`
+  // here means exactly one thing: the previously-selected port vanished from
+  // `listDevices()` (unplugged mid-session), not "nothing selected yet".
+  // Saying "Sending to your instrument" in that case asserted a live send to
+  // a port that no longer exists; channel 10 is actually going nowhere; the
+  // synth is what the learner is really hearing (see `pickTarget` in
+  // `drumAudio.ts`, which falls back to it for the same reason).
+  if (device === undefined) return 'That MIDI output is unplugged — using the built-in synth.'
+  return `Sending to ${describeMidiOutputPortLabel(device)} on channel 10.`
+}
+
+/**
+ * The MIDI output port select's own `<option>` text (roadmap DR-06 wave 12):
+ * `MidiDevice.name`/`manufacturer` are both plain (possibly empty) strings on
+ * the wire, not `| undefined` — a device that reports neither still needs a
+ * label a learner can click, so this falls back to the one thing every
+ * device has, its `id`. Also reused by `describeDrumRouteNote` above, for the
+ * same reason.
+ */
+function describeMidiOutputPortLabel(device: MidiDevice): string {
+  if (device.name !== '') return device.name
+  if (device.manufacturer !== '') return device.manufacturer
+  return device.id
 }
 
 function describeAudioRouteStatus(
@@ -152,6 +177,18 @@ export function SettingsScreen({
   const [audioRoute, setAudioRoute] = useState<AudioOutputRoute>(() => getAudioOutputRoute())
   const [midiRouteStatus, setMidiRouteStatus] = useState<MidiRouteStatus>('idle')
   const [midiRouteError, setMidiRouteError] = useState<string | undefined>(undefined)
+  // `selectMidiOutputPort` mutates the live `MidiOutput`'s own
+  // `selectedDeviceId` in place (see `audioRoute.ts`) rather than replacing
+  // the object, so there is no new reference for React to notice — this
+  // tick exists purely to force a re-render after a pick, so the port
+  // select and the drum route's device-name note both read the fresh value.
+  const [, setMidiOutputPortTick] = useState(0)
+  // `selectMidiOutputPort`'s error (roadmap DR-06 wave 12 review): the one
+  // way `handleSelectMidiOutputPort` can fail is the picked id vanishing
+  // from `listDevices()` between render and click, or nothing connected yet
+  // (this control only renders once something is) — surfaced right under
+  // the select, cleared the moment a pick actually succeeds.
+  const [midiOutputPortError, setMidiOutputPortError] = useState<string | undefined>(undefined)
   const drumRoute = useSyncExternalStore(subscribeDrumAudioRoute, getDrumAudioRoute, getDrumAudioRoute)
   // Re-render when the piano MIDI-out connection settles (`midiRouteStatus`) so
   // this section's "is a MIDI output actually connected" check — independent
@@ -193,6 +230,19 @@ export function SettingsScreen({
     }
   }, [audioRoute, drumRoute, connectMidiOutput])
 
+  // Hot-plug (roadmap DR-06 wave 12): re-render the port list — and the drum
+  // note, which reads the same live output — whenever the connected
+  // `MidiOutput` reports its device list changed, for as long as this screen
+  // is mounted. Subscribes/unsubscribes as `connectedMidiOutput` itself
+  // appears, is replaced by a reconnect, or disappears; never leaves a
+  // listener attached past unmount.
+  useEffect(() => {
+    if (connectedMidiOutput === undefined) return undefined
+    return connectedMidiOutput.onDevicesChanged(() => {
+      setMidiOutputPortTick((tick) => tick + 1)
+    })
+  }, [connectedMidiOutput])
+
   function handlePlanDone(): void {
     gate.markCompleted()
     setEditingPlan(false)
@@ -205,6 +255,12 @@ export function SettingsScreen({
 
   function handleSelectDrumRoute(route: DrumAudioRoute): void {
     setDrumAudioRoute(route)
+  }
+
+  function handleSelectMidiOutputPort(id: string): void {
+    const result = selectMidiOutputPort(id)
+    setMidiOutputPortError(result.ok ? undefined : result.error)
+    setMidiOutputPortTick((tick) => tick + 1)
   }
 
   return (
@@ -293,9 +349,48 @@ export function SettingsScreen({
         </p>
         <p className="settings-audio-note">
           {audioRoute === 'midi'
-            ? 'Uses the first connected instrument found. If you plug one in after opening this page, reopen Settings to connect it.'
+            ? 'Remembers the port you pick below; new devices appear in the list as you plug them in.'
             : 'Pick "My instrument" above to hear your own connected instrument instead of the built-in piano sound.'}
         </p>
+        {connectedMidiOutput !== undefined &&
+          (() => {
+            const devices = connectedMidiOutput.listDevices()
+            const selectedId = connectedMidiOutput.selectedDeviceId
+            // roadmap DR-06 wave 12 review AMBER 1: `value` below must always
+            // match a rendered `<option>`, or the browser shows the select as
+            // unset — which reads as "nothing chosen" rather than "the thing
+            // you chose is gone". A stale, unplugged `selectedDeviceId` gets
+            // its own synthetic, disabled option (labelled with the raw id,
+            // the one thing still known about it) so the select keeps
+            // showing exactly what is actually (unreachably) selected.
+            const selectedIsListed = selectedId !== null && devices.some((d) => d.id === selectedId)
+            return (
+              <div className="field">
+                <label htmlFor="settings-midi-output-port">MIDI output port</label>
+                <select
+                  id="settings-midi-output-port"
+                  value={selectedId ?? ''}
+                  onChange={(event) => handleSelectMidiOutputPort(event.target.value)}
+                >
+                  {selectedId !== null && !selectedIsListed && (
+                    <option value={selectedId} disabled>
+                      {selectedId}
+                    </option>
+                  )}
+                  {devices.map((device) => (
+                    <option key={device.id} value={device.id}>
+                      {describeMidiOutputPortLabel(device)}
+                    </option>
+                  ))}
+                </select>
+                {midiOutputPortError !== undefined && (
+                  <p className="settings-audio-note" role="alert">
+                    {midiOutputPortError}
+                  </p>
+                )}
+              </div>
+            )
+          })()}
         <div className="field">
           <label id="settings-drum-route-label">Drum voices</label>
           <div className="seg-control" role="radiogroup" aria-labelledby="settings-drum-route-label">

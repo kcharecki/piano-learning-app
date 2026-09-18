@@ -83,6 +83,8 @@ export interface MidiInput {
  */
 export interface MidiOutput {
   listDevices(): readonly MidiDevice[]
+  /** Subscribe to device connect/disconnect (hot-plug is common in practice). */
+  onDevicesChanged(handler: (devices: readonly MidiDevice[]) => void): Unsubscribe
   selectDevice(deviceId: string | null): void
   /** `channel` is 0–15 (MIDI channel index; channel 10 is 9). Omitted = 0. */
   noteOn(note: Midi, velocity: number, atMs?: Millis, channel?: number): void

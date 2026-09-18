@@ -485,6 +485,51 @@ describe('WebMidi output', () => {
   })
 })
 
+describe('WebMidi output — hot-plug', () => {
+  it('re-emits the device list on statechange, same as input', async () => {
+    const access = new FakeMidiAccess()
+    const p1 = new FakeMidiOutputPort('out-1')
+    access.outputs.set(p1.id, p1)
+    stubMidiAccess(access)
+    const result = await createWebMidi()
+    if (!result.ok) throw new Error('expected Ok')
+    const { output } = result.value
+    const { handler, values: deviceLists } = collect<readonly MidiDevice[]>()
+    output.onDevicesChanged(handler)
+
+    const p2 = new FakeMidiOutputPort('out-2')
+    access.outputs.set(p2.id, p2)
+    access.onstatechange?.()
+
+    expect(deviceLists.at(-1)?.map((d) => d.id)).toEqual(['out-1', 'out-2'])
+  })
+
+  // DR-06 wave 12 decision: a vanished selected port is never silently
+  // re-picked by the adapter itself — `selectMidiOutputPort`/
+  // `connectMidiOutputRoute` (audioRoute.ts) own that policy. This is the
+  // adapter-level half of that contract: prove `selectedDeviceId` survives.
+  it('a device disappearing while selected does not throw, and leaves selection stale', async () => {
+    const access = new FakeMidiAccess()
+    const p1 = new FakeMidiOutputPort('out-1')
+    access.outputs.set(p1.id, p1)
+    stubMidiAccess(access)
+    const result = await createWebMidi()
+    if (!result.ok) throw new Error('expected Ok')
+    const { output } = result.value
+    output.selectDevice('out-1')
+    const { handler, values: deviceLists } = collect<readonly MidiDevice[]>()
+    output.onDevicesChanged(handler)
+
+    access.outputs.delete('out-1')
+    expect(() => access.onstatechange?.()).not.toThrow()
+
+    expect(deviceLists.at(-1)).toEqual([])
+    expect(output.selectedDeviceId).toBe('out-1')
+    // and it's a silent no-op to send to the now-vanished port, not a throw
+    expect(() => output.noteOn(midi(60), 100)).not.toThrow()
+  })
+})
+
 describe('dispose', () => {
   it('detaches every input listener and the statechange subscription', async () => {
     const access = new FakeMidiAccess()
@@ -505,5 +550,26 @@ describe('dispose', () => {
     expect(port.onmidimessage).toBeNull()
     expect(access.onstatechange).toBeNull()
     expect(() => port.fire([0x90, 60, 100], 1)).not.toThrow()
+  })
+
+  it('also unsubscribes every output device-change listener', async () => {
+    const access = new FakeMidiAccess()
+    const port = new FakeMidiOutputPort('out-1')
+    access.outputs.set(port.id, port)
+    stubMidiAccess(access)
+    const result = await createWebMidi()
+    if (!result.ok) throw new Error('expected Ok')
+    const { output, dispose } = result.value
+    // captured before dispose nulls `access.onstatechange` itself, so this
+    // proves `output`'s own handler set was cleared, not just that nothing
+    // is wired to call it any more.
+    const onstatechange = access.onstatechange
+    output.onDevicesChanged(() => {
+      throw new Error('should never fire after dispose')
+    })
+
+    dispose()
+
+    expect(() => onstatechange?.()).not.toThrow()
   })
 })

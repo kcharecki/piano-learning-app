@@ -62,6 +62,7 @@ export async function createWebMidi(opts?: { sysex?: boolean }): Promise<Result<
   input.attachAll()
   access.onstatechange = () => {
     input.refresh()
+    output.refresh()
   }
 
   return ok({
@@ -70,6 +71,7 @@ export async function createWebMidi(opts?: { sysex?: boolean }): Promise<Result<
     dispose(): void {
       access.onstatechange = null
       input.detachAll()
+      output.detachAll()
     },
   })
 }
@@ -249,6 +251,7 @@ class WebMidiInputAdapter implements MidiInput {
 
 class WebMidiOutputAdapter implements MidiOutput {
   private readonly access: MidiAccessHandle
+  private readonly deviceHandlers = new Set<(devices: readonly MidiDevice[]) => void>()
   selectedDeviceId: string | null = null
 
   constructor(access: MidiAccessHandle) {
@@ -259,8 +262,30 @@ class WebMidiOutputAdapter implements MidiOutput {
     return connectedDevices(this.access.outputs)
   }
 
+  onDevicesChanged(handler: (devices: readonly MidiDevice[]) => void): Unsubscribe {
+    this.deviceHandlers.add(handler)
+    return () => this.deviceHandlers.delete(handler)
+  }
+
   selectDevice(deviceId: string | null): void {
     this.selectedDeviceId = deviceId
+  }
+
+  /** Re-emit the current device list to every subscriber — called on MIDIAccess `statechange`. */
+  refresh(): void {
+    const devices = this.listDevices()
+    for (const handler of this.deviceHandlers) handler(devices)
+  }
+
+  /**
+   * A vanished selected device is never re-picked here (see `currentPort`
+   * below) — `selectedDeviceId` stays exactly what the caller last set, so a
+   * learner's remembered port survives a momentary unplug rather than being
+   * silently swapped for whatever now enumerates first. `audioRoute.ts`'s
+   * `connectMidiOutputRoute`/`selectMidiOutputPort` own that re-pick policy.
+   */
+  detachAll(): void {
+    this.deviceHandlers.clear()
   }
 
   noteOn(note: Midi, velocity: number, atMs?: Millis, channel = 0): void {

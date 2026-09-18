@@ -204,14 +204,32 @@ export class RecordingMidiOutput implements MidiOutput {
     at?: number
     channel?: number
   }[] = []
-  selectedDeviceId: string | null = DEFAULT_DEVICE.id
+  private devices: MidiDevice[]
+  private readonly deviceHandlers = new Set<(devices: readonly MidiDevice[]) => void>()
+  selectedDeviceId: string | null
+
+  constructor(devices: MidiDevice[] = [DEFAULT_DEVICE]) {
+    this.devices = devices
+    this.selectedDeviceId = devices[0]?.id ?? null
+  }
 
   listDevices(): readonly MidiDevice[] {
-    return [DEFAULT_DEVICE]
+    return this.devices
+  }
+
+  onDevicesChanged(handler: (devices: readonly MidiDevice[]) => void): Unsubscribe {
+    this.deviceHandlers.add(handler)
+    return () => this.deviceHandlers.delete(handler)
   }
 
   selectDevice(deviceId: string | null): void {
     this.selectedDeviceId = deviceId
+  }
+
+  /** Simulate hot-plug (mirrors `FakeMidiInput.setDevices`). */
+  setDevices(devices: MidiDevice[]): void {
+    this.devices = devices
+    for (const handler of this.deviceHandlers) handler(devices)
   }
 
   noteOn(note: Midi, _velocity: number, atMs?: Millis, channel?: number): void {

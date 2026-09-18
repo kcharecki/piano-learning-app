@@ -59,6 +59,35 @@ export function setAudioOutputRoute(route: AudioOutputRoute): void {
   }
 }
 
+/**
+ * The learner's remembered MIDI output PORT (roadmap DR-06 wave 12) — distinct
+ * from `ROUTE_STORAGE_KEY` above, which is "Web Audio vs MIDI", not "which
+ * port". A learner with a piano AND a drum module has two output ports;
+ * without this, both the piano's "My instrument" route and the drum "MIDI
+ * out" route silently went to whichever port `listDevices()` happened to
+ * enumerate first.
+ */
+export const MIDI_OUTPUT_PORT_STORAGE_KEY = 'piano-midi-output-port'
+
+/** Reads the learner's preferred port id; `undefined` if never set or storage is unavailable. */
+export function getPreferredMidiOutputPortId(): string | undefined {
+  try {
+    return localStorage.getItem(MIDI_OUTPUT_PORT_STORAGE_KEY) ?? undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** Persists the learner's preferred port id. `undefined` removes it. Best-effort, same as `setAudioOutputRoute`. */
+export function setPreferredMidiOutputPortId(id: string | undefined): void {
+  try {
+    if (id === undefined) localStorage.removeItem(MIDI_OUTPUT_PORT_STORAGE_KEY)
+    else localStorage.setItem(MIDI_OUTPUT_PORT_STORAGE_KEY, id)
+  } catch {
+    /* storage unavailable — the pick still applies for the rest of this session */
+  }
+}
+
 export type ConnectMidiOutput = () => Promise<Result<{ readonly output: MidiOutput }, string>>
 
 async function defaultConnectMidiOutput(): Promise<Result<{ readonly output: MidiOutput }, string>> {
@@ -71,9 +100,14 @@ async function defaultConnectMidiOutput(): Promise<Result<{ readonly output: Mid
 let readyMidiOutput: MidiOutput | undefined
 
 /**
- * Connects Web MIDI and auto-selects the first output port found (REQ-4.6: a
- * single-user app with one instrument plugged in has nothing to ask about),
- * then caches it so `getPlaybackMidiOutput` can hand it to
+ * Connects Web MIDI and selects an output port (REQ-4.6: a single-user app
+ * with one instrument plugged in has nothing to ask about) — the learner's
+ * remembered port (`getPreferredMidiOutputPortId`) when it is still among
+ * the listed devices, the first port otherwise (a fresh connection, or the
+ * remembered device unplugged; the preference itself is left alone in that
+ * case, since the device may simply be unplugged, not un-chosen — see
+ * `selectMidiOutputPort` for the only place that preference actually
+ * changes). Then caches the result so `getPlaybackMidiOutput` can hand it to
  * `createDefaultAudioOutput` synchronously. Call this from Settings — never
  * from inside the Web Audio user-gesture path.
  */
@@ -85,13 +119,33 @@ export async function connectMidiOutputRoute(
     readyMidiOutput = undefined
     return result
   }
-  const first = result.value.output.listDevices()[0]
-  if (first === undefined) {
+  const devices = result.value.output.listDevices()
+  const preferred = getPreferredMidiOutputPortId()
+  const pick = devices.find((d) => d.id === preferred) ?? devices[0]
+  if (pick === undefined) {
     readyMidiOutput = undefined
     return err('No MIDI output device found. Connect your instrument and try again.')
   }
-  result.value.output.selectDevice(first.id)
+  result.value.output.selectDevice(pick.id)
   readyMidiOutput = result.value.output
+  return ok(undefined)
+}
+
+/**
+ * Explicit port pick (roadmap DR-06 wave 12) — the one place
+ * `MIDI_OUTPUT_PORT_STORAGE_KEY` actually changes; `connectMidiOutputRoute`
+ * above only ever READS it. `err` covers the two ways Settings' select can
+ * be driven stale: nothing connected yet (the control only renders once
+ * something is, but a caller could still race it), or the picked id no
+ * longer among `listDevices()` (the device was unplugged between render and
+ * click).
+ */
+export function selectMidiOutputPort(id: string): Result<void, string> {
+  if (readyMidiOutput === undefined) return err('No MIDI output is connected.')
+  const stillListed = readyMidiOutput.listDevices().some((d) => d.id === id)
+  if (!stillListed) return err('That MIDI output is no longer listed.')
+  readyMidiOutput.selectDevice(id)
+  setPreferredMidiOutputPortId(id)
   return ok(undefined)
 }
 
