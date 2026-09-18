@@ -16,10 +16,10 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
-## 2026-09-17/18 — the drum session: twenty-one slices in seven waves, nine Opus reviews, and a review fix that needed reviewing
+## 2026-09-17/18 — the drum session: twenty-four slices in eight waves, nine Opus reviews, and a review fix that needed reviewing
 
 - **user-reported defects since last session:** 0.
-- **slices proven / started:** 21 / 21. `T.30`–`T.34` closed (`1ff79e7`, `98c0a9b`, `0cf90ed`,
+- **slices proven / started:** 24 / 24. `T.30`–`T.34` closed (`1ff79e7`, `98c0a9b`, `0cf90ed`,
   `3960a5c`), DR-05 done, DR-06/07/09 advanced, DR-10/11/12 landed as core-only slices
   (`17e4b4f`) in wave 2 and got their screens in wave 3 (`897c05f` sticking row,
   `4084575` rudiments, `1a68f51` reading + wiring, `8687e4c` metronome); wave 4 added the
@@ -28,12 +28,14 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
   (`04e5918`) and the coordination trainer (`a3eacab`); wave 6 added e-kit input into
   the trainers (`bbdf97e`), two-kick drills (`cb66ee5`), per-limb mute (`02e555d`) and a synth
   choke fix its review found (`093de46`); wave 7 added tightness trends (`a5bbbe8`),
-  groove wait mode (`ce06836`) and latency calibration wired into both trainers
-  (`77d34f0`). Each driven in the running app, e2e-covered and visual-passed in both
-  themes at both widths. Orchestrated: main thread integrated and committed only; ~36
-  Sonnet builders/fixers, 9 Opus adversarial reviews (synth, grader, reading hook,
-  metronome scheduler, loop mode, live hit, per-limb mute, wait mode, calibration).
-- **gate catches before commit:** 18.
+  groove wait mode (`77d34f0`) and latency calibration wired into both trainers
+  (`ce06836`); wave 8 added the `ladderText` fix (`aecf01b`), hi-hat foot drills
+  (`53fca52`) and the input monitor (`90b5dbe`). Each driven in the running app,
+  e2e-covered and visual-passed in both themes at both widths. Orchestrated: main thread
+  integrated and committed only; ~39 Sonnet builders/fixers, 9 Opus adversarial reviews
+  (synth, grader, reading hook, metronome scheduler, loop mode, live hit, per-limb mute,
+  wait mode, calibration).
+- **gate catches before commit:** 21.
   1. **The e2e gate refused the T.33 slice, and that refusal is the gate's review-by clause
      satisfied.** `improve-DR-09-heldout.spec.ts` was a baseline capture asserting the wrong
      behaviour (`Open hi-hat — 0 of 2, 2 missed, 2 extra`); unit tests were green. The gate
@@ -121,6 +123,19 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
       matched "no offset stored" too; tightened per the review, the spec failed for the
       right reason — the reload landed before the async IndexedDB write. Gated on
       `readStored`, now a shared `e2e/readStored.ts` instead of a fourth private copy.
+  19. **Two ride notes on one tick.** `hhFoot` swapped hats to the ride without checking
+      for a ride already there. Main-thread read of the builder's core file; dedupe by
+      pad and tick, pinned by a test.
+  20. **The orphan-signals ground-truth test caught two builder omissions at once.**
+      `npm run verify` went red in `scripts/orphan-signals.test.mjs`, not in either
+      slice's own suite: the monitor's `classifyVerdict` never read `pressure` or
+      `down` (so a poly-aftertouch choke showed as "ignored", against the spec's
+      "choke events"), and `hhFoot` derived the beat from `measure.durationTicks /
+      beats` without ever reading `beatType`. Both fixed at the source; the scanner and
+      its test untouched.
+  21. **The wave-7 docs swapped two commit hashes.** Calibration is `ce06836`, wait
+      mode `77d34f0`; the roadmap and this entry said the reverse. Caught by reading
+      `git log` before writing the wave-8 entry.
 - **docs budget:** no warnings.
 - **cost note:** integration, not building. Five agents' work landed on one tree, then one
   full `verify`, one visual pass, and a commit chain that failed once on shell quoting
@@ -139,6 +154,9 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
   with the same filter as the code, and only the reviewer noticed they could not fail.
   Wave 7: the cheapest inertness check is a grep for production callers of the new
   store's read function, and it belongs in the builder's own report before review.
+  Wave 8: a repo-wide scan with a ground-truth test is a gate on every slice, not just
+  the one it was written for — two unrelated builder omissions surfaced as one red row
+  in a table about something else, and reading the scan's own output named both.
 - **change:** one. Review-driven fixes to timing, grading or adaptation code are read on
   the main thread before commit, diff against the data shape they touch, not just their
   own tests. Recorded in `docs/PROCESS.md`'s review step.

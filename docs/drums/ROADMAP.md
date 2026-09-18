@@ -159,13 +159,18 @@ item lands inside a slice that drives something (specs state their proof surface
       articulation slips — Opus-reviewed 2026-09-17, `1ff79e7`). Velocity classes and
       per-level windows still open.
 - [~] DR-08 Latency calibration + input monitor → [spec](features/DR-08-latency-calibration.md).
-      Calibration landed 2026-09-18 (`77d34f0`): `/drums/latency` plays a one-bar count-in
+      Calibration landed 2026-09-18 (`ce06836`): `/drums/latency` plays a one-bar count-in
       then a click at 80 bpm; the learner hits any pad on 16 clicks, each judged against its
       nearest click (`core/drums/scoring/latency.ts`), and the median deviation with a
       median-absolute-deviation spread is offered as the offset. Saved per input — the
       e-kit's device id, or "Pads and keys" — persisted with the other drum slices, and
       subtracted from every graded hit's clock time in both trainers (`useGrooveRun`'s
-      `inputOffsetMs`). Still open: input monitor, BLE honesty copy.
+      `inputOffsetMs`). Input monitor landed 2026-09-18 (`90b5dbe`): the last 24 raw
+      MIDI events under the pads, newest first, each with the gap since the previous one
+      and what the kit map did with it — mapped pad (with choke, including a choke via
+      poly aftertouch), not in the map, dropped by the debounce or velocity gate, pedal
+      position, or ignored. Opt-in on `useDrumMidiInput` so the graded trainers pay
+      nothing. Still open: BLE honesty copy.
 
 ## Phase D1 — The trainers: where practice happens
 
@@ -186,7 +191,7 @@ item lands inside a slice that drives something (specs state their proof surface
       grader's own instants (`mutedVoices.ts`, one pass ahead in loop mode) and dropped from
       the grading plan (`core/drums/practice/mute.ts`), so it gets no result row and no
       live verdict, while a tap on it still sounds and flashes. The last switch on cannot
-      be switched off. Wait mode landed 2026-09-18 (`ce06836`): a Wait switch (exclusive
+      be switched off. Wait mode landed 2026-09-18 (`77d34f0`): a Wait switch (exclusive
       with Loop) replaces the clock with a playhead that advances only when the learner has
       played every pad of the current step (`core/drums/practice/wait.ts`); the required
       pads are ringed, extra strokes sound but do not advance, and the status line names
@@ -202,8 +207,8 @@ item lands inside a slice that drives something (specs state their proof surface
       the engine's clock and a pass is clean only when it is steady, complete AND even
       (worst gap vs median, the piano side's `evennessOf`, clean bar 0.8); the same slice
       fixed the verdict being retired in the commit it was graded whenever the ladder
-      stepped the tempo. Open: `ladderText` hard-codes the ladder's default pass/fail
-      counts (`tempoLadder.ts` does not export them); six tier-3/4 stickings still
+      stepped the tempo. `ladderText` reads the ladder's default pass/fail counts from
+      `tempoLadder.ts` since `aecf01b`. Open: six tier-3/4 stickings still
       unverified against PAS; the stroke record reads the engine's phase through a
       render-mirrored ref, so a stroke in the first frame of the window (or any stroke
       while the tab is hidden and frames are paused) is graded but not scored for
@@ -224,8 +229,10 @@ item lands inside a slice that drives something (specs state their proof surface
       tempo ramp as appended `TempoMark`s. Opus timing review before commit: clicks were
       dispatched in the past (collapsed by the synth's clamp) and a hidden tab replayed up
       to 512 bars — now look-ahead scheduling and a one-bar backlog skip, with the bar
-      arithmetic moved to `core/timing/metronomeRun.ts`. Open: `everyNBars` is not
-      count-in aware; MIDI-out.
+      arithmetic moved to `core/timing/metronomeRun.ts`. Open: MIDI-out. (`everyNBars`
+      is not count-in aware, but no screen that uses `clickFilters` has a count-in —
+      the drums metronome starts on bar 1 and calibration schedules its own clicks — so
+      that note is moot until one does.)
 - [ ] DR-13 ‖ Beat builder — GrooveScribe-style grid ⇄ live notation, library, share-URL;
       the content-authoring tool → [spec](features/DR-13-beat-builder.md)
 - [~] DR-15 Coordination trainer — limb layering, kick permutations, hh foot/openings,
@@ -235,8 +242,12 @@ item lands inside a slice that drives something (specs state their proof surface
       single-kick permutations ordered by syncopation weight, both graded by `useGrooveRun`
       and recorded to history. Two-kick drills landed 2026-09-18 (`cb66ee5`): a third mode
       draws 12 distinct pairs from the 120 (partial Fisher–Yates over the weight-sorted
-      table) and orders them easy → hard; changing tempo now keeps step progress. Still
-      open: hi-hat foot and openings, the jazz ride introduction.
+      table) and orders them easy → hard; changing tempo now keeps step progress. Hi-hat
+      foot landed 2026-09-18 (`53fca52`): a fourth mode moves the chosen groove's hats
+      to the ride, drops its pedal notes and puts the pedal on every even beat of the
+      time signature's own beat unit (`core/drums/coordination/hhFoot.ts`), built up ride
+      and foot → add the kick → add the snare. Still open: hi-hat openings, the jazz ride
+      introduction.
 
 ## Phase D2 — The learning system: curriculum, planning, memory
 
@@ -358,7 +369,8 @@ advanced, DR-10/11/12 core-only. Open notes a later slice must pick up:
 - `deriveArticulations` appends `open` at the end while the parser's canonical order is
   flam/drag → buzz → open → choke; two test files carry a `withCanonicalOpen()` shim for it.
   Fix at the source (sort once in `makeGrooveScore`) and delete both shims.
-- `clickFilters.everyNBars` is not count-in aware; a screen with a count-in must offset it.
+- `clickFilters.everyNBars` is not count-in aware; a screen with a count-in must offset it
+  (none does yet — see DR-12).
 - Six rudiment stickings are flagged uncertain in `rudiments.tier34.ts` — check against PAS.
 - MIDI-out on channel 10 needs a channel on the `MidiOutput` port first.
 - `webaudio.ts` and `drumSynth.ts` duplicate the epoch-anchor drift filter; extract when a
@@ -461,8 +473,8 @@ open-hat choke against a hat scheduled ahead of it (`093de46`). Still open from 
 ### 2026-09-18 — orchestrated drum session, wave 7
 
 Three slices: tightness trends on the progress screen (`a5bbbe8`), groove wait mode
-(`ce06836`), and latency calibration with the offset wired into both trainers
-(`77d34f0`). Still open from above: `everyNBars` count-in awareness, the six
+(`77d34f0`), and latency calibration with the offset wired into both trainers
+(`ce06836`). Still open from above: `everyNBars` count-in awareness, the six
 unverified stickings, MIDI-out channel, `ladderText`'s hard-coded counts, the input
 monitor, hi-hat foot and openings, the jazz ride introduction. New notes:
 
@@ -483,3 +495,21 @@ monitor, hi-hat foot and openings, the jazz ride introduction. New notes:
 - The wait-mode e2e failed on its own indexing (1-based step number fed to a 0-based
   helper), not on the app. Found by logging every click's DOM event on the main thread;
   the spec now asserts the exact status line after every click.
+
+### 2026-09-18 — orchestrated drum session, wave 8
+
+Three slices: the `ladderText` fix (`aecf01b`), hi-hat foot drills (`53fca52`)
+and the input monitor (`90b5dbe`). Still open from above: the six unverified
+stickings, MIDI-out channel, hi-hat openings, the jazz ride introduction, BLE honesty
+copy. `everyNBars` is moot until a `clickFilters` screen has a count-in. New notes:
+
+- The wave-7 entry above had the wait-mode and calibration hashes swapped; fixed here.
+- `hhFoot`'s first cut mapped an existing ride and a hat on the same tick to two ride
+  notes on one tick; a dedupe by pad and tick fixes it (found on the main-thread read).
+- The pedal's beat unit is the metronome's `beatTicks(timeSignature)`, not
+  `measure.durationTicks / beats`: the same number in every real groove, but the
+  orphan-signals scan flagged `beatType` as unread and the 6/8 case is now a test.
+- The monitor's first cut labelled poly aftertouch "ignored" while the engine was
+  choking a cymbal with it, and never showed the timestamp it stored. Found because the
+  orphan-signals ground-truth test went red — its capped table lost a row to the
+  monitor's unread `pressure` — not by the monitor's own green tests.
