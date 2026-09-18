@@ -69,6 +69,7 @@ export const DRUMS_SCREEN_IDS = [
   'drums-metronome',
   'drums-coordination',
   'drums-progress',
+  'drums-latency',
   'drums-notation-dev',
 ] as const
 
@@ -96,6 +97,8 @@ const DRUMS_SCREEN_SEGMENTS: Record<DrumsScreenId, string> = {
   'drums-coordination': 'coordination',
   // DR-23's progress screen (`/drums/progress`).
   'drums-progress': 'progress',
+  // DR-08's latency calibration (`/drums/latency`).
+  'drums-latency': 'latency',
   // DR-05's development gallery (`/drums/notation-dev`): URL-only, never a
   // nav item — the renderer's proof surface, kept alongside the trainer
   // because it shows every notation case, not just the three the trainer

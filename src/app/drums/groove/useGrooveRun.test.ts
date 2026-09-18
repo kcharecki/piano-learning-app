@@ -100,6 +100,7 @@ function harness(
   initialPlan: GrooveRunPlan = moneyBeatPlan(),
   loop = false,
   initialMuted?: ReadonlySet<MappedDrumPad>,
+  inputOffsetMs?: number,
 ): Harness {
   const clock = new FakeClock()
   const audio = new RecordingDrumAudio(clock)
@@ -117,6 +118,7 @@ function harness(
     onPassGraded: (graded, pass) => passesGraded.push({ result: graded, pass }),
     ...(loop ? { loop: true } : {}),
     ...(currentMuted === undefined ? {} : { muted: currentMuted }),
+    ...(inputOffsetMs === undefined ? {} : { inputOffsetMs }),
   })
   const view = renderHook((plan: GrooveRunPlan) => useGrooveRun(optionsFor(plan)), {
     initialProps: initialPlan,
@@ -306,6 +308,30 @@ describe('useGrooveRun', () => {
       expect(h.result.current.lastHit?.kind).toBe('extra')
       expect(h.result.current.lastHit?.instantIndex).toBeUndefined()
       expect(h.result.current.lastHit?.seq).toBe(2)
+    })
+
+    /**
+     * DR-08 latency calibration: `inputOffsetMs` is subtracted from every
+     * hit's clock reading inside `hit()`, so a rig that reads 40ms late is
+     * graded as if it read on time once its offset is supplied. Mirrors the
+     * on-time case above, shifted 40ms later on the clock with a matching
+     * `inputOffsetMs`.
+     */
+    it('subtracts inputOffsetMs from the clock reading, so a constant-late rig grades on time', () => {
+      const h = harness(moneyBeatPlan(), false, undefined, 40)
+      act(() => h.result.current.start())
+
+      act(() => {
+        h.clock.setTime(h.plan.barMs + 40)
+        h.result.current.hit('kick')
+      })
+      expect(h.result.current.lastHit).toMatchObject({
+        pad: 'kick',
+        kind: 'on-time',
+        offsetMs: 0,
+        instantIndex: 0,
+        seq: 1,
+      })
     })
 
     it('claims the next instant, not extra, when the second kick actually lands inside its window', () => {

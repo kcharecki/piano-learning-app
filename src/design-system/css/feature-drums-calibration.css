@@ -1,0 +1,31 @@
+/* Latency calibration (roadmap DR-08). Layout scaffolding — `.page`,
+   `.page-header`, `.card`, `.btn-primary`, and the groove trainer's own
+   `.groove-stage`/`.groove-ekit`/`.groove-transport`/`.groove-pads`/
+   `.drum-pad` — comes from base.css/primitives.css/feature-drums-groove.css;
+   this file holds only what those do not: the stored-offset line, the run
+   state line, and the result panel's typography. */
+
+.calibration-stored-offset {
+  font-size: var(--text-sm);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.calibration-state {
+  font-size: var(--text-md);
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+}
+
+.calibration-result {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+}
+
+.calibration-warning {
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  line-height: var(--leading-normal);
+}

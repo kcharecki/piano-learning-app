@@ -10,6 +10,7 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { useDrumsHistoryStore } from '@app/state/drumsHistoryStore.ts'
+import { LOCAL_INPUT_ID, useDrumsLatencyStore } from '@app/state/drumsLatencyStore.ts'
 import type { DrumAudioOutput } from '@core/ports/index.ts'
 import { FakeClock, FakeMidiInput } from '@test/fakes.ts'
 import { midi, millis } from '@core/shared/units.ts'
@@ -69,6 +70,7 @@ function stepButtons(): HTMLElement[] {
 
 beforeEach(() => {
   useDrumsHistoryStore.setState({ attempts: [] })
+  useDrumsLatencyStore.setState({ offsets: {} })
 })
 
 describe('CoordinationTrainerScreen', () => {
@@ -216,5 +218,67 @@ describe('CoordinationTrainerScreen', () => {
       kit.emit({ type: 'noteOn', note: midi(42), velocity: 100, time: millis(clock.now()) })
     })
     expect(screen.getByRole('button', { name: 'Hi-hat' })).toHaveAttribute('data-lit', 'true')
+  })
+
+  /**
+   * DR-08 latency calibration, wired at the screen level: `useCoordinationTrainer`
+   * reads the stored offset for the local input (`LOCAL_INPUT_ID`) and passes
+   * it through as `inputOffsetMs`, the same option `useGrooveRun.test.ts`
+   * proves subtracts a constant offset from every hit before grading. This
+   * screen has no per-hit "Last hit" line (unlike `GrooveTrainerScreen`), so
+   * the observable is the per-pad summary in the finished `Result` region
+   * (`resultLines.ts`'s `offsetPhrase` — pure and unit-tested on its own):
+   * a kick struck a real 40ms late reads "40 ms late" with nothing on record,
+   * and "dead on" once a 40ms offset is stored, because `hit()` subtracts it
+   * from the clock reading before the stroke is ever handed to the grader.
+   */
+  describe('DR-08 latency calibration', () => {
+    /** Same choreography as "a steady run unlocks step 2" above, but every kick lands 40ms late. */
+    async function runWithLateKick(): Promise<{ result: HTMLElement }> {
+      const { user, clock, frameAt } = setup()
+      await user.click(screen.getByRole('radio', { name: 'Kick permutations' }))
+      await user.click(screen.getByRole('button', { name: 'Start' }))
+      frameAt(BAR_MS)
+
+      const hat = screen.getByRole('button', { name: 'Hi-hat' })
+      const snare = screen.getByRole('button', { name: 'Snare' })
+      const kick = screen.getByRole('button', { name: 'Kick' })
+
+      function hitAt(button: HTMLElement, ms: number): void {
+        act(() => {
+          clock.setTime(BAR_MS + ms)
+          fireEvent.pointerDown(button)
+        })
+      }
+
+      const hatMs = [
+        0, 375, 750, 1125, 1500, 1875, 2250, 2625, 3000, 3375, 3750, 4125, 4500, 4875, 5250, 5625,
+      ]
+      const snareMs = [750, 2250, 3750, 5250]
+      // Both kick instants land a real 40ms after the grid, uncorrected.
+      const kickMs = [0 + 40, 3000 + 40]
+      const strokes: readonly [HTMLElement, number][] = [
+        ...hatMs.map((ms): [HTMLElement, number] => [hat, ms]),
+        ...snareMs.map((ms): [HTMLElement, number] => [snare, ms]),
+        ...kickMs.map((ms): [HTMLElement, number] => [kick, ms]),
+      ].sort((a, b) => a[1] - b[1])
+      for (const [button, ms] of strokes) hitAt(button, ms)
+
+      frameAt(BAR_MS + GRADED_MS)
+      return { result: screen.getByRole('region', { name: 'Result' }) }
+    }
+
+    it('reads the late kick as "40 ms late" with no offset on record', async () => {
+      const { result } = await runWithLateKick()
+      expect(result.textContent ?? '').toMatch(/Kick — 2 of 2, 40 ms late/)
+    })
+
+    it('a stored offset for the local input corrects the same late kick to "dead on"', async () => {
+      useDrumsLatencyStore
+        .getState()
+        .setOffset(LOCAL_INPUT_ID, { offsetMs: 40, spreadMs: 2, samples: 16, at: 0 })
+      const { result } = await runWithLateKick()
+      expect(result.textContent ?? '').toMatch(/Kick — 2 of 2, dead on/)
+    })
   })
 })

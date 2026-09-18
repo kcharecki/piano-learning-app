@@ -141,6 +141,21 @@ describe('useDrumMidiInput', () => {
     expect(onHit).not.toHaveBeenCalled()
   })
 
+  it('reports the selected device id while connected, and undefined while not', () => {
+    const input = new FakeMidiInput()
+    const onHit = vi.fn()
+    const { result } = renderHook(() => useDrumMidiInput({ onHit, midiInput: input }))
+
+    expect(result.current.connected).toBe(true)
+    expect(result.current.deviceId).toBe(input.listDevices()[0]?.id)
+
+    const { result: disconnectedResult } = renderHook(() =>
+      useDrumMidiInput({ onHit, connect: () => new Promise(() => {}) }),
+    )
+    expect(disconnectedResult.current.connected).toBe(false)
+    expect(disconnectedResult.current.deviceId).toBeUndefined()
+  })
+
   it('reads the latest onHit through a ref, so a new identity is used for the next event', () => {
     const input = new FakeMidiInput()
     const onHitA = vi.fn()
@@ -163,28 +178,52 @@ describe('ekitStatusText', () => {
   it('renders the connected, unmapped-suffix, error and disconnected branches exactly', () => {
     expect(
       ekitStatusText(
-        { connected: true, deviceName: 'TD-17', connectionError: undefined, lastUnmappedNote: undefined },
+        {
+          connected: true,
+          deviceName: 'TD-17',
+          deviceId: 'td17-1',
+          connectionError: undefined,
+          lastUnmappedNote: undefined,
+        },
         'General MIDI',
       ),
     ).toBe('E-kit: TD-17 · General MIDI map')
 
     expect(
       ekitStatusText(
-        { connected: true, deviceName: 'TD-17', connectionError: undefined, lastUnmappedNote: 61 },
+        {
+          connected: true,
+          deviceName: 'TD-17',
+          deviceId: 'td17-1',
+          connectionError: undefined,
+          lastUnmappedNote: 61,
+        },
         'General MIDI',
       ),
     ).toBe('E-kit: TD-17 · General MIDI map · a pad sent note 61, which is not in the map')
 
     expect(
       ekitStatusText(
-        { connected: false, deviceName: undefined, connectionError: 'no access', lastUnmappedNote: undefined },
+        {
+          connected: false,
+          deviceName: undefined,
+          deviceId: undefined,
+          connectionError: 'no access',
+          lastUnmappedNote: undefined,
+        },
         'General MIDI',
       ),
     ).toBe('No e-kit: no access')
 
     expect(
       ekitStatusText(
-        { connected: false, deviceName: undefined, connectionError: undefined, lastUnmappedNote: undefined },
+        {
+          connected: false,
+          deviceName: undefined,
+          deviceId: undefined,
+          connectionError: undefined,
+          lastUnmappedNote: undefined,
+        },
         'General MIDI',
       ),
     ).toBe('No e-kit connected — the pads and keys below still work')

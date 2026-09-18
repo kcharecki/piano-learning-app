@@ -15,6 +15,7 @@ import { RudimentTrainerScreen } from '@app/drums/rudiments/RudimentTrainerScree
 import { DrumsMetronomeScreen } from '@app/drums/metronome/DrumsMetronomeScreen.tsx'
 import { CoordinationTrainerScreen } from '@app/drums/coordination/CoordinationTrainerScreen.tsx'
 import { DrumsProgressScreen } from '@app/drums/DrumsProgressScreen.tsx'
+import { CalibrationScreen } from '@app/drums/calibration/CalibrationScreen.tsx'
 
 /**
  * What the topbar calls each Drums screen (roadmap DR-01, DR-09). Every screen
@@ -31,6 +32,7 @@ export const DRUMS_SCREEN_LABEL: Record<DrumsScreenId, string> = {
   'drums-metronome': 'Metronome',
   'drums-coordination': 'Coordination',
   'drums-progress': 'Progress',
+  'drums-latency': 'Latency',
   'drums-notation-dev': 'Notation gallery',
 }
 
@@ -65,6 +67,10 @@ export const DRUMS_NAV_GROUPS: readonly NavGroup<DrumsScreenId>[] = [
     label: 'Review',
     items: [{ id: 'drums-progress', label: DRUMS_SCREEN_LABEL['drums-progress'], icon: 'chart' }],
   },
+  {
+    label: 'Setup',
+    items: [{ id: 'drums-latency', label: DRUMS_SCREEN_LABEL['drums-latency'], icon: 'midi-plug' }],
+  },
 ]
 
 /**
@@ -88,6 +94,8 @@ export function renderDrumsScreen(screen: DrumsScreenId, goTo: (screen: DrumsScr
       return <CoordinationTrainerScreen />
     case 'drums-progress':
       return <DrumsProgressScreen />
+    case 'drums-latency':
+      return <CalibrationScreen />
     case 'drums-notation-dev':
       return <NotationDevGallery />
   }

@@ -30,7 +30,7 @@
  * never renders Stop any other way, and a coordination-only exception here
  * would be a second answer to "what does Stop look like" for no reason.
  */
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { Icon } from '@app/ui/Icon.tsx'
 import { DrumKey } from '@app/drums/notation/DrumKey.tsx'
 import { GrooveStaff } from '@app/drums/notation/GrooveStaff.tsx'
@@ -38,8 +38,10 @@ import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { describeGroove } from '@core/drums/engrave/describe.ts'
 import { engraveGroove } from '@core/drums/engrave/staff.ts'
 import { grooveTrainerLibrary } from '@core/drums/practice/library.ts'
+import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import type { Clock, DrumAudioOutput, MidiInput } from '@core/ports/index.ts'
 import { useDrumMidiInput } from '@app/drums/input/useDrumMidiInput.ts'
+import { LOCAL_INPUT_ID, offsetFor, useDrumsLatencyStore } from '@app/state/drumsLatencyStore.ts'
 import { Pad, TempoField } from '@app/drums/groove/GrooveControls.tsx'
 import { useFlash, useKeyboardPads } from '@app/drums/groove/groovePadHooks.ts'
 import { GROOVE_PAD_KEY, GROOVE_PAD_LABEL, keyLabel, sortPadsForDisplay } from '@app/drums/groove/padLabels.ts'
@@ -67,19 +69,32 @@ const MODE_OPTIONS: ReadonlyArray<{ readonly value: DrillMode; readonly label: s
 const GROOVE_OPTIONS = grooveTrainerLibrary().map((g) => ({ id: g.id, title: g.title }))
 
 export function CoordinationTrainerScreen(props: CoordinationTrainerScreenProps) {
+  // Same e-kit join as `GrooveTrainerScreen` (roadmap DR-02): a real stroke
+  // lands on `run.hit` exactly like a pad tap or a key press. The hook is
+  // mounted BEFORE the trainer because the run needs to know which input is
+  // live: the rig's stored latency offset (roadmap DR-08) is keyed by the
+  // e-kit's device id, or `LOCAL_INPUT_ID` for the pads and keys. `run.hit`
+  // does not exist yet at this point, so the kit lands on a ref the effect
+  // below keeps current — the same one-render-late discipline the hook
+  // itself uses for `onHit`.
+  const hitRef = useRef<(pad: MappedDrumPad) => void>(() => {})
+  const ekit = useDrumMidiInput({
+    onHit: (pad) => hitRef.current(pad),
+    ...(props.midiInput === undefined ? {} : { midiInput: props.midiInput }),
+  })
+  const inputId = ekit.deviceId ?? LOCAL_INPUT_ID
+  const inputOffsetMs = useDrumsLatencyStore((state) => offsetFor(state, inputId))
+
   const trainer = useCoordinationTrainer({
     ...(props.clock === undefined ? {} : { clock: props.clock }),
     ...(props.audio === undefined ? {} : { audio: props.audio }),
     ...(props.frameDriver === undefined ? {} : { driver: props.frameDriver }),
+    inputOffsetMs,
   })
   const { mode, groove, steps, index, unlocked, plan, run } = trainer
-
-  // Same e-kit join as `GrooveTrainerScreen` (roadmap DR-02): a real stroke
-  // lands on `run.hit` exactly like a pad tap or a key press.
-  const ekit = useDrumMidiInput({
-    onHit: run.hit,
-    ...(props.midiInput === undefined ? {} : { midiInput: props.midiInput }),
-  })
+  useEffect(() => {
+    hitRef.current = run.hit
+  }, [run.hit])
 
   const step = steps[index]
 

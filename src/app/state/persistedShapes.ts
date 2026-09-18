@@ -13,6 +13,7 @@ import type { Hand, Score } from '@core/notation/score.ts'
 import type { MidiEvent } from '@core/ports/index.ts'
 import { isReadingLevel, type ReadingLevel, type ReadingRunRecord } from '@core/drums/reading/index.ts'
 import type { RudimentRecord } from '@app/state/drumsRudimentStore.ts'
+import type { LatencyRecord } from '@app/state/drumsLatencyStore.ts'
 import { MAX_TEMPO_SCALE, MIN_TEMPO_SCALE } from '@core/timing/tempo.ts'
 import type { LoopRange } from '@core/timing/transport.ts'
 import { MAX_LEVEL, MIN_LEVEL } from '@core/sightreading/adaptive.ts'
@@ -87,6 +88,11 @@ export type PersistedDrumsReading = {
 /** The rudiment trainer's per-rudiment personal records (roadmap DR-10) — see `drumsRudimentStore.ts`. */
 export type PersistedDrumsRudiments = {
   readonly records: Readonly<Record<string, RudimentRecord>>
+}
+
+/** The per-input latency offsets (roadmap DR-08) — see `drumsLatencyStore.ts`. */
+export type PersistedDrumsLatency = {
+  readonly offsets: Readonly<Record<string, LatencyRecord>>
 }
 
 export type PersistedLevelState = {
@@ -488,6 +494,30 @@ export function isValidDrumsRudiments(value: unknown): value is PersistedDrumsRu
   const v = value as Record<string, unknown>
   if (typeof v.records !== 'object' || v.records === null || Array.isArray(v.records)) return false
   return Object.values(v.records).every(isValidRudimentRecord)
+}
+
+function isValidLatencyRecord(value: unknown): value is LatencyRecord {
+  if (typeof value !== 'object' || value === null) return false
+  const r = value as Record<string, unknown>
+  return (
+    typeof r.offsetMs === 'number' &&
+    Number.isFinite(r.offsetMs) &&
+    typeof r.spreadMs === 'number' &&
+    Number.isFinite(r.spreadMs) &&
+    r.spreadMs >= 0 &&
+    typeof r.samples === 'number' &&
+    Number.isInteger(r.samples) &&
+    r.samples > 0 &&
+    typeof r.at === 'number' &&
+    Number.isFinite(r.at)
+  )
+}
+
+export function isValidDrumsLatency(value: unknown): value is PersistedDrumsLatency {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  if (typeof v.offsets !== 'object' || v.offsets === null || Array.isArray(v.offsets)) return false
+  return Object.values(v.offsets).every(isValidLatencyRecord)
 }
 
 export function isValidDrumsHistory(value: unknown): value is PersistedDrumsHistory {

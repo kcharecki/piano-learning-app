@@ -38,6 +38,8 @@ export type DrumMidiInputState = {
   /** True when a MIDI input exists AND the selected device id names one of its listed devices. */
   readonly connected: boolean
   readonly deviceName: string | undefined
+  /** The selected device's id when `connected`, else undefined. */
+  readonly deviceId: string | undefined
   readonly connectionError: string | undefined
   /** The note number of the most recent note-on the kit map did not recognise; undefined until one arrives. Never cleared by a mapped hit. */
   readonly lastUnmappedNote: number | undefined
@@ -98,6 +100,7 @@ export function useDrumMidiInput(options: DrumMidiInputOptions): DrumMidiInputSt
   const state: Omit<DrumMidiInputState, 'statusText'> = {
     connected,
     deviceName: selectedDevice?.name,
+    deviceId: connected ? selectedDevice?.id : undefined,
     connectionError,
     lastUnmappedNote,
   }

@@ -257,11 +257,13 @@ export const PRACTICE_LOG_KEY = 'practiceLog'
 export const TECHNIQUE_COLLECTION = COLLECTIONS.techniqueHistory
 export const TECHNIQUE_KEY = 'techniqueHistory'
 
-// The drum slices (groove history, reading, rudiments) live in
+// The drum slices (groove history, reading, rudiments, latency) live in
 // `persistence.drums.ts`; their keys are re-exported so tests keep one import site.
 export {
   DRUMS_HISTORY_COLLECTION,
   DRUMS_HISTORY_KEY,
+  DRUMS_LATENCY_COLLECTION,
+  DRUMS_LATENCY_KEY,
   DRUMS_READING_COLLECTION,
   DRUMS_READING_KEY,
   DRUMS_RUDIMENTS_COLLECTION,

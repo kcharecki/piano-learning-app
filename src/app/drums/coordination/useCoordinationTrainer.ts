@@ -76,6 +76,8 @@ export type UseCoordinationTrainerOptions = {
   readonly audio?: () => DrumAudioOutput
   /** Test seam. Defaults to `createBrowserRng()`, created once per hook instance. */
   readonly rng?: Rng
+  /** Passed straight through to `useGrooveRun` (roadmap DR-08): the rig's stored input offset, ms. */
+  readonly inputOffsetMs?: number
 }
 
 export function useCoordinationTrainer(opts: UseCoordinationTrainerOptions = {}): CoordinationTrainer {
@@ -133,6 +135,7 @@ export function useCoordinationTrainer(opts: UseCoordinationTrainerOptions = {})
     ...(opts.clock === undefined ? {} : { clock: opts.clock }),
     ...(opts.audio === undefined ? {} : { audio: opts.audio }),
     ...(opts.driver === undefined ? {} : { driver: opts.driver }),
+    ...(opts.inputOffsetMs === undefined ? {} : { inputOffsetMs: opts.inputOffsetMs }),
   })
 
   // See the module comment: this copies `rawRun.result` out the instant it

@@ -216,6 +216,12 @@ export type UseGrooveRunOptions = {
   readonly clock?: Clock
   readonly audio?: () => DrumAudioOutput
   readonly driver?: FrameDriver
+  /**
+   * Constant input latency of the rig, ms, positive = hits arrive late;
+   * subtracted from every hit's clock reading inside `hit()`. Read live per
+   * render through a ref, like `onFinished`. Defaults to 0.
+   */
+  readonly inputOffsetMs?: number
 }
 
 export type GrooveRunApi = {
@@ -327,6 +333,9 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
   /** Mirrors `options.muted` every render — frozen into `frozenMutedRef` at `start()`, exactly like `loop`. */
   const mutedRef = useRef(options.muted)
   mutedRef.current = options.muted
+  /** Mirrors `options.inputOffsetMs` every render — see the option's own JSDoc. */
+  const inputOffsetMsRef = useRef(options.inputOffsetMs)
+  inputOffsetMsRef.current = options.inputOffsetMs
 
   /** Whether the run CURRENTLY IN PROGRESS is looping — frozen at `start()`, since the toggle is disabled while busy. */
   const loopingRef = useRef(false)
@@ -699,7 +708,9 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
       if (timing === undefined) return
       const runPlan = planRef.current
       const gradingPlan = gradingPlanRef.current ?? runPlan
-      const now = clock.now()
+      const rawOffset = inputOffsetMsRef.current
+      const offset = rawOffset !== undefined && Number.isFinite(rawOffset) ? rawOffset : 0
+      const now = clock.now() - offset
       if (now < timing.gradedOrigin - runPlan.windowMs) return
 
       // Loop mode has no upper bound on acceptance — a loop run only ends at
