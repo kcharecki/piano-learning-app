@@ -13,6 +13,7 @@ import { GrooveTrainerScreen } from '@app/drums/groove/GrooveTrainerScreen.tsx'
 import { ReadingTrainerScreen } from '@app/drums/reading/ReadingTrainerScreen.tsx'
 import { RudimentTrainerScreen } from '@app/drums/rudiments/RudimentTrainerScreen.tsx'
 import { DrumsMetronomeScreen } from '@app/drums/metronome/DrumsMetronomeScreen.tsx'
+import { CoordinationTrainerScreen } from '@app/drums/coordination/CoordinationTrainerScreen.tsx'
 import { DrumsProgressScreen } from '@app/drums/DrumsProgressScreen.tsx'
 
 /**
@@ -28,6 +29,7 @@ export const DRUMS_SCREEN_LABEL: Record<DrumsScreenId, string> = {
   'drums-reading': 'Reading',
   'drums-rudiments': 'Rudiments',
   'drums-metronome': 'Metronome',
+  'drums-coordination': 'Coordination',
   'drums-progress': 'Progress',
   'drums-notation-dev': 'Notation gallery',
 }
@@ -52,6 +54,11 @@ export const DRUMS_NAV_GROUPS: readonly NavGroup<DrumsScreenId>[] = [
       { id: 'drums-reading', label: DRUMS_SCREEN_LABEL['drums-reading'], icon: 'book' },
       { id: 'drums-rudiments', label: DRUMS_SCREEN_LABEL['drums-rudiments'], icon: 'hand' },
       { id: 'drums-metronome', label: DRUMS_SCREEN_LABEL['drums-metronome'], icon: 'metronome' },
+      {
+        id: 'drums-coordination',
+        label: DRUMS_SCREEN_LABEL['drums-coordination'],
+        icon: 'cards',
+      },
     ],
   },
   {
@@ -77,6 +84,8 @@ export function renderDrumsScreen(screen: DrumsScreenId, goTo: (screen: DrumsScr
       return <RudimentTrainerScreen />
     case 'drums-metronome':
       return <DrumsMetronomeScreen />
+    case 'drums-coordination':
+      return <CoordinationTrainerScreen />
     case 'drums-progress':
       return <DrumsProgressScreen />
     case 'drums-notation-dev':

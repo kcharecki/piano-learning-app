@@ -1,0 +1,77 @@
+/* Coordination trainer (roadmap DR-15). Layout scaffolding — `.page`,
+   `.page-header`, `.card`, `.field`, `.seg-control`, `.stepper`, `.btn-primary`
+   — comes from base.css/primitives.css, and everything a run/result/pad grid
+   needs already exists in `feature-drums-groove.css` (`.groove-notation`,
+   `.groove-stage`, `.groove-transport`, `.groove-start`, `.groove-run-state`,
+   `.groove-pads`, `.groove-result`, `.groove-verdict`, `.groove-pad-lines`),
+   reused as-is here rather than duplicated under a `coordination-` prefix —
+   the two screens grade with the same `useGrooveRun` engine and show the same
+   kind of run/result, so they read the same way on screen too. This file
+   holds only what is actually new: the Drill picker's own label row, the
+   groove `<select>`, and the step list. */
+
+/* ---------- Drill picker: a label above a `.seg-control` ----------
+   Same shape as `DrumsMetronomeScreen`'s own seg-control fields
+   (`.drums-metronome-seg-field`/`.drums-metronome-field-label`), copied
+   under this screen's own prefix rather than reused directly — each screen
+   keeps its own copy of this small pattern rather than sharing a class
+   across unrelated features. */
+.coordination-seg-field {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+}
+.coordination-field-label {
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+
+/* ---------- Groove picker (layers mode only) ----------
+   A native `<select>` rather than the groove trainer's own prev/next
+   buttons: the contract for this screen calls for `aria-label="Groove"` on
+   a select, and a native select is also the one control here a learner can
+   search/scan by typing, which the groove trainer's own picker has no need
+   for since the coordination groove list is the exact same three grooves. */
+.coordination-groove-field select {
+  min-height: var(--control-h);
+  padding: 0 var(--control-pad-x);
+  border: var(--border-w) solid var(--border-2);
+  border-radius: var(--radius-2);
+  background: var(--bg-2);
+  color: var(--text-1);
+  font-size: var(--text-md);
+}
+
+/* ---------- Steps ----------
+   One chip per step, left to right in attempt order. A locked step
+   (`disabled`) reads as unavailable the same way any other disabled control
+   does; the active step (`aria-current="step"`) gets the accent treatment
+   `.seg-control`'s own selected state uses, so "which step am I on" reads
+   the same visual language as "which drill mode am I in" above it. */
+.coordination-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  list-style: none;
+  margin: 0;
+}
+.coordination-steps li {
+  display: contents;
+}
+.coordination-steps button {
+  min-height: var(--control-h);
+  padding: 0 var(--control-pad-x);
+  border: var(--border-w) solid var(--border-2);
+  border-radius: var(--radius-round);
+  background: var(--bg-2);
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+.coordination-steps button[aria-current='step'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  font-weight: var(--weight-semibold);
+}

@@ -57,10 +57,13 @@ describe('DrumsTodayScreen', () => {
     await user.click(screen.getByRole('button', { name: 'Open the metronome' }))
     expect(onOpen).toHaveBeenLastCalledWith('drums-metronome')
 
+    await user.click(screen.getByRole('button', { name: 'Open coordination' }))
+    expect(onOpen).toHaveBeenLastCalledWith('drums-coordination')
+
     await user.click(screen.getByRole('button', { name: 'Open progress' }))
     expect(onOpen).toHaveBeenLastCalledWith('drums-progress')
 
-    expect(onOpen).toHaveBeenCalledTimes(5)
+    expect(onOpen).toHaveBeenCalledTimes(6)
   })
 
   it('shows "No runs yet" for the groove card with no attempts', () => {

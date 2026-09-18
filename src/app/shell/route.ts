@@ -67,6 +67,7 @@ export const DRUMS_SCREEN_IDS = [
   'drums-reading',
   'drums-rudiments',
   'drums-metronome',
+  'drums-coordination',
   'drums-progress',
   'drums-notation-dev',
 ] as const
@@ -91,6 +92,8 @@ const DRUMS_SCREEN_SEGMENTS: Record<DrumsScreenId, string> = {
   'drums-reading': 'reading',
   'drums-rudiments': 'rudiments',
   'drums-metronome': 'metronome',
+  // DR-15's coordination trainer (`/drums/coordination`).
+  'drums-coordination': 'coordination',
   // DR-23's progress screen (`/drums/progress`).
   'drums-progress': 'progress',
   // DR-05's development gallery (`/drums/notation-dev`): URL-only, never a

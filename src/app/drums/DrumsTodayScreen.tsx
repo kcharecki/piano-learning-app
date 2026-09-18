@@ -23,7 +23,12 @@ import { useDrumsReadingStore } from '@app/state/drumsReadingStore.ts'
 import { useDrumsRudimentStore } from '@app/state/drumsRudimentStore.ts'
 
 export type DrumsTrainerId =
-  'drums-groove' | 'drums-reading' | 'drums-rudiments' | 'drums-metronome' | 'drums-progress'
+  | 'drums-groove'
+  | 'drums-reading'
+  | 'drums-rudiments'
+  | 'drums-metronome'
+  | 'drums-coordination'
+  | 'drums-progress'
 
 export type DrumsTodayScreenProps = {
   readonly onOpen: (screen: DrumsTrainerId) => void
@@ -108,6 +113,16 @@ export function DrumsTodayScreen({ onOpen }: DrumsTodayScreenProps) {
           </p>
           <button type="button" onClick={() => onOpen('drums-metronome')}>
             Open the metronome
+          </button>
+        </section>
+
+        <section className="card drums-today-card">
+          <Icon name="cards" />
+          <h2>Coordination</h2>
+          <p>Building a groove one limb at a time, and moving the kick through every sixteenth.</p>
+          <p className="drums-today-status">Layer build · kick permutations</p>
+          <button type="button" onClick={() => onOpen('drums-coordination')}>
+            Open coordination
           </button>
         </section>
 
