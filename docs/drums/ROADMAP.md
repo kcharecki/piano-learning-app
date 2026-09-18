@@ -170,7 +170,12 @@ item lands inside a slice that drives something (specs state their proof surface
       and what the kit map did with it — mapped pad (with choke, including a choke via
       poly aftertouch), not in the map, dropped by the debounce or velocity gate, pedal
       position, or ignored. Opt-in on `useDrumMidiInput` so the graded trainers pay
-      nothing. Still open: BLE honesty copy.
+      nothing. BLE honesty landed 2026-09-18 (`60c1fa5`): when the active input's name
+      reads as wireless (Bluetooth, BLE, WIDI, CME…) the screen says once that jitter
+      cannot be calibrated away and to use USB for scored work, and a spread over 20 ms
+      is named as jitter (the Bluetooth jitter, on a wireless input) rather than left
+      as a number. Still open: the kit-map wizard's link to the monitor, which waits
+      on DR-02's wizard.
 
 ## Phase D1 — The trainers: where practice happens
 
@@ -246,8 +251,13 @@ item lands inside a slice that drives something (specs state their proof surface
       foot landed 2026-09-18 (`53fca52`): a fourth mode moves the chosen groove's hats
       to the ride, drops its pedal notes and puts the pedal on every even beat of the
       time signature's own beat unit (`core/drums/coordination/hhFoot.ts`), built up ride
-      and foot → add the kick → add the snare. Still open: hi-hat openings, the jazz ride
-      introduction.
+      and foot → add the kick → add the snare. Hi-hat openings landed 2026-09-18
+      (`1467cc7`): a fifth mode keeps the chosen groove whole and re-articulates its
+      hats in three cumulative steps — open on the & of the last beat, then on the & of
+      every even beat, then on every & (`core/drums/coordination/openings.ts`); the
+      grader's open/closed sibling rule turns a missed opening into "played closed
+      instead of open", and a groove with no hat on an "&" shows a status line instead
+      of steps with Start disabled. Still open: the jazz ride introduction.
 
 ## Phase D2 — The learning system: curriculum, planning, memory
 
@@ -270,8 +280,12 @@ item lands inside a slice that drives something (specs state their proof surface
       exclusion trap. Tightness trends landed 2026-09-18 (`a5bbbe8`): per groove, the
       worst-limb mean deviation of the last eight runs in play order, a direction verdict
       (tightening / loosening / flat within 2 ms / too few runs) from the first-half vs
-      second-half means, and the steady count (`core/drums/progress/trend.ts`). Still open:
-      coverage, milestones.
+      second-half means, and the steady count (`core/drums/progress/trend.ts`). Coverage
+      landed 2026-09-18 (`26d018d`): a sixth panel names how many library grooves
+      have been played and how many steady, listing the never-played ones (or, once all
+      are played, the not-yet-steady ones), and how many of the 40 rudiments have a
+      record with the next three unstarted in curriculum order
+      (`core/drums/progress/coverage.ts`). Still open: milestones.
 
 ## Phase D3 — Musicianship and the intermediate package
 
@@ -513,3 +527,25 @@ copy. `everyNBars` is moot until a `clickFilters` screen has a count-in. New not
   choking a cymbal with it, and never showed the timestamp it stored. Found because the
   orphan-signals ground-truth test went red — its capped table lost a row to the
   monitor's unread `pressure` — not by the monitor's own green tests.
+
+### 2026-09-18 — orchestrated drum session, wave 9
+
+Three slices: BLE honesty copy on the calibration screen (`60c1fa5`), the coverage
+panel (`26d018d`) and hi-hat opening drills (`1467cc7`). Still open from
+above: the six unverified stickings, MIDI-out channel, the jazz ride introduction,
+milestones, the kit-map wizard (DR-02) and its link to the monitor. New notes:
+
+- The openings builder replaced the trainer hook's throw on an empty step list with a
+  fallback plan built from the raw groove, and left Start live on it: "Hi-hat
+  openings" on Quarter-Note Rock would have run and graded a plain groove under a
+  status line saying there was nothing to drill. Start is now disabled and the staff
+  hidden with zero steps, and the hook's `start` is a no-op (main-thread read).
+- Wireless detection is a name regex (`looksWireless`), not a transport query — Web
+  MIDI does not expose the transport, so a Bluetooth adapter that reports a plain
+  name gets no notice. The spread warning still names jitter for it, just not as
+  Bluetooth's.
+- Coverage ignores attempts and records whose ids are not in the library or the
+  rudiment table, so a retired groove cannot make the played count exceed the total.
+- The orphan-signals gate went red again on `openings.ts` (a helper took the whole
+  `GrooveScore` to read `beats`), the same class as wave 8's `hhFoot`. Fixed at the
+  source; the builder brief now says to pass helpers the fields they read.
