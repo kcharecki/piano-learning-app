@@ -16,12 +16,13 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMidiConnection, type ConnectMidi } from '@app/practice/useMidiConnection.ts'
-import { createKitMapEngine } from '@core/drums/kitmap/engine.ts'
+import { createKitMapEngine, type KitMapOutput } from '@core/drums/kitmap/engine.ts'
 import type { KitMap } from '@core/drums/kitmap/kitMap.ts'
 import { GM_KIT_MAP } from '@core/drums/kitmap/presets.ts'
 import type { RawDrumHit } from '@core/drums/model/hit.ts'
 import { isMappedDrumPad, type MappedDrumPad } from '@core/drums/model/pad.ts'
-import type { MidiInput } from '@core/ports/index.ts'
+import type { MidiEvent, MidiInput } from '@core/ports/index.ts'
+import { appendEntry, classify, type MonitorEntry } from './monitor.ts'
 
 export type DrumMidiInputOptions = {
   /** Called once per real stroke on a mapped pad. NOT called for chokes (articulation 'choke') or unmapped notes. */
@@ -32,6 +33,14 @@ export type DrumMidiInputOptions = {
   readonly connect?: ConnectMidi
   /** Defaults to `GM_KIT_MAP`. A new map builds a new engine. */
   readonly kitMap?: KitMap
+  /**
+   * Keeps a rolling `MonitorEntry[]` (roadmap DR-08's input monitor) built
+   * from every raw event the connection delivers, including ones the engine
+   * swallows. Default false: the graded trainers run this hook on every
+   * stroke of a timed run and must not pay a per-event state update (extra
+   * render) for a feature only the calibration screen shows.
+   */
+  readonly monitor?: boolean
 }
 
 export type DrumMidiInputState = {
@@ -45,10 +54,15 @@ export type DrumMidiInputState = {
   readonly lastUnmappedNote: number | undefined
   /** Learner copy for one status line — see `ekitStatusText`. */
   readonly statusText: string
+  /** Newest-first, capped at `MONITOR_CAPACITY`. Always `[]` when `monitor` is false. */
+  readonly monitor: readonly MonitorEntry[]
 }
 
 /** Pure; exported so the screen test and the hook test can pin the copy. */
-export function ekitStatusText(state: Omit<DrumMidiInputState, 'statusText'>, kitMapName: string): string {
+export function ekitStatusText(
+  state: Omit<DrumMidiInputState, 'statusText' | 'monitor'>,
+  kitMapName: string,
+): string {
   if (state.connected) {
     const base = `E-kit: ${state.deviceName} · ${kitMapName} map`
     return state.lastUnmappedNote === undefined
@@ -60,7 +74,7 @@ export function ekitStatusText(state: Omit<DrumMidiInputState, 'statusText'>, ki
 }
 
 export function useDrumMidiInput(options: DrumMidiInputOptions): DrumMidiInputState {
-  const { onHit, midiInput, connect, kitMap = GM_KIT_MAP } = options
+  const { onHit, midiInput, connect, kitMap = GM_KIT_MAP, monitor = false } = options
 
   const { input, devices, selectedDeviceId, connectionError } = useMidiConnection({
     ...(midiInput === undefined ? {} : { midiInput }),
@@ -78,10 +92,27 @@ export function useDrumMidiInput(options: DrumMidiInputOptions): DrumMidiInputSt
     onHitRef.current = onHit
   }, [onHit])
 
+  // Monitor entries (roadmap DR-08): a plain counter ref, not state, so
+  // building it costs nothing when `monitor` is off — no state read, no
+  // re-render — and `seq` stays stable across the monitor being toggled off
+  // and back on mid-session. `atMs` is the event's own `time` field (the
+  // adapter's MIDI timestamp), never a clock read here.
+  const seqRef = useRef(0)
+  const [monitorEntries, setMonitorEntries] = useState<readonly MonitorEntry[]>([])
+
   useEffect(() => {
     if (input === undefined) return undefined
-    return input.onEvent((event) => {
-      for (const output of engine.handle(event)) {
+    return input.onEvent((event: MidiEvent) => {
+      const outputs: readonly KitMapOutput[] = engine.handle(event)
+
+      if (monitor) {
+        const seq = seqRef.current
+        seqRef.current += 1
+        const nextEntry = classify(seq, event.time, event, outputs)
+        setMonitorEntries((prev) => appendEntry(prev, nextEntry))
+      }
+
+      for (const output of outputs) {
         if (output.kind === 'unmapped') {
           setLastUnmappedNote(output.event.note)
           continue
@@ -92,12 +123,12 @@ export function useDrumMidiInput(options: DrumMidiInputOptions): DrumMidiInputSt
         onHitRef.current(hit.pad, hit)
       }
     })
-  }, [input, engine])
+  }, [input, engine, monitor])
 
   const selectedDevice = devices.find((d) => d.id === selectedDeviceId)
   const connected = input !== undefined && selectedDevice !== undefined
 
-  const state: Omit<DrumMidiInputState, 'statusText'> = {
+  const state: Omit<DrumMidiInputState, 'statusText' | 'monitor'> = {
     connected,
     deviceName: selectedDevice?.name,
     deviceId: connected ? selectedDevice?.id : undefined,
@@ -105,5 +136,5 @@ export function useDrumMidiInput(options: DrumMidiInputOptions): DrumMidiInputSt
     lastUnmappedNote,
   }
 
-  return { ...state, statusText: ekitStatusText(state, kitMap.name) }
+  return { ...state, statusText: ekitStatusText(state, kitMap.name), monitor: monitor ? monitorEntries : [] }
 }

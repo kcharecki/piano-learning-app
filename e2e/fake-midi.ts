@@ -37,28 +37,60 @@
  */
 import type { Page } from '@playwright/test'
 
-/** One note on/off to fire at an absolute `performance.now()` instant in the page. */
-type FakeMidiEvent = {
-  readonly type: 'on' | 'off'
-  /** MIDI note number, 0..127. */
-  readonly note: number
-  /** Absolute `performance.now()` ms in the page — NOT a delay from now. */
-  readonly atMs: number
-}
+/** One note on/off, one control-change, or one poly-aftertouch, to fire at an absolute `performance.now()` instant in the page. */
+type FakeMidiEvent =
+  | {
+      readonly type: 'on' | 'off'
+      /** MIDI note number, 0..127. */
+      readonly note: number
+      /** Absolute `performance.now()` ms in the page — NOT a delay from now. */
+      readonly atMs: number
+    }
+  | {
+      readonly type: 'cc'
+      readonly controller: number
+      readonly value: number
+      /** Absolute `performance.now()` ms in the page — NOT a delay from now. */
+      readonly atMs: number
+    }
+  | {
+      readonly type: 'aftertouch'
+      /** MIDI note number, 0..127. */
+      readonly note: number
+      readonly pressure: number
+      /** Absolute `performance.now()` ms in the page — NOT a delay from now. */
+      readonly atMs: number
+    }
 
 type FakeMidiHandle = {
   /** Fires every event at its own instant; resolves once the last one has fired. */
   readonly schedule: (events: readonly FakeMidiEvent[]) => Promise<void>
 }
 
-/** One note on/off to fire at a `performance.now()` offset from an anchor taken later. */
-export type RelativeFakeMidiEvent = {
-  readonly type: 'on' | 'off'
-  /** MIDI note number, 0..127. */
-  readonly note: number
-  /** Offset in ms from the anchor instant (the click). */
-  readonly offsetMs: number
-}
+/** One note on/off, one control-change, or one poly-aftertouch, to fire at a `performance.now()` offset from an anchor taken later. */
+export type RelativeFakeMidiEvent =
+  | {
+      readonly type: 'on' | 'off'
+      /** MIDI note number, 0..127. */
+      readonly note: number
+      /** Offset in ms from the anchor instant (the click). */
+      readonly offsetMs: number
+    }
+  | {
+      readonly type: 'cc'
+      readonly controller: number
+      readonly value: number
+      /** Offset in ms from the anchor instant (the click). */
+      readonly offsetMs: number
+    }
+  | {
+      readonly type: 'aftertouch'
+      /** MIDI note number, 0..127. */
+      readonly note: number
+      readonly pressure: number
+      /** Offset in ms from the anchor instant (the click). */
+      readonly offsetMs: number
+    }
 
 declare global {
   interface Window {
@@ -125,12 +157,14 @@ export async function installFakeMidi(page: Page): Promise<void> {
 
       const NOTE_ON_STATUS = 0x90
       const NOTE_OFF_STATUS = 0x80
+      const CONTROL_CHANGE_STATUS = 0xb0
+      const POLY_AFTERTOUCH_STATUS = 0xa0
       const VELOCITY = 96
 
-      function fire(status: number, note: number, velocity: number): void {
+      function fire(status: number, data1: number, data2: number): void {
         if (port.onmidimessage === null) return
         port.onmidimessage({
-          data: new Uint8Array([status, note, velocity]),
+          data: new Uint8Array([status, data1, data2]),
           timeStamp: performance.now(),
         })
       }
@@ -153,13 +187,21 @@ export async function installFakeMidi(page: Page): Promise<void> {
         schedule(events: readonly FakeMidiEvent[]): Promise<void> {
           return Promise.all(
             events.map((event) =>
-              fireAt(event.atMs, () =>
+              fireAt(event.atMs, () => {
+                if (event.type === 'cc') {
+                  fire(CONTROL_CHANGE_STATUS, event.controller, event.value)
+                  return
+                }
+                if (event.type === 'aftertouch') {
+                  fire(POLY_AFTERTOUCH_STATUS, event.note, event.pressure)
+                  return
+                }
                 fire(
                   event.type === 'on' ? NOTE_ON_STATUS : NOTE_OFF_STATUS,
                   event.note,
                   event.type === 'on' ? VELOCITY : 0,
-                ),
-              ),
+                )
+              }),
             ),
           ).then(() => undefined)
         },
@@ -195,8 +237,12 @@ export async function armFakeMidiOnClick(
 ): Promise<void> {
   await page.evaluate(
     ({ text, evts }) => {
+      // Prefers an exact `aria-label` match (a drum pad's accessible name is
+      // its `aria-label`, not its textContent — it also renders a key-hint
+      // span, e.g. "KickSpace"); falls back to trimmed textContent, which is
+      // every existing caller's plain-text button (Start/Play/Record/…).
       const button = [...document.querySelectorAll('button')].find(
-        (b) => b.textContent?.trim() === text,
+        (b) => (b.getAttribute('aria-label') ?? b.textContent?.trim()) === text,
       )
       if (button === undefined) throw new Error(`button "${text}" not found`)
       const handler = (): void => {
@@ -204,7 +250,15 @@ export async function armFakeMidiOnClick(
         const fakeMidi = window.__fakeMidi
         if (fakeMidi === undefined) return
         window.__fakeMidiArmed = fakeMidi.schedule(
-          evts.map((e) => ({ type: e.type, note: e.note, atMs: anchor + e.offsetMs })),
+          evts.map((e) => {
+            if (e.type === 'cc') {
+              return { type: 'cc' as const, controller: e.controller, value: e.value, atMs: anchor + e.offsetMs }
+            }
+            if (e.type === 'aftertouch') {
+              return { type: 'aftertouch' as const, note: e.note, pressure: e.pressure, atMs: anchor + e.offsetMs }
+            }
+            return { type: e.type, note: e.note, atMs: anchor + e.offsetMs }
+          }),
         )
       }
       button.addEventListener('click', handler, { capture: true, once: true })

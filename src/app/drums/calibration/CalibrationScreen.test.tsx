@@ -3,7 +3,7 @@
  * names, not the run's own timing (that is `useCalibration.test.ts`) and not
  * the scoring (that is `@core/drums/scoring/latency.test.ts`).
  */
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { FakeClock, FakeMidiInput } from '@test/fakes.ts'
@@ -11,6 +11,7 @@ import type { ConnectMidi } from '@app/practice/useMidiConnection.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { useDrumsLatencyStore } from '@app/state/drumsLatencyStore.ts'
 import type { DrumAudioOutput } from '@core/ports/index.ts'
+import { midi, millis } from '@core/shared/units.ts'
 import { CALIBRATION_HITS } from '@core/drums/scoring/latency.ts'
 import { CalibrationScreen } from './CalibrationScreen.tsx'
 
@@ -175,6 +176,22 @@ describe('CalibrationScreen', () => {
 
     expect(useDrumsLatencyStore.getState().offsets.local).toBeUndefined()
     expect(storedOffsetLine()).toBe('Pads and keys: no offset stored')
+  })
+
+  it('a mapped note-on from the e-kit shows up in the input monitor', async () => {
+    const midiInput = new FakeMidiInput()
+    setup({ midiInput })
+
+    expect(screen.getByRole('status', { name: 'Input monitor status' })).toHaveTextContent(
+      'No events yet — hit a pad on your kit.',
+    )
+
+    act(() => {
+      midiInput.emit({ type: 'noteOn', note: midi(38), velocity: 92, time: millis(0) })
+    })
+
+    const list = screen.getByRole('list', { name: 'Input events' })
+    expect(within(list).getByRole('listitem')).toHaveTextContent('note 38 · vel 92 → Snare')
   })
 
   it('with an e-kit connected, the input id is the device id and the label is its name', async () => {

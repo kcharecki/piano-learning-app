@@ -9,6 +9,7 @@ import { act, renderHook } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { FakeMidiInput } from '@test/fakes.ts'
 import { midi, millis } from '@core/shared/units.ts'
+import { MONITOR_CAPACITY } from './monitor.ts'
 import { ekitStatusText, useDrumMidiInput } from './useDrumMidiInput.ts'
 
 describe('useDrumMidiInput', () => {
@@ -171,6 +172,132 @@ describe('useDrumMidiInput', () => {
     })
     expect(onHitA).not.toHaveBeenCalled()
     expect(onHitB).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('useDrumMidiInput monitor (roadmap DR-08)', () => {
+  it('off: `monitor` stays [] and firing events causes no extra render', () => {
+    const input = new FakeMidiInput()
+    const onHit = vi.fn()
+    let renders = 0
+    const { result } = renderHook(() => {
+      renders++
+      return useDrumMidiInput({ onHit, midiInput: input })
+    })
+    const rendersAfterMount = renders
+    const monitorAfterMount = result.current.monitor
+
+    act(() => {
+      input.emit({ type: 'noteOn', note: midi(38), velocity: 92, time: millis(0) })
+      input.emit({ type: 'noteOff', note: midi(38), time: millis(50) })
+      input.emit({ type: 'controlChange', controller: 4, value: 127, time: millis(60) })
+    })
+
+    expect(onHit).toHaveBeenCalledTimes(1)
+    expect(renders).toBe(rendersAfterMount)
+    expect(result.current.monitor).toBe(monitorAfterMount)
+    expect(result.current.monitor).toEqual([])
+  })
+
+  it('on: a mapped note-on produces a pad entry', () => {
+    const input = new FakeMidiInput()
+    const onHit = vi.fn()
+    const { result } = renderHook(() => useDrumMidiInput({ onHit, midiInput: input, monitor: true }))
+
+    act(() => {
+      input.emit({ type: 'noteOn', note: midi(38), velocity: 92, time: millis(5) })
+    })
+
+    expect(result.current.monitor).toHaveLength(1)
+    expect(result.current.monitor[0]).toMatchObject({
+      seq: 0,
+      atMs: 5,
+      raw: { kind: 'noteOn', note: 38, velocity: 92 },
+      verdict: { kind: 'pad', pad: 'snare', articulations: [] },
+    })
+  })
+
+  it('on: an unmapped note-on produces an unmapped entry', () => {
+    const input = new FakeMidiInput()
+    const onHit = vi.fn()
+    const { result } = renderHook(() => useDrumMidiInput({ onHit, midiInput: input, monitor: true }))
+
+    act(() => {
+      input.emit({ type: 'noteOn', note: midi(61), velocity: 90, time: millis(0) })
+    })
+
+    expect(result.current.monitor[0]).toMatchObject({
+      raw: { kind: 'noteOn', note: 61, velocity: 90 },
+      verdict: { kind: 'unmapped' },
+    })
+  })
+
+  it('on: CC#4 produces a position entry', () => {
+    const input = new FakeMidiInput()
+    const onHit = vi.fn()
+    const { result } = renderHook(() => useDrumMidiInput({ onHit, midiInput: input, monitor: true }))
+
+    act(() => {
+      input.emit({ type: 'controlChange', controller: 4, value: 127, time: millis(0) })
+    })
+
+    expect(result.current.monitor[0]).toMatchObject({
+      raw: { kind: 'cc', controller: 4, value: 127 },
+      verdict: { kind: 'position', value: 127 },
+    })
+  })
+
+  it('on: a note-off produces an ignored entry', () => {
+    const input = new FakeMidiInput()
+    const onHit = vi.fn()
+    const { result } = renderHook(() => useDrumMidiInput({ onHit, midiInput: input, monitor: true }))
+
+    act(() => {
+      input.emit({ type: 'noteOff', note: midi(38), time: millis(0) })
+    })
+
+    expect(result.current.monitor[0]).toMatchObject({
+      raw: { kind: 'noteOff', note: 38 },
+      verdict: { kind: 'ignored' },
+    })
+  })
+
+  it('on: a debounced repeat produces a dropped entry, newest first', () => {
+    const input = new FakeMidiInput()
+    const onHit = vi.fn()
+    const { result } = renderHook(() => useDrumMidiInput({ onHit, midiInput: input, monitor: true }))
+
+    act(() => {
+      input.emit({ type: 'noteOn', note: midi(38), velocity: 90, time: millis(0) })
+      input.emit({ type: 'noteOn', note: midi(38), velocity: 90, time: millis(10) })
+    })
+
+    expect(onHit).toHaveBeenCalledTimes(1)
+    expect(result.current.monitor).toHaveLength(2)
+    expect(result.current.monitor[0]).toMatchObject({
+      raw: { kind: 'noteOn', note: 38, velocity: 90 },
+      verdict: { kind: 'dropped' },
+    })
+    expect(result.current.monitor[1]).toMatchObject({
+      raw: { kind: 'noteOn', note: 38, velocity: 90 },
+      verdict: { kind: 'pad', pad: 'snare' },
+    })
+  })
+
+  it('on: trims to MONITOR_CAPACITY newest-first', () => {
+    const input = new FakeMidiInput()
+    const onHit = vi.fn()
+    const { result } = renderHook(() => useDrumMidiInput({ onHit, midiInput: input, monitor: true }))
+
+    act(() => {
+      for (let i = 0; i < MONITOR_CAPACITY + 5; i++) {
+        input.emit({ type: 'controlChange', controller: 4, value: i, time: millis(i) })
+      }
+    })
+
+    expect(result.current.monitor).toHaveLength(MONITOR_CAPACITY)
+    expect(result.current.monitor[0]?.raw).toEqual({ kind: 'cc', controller: 4, value: MONITOR_CAPACITY + 4 })
+    expect(result.current.monitor.at(-1)?.raw).toEqual({ kind: 'cc', controller: 4, value: 5 })
   })
 })
 

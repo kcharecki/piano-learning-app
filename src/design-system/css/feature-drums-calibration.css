@@ -29,3 +29,57 @@
   color: var(--text-2);
   line-height: var(--leading-normal);
 }
+
+/* Input monitor (roadmap DR-08): every raw MIDI event, newest first, in a
+   fixed-height scroller so a run of events never pushes the pads off screen. */
+.input-monitor {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: var(--border-w) solid var(--border-1);
+}
+
+.input-monitor-copy {
+  font-size: var(--text-sm);
+  color: var(--text-3);
+  margin: 0 0 var(--space-2);
+}
+
+.input-monitor-list {
+  max-height: 12em;
+  overflow-y: auto;
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-w) solid var(--border-1);
+  border-radius: var(--radius-2);
+  background: var(--bg-1);
+  list-style: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.input-monitor-list li {
+  padding: var(--space-1) 0;
+  border-bottom: var(--border-w) solid var(--border-1);
+}
+
+.input-monitor-list li:last-child {
+  border-bottom: none;
+}
+
+/* The gap since the older (next-listed, entries are newest-first) event —
+   e.g. a +4ms gap between two note-ons on the same pad is what tells a
+   learner a hit was dropped as a bounce rather than swallowed some other way. */
+.input-monitor-gap {
+  display: inline-block;
+  min-width: 5ch;
+  text-align: right;
+  margin-right: var(--space-2);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.input-monitor-line {
+  color: var(--text-2);
+}

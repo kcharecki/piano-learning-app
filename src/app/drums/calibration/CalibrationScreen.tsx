@@ -25,6 +25,7 @@ import { LOCAL_INPUT_ID, useDrumsLatencyStore } from '@app/state/drumsLatencySto
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import type { Clock, DrumAudioOutput, MidiInput } from '@core/ports/index.ts'
 import { calibrationStateText, spreadWarningText, storedOffsetText, summaryText } from './calibrationText.ts'
+import { InputMonitor } from './InputMonitor.tsx'
 import { useCalibration } from './useCalibration.ts'
 
 /** The three pads the groove trainer keys map to — enough to play along with any hand. */
@@ -49,6 +50,7 @@ export function CalibrationScreen(props: CalibrationScreenProps) {
 
   const ekit = useDrumMidiInput({
     onHit: (pad) => cal.hit(pad),
+    monitor: true,
     ...(props.midiInput === undefined ? {} : { midiInput: props.midiInput }),
     ...(props.connect === undefined ? {} : { connect: props.connect }),
   })
@@ -138,6 +140,8 @@ export function CalibrationScreen(props: CalibrationScreenProps) {
           <Pad key={pad} pad={pad} lit={lit === pad} onHit={cal.hit} />
         ))}
       </div>
+
+      <InputMonitor entries={ekit.monitor} />
     </div>
   )
 }
