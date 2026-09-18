@@ -89,8 +89,11 @@ the wrong layer.
 
 - Build agent prompts from `docs/efficiency-guide.md` Appendices A–C: pasted rules digest,
   exact owned files, frozen contract. Never tell an agent to read AGENTS.md or to explore.
-- No two agents ever write the same file. Shared files (Shell, routes, stores) are
-  main-thread-only, serial.
+- No two agents ever write the same file. Shared files (Shell, routes, stores) belong to
+  one **integrator** agent at a time, serial — never to a builder.
+- The main thread architects: triage, contracts, briefs, spec and process changes, and the
+  decision on what counts as evidence. Coding, integration, verification and commits are
+  delegated (roles in `docs/drums/NEXT-SESSION.md`). User direction 2026-09-18.
 - Agents run only their scoped tests (`npx vitest run <their dir>`), never the full suite.
 
 ## Commands

@@ -9,9 +9,13 @@ rewrite it at the end of every session (it is a hand-off, not a log — the log 
 ```
 Orchestrate the drum part of this app (docs/drums/ROADMAP.md, hand-off in
 docs/drums/NEXT-SESSION.md). Goal: keep shipping proven drum slices until the 5-hour token
-window runs out. Keep this session for orchestration, integration, verification and commits;
-build with Sonnet agents, review timing/grading/audio code with Opus agents. Adjust the spec
-when a better version is obvious, and say so in the commit body.
+window runs out. This session is the ARCHITECT: it triages, writes contracts and briefs,
+adjusts the spec and the process, and judges evidence. It does not code, integrate, verify
+or commit — sub-agents do (roles table in NEXT-SESSION.md): Sonnet builders, an Opus
+reviewer for timing/grading/audio code, one serial Sonnet integrator for shared files and
+commits, a Sonnet verifier for verify/visual passes/driven proof, a Sonnet docs agent.
+Adjust the spec when a better version is obvious, and have the integrator say so in the
+commit body.
 
 Order of work:
 1. Recover: 33cbe48 (wave 10: swing in the run plan, jazz ride drills, milestones, kit-map
@@ -30,6 +34,23 @@ tree; never --no-verify; commit only on green verify; every builder brief says "
 function the fields it reads, not the record they live on"; read what replaced a removed
 throw; compute brief example numbers from the code, never by hand.
 ```
+
+## Roles (user direction 2026-09-18: the main session architects; workers do the rest)
+
+| Role | Model | Does | Reads | Returns |
+|---|---|---|---|---|
+| Architect (this session) | main thread | triage, contracts, briefs, spec and process changes, evidence judgement, routing of findings | agent reports only; a file or diff only when a decision needs it | briefs, decisions |
+| Builder (up to 3 in parallel) | Sonnet | code + co-located tests in its owned files; scoped tests | its brief, its files | file list, test-count tails, ambiguities |
+| Reviewer | Opus, high effort | adversarial review of timing/grading/audio diffs against a numbered question list | the named diffs | findings with severity; sent to the builder via the architect |
+| Integrator (one at a time, serial) | Sonnet | shared files (Shell, routes, stores, index re-exports), cross-slice consistency, commit message per slice, `git commit -q -F`, push | builder reports, `git diff --stat`, the shared files | commit hashes, hook tails |
+| Verifier | Sonnet | `npm run verify`, per-spec e2e, visual passes, drives the app for the proof action, console check | logs | evidence tails, screenshot paths, receipt copied; red → which builder owns it |
+| Docs | Sonnet | ROADMAP / retro / this file via an anchored script | the anchors | script output |
+
+Flow per wave: architect writes 3 briefs → builders run in parallel → reviewer runs on any
+timing slice while the others build → architect routes findings back to the owning builder
+(`SendMessage`, same agent) → integrator wires shared files and commits slice by slice →
+verifier proves each commit (verify, visual passes, driven proof) → docs agent closes the
+wave. The architect never types code; if glue is needed, the integrator types it.
 
 ## What is next (after recovery)
 
@@ -88,11 +109,13 @@ throw; compute brief example numbers from the code, never by hand.
   tautological tests). Next wave's builders start while it runs.
 - **Fix with the same agent.** `SendMessage` to the builder that owns the files keeps its
   context; a fresh fixer re-orients from zero.
-- **Main thread reads diffs, not files.** `git diff -- <owned timing files>` after a builder
-  reports; only integration glue is typed on the main thread. PROCESS.md: review-driven fixes
-  to timing/grading/adaptation code are read on the main thread before commit.
-- **Commit per slice, in sequence,** with a pre-written message file:
-  `git commit -q -F <scratch>/msg-<slice>.txt > <scratch>/commit-<slice>.log 2>&1`.
+- **The architect reads reports, not files.** A diff reaches the main thread only when
+  two reports disagree (builder vs reviewer) and the architect must decide. PROCESS.md's
+  "review-driven fixes to timing/grading code are read before commit" is satisfied by the
+  Opus reviewer re-reading the fix, not by the main thread.
+- **The integrator commits per slice, in sequence,** with a pre-written message file:
+  `git commit -q -F <scratch>/msg-<slice>.txt > <scratch>/commit-<slice>.log 2>&1`, then
+  reports the hash and the hook tail.
 - **Docs edits through a script.** `docs-wave<N>.py` with asserted unique anchors edits
   ROADMAP.md and retro-log.md in one call; nobody reads the 1500-line roadmap into context.
 - Check `TaskOutput` before spawning: a duplicate agent on the same files is a merge conflict
