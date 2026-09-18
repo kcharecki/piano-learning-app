@@ -113,3 +113,45 @@ test('Two kicks lists 12 fresh drills, only the first unlocked (roadmap DR-15) @
 
   expect(consoleErrors).toEqual([])
 })
+
+// @serial — see the note on the spec above; this one plays no notes but
+// still drives the same real dev server and app clock.
+test('Hi-hat foot lists the three build steps for the default groove, only the first unlocked, with the ride and the pedal on screen (roadmap DR-15) @serial', async ({
+  page,
+}) => {
+  const consoleErrors: string[] = []
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') consoleErrors.push(msg.text())
+  })
+  page.on('pageerror', (err) => consoleErrors.push(String(err)))
+
+  await page.goto('/drums/coordination')
+  await expect(page.getByRole('heading', { level: 1, name: 'Coordination' })).toBeVisible()
+
+  await page.getByRole('radio', { name: 'Hi-hat foot' }).click()
+
+  // The groove picker still applies here — the drill is built from the
+  // chosen groove, same as Layer build.
+  await expect(page.getByRole('combobox', { name: 'Groove' })).toBeVisible()
+
+  const stepButtons = steps(page)
+  await expect(stepButtons).toHaveCount(3)
+  const labels = await stepButtons.allTextContents()
+  expect(labels).toEqual([
+    'Quarter-Note Rock — ride and foot on 2 and 4',
+    'Quarter-Note Rock — add the kick',
+    'Quarter-Note Rock — add the snare',
+  ])
+  await expect(stepButtons.nth(0)).toBeEnabled()
+  await expect(stepButtons.nth(0)).toHaveAttribute('aria-current', 'step')
+  await expect(stepButtons.nth(1)).toBeDisabled()
+  await expect(stepButtons.nth(2)).toBeDisabled()
+
+  // Step 1 is ride-and-pedal only: both pads must be on screen, the pedal
+  // reachable by its bound key (roadmap DR-15's `GROOVE_PAD_KEY.hhPedal`).
+  await expect(page.getByRole('button', { name: 'Ride', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Hi-hat pedal', exact: true })).toBeVisible()
+  await expect(page.getByText('Hi-hat pedal, D')).toBeVisible()
+
+  expect(consoleErrors).toEqual([])
+})

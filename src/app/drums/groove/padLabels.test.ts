@@ -33,6 +33,10 @@ describe('GROOVE_PAD_KEY', () => {
     expect(GROOVE_PAD_KEY.kick).toBe(' ')
   })
 
+  it('binds the hi-hat pedal (roadmap DR-15 hi-hat foot drills)', () => {
+    expect(GROOVE_PAD_KEY.hhPedal).toBe('d')
+  })
+
   it('binds no two pads to the same key', () => {
     const keys = Object.values(GROOVE_PAD_KEY)
     expect(new Set(keys).size).toBe(keys.length)

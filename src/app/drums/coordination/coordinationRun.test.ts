@@ -1,6 +1,7 @@
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import { moneyBeat } from '@core/drums/model/referenceGrooves.ts'
+import { hhFootDrills } from '@core/drums/coordination/hhFoot.ts'
 import { singleKickPermutations } from '@core/drums/coordination/permutations.ts'
 import { layerStack } from '@core/drums/coordination/layers.ts'
 import type { Rng } from '@core/ports/index.ts'
@@ -58,6 +59,19 @@ describe('drillSteps', () => {
     const rng = scriptedRng([0.1, 0.3, 0.5, 0.7, 0.9])
     const steps = drillSteps('kicks2', moneyBeat(), rng)
     expect(new Set(steps.map((s) => s.title)).size).toBe(TWO_KICK_DRILLS)
+  })
+
+  it('hhFoot mode maps hhFootDrills(groove) 1:1, and never touches the rng', () => {
+    const groove = moneyBeat()
+    const steps = drillSteps('hhFoot', groove, throwingRng)
+    const drills = hhFootDrills(groove)
+    expect(steps).toHaveLength(drills.length)
+    steps.forEach((step, i) => {
+      expect(step.index).toBe(i)
+      expect(step.count).toBe(drills.length)
+      expect(step.title).toBe(drills[i]?.score.title)
+      expect(step.score).toEqual(drills[i]?.score)
+    })
   })
 
   it("kicks2 mode's first title is pinned for a known rng script", () => {

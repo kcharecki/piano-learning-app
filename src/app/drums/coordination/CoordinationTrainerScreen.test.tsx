@@ -98,6 +98,30 @@ describe('CoordinationTrainerScreen', () => {
     expect(buttons[1]).toBeDisabled()
   })
 
+  it('switching to Hi-hat foot lists 3 steps for the default groove, keeps the groove picker, and only the first is unlocked', async () => {
+    const { user } = setup()
+    await user.click(screen.getByRole('radio', { name: 'Hi-hat foot' }))
+
+    expect(screen.getByRole('combobox', { name: 'Groove' })).toBeInTheDocument()
+
+    const stepsList = screen.getByRole('list', { name: 'Steps' })
+    const items = stepsList.querySelectorAll('li')
+    expect(items).toHaveLength(3)
+
+    const stepListButtons = within(stepsList).getAllByRole('button')
+    expect(stepListButtons.map((b) => b.textContent)).toEqual([
+      'Quarter-Note Rock — ride and foot on 2 and 4',
+      'Quarter-Note Rock — add the kick',
+      'Quarter-Note Rock — add the snare',
+    ])
+    expect(stepListButtons[0]).not.toBeDisabled()
+    expect(stepListButtons[0]).toHaveAttribute('aria-current', 'step')
+    expect(stepListButtons[1]).toBeDisabled()
+
+    expect(screen.getByRole('button', { name: 'Ride' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Hi-hat pedal' })).toBeInTheDocument()
+  })
+
   it('hides the groove picker in kicks mode', async () => {
     const { user } = setup()
     expect(screen.getByRole('combobox', { name: 'Groove' })).toBeInTheDocument()

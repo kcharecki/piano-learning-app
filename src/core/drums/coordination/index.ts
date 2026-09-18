@@ -1,5 +1,9 @@
 /** Re-exports for the coordination trainer (roadmap DR-15). */
 export {
+  hhFootDrills,
+  type HhFootDrill,
+} from './hhFoot.ts'
+export {
   LAYER_ORDER,
   layerGroupOf,
   layerStack,

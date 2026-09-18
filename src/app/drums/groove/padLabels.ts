@@ -48,6 +48,7 @@ export const GROOVE_PAD_KEY: Partial<Readonly<Record<MappedDrumPad, string>>> = 
   hhOpen: 'k',
   snare: 'f',
   kick: ' ',
+  hhPedal: 'd',
 }
 
 /** How a key reads on screen. */

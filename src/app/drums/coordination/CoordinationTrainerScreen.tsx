@@ -1,13 +1,15 @@
 /**
- * The coordination trainer (roadmap DR-15) — three drills built on the same
+ * The coordination trainer (roadmap DR-15) — four drills built on the same
  * groove-run engine `GrooveTrainerScreen` uses, for the problem that screen
  * does not solve: a learner who cannot yet hold a whole groove together
  * meets it one limb at a time (Layer build), or isolates the one thing that
  * makes a beat feel syncopated — where the kick lands against a steady
  * hat/snare backbone, one placement at a time (Kick permutations), or two
- * placements at once (Two kicks).
+ * placements at once (Two kicks) — or moves the timekeeping to the ride and
+ * the foot to the hi-hat pedal, building the groove back up underneath that
+ * new foundation (Hi-hat foot).
  *
- * All three drills share one shape: a numbered list of steps, each its own
+ * All four drills share one shape: a numbered list of steps, each its own
  * `GrooveScore`/plan/run, unlocking left to right as a pass comes back
  * steady. `useCoordinationTrainer` (see its own module comment) owns that
  * state; this file is presentation, mirroring `GrooveTrainerScreen`'s own
@@ -63,6 +65,7 @@ const MODE_OPTIONS: ReadonlyArray<{ readonly value: DrillMode; readonly label: s
   { value: 'layers', label: 'Layer build' },
   { value: 'kicks', label: 'Kick permutations' },
   { value: 'kicks2', label: 'Two kicks' },
+  { value: 'hhFoot', label: 'Hi-hat foot' },
 ]
 
 /** Every groove the picker offers — the library itself never changes at runtime. */
@@ -158,7 +161,7 @@ export function CoordinationTrainerScreen(props: CoordinationTrainerScreenProps)
         </div>
       </div>
 
-      {mode === 'layers' && (
+      {(mode === 'layers' || mode === 'hhFoot') && (
         <div className="card field coordination-groove-field">
           <label htmlFor="coordination-groove-select">Groove</label>
           <select
