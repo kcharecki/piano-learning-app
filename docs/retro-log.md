@@ -16,20 +16,22 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
-## 2026-09-17/18 — the drum session: fifteen slices in five waves, six Opus reviews, and a review fix that needed reviewing
+## 2026-09-17/18 — the drum session: eighteen slices in six waves, seven Opus reviews, and a review fix that needed reviewing
 
 - **user-reported defects since last session:** 0.
-- **slices proven / started:** 15 / 15. `T.30`–`T.34` closed (`1ff79e7`, `98c0a9b`, `0cf90ed`,
+- **slices proven / started:** 18 / 18. `T.30`–`T.34` closed (`1ff79e7`, `98c0a9b`, `0cf90ed`,
   `3960a5c`), DR-05 done, DR-06/07/09 advanced, DR-10/11/12 landed as core-only slices
   (`17e4b4f`) in wave 2 and got their screens in wave 3 (`897c05f` sticking row,
   `4084575` rudiments, `1a68f51` reading + wiring, `8687e4c` metronome); wave 4 added the
   Drums Today hub (`57bb514`), rudiment evenness (`6966868`) and groove loop mode
   (`e8e3ee7`); wave 5 added per-hit live feedback (`21ac269`), the progress screen
-  (`04e5918`) and the coordination trainer (`a3eacab`). Each driven in the running app,
-  e2e-covered and visual-passed in both themes at both widths. Orchestrated: main thread
-  integrated and committed only; ~27 Sonnet builders/fixers, 6 Opus adversarial reviews
-  (synth, grader, reading hook, metronome scheduler, loop mode, live hit).
-- **gate catches before commit:** 12.
+  (`04e5918`) and the coordination trainer (`a3eacab`); wave 6 added e-kit input into
+  the trainers (`bbdf97e`), two-kick drills (`cb66ee5`), per-limb mute (`02e555d`) and a synth
+  choke fix its review found (`093de46`). Each driven in the running app, e2e-covered and
+  visual-passed in both themes at both widths. Orchestrated: main thread integrated and
+  committed only; ~31 Sonnet builders/fixers, 7 Opus adversarial reviews (synth, grader,
+  reading hook, metronome scheduler, loop mode, live hit, per-limb mute).
+- **gate catches before commit:** 14.
   1. **The e2e gate refused the T.33 slice, and that refusal is the gate's review-by clause
      satisfied.** `improve-DR-09-heldout.spec.ts` was a baseline capture asserting the wrong
      behaviour (`Open hi-hat — 0 of 2, 2 missed, 2 extra`); unit tests were green. The gate
@@ -92,6 +94,15 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
       newest-first; builder C rendered the last three runs as stored, so an improving
       learner read 100%, 90%, 80%, and filed it as "order unspecified". Its core also
       imported types from `@content`. Both fixed on the main thread from the e2e seed.
+  13. **Two-kick drills drew with replacement.** Twelve titles on screen, two of them the
+      same pair — seen driving the new mode, not by its tests, which checked count and
+      order only. Rewritten on the main thread as a partial Fisher–Yates over the sorted
+      table; the spec now says "12 distinct, easy → hard".
+  14. **The mute review found a synth defect the mute slice merely exposed.** Opus traced
+      the pre-scheduled hats through `chokeOpenHats` and showed a live open hat struck
+      after an already-scheduled closed hat is never released. The fix is in the adapter,
+      committed on its own before the slice that surfaced it. The same review flagged
+      three property tests that rebuilt their expected value with the code under test.
 - **docs budget:** no warnings.
 - **cost note:** integration, not building. Five agents' work landed on one tree, then one
   full `verify`, one visual pass, and a commit chain that failed once on shell quoting
@@ -105,7 +116,9 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
   And the stalled-frame class has now cost three reviews; it belongs in the builder brief
   for any per-frame scheduler, not in the reviewer's checklist. Wave 5's addition: a
   scoped run with no timeout is not a gate — one unbounded loop in one builder's core
-  hung a 3 s suite indefinitely, and only a capped, per-file bisect found it.
+  hung a 3 s suite indefinitely, and only a capped, per-file bisect found it. Wave 6:
+  a green property test can be a tautology — three of them recomputed the expected list
+  with the same filter as the code, and only the reviewer noticed they could not fail.
 - **change:** one. Review-driven fixes to timing, grading or adaptation code are read on
   the main thread before commit, diff against the data shape they touch, not just their
   own tests. Recorded in `docs/PROCESS.md`'s review step.

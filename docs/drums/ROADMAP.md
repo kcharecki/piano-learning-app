@@ -137,8 +137,11 @@ item lands inside a slice that drives something (specs state their proof surface
 - [~] DR-02 E-drum MIDI input — CORE slice landed: `src/core/drums/kitmap/` (note→pad
       table, CC4 hi-hat state machine, choke, debounce, velocity gate, unmapped bucket) +
       GM/Roland TD/Alesis/Yamaha presets + `webmidi.ts` now passes through poly aftertouch
-      and CC. MIDI-learn wizard (app layer) still pending →
-      [spec](features/DR-02-edrum-midi-input.md)
+      and CC. App slice landed 2026-09-18 (`bbdf97e`): `useDrumMidiInput` joins
+      `useMidiConnection` to the kit-map engine, so a real e-kit stroke lands on the same
+      `run.hit` the pads and keys use in both trainers; one status line names the kit and
+      map, or the unmapped note a pad just sent. GM map only; MIDI-learn wizard still
+      pending → [spec](features/DR-02-edrum-midi-input.md)
 - [ ] DR-03 ‖ Fallback inputs — keyboard map with dynamics modifiers, on-screen pads,
       capability banner → [spec](features/DR-03-fallback-inputs.md)
 - [x] DR-05 Notation rendering — own SVG groove renderer (trainer surfaces) + OSMD
@@ -171,7 +174,12 @@ item lands inside a slice that drives something (specs state their proof surface
       accepted hit reads on time / early / late / extra with its signed ms, as a status
       line and as a colour on the struck pad (`core/drums/practice/liveHit.ts`, nearest
       unclaimed instant on that pad, provisional — `grade.ts` stays the marking; one
-      verdict per pad so unison strokes keep both). Still open: per-limb mute, wait mode.
+      verdict per pad so unison strokes keep both). Per-limb mute landed 2026-09-18
+      (`02e555d`): a Play switch per pad; a pad switched off is voiced by the app on the
+      grader's own instants (`mutedVoices.ts`, one pass ahead in loop mode) and dropped from
+      the grading plan (`core/drums/practice/mute.ts`), so it gets no result row and no
+      live verdict, while a tap on it still sounds and flashes. The last switch on cannot
+      be switched off. Still open: wait mode.
 - [~] DR-10 ‖ Rudiment trainer — the 40 in Wooton tiers, tempo ladder, evenness, PRs
       → [spec](features/DR-10-rudiment-trainer.md). Core landed 2026-09-17 (`17e4b4f`):
       `content/drums/rudiments*.ts` (40 PAS), `core/drums/rudiment/` score conversion +
@@ -213,8 +221,10 @@ item lands inside a slice that drives something (specs state their proof surface
       landed 2026-09-18 (`a3eacab`): layer build (cymbals → + feet → + snare family, each
       layer a real score subset on the staff, a steady pass unlocks the next) and the 16
       single-kick permutations ordered by syncopation weight, both graded by `useGrooveRun`
-      and recorded to history. Still open: two-kick drills on screen (`twoKickPermutations`
-      exists in core), hi-hat foot and openings, the jazz ride introduction.
+      and recorded to history. Two-kick drills landed 2026-09-18 (`cb66ee5`): a third mode
+      draws 12 distinct pairs from the 120 (partial Fisher–Yates over the weight-sorted
+      table) and orders them easy → hard; changing tempo now keeps step progress. Still
+      open: hi-hat foot and openings, the jazz ride introduction.
 
 ## Phase D2 — The learning system: curriculum, planning, memory
 
@@ -400,6 +410,34 @@ above: `everyNBars` count-in awareness, the six unverified stickings, MIDI-out c
   core needs a bound or a loop-free draw — the Rng port promises nothing about variety.
 - The coordination screen offers single-kick drills only; `twoKickPermutations` has no
   screen yet. Changing tempo resets step progress to layer 1 (contract choice, revisit).
+  Both reversed in wave 6 — see below.
 - The reading store is newest-first; the progress screen reverses the last three runs so
   an improving learner reads the climb left to right. Builder C filed this as an
   ambiguity; it was a defect.
+
+### 2026-09-18 — orchestrated drum session, wave 6
+
+Three slices plus one adapter fix: e-kit input into the trainers (`bbdf97e`), two-kick
+drills with tempo-keeps-progress (`cb66ee5`), per-limb mute (`02e555d`), and the synth's
+open-hat choke against a hat scheduled ahead of it (`093de46`). Still open from above:
+`everyNBars` count-in awareness, the six unverified stickings, MIDI-out channel,
+`ladderText`'s hard-coded counts, wait mode. New notes:
+
+- Tempo change no longer resets coordination progress. The wave-5 note called it a
+  contract choice; driving it, a learner who earned layer 3 at 60 bpm and nudged to 64
+  was sent back to layer 1. The run stops and the latched result clears; the step and
+  the unlocked count stay.
+- `twoKickPermutations` first shipped its screen with draws with replacement — 12 titles,
+  duplicates among them, seen in the browser before any test. Now a partial Fisher–Yates
+  over the weight-sorted table, clamped to 120, sorted back easy → hard.
+- The synth choked open hats only against hats already registered when the choker was
+  struck. The mute slice pre-schedules a whole pass of hats, so a live open hat struck
+  after a scheduled closed hat but ringing before it was never released. The synth now
+  keeps the pending hi-hat instants and chokes a late-registering open hat at the
+  earliest one strictly after its start (same instant = unison).
+- The mute grading plan is frozen at `start()` like `loop`; the loop boundary rule
+  (`passOfHit`) reads the grader's plan, not the full one, so a muted pad's instant
+  cannot pull a boundary hit toward a pass nobody grades it in. Muting everything is
+  treated as muting nothing rather than thrown.
+- Three property tests restated their implementation (rebuilt the expected list with
+  the same filter and compared). Rewritten as independent membership and count checks.
