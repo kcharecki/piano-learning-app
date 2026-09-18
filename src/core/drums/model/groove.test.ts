@@ -153,6 +153,148 @@ describe('swingUnit', () => {
   })
 })
 
+describe('a swung score rejects a real swing collision, not merely being off-grid (F4/A4)', () => {
+  /**
+   * Ghost Funk Bar's own hi-hat plays all 16 sixteenths (`referenceGrooves.ts`).
+   * `swungTick` only ever moves the second cell of an eighth pair — ticks 240,
+   * 720, 1200, 1680 — to `round(480 * swingPercent / 100)` past its pair
+   * start. Probed directly (`swungTick(t, p, 'eighth', 1920, 4, 4)` for
+   * `t` in [240, 720, 1200, 1680]): at swingPercent 75 those land on
+   * [360, 840, 1320, 1800] — EXACTLY the hi-hat's own existing sixteenths at
+   * those ticks (multiples of 120), a real same-pad collision. At
+   * swingPercent 67 they land on [322, 802, 1282, 1762] — none a multiple of
+   * 120, so nothing collides. This is A4's whole point: being off the
+   * swingUnit grid is not itself an error (F4's old rule over-rejected every
+   * percent from 55 to 74 here); only an actual collision is.
+   */
+  it('rejects ghost-funk-bar\'s all-sixteenths hi-hat at swingPercent 75 (a real collision) naming the pad and the shared tick', () => {
+    const SIXTEENTH = 120
+    const idxToTick = (idx: number): number => idx * SIXTEENTH
+    const allSixteenths = Array.from({ length: 16 }, (_, idx) => idxToTick(idx))
+    const build = () =>
+      makeGrooveScore({
+        id: 'ghost-funk-bar-swung',
+        measureCount: 1,
+        swingPercent: 75,
+        swingUnit: 'eighth',
+        notes: allSixteenths.map((tick) => ({ pad: 'hhClosed' as const, tick, durationTicks: SIXTEENTH })),
+      })
+    expect(build).toThrow(InvariantError)
+    let caught: unknown
+    try {
+      build()
+    } catch (cause) {
+      caught = cause
+    }
+    const message = caught instanceof Error ? caught.message : String(caught)
+    expect(message).toContain('hhClosed')
+    expect(message).toContain('360')
+  })
+
+  it('accepts the identical all-sixteenths hi-hat at swingPercent 67 (probed: no swung tick collides)', () => {
+    const SIXTEENTH = 120
+    const idxToTick = (idx: number): number => idx * SIXTEENTH
+    const allSixteenths = Array.from({ length: 16 }, (_, idx) => idxToTick(idx))
+    expect(() =>
+      makeGrooveScore({
+        id: 'ghost-funk-bar-swung-67',
+        measureCount: 1,
+        swingPercent: 67,
+        swingUnit: 'eighth',
+        notes: allSixteenths.map((tick) => ({ pad: 'hhClosed' as const, tick, durationTicks: SIXTEENTH })),
+      }),
+    ).not.toThrow()
+  })
+
+  it('a minimal two-note reproduction of the same collision: tick 240 and tick 360 on hhClosed both swing to 360 at 75%', () => {
+    expect(() =>
+      makeGrooveScore({
+        id: 'g',
+        measureCount: 1,
+        swingPercent: 75,
+        swingUnit: 'eighth',
+        notes: [
+          { pad: 'hhClosed', tick: 240, durationTicks: 120 },
+          { pad: 'hhClosed', tick: 360, durationTicks: 120 },
+        ],
+      }),
+    ).toThrow(InvariantError)
+  })
+
+  it('validateGrooveScore reports the same rejection as a Result err, not a throw, for a hand-built score', () => {
+    const straight = makeGrooveScore({
+      id: 'g',
+      measureCount: 1,
+      notes: [
+        { pad: 'hhClosed', tick: 240, durationTicks: 120 },
+        { pad: 'hhClosed', tick: 360, durationTicks: 120 },
+      ],
+    })
+    const swung = { ...straight, swingPercent: 75, swingUnit: 'eighth' as SwingUnit }
+    const result = validateGrooveScore(swung)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error).toContain('hhClosed')
+      expect(result.error).toContain('360')
+    }
+  })
+
+  it('a lone off-grid note with nothing to collide with is NOT rejected (A4: off-grid alone is not an error)', () => {
+    // Single hhClosed note at tick 120 — off the eighth-swing grid (cell 240)
+    // the same way F4's old, over-broad rule would have rejected it — but
+    // with no sibling note on the same pad, nothing can collide.
+    expect(() =>
+      makeGrooveScore({
+        id: 'g',
+        measureCount: 1,
+        swingPercent: 75,
+        swingUnit: 'eighth',
+        notes: [{ pad: 'hhClosed', tick: 120, durationTicks: 120 }],
+      }),
+    ).not.toThrow()
+  })
+
+  it('a swung score whose notes already sit on the swingUnit grid, and never collide, is unaffected (jazz-ride-shaped eighth-grid notes at 67%)', () => {
+    expect(() =>
+      makeGrooveScore({
+        id: 'g',
+        measureCount: 1,
+        swingPercent: 67,
+        swingUnit: 'eighth',
+        notes: [
+          { pad: 'rideBow', tick: 0, durationTicks: 240 },
+          { pad: 'rideBow', tick: 240, durationTicks: 240 },
+          { pad: 'snare', tick: 720, durationTicks: 240 },
+        ],
+      }),
+    ).not.toThrow()
+  })
+
+  /**
+   * A3: a 6/8 bar groups its eighths in threes — `swungTick`'s duple pairing
+   * (F6) is already the identity there, so this loop's swing-collision check
+   * must be skipped entirely, not merely fail to fire by coincidence. Two
+   * hhClosed sixteenths (120, 240 — off the eighth grid, and NOT identical
+   * ticks, so the plain duplicate-tick check does not catch this on its own)
+   * in a 6/8 bar at swingPercent 67 must build cleanly.
+   */
+  it('skips the swing-collision check entirely for a compound meter (6/8) — F4/A4 never fires where F6 already makes swing the identity', () => {
+    expect(() =>
+      makeGrooveScore({
+        id: 'g',
+        measureCount: 1,
+        timeSignature: { beats: 6, beatType: 8 },
+        swingPercent: 67,
+        swingUnit: 'eighth',
+        notes: [
+          { pad: 'hhClosed', tick: 120, durationTicks: 120 },
+          { pad: 'hhClosed', tick: 240, durationTicks: 120 },
+        ],
+      }),
+    ).not.toThrow()
+  })
+})
+
 describe('validateGrooveScore: backstops for a hand-built (not makeGrooveScore-built) score', () => {
   it('rejects a straight score that claims a non-eighth swingUnit', () => {
     const score = makeGrooveScore({ id: 'g', measureCount: 1, notes: [] })

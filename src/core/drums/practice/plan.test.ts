@@ -254,7 +254,7 @@ describe('swing reaches the run plan (roadmap DR-15)', () => {
         (index, bpm, swingPercent, swingUnit) => {
           const straight = referenceGrooves()[index]
           if (straight === undefined) return
-          const swung = makeGrooveScore({
+          const swungInput = {
             id: straight.id,
             title: straight.title,
             timeSignature: straight.timeSignature,
@@ -269,7 +269,19 @@ describe('swing reaches the run plan (roadmap DR-15)', () => {
               articulations: n.articulations,
               ...(n.sticking === undefined ? {} : { sticking: n.sticking }),
             })),
-          })
+          }
+          // A4/NIT2: the only thing that can now make this combination
+          // invalid is a real same-pad swung-tick collision (being off the
+          // swingUnit grid is fine on its own) — rather than re-deriving
+          // that rule here, this tries the real validator (via
+          // `makeGrooveScore`) and skips only what it actually rejects, so
+          // the 55..74% combinations that never collide still run.
+          let swung: GrooveScore
+          try {
+            swung = makeGrooveScore(swungInput)
+          } catch {
+            return
+          }
           const straightPlan = planGrooveRun(straight, bpm)
           const swungPlan = planGrooveRun(swung, bpm)
           const msPerTick = 60_000 / bpm / 480
@@ -277,11 +289,13 @@ describe('swing reaches the run plan (roadmap DR-15)', () => {
           const cellMs = cellTicks * msPerTick
           for (const straightPad of straightPlan.pads) {
             const swungPad = swungPlan.pads.find((p) => p.pad === straightPad.pad)
-            // A swung tick can collide with a neighbour's straight tick,
-            // changing the distinct-instant count for a dense (e.g. ghost
-            // funk's sixteenth) grid — skip the rare case rather than
-            // compare mismatched arrays index-for-index.
-            if (swungPad === undefined || swungPad.expectedMs.length !== straightPad.expectedMs.length) continue
+            expect(swungPad).toBeDefined()
+            if (swungPad === undefined) continue
+            // A4: `swung` only ever reaches here when `makeGrooveScore` did
+            // NOT reject it, i.e. no two notes on this pad share a swung
+            // tick — so swinging can never merge two of this pad's instants
+            // into one, and the counts must always agree.
+            expect(swungPad.expectedMs.length).toBe(straightPad.expectedMs.length)
             straightPad.expectedMs.forEach((straightMs, i) => {
               const swungMs = swungPad.expectedMs[i]
               if (swungMs === undefined) return
@@ -292,5 +306,32 @@ describe('swing reaches the run plan (roadmap DR-15)', () => {
         },
       ),
     )
+  })
+
+  // N3: the property test above only ever exercises non-colliding combos (it
+  // skips anything off the eighth grid before A4 existed), so it kills no
+  // mutant of A4's actual collision check. A direct example: Ghost Funk's
+  // all-sixteenths hi-hat re-swung at 75% eighth collides (each odd eighth
+  // cell's swung tick lands exactly on the next sixteenth, per groove.test.ts's
+  // probe of this same fixture) and must be refused; at 67% it does not.
+  it('refuses ghost-funk-bar re-swung at 75% eighth (A4 collision), accepts the identical notes at 67%', () => {
+    const swungGhostFunk = (swingPercent: number): GrooveScore =>
+      makeGrooveScore({
+        id: 'ghost-funk-bar-swung-plan',
+        title: 'Ghost Funk Bar (swung)',
+        measureCount: 1,
+        swingPercent,
+        swingUnit: 'eighth',
+        notes: ghostFunkBar().notes.map((n) => ({
+          pad: n.pad,
+          tick: n.tick,
+          durationTicks: n.durationTicks,
+          dynamics: n.dynamics,
+          articulations: n.articulations,
+          ...(n.sticking === undefined ? {} : { sticking: n.sticking }),
+        })),
+      })
+    expect(() => swungGhostFunk(75)).toThrow()
+    expect(() => planGrooveRun(swungGhostFunk(67), 80)).not.toThrow()
   })
 })

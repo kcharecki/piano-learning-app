@@ -64,6 +64,14 @@ export type GroovePadPlan = {
   readonly loopTicks: readonly number[]
   /** Every instant the graded window expects, ms from the window opening. Sorted. */
   readonly expectedMs: readonly number[]
+  /**
+   * `expectedMs`'s own NOMINAL (straight, unswung) instant, ms from the
+   * window opening — same length, same order, index-for-index with
+   * `expectedMs`. A swung "&" still needs its straight-grid position for
+   * display (`wait.ts`'s `stepPosition` names the beat/subdivision off this,
+   * never off the swung `atMs`, which does not sit on the nominal grid).
+   */
+  readonly expectedNominalMs: readonly number[]
 }
 
 /** Two pads the score puts on the same notated instant — the only pairs a flam sentence may name. */
@@ -88,6 +96,8 @@ export type GrooveRunPlan = {
   /** Only pads the score actually uses, in the score's own pad order. */
   readonly pads: readonly GroovePadPlan[]
   readonly unisonPairs: readonly UnisonPair[]
+  /** Copied from `score.swingPercent` — 50 is straight; `grade.ts`/`resultLines.ts` branch on it. */
+  readonly swingPercent: number
 }
 
 export type PlanGrooveRunOptions = {
@@ -143,7 +153,17 @@ export function subdivisionTicks(score: GrooveScore): number {
   const loopTicks = barTicks * score.measures.length
   const distinct = [
     ...new Set(
-      score.notes.map((note) => swungTick(note.tick, score.swingPercent, score.swingUnit, barTicks) as number),
+      score.notes.map(
+        (note) =>
+          swungTick(
+            note.tick,
+            score.swingPercent,
+            score.swingUnit,
+            barTicks,
+            score.timeSignature.beats,
+            score.timeSignature.beatType,
+          ) as number,
+      ),
     ),
   ].sort((a, b) => a - b)
   return smallestGapTicks(distinct, loopTicks)
@@ -219,27 +239,59 @@ export function planGrooveRun(
   // off `GroovePadPlan`, never `score.notes[].tick` directly, so swinging the
   // tick right here is what makes the run, the preview and the grading all
   // swing together.
-  const byPad = new Map<MappedDrumPad, number[]>()
+  const byPad = new Map<MappedDrumPad, Array<{ readonly swung: number; readonly nominal: number }>>()
   for (const note of score.notes) {
-    const swung = swungTick(note.tick, score.swingPercent, score.swingUnit, barTicks) as number
+    const nominal = note.tick as number
+    const swung = swungTick(
+      note.tick,
+      score.swingPercent,
+      score.swingUnit,
+      barTicks,
+      score.timeSignature.beats,
+      score.timeSignature.beatType,
+    ) as number
     const list = byPad.get(note.pad) ?? []
-    list.push(swung)
+    list.push({ swung, nominal })
     byPad.set(note.pad, list)
   }
 
   const loops = Math.ceil(gradedTicks / loopTicks)
   const pads: GroovePadPlan[] = []
   for (const [pad, rawTicks] of byPad) {
-    const loopTicksSorted = [...new Set(rawTicks)].sort((a, b) => a - b)
+    // Swung tick -> its own nominal (straight) tick. `validateGrooveScore`
+    // rejects any two notes on the same pad whose swing would collide on the
+    // same swung tick (see `groove.ts`), so a collision here means that
+    // precondition was violated upstream — an invariant, not a silent
+    // first-wins dedup.
+    const bySwung = new Map<number, number>()
+    for (const { swung, nominal } of rawTicks) {
+      const existing = bySwung.get(swung)
+      invariant(
+        existing === undefined || existing === nominal,
+        `groove run plan: pad ${pad} has notes at nominal ticks ${String(existing)} and ${nominal} that both swing to tick ${swung} — validateGrooveScore should have rejected this collision`,
+      )
+      if (existing === undefined) bySwung.set(swung, nominal)
+    }
+    const loopTicksSorted = [...bySwung.keys()].sort((a, b) => a - b)
+    const nominalTicksSorted = loopTicksSorted.map((tick) => {
+      const nominal = bySwung.get(tick)
+      invariant(nominal !== undefined, `groove run plan: no nominal tick recorded for swung tick ${tick}`)
+      return nominal
+    })
     const expectedMs: number[] = []
+    const expectedNominalMs: number[] = []
     for (let loop = 0; loop < loops; loop++) {
-      for (const tick of loopTicksSorted) {
+      for (let i = 0; i < loopTicksSorted.length; i++) {
+        const tick = loopTicksSorted[i]
+        const nominalTick = nominalTicksSorted[i]
+        if (tick === undefined || nominalTick === undefined) continue
         const absolute = tick + loop * loopTicks
         if (absolute >= gradedTicks) continue
         expectedMs.push(absolute * msPerTick)
+        expectedNominalMs.push((nominalTick + loop * loopTicks) * msPerTick)
       }
     }
-    pads.push({ pad, loopTicks: loopTicksSorted, expectedMs })
+    pads.push({ pad, loopTicks: loopTicksSorted, expectedMs, expectedNominalMs })
   }
 
   const subdivisionMs = subdivisionTicks(score) * msPerTick
@@ -259,5 +311,6 @@ export function planGrooveRun(
     toleranceMs,
     pads,
     unisonPairs: unisonPairsOf(score),
+    swingPercent: score.swingPercent,
   }
 }

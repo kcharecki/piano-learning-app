@@ -26,31 +26,55 @@
  */
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import type { GrooveRunPlan } from '@core/drums/practice/plan.ts'
+import { invariant } from '@core/shared/invariant.ts'
 
 /** One expected instant of the graded window: every pad written there. `pads` sorted by name, unique. */
 export type WaitStep = {
   readonly index: number
   /** ms from the graded origin, exactly as `GrooveRunPlan.pads[].expectedMs` carries it */
   readonly atMs: number
+  /**
+   * `atMs`'s own NOMINAL (straight, unswung) instant — `GroovePadPlan.expectedNominalMs`'s
+   * value at the same index. `stepPosition`'s `subdivision` is named from
+   * this, never from `atMs`: a swung "&" does not sit on the straight
+   * sixteenth grid `atMs` would be tested against (F3).
+   */
+  readonly nominalAtMs: number
   readonly pads: readonly MappedDrumPad[]
 }
 
 /** Distinct instants across every plan pad, ascending by `atMs`; index 0..n-1. Empty plan pads → []. */
 export function waitSteps(plan: GrooveRunPlan): readonly WaitStep[] {
   const padsByMs = new Map<number, Set<MappedDrumPad>>()
+  const nominalByMs = new Map<number, number>()
   for (const padPlan of plan.pads) {
-    for (const atMs of padPlan.expectedMs) {
+    for (let i = 0; i < padPlan.expectedMs.length; i++) {
+      const atMs = padPlan.expectedMs[i]
+      const nominalAtMs = padPlan.expectedNominalMs[i]
+      if (atMs === undefined || nominalAtMs === undefined) continue
       const set = padsByMs.get(atMs) ?? new Set<MappedDrumPad>()
       set.add(padPlan.pad)
       padsByMs.set(atMs, set)
+      // Swing is a function of the tick alone, never the pad (`swing.ts`'s
+      // own doc), so every pad written on one swung instant shares the same
+      // nominal instant too — an invariant, not a silent first-writer-wins.
+      const existingNominal = nominalByMs.get(atMs)
+      invariant(
+        existingNominal === undefined || existingNominal === nominalAtMs,
+        `wait steps: instant ${atMs}ms has two different nominal instants (${String(existingNominal)}, ${nominalAtMs}) across pads — swing must be a function of tick alone`,
+      )
+      if (existingNominal === undefined) nominalByMs.set(atMs, nominalAtMs)
     }
   }
   const sortedMs = [...padsByMs.keys()].sort((a, b) => a - b)
   return sortedMs.map((atMs, index) => {
     const pads = padsByMs.get(atMs)
+    const nominalAtMs = nominalByMs.get(atMs)
+    invariant(nominalAtMs !== undefined, `wait steps: no nominal instant recorded for ${atMs}ms`)
     return {
       index,
       atMs,
+      nominalAtMs,
       pads: pads === undefined ? [] : [...pads].sort(),
     }
   })
@@ -106,17 +130,24 @@ export type StepPosition = {
 const EPSILON_MS = 1e-6
 
 export function stepPosition(step: WaitStep, plan: GrooveRunPlan): StepPosition {
-  const bar = Math.floor((step.atMs + EPSILON_MS) / plan.barMs) + 1
-  const intoBar = step.atMs - (bar - 1) * plan.barMs
-  const beat = Math.floor((intoBar + EPSILON_MS) / plan.beatMs) + 1
-  const intoBeat = intoBar - (beat - 1) * plan.beatMs
+  // A1: bar, beat AND subdivision are all named off `nominalAtMs`, never the
+  // swung `atMs` — mixing a swung bar/beat with a nominal subdivision put a
+  // swung instant that crosses a beat boundary (e.g. a late-swung sixteenth
+  // pushed past the next beat line) under the WRONG beat's subdivision.
+  // `nominalAtMs` is the same straight instant the notated position always
+  // was; deriving bar, beat and subdivision from one shared time keeps them
+  // mutually consistent.
+  const nominalBar = Math.floor((step.nominalAtMs + EPSILON_MS) / plan.barMs) + 1
+  const nominalIntoBar = step.nominalAtMs - (nominalBar - 1) * plan.barMs
+  const nominalBeat = Math.floor((nominalIntoBar + EPSILON_MS) / plan.beatMs) + 1
+  const nominalIntoBeat = nominalIntoBar - (nominalBeat - 1) * plan.beatMs
   const sixteenth = plan.beatMs / 4
-  const k = Math.round(intoBeat / sixteenth)
+  const k = Math.round(nominalIntoBeat / sixteenth)
   // The floor+epsilon rollover above already carries a beat-boundary instant
-  // into the NEXT beat's `intoBeat` ≈ 0, so `k` never lands on 4 here.
-  // `intoBeat` can land a hair below 0 (float dust), rounding `k` to `-0`;
-  // `((k % 4) + 4) % 4` normalizes that to `0` rather than failing `toBe(0)`.
+  // into the NEXT beat's `nominalIntoBeat` ≈ 0, so `k` never lands on 4 here.
+  // `nominalIntoBeat` can land a hair below 0 (float dust), rounding `k` to
+  // `-0`; `((k % 4) + 4) % 4` normalizes that to `0` rather than failing `toBe(0)`.
   const subdivision =
-    Math.abs(intoBeat - k * sixteenth) <= EPSILON_MS ? (((k % 4) + 4) % 4 as 0 | 1 | 2 | 3) : undefined
-  return { bar, beat, subdivision }
+    Math.abs(nominalIntoBeat - k * sixteenth) <= EPSILON_MS ? (((k % 4) + 4) % 4 as 0 | 1 | 2 | 3) : undefined
+  return { bar: nominalBar, beat: nominalBeat, subdivision }
 }

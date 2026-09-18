@@ -2,6 +2,7 @@ import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import { grooveTrainerLibrary } from '@core/drums/practice/library.ts'
+import { jazzRideDrills } from '@core/drums/coordination/jazzRide.ts'
 import { planGrooveRun, type GrooveRunPlan } from '@core/drums/practice/plan.ts'
 import {
   applyWaitHit,
@@ -175,7 +176,7 @@ describe('waitSteps', () => {
 
 describe('applyWaitHit with a step whose pads carry a duplicate', () => {
   it('completes a step built with a repeated pad from a single hit', () => {
-    const steps: readonly WaitStep[] = [{ index: 0, atMs: 0, pads: ['kick', 'kick'] }]
+    const steps: readonly WaitStep[] = [{ index: 0, atMs: 0, nominalAtMs: 0, pads: ['kick', 'kick'] }]
     const applied = applyWaitHit(steps, INITIAL_WAIT_STATE, 'kick')
     expect(applied.outcome).toBe('advanced')
     expect(applied.state).toEqual({ stepIndex: 1, satisfied: [] })
@@ -213,7 +214,7 @@ describe('stepPosition', () => {
 
   // Pinned sixteenth-grid readings within one beat, independent of any real
   // groove's own instants — a hand-built `WaitStep` at each grid point.
-  const fakeStep = (atMs: number): WaitStep => ({ index: 0, atMs, pads: [] })
+  const fakeStep = (atMs: number): WaitStep => ({ index: 0, atMs, nominalAtMs: atMs, pads: [] })
 
   it('reads beatMs/4 as subdivision 1 ("e")', () => {
     expect(stepPosition(fakeStep(plan.beatMs / 4), plan).subdivision).toBe(1)
@@ -243,5 +244,54 @@ describe('stepPosition', () => {
       return waitSteps(p).some((step) => stepPosition(step, p).subdivision === 2)
     })
     expect(found).toBe(true)
+  })
+})
+
+describe('stepPosition on a swung plan (F3)', () => {
+  // Jazz ride drill 3 ("comp on the & of 2", roadmap DR-15 coordination) at
+  // 120bpm: the snare's swung instant lands at 835.42ms (swingPercent 67
+  // bends the & later), but its NOMINAL instant is 750ms — bar 1, beat 2,
+  // the "and". Pre-fix, `stepPosition` read `subdivision` off the swung
+  // 835.42ms itself: 835.42 - 500 (beat start) = 335.42ms into the beat,
+  // against a 125ms sixteenth grid that is 39.58ms off the nearest tick
+  // (well past EPSILON_MS), so it reported `subdivision: undefined` and
+  // waitText.ts rendered "(off the beat)" for this and every other swung
+  // off-beat step. This test kills that mutant: reading off `nominalAtMs`
+  // (750ms, exactly on the "and") must report `subdivision: 2`.
+  const jazzPlan = planGrooveRun(jazzRideDrills()[2]!.score, 120)
+  const jazzSteps = waitSteps(jazzPlan)
+
+  it('reads the swung snare-comp step\'s nominal instant as bar 1, beat 2, subdivision 2 (the "and"), not undefined', () => {
+    const step = jazzSteps[2]
+    expect(step).toBeDefined()
+    if (step === undefined) return
+    expect(step.atMs).toBeCloseTo(835.4167, 3)
+    expect(step.nominalAtMs).toBe(750)
+    expect(step.pads).toEqual(['rideBow', 'snare'])
+    expect(stepPosition(step, jazzPlan)).toEqual({ bar: 1, beat: 2, subdivision: 2 })
+  })
+})
+
+describe('stepPosition bar/beat is read off nominalAtMs, never the swung atMs (A1)', () => {
+  // A1: pre-fix, `bar`/`beat`/`intoBar` were computed from the swung `atMs`
+  // while `subdivision` was already computed from `nominalAtMs` (F3) — a
+  // step whose swing pushes it PAST a beat boundary got a beat number that
+  // disagreed with its own subdivision. Reproduced with a 125ms beat (500ms
+  // bar): a note whose NOMINAL instant is 250ms sits exactly on the start of
+  // beat 3 (2*125=250) — {bar:1, beat:3, subdivision:0} — but its swung
+  // instant of 375ms (75% eighth swing having pushed it a further 125ms
+  // late, e.g. the 4th sixteenth of a 16th-note grid swung a full cell) sits
+  // exactly on the start of beat 4. Pre-fix, `stepPosition` would have
+  // returned `bar:1, beat:4` (from the swung 375ms) combined with
+  // `subdivision:0` (from the nominal 250ms) — the exact mismatched
+  // `{bar:1, beat:4, subdivision:0}` this finding describes. Post-fix, both
+  // beat and subdivision come from the same nominal instant, so this test
+  // kills any mutant that reintroduces `step.atMs` into the bar/beat calc.
+  const basePlan = planGrooveRun(grooveTrainerLibrary()[0], 80)
+  const plan: GrooveRunPlan = { ...basePlan, beatMs: 125, barMs: 500 }
+  const step: WaitStep = { index: 0, atMs: 375, nominalAtMs: 250, pads: [] }
+
+  it('reads bar 1, beat 3, subdivision 0 from nominalAtMs=250, ignoring the swung atMs=375 (which alone would read beat 4)', () => {
+    expect(stepPosition(step, plan)).toEqual({ bar: 1, beat: 3, subdivision: 0 })
   })
 })

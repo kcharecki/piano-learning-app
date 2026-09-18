@@ -112,12 +112,22 @@ function straightCellTicks(subdivision: Subdivision): Ticks {
  * and a LOCAL cell index (`cellIndex % cellsPerMeasureCount`), and swing
  * pairs the local index, not the global one — see the module doc for why
  * that matters for odd-`cellsPerMeasure` meters.
+ *
+ * `beats`/`beatType` name the time signature this cell belongs to, taken as
+ * FIELDS rather than a `TimeSignature` record (the house convention for
+ * `src/core` helpers). N1: a compound meter (`beatType === 8 && beats % 3
+ * === 0`) groups its eighths in threes, not twos, so this function's duple
+ * pairing does not describe its pulse — same guard, same condition, as
+ * `swing.ts`'s `swungTick`, which this function must keep agreeing with
+ * (`swing.test.ts`'s cross-check runs both over compound meters).
  */
 export function subdivisionCellTick(
   cellIndex: number,
   subdivision: Subdivision,
   swingPercent: number,
   cellsPerMeasureCount: number,
+  beats: number,
+  beatType: number,
 ): Ticks {
   const cellsPerBeat = CELLS_PER_BEAT[subdivision]
   const cellTicksStraight = TICKS_PER_QUARTER / cellsPerBeat
@@ -125,7 +135,10 @@ export function subdivisionCellTick(
   const localIndex = cellIndex - measureIndex * cellsPerMeasureCount
   const measureStartTick = measureIndex * cellsPerMeasureCount * cellTicksStraight
   const straightLocal = localIndex * cellTicksStraight
-  if (cellsPerBeat % 2 !== 0 || swingPercent === 50) return ticks(measureStartTick + straightLocal)
+  const isCompound = beatType === 8 && beats % 3 === 0
+  if (cellsPerBeat % 2 !== 0 || swingPercent === 50 || isCompound) {
+    return ticks(measureStartTick + straightLocal)
+  }
   const pairIndex = Math.floor(localIndex / 2)
   const parity = localIndex % 2
   const pairTicksStraight = 2 * cellTicksStraight
@@ -140,17 +153,25 @@ export function subdivisionCellTicks(
   subdivision: Subdivision,
   swingPercent: number,
   cellsPerMeasureCount: number,
+  beats: number,
+  beatType: number,
 ): readonly Ticks[] {
   const out: Ticks[] = []
   for (let i = 0; i < count; i++) {
-    out.push(subdivisionCellTick(i, subdivision, swingPercent, cellsPerMeasureCount))
+    out.push(subdivisionCellTick(i, subdivision, swingPercent, cellsPerMeasureCount, beats, beatType))
   }
   return out
 }
 
 /** The straight (unswung) tick of global cell `cellIndex` — `subdivisionCellTick` at `swingPercent` 50. */
-function nominalCellTick(cellIndex: number, subdivision: Subdivision, cellsPerMeasureCount: number): Ticks {
-  return subdivisionCellTick(cellIndex, subdivision, 50, cellsPerMeasureCount)
+function nominalCellTick(
+  cellIndex: number,
+  subdivision: Subdivision,
+  cellsPerMeasureCount: number,
+  beats: number,
+  beatType: number,
+): Ticks {
+  return subdivisionCellTick(cellIndex, subdivision, 50, cellsPerMeasureCount, beats, beatType)
 }
 
 /** Cells in one bar of `timeSignature` at this subdivision, or `undefined` if it does not divide evenly. */
@@ -177,7 +198,10 @@ export function scoreToGrid(score: GrooveScore, subdivision: Subdivision): Resul
     // Always the STRAIGHT grid — see the module doc. `score.swingPercent` is
     // performance metadata carried through below, never used to shift where
     // a note is expected to land.
-    tickToCell.set(nominalCellTick(i, subdivision, perMeasure), i)
+    tickToCell.set(
+      nominalCellTick(i, subdivision, perMeasure, score.timeSignature.beats, score.timeSignature.beatType),
+      i,
+    )
   }
 
   const rowByPad = new Map<MappedDrumPad, (GridCell | undefined)[]>(
@@ -243,7 +267,13 @@ export function gridToScore(grid: GrooveGrid, meta: GrooveGridMeta): Result<Groo
   for (const row of grid.rows) {
     row.cells.forEach((cell, cellIndex) => {
       if (cell === undefined) return
-      const tick = nominalCellTick(cellIndex, grid.subdivision, grid.cellsPerMeasure)
+      const tick = nominalCellTick(
+        cellIndex,
+        grid.subdivision,
+        grid.cellsPerMeasure,
+        grid.timeSignature.beats,
+        grid.timeSignature.beatType,
+      )
       notes.push({
         pad: row.pad,
         tick,

@@ -6,8 +6,11 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { ArticulationSlip, GroovePadResult, GrooveRunResult } from '@core/drums/practice/grade.ts'
-import { gradeGrooveRun } from '@core/drums/practice/grade.ts'
+import { gradeGrooveRun, type GrooveHit } from '@core/drums/practice/grade.ts'
 import { moneyBeat, moneyBeatOpenHat, quarterNoteRock } from '@core/drums/model/referenceGrooves.ts'
+import { jazzRideDrills } from '@core/drums/coordination/jazzRide.ts'
+import { makeGrooveScore } from '@core/drums/model/groove.ts'
+import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import { planGrooveRun, type GrooveRunPlan } from '@core/drums/practice/plan.ts'
 import {
   articulationSentence,
@@ -358,5 +361,83 @@ describe('gradedAtText', () => {
   it('names the exact tempo it was graded at', () => {
     expect(gradedAtText(80)).toBe('Graded at 80 bpm')
     expect(gradedAtText(200)).toBe('Graded at 200 bpm')
+  })
+})
+
+/**
+ * R1. F1 skips `slipSteps` for any swung plan, so a swung run played
+ * uniformly late has nothing for `slipSteps`, `worstUnisonGap`, `spreadMs` or
+ * `driftMs` to read — every one of those needs a matched hit, and a uniform
+ * offset past the window has none. Reusing grade.test.ts's own F1 probe
+ * (jazz-ride drill 3 at 120 bpm, every stroke shifted by exactly one nominal
+ * eighth, 240 ticks = 250 ms at 120 bpm): pre-fix, `diagnosisSentences`
+ * returned `[]` here (verdict "Not there yet" with no explanation at all).
+ */
+describe('diagnosisSentences when every stroke misses its window (R1)', () => {
+  it('names it directly instead of returning an empty diagnosis', () => {
+    const jazzStep3 = jazzRideDrills()[2]
+    expect(jazzStep3).toBeDefined()
+    if (jazzStep3 === undefined) return
+    const jazzPlan = planGrooveRun(jazzStep3.score, 120)
+    expect(jazzPlan.swingPercent).toBe(67)
+    const msPerTick = 60_000 / 120 / 480
+    const offsetMs = 240 * msPerTick
+    expect(offsetMs).toBeCloseTo(250, 6)
+
+    const hits: GrooveHit[] = jazzPlan.pads.flatMap((padPlan) =>
+      padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad as MappedDrumPad, ms: ms + offsetMs })),
+    )
+    const result = gradeGrooveRun(jazzPlan, hits)
+    expect(result.steady).toBe(false)
+    expect(result.totalHits).toBeGreaterThan(0)
+    expect(result.pads.every((row) => row.matched === 0)).toBe(true)
+    expect(result.slipSteps).toBeUndefined()
+
+    expect(diagnosisSentences(result, jazzPlan)).toEqual([
+      'Every stroke landed outside its window — the pattern is there, where you came in is not. Restart on the count-in.',
+    ])
+  })
+})
+
+/**
+ * Round-3 RED: the R1 all-missed branch above fired unconditionally on
+ * "every pad matched === 0", pre-empting the slip sentence below it — but a
+ * STRAIGHT drill (swingPercent 50, so `slipSteps` is NOT skipped by F1) shifted
+ * by exactly one whole subdivision also has every pad `matched === 0` (each
+ * hit lands on the NEXT expected instant of a different pad, never its own),
+ * while `slipSteps` is defined and names the fix far more precisely. Kick on
+ * 1 and 3, snare on 2 and 4 only (no hi-hat) — the hi-hat's own instants are
+ * exactly one subdivision apart, which would let a shifted hi-hat hit
+ * re-match its own next instant and mask the bug this test is for.
+ */
+describe('diagnosisSentences prefers the slip sentence over all-missed when both conditions hold (round-3 RED)', () => {
+  it('a straight drill shifted by exactly one subdivision reports the slip, not the generic all-missed line', () => {
+    const score = makeGrooveScore({
+      id: 'kick-snare-only',
+      title: 'Kick and snare only',
+      measureCount: 1,
+      notes: [
+        { pad: 'kick', tick: 0, durationTicks: 480 },
+        { pad: 'kick', tick: 960, durationTicks: 480 },
+        { pad: 'snare', tick: 480, durationTicks: 480 },
+        { pad: 'snare', tick: 1440, durationTicks: 480 },
+      ],
+    })
+    const plan = planGrooveRun(score, 120)
+    expect(plan.swingPercent).toBe(50)
+    // Computed from the plan, not assumed: one subdivision, in ms.
+    const offsetMs = plan.subdivisionMs
+
+    const hits: GrooveHit[] = plan.pads.flatMap((padPlan) =>
+      padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad as MappedDrumPad, ms: ms + offsetMs })),
+    )
+    const result = gradeGrooveRun(plan, hits)
+    expect(result.steady).toBe(false)
+    expect(result.pads.every((row) => row.matched === 0)).toBe(true)
+    expect(result.slipSteps).toBe(1)
+
+    expect(diagnosisSentences(result, plan)).toEqual([
+      'The whole pattern sat 1 beat behind the click. The pattern is right; where you came in is not.',
+    ])
   })
 })

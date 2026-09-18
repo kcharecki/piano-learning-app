@@ -75,8 +75,15 @@ const titleArb = fc
  * `parseDrumMusicXml` reconstructs that same canonical order off the XML, so
  * the fixture needs no special placement to round-trip byte-for-byte.
  */
+/**
+ * A4 superseded F4: being off the swing-unit grid is not itself invalid, so
+ * ticks are arbitrary across the whole bar again (no grid constraint here).
+ * The only rejection `grooveArb` below now filters for is a real same-pad
+ * swung-tick collision, via `validateGrooveScore` itself.
+ */
 function noteInputArb(barTicks: number) {
-  return fc.tuple(mappedPadArb, fc.integer({ min: 0, max: barTicks - 1 })).chain(([pad, tick]) =>
+  const tickArb = fc.integer({ min: 0, max: barTicks - 1 })
+  return fc.tuple(mappedPadArb, tickArb).chain(([pad, tick]) =>
     fc.record(
       {
         pad: fc.constant(pad),
@@ -116,6 +123,16 @@ function dedupeOverlaps<T extends { readonly pad: string; readonly tick: number;
 
 const swingUnitArb: fc.Arbitrary<SwingUnit> = fc.constantFrom('eighth', 'sixteenth')
 
+/**
+ * A4: ticks are arbitrary (see `noteInputArb`), so a generated swung score
+ * can now hit the one thing `validateGrooveScore` still rejects — two notes
+ * on the SAME pad whose swung ticks collide (F4's old, broader "off the
+ * swing-unit grid" rejection is gone; a lone off-grid note is fine). Rather
+ * than re-deriving that collision rule here, this filters through
+ * `makeGrooveScore` itself (which calls `validateGrooveScore`) and discards
+ * whatever it rejects — the real validator decides, this arbitrary does not
+ * guess at its rule.
+ */
 const grooveArb: fc.Arbitrary<GrooveScore> = fc
   .tuple(fc.uuid(), titleArb, timeSignatureArb, fc.integer({ min: 50, max: 75 }), swingUnitArb)
   .chain(([id, title, timeSignature, swingPercent, swingUnit]) => {
@@ -129,6 +146,14 @@ const grooveArb: fc.Arbitrary<GrooveScore> = fc
       measureCount: 1,
       notes: dedupeOverlaps(notes),
     }))
+  })
+  .filter((input) => {
+    try {
+      makeGrooveScore(input)
+      return true
+    } catch {
+      return false
+    }
   })
   .map((input) => makeGrooveScore(input))
 

@@ -34,8 +34,17 @@ function makePlan(
     subdivisionMs: windowMs * 2,
     windowMs,
     toleranceMs: windowMs,
-    pads: [{ pad: 'kick', loopTicks: [], expectedMs: [...expectedMs].sort((a, b) => a - b) }],
+    // Straight fixture: nominal instants equal the swung ones (`swingPercent: 50` below).
+    pads: [
+      {
+        pad: 'kick',
+        loopTicks: [],
+        expectedMs: [...expectedMs].sort((a, b) => a - b),
+        expectedNominalMs: [...expectedMs].sort((a, b) => a - b),
+      },
+    ],
     unisonPairs: [],
+    swingPercent: 50,
   }
 }
 
@@ -63,12 +72,18 @@ function makePlanWithPads(
     subdivisionMs: windowMs * 2,
     windowMs,
     toleranceMs: windowMs,
-    pads: padsExpectedMs.map((expectedMs, i) => ({
-      pad: padNames[i % padNames.length] ?? 'kick',
-      loopTicks: [],
-      expectedMs: [...expectedMs].sort((a, b) => a - b),
-    })),
+    // Straight fixture: nominal instants equal the swung ones (`swingPercent: 50` below).
+    pads: padsExpectedMs.map((expectedMs, i) => {
+      const sorted = [...expectedMs].sort((a, b) => a - b)
+      return {
+        pad: padNames[i % padNames.length] ?? 'kick',
+        loopTicks: [],
+        expectedMs: sorted,
+        expectedNominalMs: sorted,
+      }
+    }),
     unisonPairs: [],
+    swingPercent: 50,
   }
 }
 

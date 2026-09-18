@@ -28,8 +28,11 @@ function makePlan(
     subdivisionMs: windowMs * 4,
     windowMs,
     toleranceMs: windowMs,
-    pads: pads.map(({ pad, expectedMs }) => ({ pad, loopTicks: [], expectedMs })),
+    // Straight fixture throughout: nominal instants equal the swung ones,
+    // same rule `plan.ts` applies when `swingPercent === 50`.
+    pads: pads.map(({ pad, expectedMs }) => ({ pad, loopTicks: [], expectedMs, expectedNominalMs: expectedMs })),
     unisonPairs: [],
+    swingPercent: 50,
   }
 }
 

@@ -21,6 +21,7 @@ import { ticks, type Ticks } from '@core/shared/units.ts'
 import { measureDurationTicks, type TimeSignature } from '@core/notation/score.ts'
 import { ARTICULATIONS, isArticulation, isSticking, type Articulation, type Sticking } from './articulation.ts'
 import { isMappedDrumPad, type MappedDrumPad, padOrderIndex, voiceOf, type Voice } from './pad.ts'
+import { swungTick } from './swing.ts'
 import type { VelocityClass } from './velocity.ts'
 
 /** The notated dynamics class — the same three-way vocabulary `velocityClassOf` classifies live hits into. */
@@ -321,6 +322,14 @@ export function validateGrooveScore(score: GrooveScore): Result<GrooveScore, str
     expectedStart += m.durationTicks
   }
 
+  // A4: a compound meter's beats group in threes, so `swungTick`'s duple
+  // pairing does not describe its pulse — same condition `swing.ts` and
+  // `grid.ts` use, and `swungTick` is already the identity there, so a
+  // compound score can never have a swing-collision in the first place.
+  const isCompoundMeter = score.timeSignature.beatType === 8 && score.timeSignature.beats % 3 === 0
+  /** Pad -> (swung tick -> id of the note already claiming it), swung scores only. See the A4 collision check below. */
+  const swungByPad = new Map<string, Map<number, string>>()
+
   const ids = new Set<string>()
   /** Last note seen on each pad, in scan order — valid because notes are (or will be checked to
    * be) sorted by tick, so this is always the immediately-preceding note on that pad. */
@@ -348,6 +357,35 @@ export function validateGrooveScore(score: GrooveScore): Result<GrooveScore, str
     if (!Number.isInteger(n.tick) || n.tick < 0) return err(`note ${n.id} has an invalid tick`)
     if (!Number.isInteger(n.durationTicks) || n.durationTicks <= 0) {
       return err(`note ${n.id} has a non-positive duration`)
+    }
+    // A4: reject only a REAL collision — two notes on the same pad whose
+    // swung positions land on the same tick, which is what would otherwise
+    // let `practice/plan.ts`'s swung-tick dedup (`[...new Set(...)]`)
+    // silently drop one of them. A note off the swingUnit's own grid (e.g. a
+    // sixteenth in an eighth-swing groove) is NOT rejected merely for being
+    // off-grid: `swungTick` only ever moves the second cell of a pair, so
+    // most off-grid ticks (and most swingPercent values) never collide with
+    // anything (F5/A4: e.g. ghost-funk-bar's all-sixteenths hi-hat collides
+    // at swingPercent 75 only — 55..74 all land distinct). Skipped entirely
+    // for a compound meter (A3): `swungTick` is already the identity there.
+    if (score.swingPercent !== 50 && !isCompoundMeter) {
+      const swung = swungTick(
+        n.tick,
+        score.swingPercent,
+        score.swingUnit,
+        barTicks,
+        score.timeSignature.beats,
+        score.timeSignature.beatType,
+      ) as number
+      const seenForPad = swungByPad.get(n.pad) ?? new Map<number, string>()
+      const collidingId = seenForPad.get(swung)
+      if (collidingId !== undefined) {
+        return err(
+          `notes ${collidingId} and ${n.id} for pad ${n.pad} both swing to tick ${swung} (swingPercent ${score.swingPercent}, swingUnit ${score.swingUnit}) — one stroke would silently overwrite the other`,
+        )
+      }
+      seenForPad.set(swung, n.id)
+      swungByPad.set(n.pad, seenForPad)
     }
     const expectedVoice = voiceOf(n.pad)
     if (expectedVoice === undefined || n.voice !== expectedVoice) {

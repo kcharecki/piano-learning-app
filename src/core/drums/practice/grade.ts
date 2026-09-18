@@ -38,7 +38,7 @@
  */
 import { invariant } from '@core/shared/invariant.ts'
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
-import type { GrooveRunPlan, UnisonPair } from './plan.ts'
+import type { GroovePadPlan, GrooveRunPlan, UnisonPair } from './plan.ts'
 
 /** One pad press, in ms from the moment the graded window opened. */
 export type GrooveHit = {
@@ -257,23 +257,37 @@ function drift(offsets: readonly number[]): number | undefined {
  * agrees**, because a learner who swaps two limbs produces two pads whose
  * best displacements are equal and opposite, and calling that a phase slip
  * would blame the clock for a hand problem.
+ *
+ * **Straight scores only.** `subdivisionMs` (`plan.ts`) is the smallest gap
+ * between distinct notated instants — on a swung score that gap is the
+ * SWUNG spacing, not a constant grid-step multiple (a jazz-ride bar's gaps
+ * alternate 322/158 ticks at 67%, never a uniform step), so `step *
+ * subdivisionMs` does not mean "N grid steps" once the grid is uneven. F1:
+ * a run played exactly one nominal eighth late on a swung score would
+ * therefore land on the wrong `step` (or none), so this whole pass is
+ * skipped — `undefined` — for anything but a straight (`swingPercent ===
+ * 50`) score, rather than reporting a wrong displacement.
  */
 function runSlipSteps(
-  plan: GrooveRunPlan,
+  pads: readonly GroovePadPlan[],
+  windowMs: number,
+  subdivisionMs: number,
+  swingPercent: number,
   hitsByPad: ReadonlyMap<MappedDrumPad, readonly number[]>,
 ): number | undefined {
+  if (swingPercent !== 50) return undefined
   const steps = [...Array(MAX_SLIP_STEPS * 2 + 1).keys()].map((i) => i - MAX_SLIP_STEPS)
   const totals = new Map<number, number>(steps.map((step) => [step, 0]))
   let expectedTotal = 0
   let agreed: number | undefined
   let first = true
 
-  for (const padPlan of plan.pads) {
+  for (const padPlan of pads) {
     const hits = hitsByPad.get(padPlan.pad) ?? []
     expectedTotal += padPlan.expectedMs.length
     const counts = steps.map((step) => ({
       step,
-      count: matchCountAt(padPlan.expectedMs, hits, plan.windowMs, step * plan.subdivisionMs),
+      count: matchCountAt(padPlan.expectedMs, hits, windowMs, step * subdivisionMs),
     }))
     for (const { step, count } of counts) totals.set(step, (totals.get(step) ?? 0) + count)
     if (hits.length === 0) continue
@@ -463,7 +477,7 @@ export function gradeGrooveRun(plan: GrooveRunPlan, hits: readonly GrooveHit[]):
     pads,
     unison,
     articulation,
-    slipSteps: runSlipSteps(plan, hitsByPad),
+    slipSteps: runSlipSteps(plan.pads, plan.windowMs, plan.subdivisionMs, plan.swingPercent, hitsByPad),
     limits,
   }
 }

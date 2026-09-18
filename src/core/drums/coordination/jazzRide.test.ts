@@ -58,9 +58,4 @@ describe('jazzRideDrills', () => {
     expect(snareTicks(4)).toEqual([240, 1200]) // comp on the & of 1 and the & of 3
     expect(snareTicks(5)).toEqual([480, 1680]) // comp on 2 and the & of 4
   })
-
-  it('makeGrooveScore does not throw for any of the six drills (already true, since jazzRideDrills built them)', () => {
-    expect(() => jazzRideDrills()).not.toThrow()
-    expect(jazzRideDrills()).toHaveLength(6)
-  })
 })

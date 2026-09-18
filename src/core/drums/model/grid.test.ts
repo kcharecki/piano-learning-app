@@ -31,19 +31,19 @@ describe('cellsPerMeasure', () => {
 
 describe('subdivisionCellTick / straight grids', () => {
   it('a straight (swingPercent=50) eighth grid lands on 240-tick multiples', () => {
-    const ticks = subdivisionCellTicks(8, 'eighth', 50, 8)
+    const ticks = subdivisionCellTicks(8, 'eighth', 50, 8, 4, 4)
     expect(ticks).toEqual([0, 240, 480, 720, 960, 1200, 1440, 1680])
   })
 
   it('a triplet grid ignores swingPercent entirely', () => {
-    const straight = subdivisionCellTicks(6, 'triplet', 50, 12)
-    const swung = subdivisionCellTicks(6, 'triplet', 75, 12)
+    const straight = subdivisionCellTicks(6, 'triplet', 50, 12, 4, 4)
+    const swung = subdivisionCellTicks(6, 'triplet', 75, 12, 4, 4)
     expect(swung).toEqual(straight)
   })
 
   it('swing delays only the odd (off-beat) cell of each pair', () => {
     // eighth cells at 75% swing: pair (0,240) -> cell 1 sits at round(480*0.75)=360.
-    const ticks = subdivisionCellTicks(4, 'eighth', 75, 8)
+    const ticks = subdivisionCellTicks(4, 'eighth', 75, 8, 4, 4)
     expect(ticks).toEqual([0, 360, 480, 840])
   })
 })
@@ -60,7 +60,7 @@ describe('property: swing application is reversible (strictly increasing tick po
         fc.integer({ min: 1, max: 16 }),
         fc.integer({ min: 1, max: 64 }),
         (subdivision, swingPercent, cellsPerMeasureCount, count) => {
-          const seq = subdivisionCellTicks(count, subdivision, swingPercent, cellsPerMeasureCount)
+          const seq = subdivisionCellTicks(count, subdivision, swingPercent, cellsPerMeasureCount, 4, 4)
           for (let i = 1; i < seq.length; i++) {
             const prev = seq[i - 1]
             const cur = seq[i]
@@ -91,7 +91,7 @@ describe('property: swing pairing restarts at every measure boundary (G1)', () =
         const cellTicksStraight = 240 // TICKS_PER_QUARTER / 2 for eighth
         for (let measureIndex = 0; measureIndex < measureCount; measureIndex++) {
           const globalIndex = measureIndex * perMeasure
-          const tick = subdivisionCellTick(globalIndex, 'eighth', swingPercent, perMeasure)
+          const tick = subdivisionCellTick(globalIndex, 'eighth', swingPercent, perMeasure, timeSignature.beats, timeSignature.beatType)
           expect(tick).toBe(measureIndex * perMeasure * cellTicksStraight)
         }
       }),
@@ -106,10 +106,10 @@ describe('property: swing pairing restarts at every measure boundary (G1)', () =
         if (perMeasure === undefined) return
         const cellTicksStraight = 240
         for (let localIndex = 0; localIndex < perMeasure; localIndex++) {
-          const firstMeasureOffset = subdivisionCellTick(localIndex, 'eighth', swingPercent, perMeasure)
+          const firstMeasureOffset = subdivisionCellTick(localIndex, 'eighth', swingPercent, perMeasure, timeSignature.beats, timeSignature.beatType)
           for (let measureIndex = 1; measureIndex < measureCount; measureIndex++) {
             const globalIndex = measureIndex * perMeasure + localIndex
-            const tick = subdivisionCellTick(globalIndex, 'eighth', swingPercent, perMeasure)
+            const tick = subdivisionCellTick(globalIndex, 'eighth', swingPercent, perMeasure, timeSignature.beats, timeSignature.beatType)
             const measureStart = measureIndex * perMeasure * cellTicksStraight
             expect(tick - measureStart).toBe(firstMeasureOffset)
           }
@@ -128,13 +128,13 @@ describe('property: swing pairing restarts at every measure boundary (G1)', () =
         const cellTicksStraight = 120 // TICKS_PER_QUARTER / 4 for sixteenth
         for (let measureIndex = 0; measureIndex < measureCount; measureIndex++) {
           const measureStart = measureIndex * perMeasure * cellTicksStraight
-          const firstCellTick = subdivisionCellTick(measureIndex * perMeasure, 'sixteenth', swingPercent, perMeasure)
+          const firstCellTick = subdivisionCellTick(measureIndex * perMeasure, 'sixteenth', swingPercent, perMeasure, timeSignature.beats, timeSignature.beatType)
           expect(firstCellTick).toBe(measureStart)
 
           // Cell 4 (local index 4, the 5th and last cell) has no pair partner
           // in a 5-cell measure — it must always land straight.
           const lastLocal = perMeasure - 1
-          const lastCellTick = subdivisionCellTick(measureIndex * perMeasure + lastLocal, 'sixteenth', swingPercent, perMeasure)
+          const lastCellTick = subdivisionCellTick(measureIndex * perMeasure + lastLocal, 'sixteenth', swingPercent, perMeasure, timeSignature.beats, timeSignature.beatType)
           expect(lastCellTick - measureStart).toBe(lastLocal * cellTicksStraight)
         }
       }),

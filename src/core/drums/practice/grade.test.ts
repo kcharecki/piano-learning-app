@@ -1,5 +1,6 @@
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
+import { jazzRideDrills } from '@core/drums/coordination/jazzRide.ts'
 import { ghostFunkBar, moneyBeat, moneyBeatOpenHat, referenceGrooves } from '@core/drums/model/referenceGrooves.ts'
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import { gradeGrooveRun, worstUnisonGap, type GrooveHit } from './grade.ts'
@@ -138,6 +139,36 @@ describe('gradeGrooveRun', () => {
     expect(row(result, 'hhClosed')?.matched).toBe(0)
     expect(row(result, 'hhClosed')?.meanOffsetMs).toBeUndefined()
     expect(result.steady).toBe(false)
+  })
+
+  /**
+   * F1. `subdivisionMs` on a swung plan is the smallest SWUNG gap, not a
+   * constant grid-step multiple — jazz-ride step 3 ("comp on the & of 2",
+   * swingPercent 67) at 120 bpm has `windowMs` 82.29 ms (computed by the
+   * plan, not by hand). Pre-fix, shifting every instant by exactly one
+   * nominal eighth late (+240 ticks = +250 ms at 120 bpm, msPerTick =
+   * 60000/120/480) reported `slipSteps: 2`, and a uniform +83 ms reported
+   * `slipSteps: 1` with 15 of 18 strokes missed — both wrong, since neither
+   * shift is "N nominal grid steps" on the swung grid `subdivisionMs *
+   * step` assumes. This kills that mutant: the whole-pattern-displacement
+   * pass is now skipped for any swung score, so both come back `undefined`,
+   * with the offsets themselves untouched (every stroke still finds its
+   * instant once shifted the same amount).
+   */
+  it('does not call a grid position on a swung score — the whole-pattern displacement pass is skipped when swung (F1)', () => {
+    const jazzStep3 = jazzRideDrills()[2]
+    expect(jazzStep3).toBeDefined()
+    if (jazzStep3 === undefined) return
+    const jazzPlan = planGrooveRun(jazzStep3.score, 120)
+    expect(jazzPlan.swingPercent).toBe(67)
+    const msPerTick = 60_000 / 120 / 480
+    expect(jazzPlan.windowMs).toBeCloseTo(82.29, 2)
+
+    const oneEighthLate = gradeGrooveRun(jazzPlan, play(jazzPlan, () => 240 * msPerTick))
+    expect(oneEighthLate.slipSteps).toBeUndefined()
+
+    const uniformLatency = gradeGrooveRun(jazzPlan, play(jazzPlan, () => 83))
+    expect(uniformLatency.slipSteps).toBeUndefined()
   })
 
   it('fails a run whose strokes scatter about their own mean', () => {

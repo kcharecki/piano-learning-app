@@ -111,9 +111,17 @@ export function padLineText(row: GroovePadResult): string {
 /**
  * What one grid step is called at this groove's density, so a phase slip can be
  * reported in musical units rather than as "1 step".
+ *
+ * A2: this is only ever reached through `diagnosisSentences`'s
+ * `result.slipSteps !== undefined` branch, and F1 makes `slipSteps` always
+ * `undefined` for a swung plan (`swingPercent !== 50`) — so `swingPercent`
+ * here is always 50 in practice, and the swung branch this function used to
+ * have (naming the step from `swingUnit` instead) was dead code reachable
+ * only by a hand-built `GrooveRunResult` the real grader can never produce.
+ * Real per-cell swung slip detection is deferred to a later slice.
  */
-function stepName(plan: GrooveRunPlan): string {
-  const perBeat = plan.beatMs / plan.subdivisionMs
+function stepName(beatMs: number, subdivisionMs: number): string {
+  const perBeat = beatMs / subdivisionMs
   if (perBeat >= 3.5) return 'sixteenth'
   if (perBeat >= 1.5) return 'eighth'
   return 'beat'
@@ -193,6 +201,29 @@ export function diagnosisSentences(
     ]
   }
 
+  // R1: hits registered, but every one of them missed its window — a
+  // uniform offset (a swung run started a full nominal step late, say) has
+  // no matches for `slipSteps` (undefined when swung, F1), `worstUnisonGap`,
+  // `spreadMs` or `driftMs` to read (all need matched hits), so without this
+  // branch the panel said only "Not there yet" with no diagnosis at all.
+  //
+  // Round-3 RED: gated on `result.slipSteps === undefined` too — a STRAIGHT
+  // drill shifted by exactly one whole subdivision also has every pad
+  // `matched === 0` (the grid position pass can't match anything either),
+  // but `slipSteps` is defined there (it is only ever `undefined` when
+  // swung, F1) and names the fix precisely ("sat 1 beat behind the click").
+  // Without this gate, this branch pre-empted that strictly more useful
+  // sentence with the generic one below it.
+  if (
+    result.slipSteps === undefined &&
+    result.pads.length > 0 &&
+    result.pads.every((padRow) => padRow.matched === 0)
+  ) {
+    return [
+      'Every stroke landed outside its window — the pattern is there, where you came in is not. Restart on the count-in.',
+    ]
+  }
+
   const sentences: string[] = []
 
   // Roadmap T.33: an articulation mixup is named first — a pattern played
@@ -206,7 +237,7 @@ export function diagnosisSentences(
     const steps = Math.abs(result.slipSteps)
     const direction = result.slipSteps > 0 ? 'behind' : 'ahead of'
     sentences.push(
-      `The whole pattern sat ${plural(steps, stepName(plan))} ${direction} the click. The pattern is right; where you came in is not.`,
+      `The whole pattern sat ${plural(steps, stepName(plan.beatMs, plan.subdivisionMs))} ${direction} the click. The pattern is right; where you came in is not.`,
     )
   }
 

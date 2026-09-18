@@ -137,10 +137,22 @@ export function CoordinationTrainerScreen(props: CoordinationTrainerScreenProps)
   return (
     <div className="page page--focus coordination-screen">
       <div className="page-header">
-        <h1>Coordination</h1>
-        <p className="page-header-subtitle">
-          Build a groove one limb at a time, or move one kick — then two — through the bar against a steady backbone.
-        </p>
+        <div>
+          <h1>Coordination</h1>
+          <p className="page-header-subtitle">
+            Build a groove one limb at a time, or move one kick — then two — through the bar against a steady backbone.
+          </p>
+        </div>
+        {/* A5: badge lives in its own actions column, same pattern as
+            FlashcardScreen — a third direct flex child of `.page-header`
+            (space-between) pushed the subtitle to the middle instead. */}
+        <div className="page-header-actions">
+          {/* F8: a swung run (jazz ride) delays every off-beat instant against the
+              click by design — without this cue a learner reads that delay as
+              drift/lateness rather than the notated feel. Silent at swingPercent
+              50 (every other drill), since a straight run has nothing to flag. */}
+          {plan.swingPercent !== 50 && <span className="badge">Swing {plan.swingPercent}%</span>}
+        </div>
       </div>
 
       <div className="card coordination-seg-field">

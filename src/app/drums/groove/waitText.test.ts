@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { grooveTrainerLibrary } from '@core/drums/practice/library.ts'
+import { jazzRideDrills } from '@core/drums/coordination/jazzRide.ts'
 import { planGrooveRun } from '@core/drums/practice/plan.ts'
 import { applyWaitHit, INITIAL_WAIT_STATE, waitSteps, type WaitState } from '@core/drums/practice/wait.ts'
 import { waitStateText } from './waitText.ts'
@@ -70,6 +71,27 @@ describe('waitStateText', () => {
     const state: WaitState = { stepIndex: 3, satisfied: [] }
     expect(waitStateText('waiting', moneySteps, state, moneyPlan)).toBe(
       'Waiting for Hi-hat — bar 1, beat 2 and (step 4 of 16)',
+    )
+  })
+})
+
+describe('waitStateText on a swung plan (F3)', () => {
+  /**
+   * F3: jazz ride drill 3's snare comp lands on the nominal "and" of beat 2
+   * (tick 720), but swing bends its actual `atMs` off the straight
+   * sixteenth grid. Pre-fix, `stepPosition` named `subdivision` off that
+   * swung `atMs` and came back `undefined`, so this line rendered
+   * "bar 1, beat 2 (off the beat)" for every off-beat step of every swung
+   * drill. Post-fix it reads the nominal "and" correctly. This test kills
+   * that mutant directly through the rendered sentence, not just
+   * `stepPosition`'s return value.
+   */
+  it('renders "beat 2 and", not "(off the beat)", for the swung snare-comp step', () => {
+    const jazzPlan = planGrooveRun(jazzRideDrills()[2]!.score, 120)
+    const jazzSteps = waitSteps(jazzPlan)
+    const state: WaitState = { stepIndex: 2, satisfied: [] }
+    expect(waitStateText('waiting', jazzSteps, state, jazzPlan)).toBe(
+      'Waiting for Snare + Ride — bar 1, beat 2 and (step 3 of 12)',
     )
   })
 })

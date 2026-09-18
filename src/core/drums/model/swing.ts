@@ -26,6 +26,15 @@
  * `swingPercent === 50` needs no special case: `round(pairSpan * 50 / 100)`
  * is exactly `pairSpan / 2`, i.e. the cell's own straight offset, so the
  * formula is already the identity at 50 without branching on it.
+ *
+ * `swingPercent` is expected to be in the trainer's 50..75 range (the
+ * `GrooveScore.swingPercent` doc says so); this function does not clamp or
+ * validate it, so a caller-supplied value at or past 100 would place the
+ * off-beat cell at or past the *next* pair's start.
+ *
+ * Compound meters (6/8, 9/8, 12/8, ...) are unaffected: `beats`/`beatType`
+ * (the time signature this tick belongs to) are checked against that case
+ * and, when it applies, `tick` comes back unchanged — see the guard below.
  */
 import { EIGHTH, SIXTEENTH, ticks, type Ticks } from '@core/shared/units.ts'
 import type { SwingUnit } from './groove.ts'
@@ -39,19 +48,27 @@ const SWING_CELL_TICKS: Readonly<Record<SwingUnit, number>> = {
 /**
  * `tick` (nominal, measure-relative or absolute — pairing is always
  * measure-local, so it makes no difference which) moved to its swung
- * position, or unchanged when straight or when it is not the second cell of
- * a swing pair.
+ * position, or unchanged when straight, when it is not the second cell of a
+ * swing pair, or when `beats`/`beatType` name a compound meter (the beat
+ * already divides into three, so this function's duple pairing does not
+ * describe that meter's own pulse — a 6/8 bar's 2nd and 6th eighths would
+ * otherwise be "swung" mid-beat).
  */
-export function swungTick(tick: Ticks, swingPercent: number, swingUnit: SwingUnit, measureTicks: number): Ticks {
+export function swungTick(
+  tick: Ticks,
+  swingPercent: number,
+  swingUnit: SwingUnit,
+  measureTicks: number,
+  beats: number,
+  beatType: number,
+): Ticks {
   if (measureTicks <= 0) return tick
+  if (beatType === 8 && beats % 3 === 0) return tick
   const cell = SWING_CELL_TICKS[swingUnit]
   const pairSpan = cell * 2
   const raw = tick as number
   const measureStart = Math.floor(raw / measureTicks) * measureTicks
   const local = raw - measureStart
-  // Not on this swing unit's own grid at all (a triplet tick, or a sixteenth
-  // inside an eighth-swing groove) — never moved.
-  if (local % cell !== 0) return tick
   const pairStart = Math.floor(local / pairSpan) * pairSpan
   const offsetInPair = local - pairStart
   // Only the second cell of a pair (offset === cell) ever moves; the first

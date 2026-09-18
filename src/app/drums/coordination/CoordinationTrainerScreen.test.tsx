@@ -84,6 +84,27 @@ describe('CoordinationTrainerScreen', () => {
     expect(runState()).toBe('Ready when you are')
   })
 
+  // F8: a swung run (Jazz ride) delays every off-beat instant against the
+  // click by design; without a cue in the header, a learner reads that as
+  // drift rather than the notated feel. Kills the mutant of no swing badge
+  // ever rendering, and the mutant of it rendering unconditionally (present
+  // even on a straight drill).
+  //
+  // A5: also asserts the badge sits inside `.page-header-actions`, not just
+  // that its text is present — before the fix it was a third direct child
+  // of `.page-header` (a flex row, space-between), which pushed the
+  // subtitle to the middle of the header instead of leaving it beside the
+  // title.
+  it('shows a "Swing 67%" badge for Jazz ride, inside .page-header-actions, and no swing badge on the default (straight) Layer build drill', async () => {
+    const { user } = setup()
+    expect(screen.queryByText(/Swing \d+%/)).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('radio', { name: 'Jazz ride' }))
+    const badge = screen.getByText('Swing 67%')
+    expect(badge).toBeInTheDocument()
+    expect(badge.closest('.page-header-actions')).not.toBeNull()
+  })
+
   it('switching to Kick permutations lists 16 steps with only the first unlocked', async () => {
     const { user } = setup()
     await user.click(screen.getByRole('radio', { name: 'Kick permutations' }))
