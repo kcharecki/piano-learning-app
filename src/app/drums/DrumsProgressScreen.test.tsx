@@ -23,13 +23,14 @@ afterEach(() => {
 })
 
 describe('DrumsProgressScreen', () => {
-  it('renders the "Progress" heading and five labelled panels', () => {
+  it('renders the "Progress" heading and six labelled panels', () => {
     render(<DrumsProgressScreen />)
     expect(screen.getByRole('heading', { level: 1, name: 'Progress' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Rudiments' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Grooves' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Limb bias' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Trends' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Coverage' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Reading' })).toBeInTheDocument()
   })
 
@@ -148,6 +149,42 @@ describe('DrumsProgressScreen', () => {
     expect(
       within(panel).getByText('Money Beat — worst limb 30, 25, 20, 10 ms · tightening · steady 3 of 4'),
     ).toBeInTheDocument()
+  })
+
+  it('shows the coverage panel with everything unplayed/unstarted when the stores are empty', () => {
+    render(<DrumsProgressScreen />)
+    const panel = screen.getByRole('region', { name: 'Coverage' })
+    expect(
+      within(panel).getByLabelText('Groove coverage'),
+    ).toHaveTextContent(
+      'Grooves: 0 of 3 played, 0 steady. Not yet played: Quarter-Note Rock, Money Beat, Money Beat (Open Hat).',
+    )
+    expect(within(panel).getByLabelText('Rudiment coverage')).toHaveTextContent(/^Rudiments: 0 of \d+ started\. Next up: /)
+  })
+
+  it('shows the coverage panel reflecting played/steady grooves and started rudiments', () => {
+    useDrumsHistoryStore.setState({
+      attempts: [
+        { grooveId: 'money-beat', grooveTitle: 'Money Beat', bpm: 100, at: 2, steady: true },
+        { grooveId: 'money-beat', grooveTitle: 'Money Beat', bpm: 90, at: 1, steady: false },
+      ],
+    })
+    useDrumsRudimentStore.setState({
+      records: {
+        'single-stroke-roll': { bestCleanBpm: 100, lastBpm: 100, at: 1 },
+        'multiple-bounce-roll': { bestCleanBpm: 80, lastBpm: 80, at: 1 },
+      },
+    })
+    render(<DrumsProgressScreen />)
+    const panel = screen.getByRole('region', { name: 'Coverage' })
+    expect(within(panel).getByLabelText('Groove coverage')).toHaveTextContent(
+      'Grooves: 1 of 3 played, 1 steady. Not yet played: Quarter-Note Rock, Money Beat (Open Hat).',
+    )
+    expect(within(panel).getByLabelText('Rudiment coverage')).toHaveTextContent(
+      /^Rudiments: 2 of \d+ started\. Next up: /,
+    )
+    expect(within(panel).getByLabelText('Rudiment coverage')).not.toHaveTextContent(/Single Stroke Roll/)
+    expect(within(panel).getByLabelText('Rudiment coverage')).not.toHaveTextContent(/Multiple Bounce Roll/)
   })
 
   it('shows the reading empty state at level 1 with no runs', () => {

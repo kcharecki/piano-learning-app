@@ -19,12 +19,40 @@
 import { useDrumsHistoryStore } from '@app/state/drumsHistoryStore.ts'
 import { useDrumsReadingStore } from '@app/state/drumsReadingStore.ts'
 import { useDrumsRudimentStore } from '@app/state/drumsRudimentStore.ts'
+import { grooveTrainerLibrary } from '@core/drums/practice/library.ts'
 import { RUDIMENTS } from '@content/drums/rudiments.ts'
-import { grooveBests, grooveTrends, limbBias, tierCompletion } from '@core/drums/progress/index.ts'
-import { biasLine, bestLine, readingLine, tierLine, trendLine } from '@app/drums/progressText.ts'
+import {
+  grooveBests,
+  grooveCoverage,
+  grooveTrends,
+  limbBias,
+  rudimentCoverage,
+  tierCompletion,
+  type CoverageItem,
+} from '@core/drums/progress/index.ts'
+import {
+  biasLine,
+  bestLine,
+  grooveCoverageLine,
+  readingLine,
+  rudimentCoverageLine,
+  tierLine,
+  trendLine,
+} from '@app/drums/progressText.ts'
 
 /** How many of the reading trainer's most recent runs the Reading panel names. */
 const RECENT_READING_RUNS = 3
+
+/**
+ * Coverage's two lists — the trainer's library grooves and the rudiment
+ * curriculum — never change at runtime, so both are computed once at module
+ * load rather than on every render.
+ */
+const GROOVE_LIBRARY: readonly CoverageItem[] = grooveTrainerLibrary().map((g) => ({
+  id: g.id,
+  title: g.title,
+}))
+const RUDIMENT_ITEMS: readonly CoverageItem[] = RUDIMENTS.map((r) => ({ id: r.id, title: r.name }))
 
 export function DrumsProgressScreen() {
   const records = useDrumsRudimentStore((s) => s.records)
@@ -36,6 +64,8 @@ export function DrumsProgressScreen() {
   const bests = grooveBests(attempts)
   const bias = limbBias(attempts)
   const trends = grooveTrends(attempts)
+  const coverage = grooveCoverage(GROOVE_LIBRARY, attempts)
+  const rudimentsCoverage = rudimentCoverage(RUDIMENT_ITEMS, records)
   const recentAccuracies = runs
     .slice(0, RECENT_READING_RUNS)
     .map((run) => run.accuracy)
@@ -110,6 +140,15 @@ export function DrumsProgressScreen() {
               ))}
             </ul>
           )}
+        </section>
+
+        <section
+          className="card drums-progress-card"
+          aria-labelledby="drums-progress-coverage-heading"
+        >
+          <h2 id="drums-progress-coverage-heading">Coverage</h2>
+          <p aria-label="Groove coverage">{grooveCoverageLine(coverage)}</p>
+          <p aria-label="Rudiment coverage">{rudimentCoverageLine(rudimentsCoverage)}</p>
         </section>
 
         <section

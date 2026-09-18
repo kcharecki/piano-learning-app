@@ -9,7 +9,14 @@
  * already-read values, so they can live and be tested without React.
  */
 import { GROOVE_PAD_LABEL } from '@app/drums/groove/padLabels.ts'
-import type { GrooveBest, GrooveTrend, LimbBias, TierCompletion } from '@core/drums/progress/index.ts'
+import type {
+  GrooveBest,
+  GrooveCoverage,
+  GrooveTrend,
+  LimbBias,
+  RudimentCoverage,
+  TierCompletion,
+} from '@core/drums/progress/index.ts'
 
 /** "Tier 1: 3 of 8 at target, 5 started" */
 export function tierLine(t: TierCompletion): string {
@@ -74,4 +81,33 @@ export function readingLine(level: number, accuracies: readonly number[]): strin
   if (accuracies.length === 0) return `Level ${level} — no runs yet`
   const runsText = accuracies.map((a) => `${Math.round(a * 100)}%`).join(', ')
   return `Level ${level} — last runs ${runsText}`
+}
+
+/**
+ * "Grooves: 1 of 3 played, 0 steady. Not yet played: Quarter-Note Rock, Money
+ * Beat (Open Hat)." — names `neverPlayed` when there is any; only once every
+ * library groove has been played at least once does the sentence instead
+ * name `playedNotSteady` ("Not yet steady: ..."); with nothing left in
+ * either list the sentence ends after the counts.
+ */
+export function grooveCoverageLine(c: GrooveCoverage): string {
+  const counts = `Grooves: ${c.played} of ${c.total} played, ${c.steady} steady.`
+  if (c.neverPlayed.length > 0) {
+    return `${counts} Not yet played: ${c.neverPlayed.map((g) => g.title).join(', ')}.`
+  }
+  if (c.playedNotSteady.length > 0) {
+    return `${counts} Not yet steady: ${c.playedNotSteady.map((g) => g.title).join(', ')}.`
+  }
+  return counts
+}
+
+/**
+ * "Rudiments: 2 of 40 started. Next up: Double Stroke Open Roll, Five Stroke
+ * Roll, Single Paradiddle." | "Rudiments: 40 of 40 started." once `nextUp`
+ * is empty.
+ */
+export function rudimentCoverageLine(c: RudimentCoverage): string {
+  const counts = `Rudiments: ${c.started} of ${c.total} started.`
+  if (c.nextUp.length === 0) return counts
+  return `${counts} Next up: ${c.nextUp.map((r) => r.title).join(', ')}.`
 }

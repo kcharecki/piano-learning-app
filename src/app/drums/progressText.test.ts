@@ -1,6 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { biasLine, bestLine, readingLine, tierLine, trendLine } from './progressText.ts'
-import type { GrooveBest, GrooveTrend, LimbBias, TierCompletion } from '@core/drums/progress/index.ts'
+import {
+  biasLine,
+  bestLine,
+  grooveCoverageLine,
+  readingLine,
+  rudimentCoverageLine,
+  tierLine,
+  trendLine,
+} from './progressText.ts'
+import type {
+  GrooveBest,
+  GrooveCoverage,
+  GrooveTrend,
+  LimbBias,
+  RudimentCoverage,
+  TierCompletion,
+} from '@core/drums/progress/index.ts'
 
 describe('tierLine', () => {
   it('formats tier, atTarget/total and started', () => {
@@ -138,5 +153,63 @@ describe('readingLine', () => {
 
   it('reports no runs yet when accuracies is empty', () => {
     expect(readingLine(1, [])).toBe('Level 1 — no runs yet')
+  })
+})
+
+describe('grooveCoverageLine', () => {
+  it('names the never-played grooves when any remain', () => {
+    const c: GrooveCoverage = {
+      total: 3,
+      played: 1,
+      steady: 0,
+      neverPlayed: [
+        { id: 'quarter-note-rock', title: 'Quarter-Note Rock' },
+        { id: 'money-beat-open-hat', title: 'Money Beat (Open Hat)' },
+      ],
+      playedNotSteady: [],
+    }
+    expect(grooveCoverageLine(c)).toBe(
+      'Grooves: 1 of 3 played, 0 steady. Not yet played: Quarter-Note Rock, Money Beat (Open Hat).',
+    )
+  })
+
+  it('names the not-yet-steady grooves once everything has been played', () => {
+    const c: GrooveCoverage = {
+      total: 3,
+      played: 3,
+      steady: 2,
+      neverPlayed: [],
+      playedNotSteady: [{ id: 'money-beat-open-hat', title: 'Money Beat (Open Hat)' }],
+    }
+    expect(grooveCoverageLine(c)).toBe(
+      'Grooves: 3 of 3 played, 2 steady. Not yet steady: Money Beat (Open Hat).',
+    )
+  })
+
+  it('ends after the counts once everything is steady', () => {
+    const c: GrooveCoverage = { total: 3, played: 3, steady: 3, neverPlayed: [], playedNotSteady: [] }
+    expect(grooveCoverageLine(c)).toBe('Grooves: 3 of 3 played, 3 steady.')
+  })
+})
+
+describe('rudimentCoverageLine', () => {
+  it('names the next unstarted rudiments when any remain', () => {
+    const c: RudimentCoverage = {
+      total: 40,
+      started: 2,
+      nextUp: [
+        { id: 'double-stroke-open-roll', title: 'Double Stroke Open Roll' },
+        { id: 'five-stroke-roll', title: 'Five Stroke Roll' },
+        { id: 'single-paradiddle', title: 'Single Paradiddle' },
+      ],
+    }
+    expect(rudimentCoverageLine(c)).toBe(
+      'Rudiments: 2 of 40 started. Next up: Double Stroke Open Roll, Five Stroke Roll, Single Paradiddle.',
+    )
+  })
+
+  it('ends after the counts once everything is started', () => {
+    const c: RudimentCoverage = { total: 40, started: 40, nextUp: [] }
+    expect(rudimentCoverageLine(c)).toBe('Rudiments: 40 of 40 started.')
   })
 })

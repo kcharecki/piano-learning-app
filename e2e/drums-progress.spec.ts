@@ -18,6 +18,17 @@ import { expect, test, type Page } from '@playwright/test'
  * a record at target; `multiple-bounce-roll` (also tier 1) is given one
  * below it — both real ids/targets read from
  * `src/content/drums/rudiments.tier12.ts` rather than invented.
+ *
+ * Coverage (roadmap DR-23 "coverage") assertions reuse this same seed: the
+ * three attempts are all on `money-beat` (two steady, one not), so of the
+ * trainer's three-groove library (`quarter-note-rock`, `money-beat`,
+ * `money-beat-open-hat`) exactly one is played and steady, and the other two
+ * — `Quarter-Note Rock` and `Money Beat (Open Hat)` — have never been
+ * played. `Money Beat` itself must NOT show up in that "not yet played"
+ * list (the exclusion trap: a coverage bug that counted attempts by index
+ * rather than by `grooveId`, or that never marked anything played, would
+ * both list `Money Beat` there too). The two rudiment records leave 38 of
+ * the 40 curriculum rudiments unstarted.
  */
 
 async function seedDrumsProgress(page: Page): Promise<void> {
@@ -135,6 +146,22 @@ test('the drums progress screen reads rudiment tiers, groove bests, limb bias an
 
   const reading = page.getByRole('region', { name: 'Reading' })
   await expect(reading.getByText('Level 3 — last runs 80%, 90%, 100%')).toBeVisible()
+
+  const coverage = page.getByRole('region', { name: 'Coverage' })
+  const grooveCoverageText = await coverage.getByLabel('Groove coverage').innerText()
+  expect(grooveCoverageText).toBe(
+    'Grooves: 1 of 3 played, 1 steady. Not yet played: Quarter-Note Rock, Money Beat (Open Hat).',
+  )
+  // Exclusion trap: `Money Beat` (played and steady) must not appear in the
+  // "Not yet played" list — only as part of `Money Beat (Open Hat)`, which
+  // is a different groove entirely.
+  expect(grooveCoverageText).not.toMatch(/Not yet played:.*\bMoney Beat,/)
+  expect(grooveCoverageText).not.toMatch(/Not yet played:.*\bMoney Beat\.$/)
+
+  const rudimentCoverageText = await coverage.getByLabel('Rudiment coverage').innerText()
+  expect(rudimentCoverageText).toMatch(/^Rudiments: 2 of 40 started\. Next up: /)
+  expect(rudimentCoverageText).not.toMatch(/Single Stroke Roll/)
+  expect(rudimentCoverageText).not.toMatch(/Multiple Bounce Roll/)
 
   expect(consoleErrors).toEqual([])
 })
