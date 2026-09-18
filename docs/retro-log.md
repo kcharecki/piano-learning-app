@@ -16,6 +16,49 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
+## 2026-09-19 — drum session, waves 10–11: a recovered commit, four review rounds on the MIDI voice, thirty-four slices in eleven waves
+
+- **user-reported defects since last session:** 0.
+- **slices proven / started:** 34 / 34. Wave 10 (`33cbe48`, committed without the gate):
+  swing in the run plan, jazz ride drills (DR-15), a milestones panel (DR-23), a kit-map
+  preset picker (DR-02). Recovered 2026-09-19: `npm run verify` green, kit-map e2e green,
+  orphan scan green, visual passes green (Coordination, Progress, Latency). Wave 11 added
+  four commits: swung plans grade, wait and report on the nominal grid (`c8ae924`, closing
+  the swing/plan review from recovery); six tier-3/4 stickings corrected against the PAS
+  chart (`4f01c60`, closes DR-10's "six unverified stickings"); a MIDI-learn wizard on
+  `/drums/latency` (`9fa8638`, closes DR-02's wizard half); drum voices over MIDI out on
+  channel 10 (`3f2dce5`, lands DR-06's MIDI-out). Each driven in the running app,
+  e2e-covered and visual-passed in both themes at both widths.
+- **gate catches before commit:** 34 (Opus findings fixed). Swing/plan review: 1 red + 7
+  amber + 4 nits in round 1, then two re-review rounds (1 red each) = 21. MIDI-out review:
+  3 red + 6 amber in round 1, 2 red in round 2, 2 amber in round 3 = 13.
+  1. **The swing reviewer found the slip-step pass measuring in swung gaps against the
+     nominal grid** — a jazz-ride run one eighth late read "2 eighths behind" instead of
+     one.
+  2. **A review fix introduced a new red twice**, in two different rounds: the all-missed
+     diagnosis sentence pre-empted the slip sentence; an open-hat clamp turned a stuck
+     note into a zero-length one. Both were only caught because the fix went back through
+     the same reviewer instead of being accepted on "findings applied."
+  3. **The Settings MIDI-voice deadlock survived a "fixed" round** because its test seeded
+     the route programmatically instead of clicking through the UI — the option was
+     disabled until connected, but only selecting it connected.
+  4. **The stickings brief's cited URLs 404'd**; the builder rendered the PAS PDF locally
+     and cited page 2 instead of giving up on the source.
+  5. `npm run verify` ran once per wave in the background (~10 min), as planned — no
+     surprises there this session.
+- **docs budget:** no warnings.
+- **cost note:** most of the session's cost was two Opus review chains, not building — the
+  swing/plan review (recovery) ran three rounds, the MIDI-out review ran three rounds, and
+  each round's fix went back to the same Sonnet builder rather than a fresh one.
+- **hypothesis:** "all findings applied" is not the same claim as "green." Every red this
+  session that survived a fix round did so because a builder's or a fixer's word for a fix
+  was taken instead of sending it back through the same reviewer. The Settings deadlock
+  compounds this: a test that seeds state instead of clicking through the UI can pass while
+  the exact interaction a learner would hit still deadlocks.
+- **change:** one. A review fix to timing or audio code is re-reviewed by the same Opus
+  agent until it says green; the architect never accepts "all findings applied" as green.
+  Recorded in `docs/drums/NEXT-SESSION.md`'s "Watch out for" list, item 1.
+
 ## 2026-09-17/18 — the drum session: twenty-seven slices in nine waves, nine Opus reviews, and a review fix that needed reviewing
 
 - **user-reported defects since last session:** 0.

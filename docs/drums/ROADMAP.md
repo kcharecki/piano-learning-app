@@ -140,8 +140,14 @@ item lands inside a slice that drives something (specs state their proof surface
       and CC. App slice landed 2026-09-18 (`bbdf97e`): `useDrumMidiInput` joins
       `useMidiConnection` to the kit-map engine, so a real e-kit stroke lands on the same
       `run.hit` the pads and keys use in both trainers; one status line names the kit and
-      map, or the unmapped note a pad just sent. GM map only; MIDI-learn wizard still
-      pending → [spec](features/DR-02-edrum-midi-input.md)
+      map, or the unmapped note a pad just sent. A preset picker landed 2026-09-18
+      (`33cbe48`): GM/Roland TD/Alesis/Yamaha selectable. The MIDI-learn wizard landed
+      2026-09-19 (`9fa8638`, on `/drums/latency`): "Learn your kit" captures 9
+      required + 6 optional pads, refuses a note already claimed by another pad, and
+      supports skip/undo/cancel; saved as "Learned kit" and persisted. Kept `[~]`: the
+      spec's "persisted per-device kit maps" is not yet per-device — the chosen
+      preset/learned map persists once, globally, not keyed by e-kit device id the way
+      the latency offset is → [spec](features/DR-02-edrum-midi-input.md)
 - [ ] DR-03 ‖ Fallback inputs — keyboard map with dynamics modifiers, on-screen pads,
       capability banner → [spec](features/DR-03-fallback-inputs.md)
 - [x] DR-05 Notation rendering — own SVG groove renderer (trainer surfaces) + OSMD
@@ -152,7 +158,10 @@ item lands inside a slice that drives something (specs state their proof surface
 - [~] DR-06 ‖ Drum audio — synthesized kit behind a `DrumAudioOutput` port, MIDI-out
       route to the module → [spec](features/DR-06-drum-audio-output.md). Synth landed
       2026-09-17 (`0cf90ed`, root T.32): 16 voices, open hat choked by the next hat strike,
-      Opus-reviewed. MIDI-out on channel 10 pending: `MidiOutput` port carries no channel.
+      Opus-reviewed. MIDI-out landed 2026-09-19 (`3f2dce5`): `MidiOutput` port gains a
+      channel, `createMidiDrumOutput`, a router in `createDrumAudioOutput`, and a
+      Settings "Drum voices" control (Built-in synth / MIDI out (channel 10), the
+      option never disabled). Kept `[~]`: a MIDI-out port picker is still open.
 - [~] DR-07 Hit timing scorer — matcher, windows, velocity classes, per-limb stats;
       **Opus adversarial review required** → [spec](features/DR-07-hit-timing-scorer.md).
       `core/drums/practice/grade.ts` is the matcher today (greedy pairing, inclusive window,
@@ -213,8 +222,8 @@ item lands inside a slice that drives something (specs state their proof surface
       (worst gap vs median, the piano side's `evennessOf`, clean bar 0.8); the same slice
       fixed the verdict being retired in the commit it was graded whenever the ladder
       stepped the tempo. `ladderText` reads the ladder's default pass/fail counts from
-      `tempoLadder.ts` since `aecf01b`. Open: six tier-3/4 stickings still
-      unverified against PAS; the stroke record reads the engine's phase through a
+      `tempoLadder.ts` since `aecf01b`. Six tier-3/4 stickings corrected 2026-09-19
+      (`4f01c60`) against the PAS chart; the stroke record reads the engine's phase through a
       render-mirrored ref, so a stroke in the first frame of the window (or any stroke
       while the tab is hidden and frames are paused) is graded but not scored for
       evenness.
@@ -251,7 +260,12 @@ item lands inside a slice that drives something (specs state their proof surface
       foot landed 2026-09-18 (`53fca52`): a fourth mode moves the chosen groove's hats
       to the ride, drops its pedal notes and puts the pedal on every even beat of the
       time signature's own beat unit (`core/drums/coordination/hhFoot.ts`), built up ride
-      and foot → add the kick → add the snare. Hi-hat openings landed 2026-09-18
+      and foot → add the kick → add the snare. The plan swings now (`c8ae924`,
+      2026-09-19): a jazz-ride groove's `swingPercent`/`swingUnit` grades, waits and
+      reports on the nominal grid, and the coordination trainer's header shows a
+      "Swing NN%" badge as the learner's cue for it — the staff still engraves
+      straight eighths, so the DR-15 tail (staff swing marking) stays open. Hi-hat
+      openings landed 2026-09-18
       (`1467cc7`): a fifth mode keeps the chosen groove whole and re-articulates its
       hats in three cumulative steps — open on the & of the last beat, then on the & of
       every even beat, then on every & (`core/drums/coordination/openings.ts`); the
@@ -285,7 +299,9 @@ item lands inside a slice that drives something (specs state their proof surface
       have been played and how many steady, listing the never-played ones (or, once all
       are played, the not-yet-steady ones), and how many of the 40 rudiments have a
       record with the next three unstarted in curriculum order
-      (`core/drums/progress/coverage.ts`). Still open: milestones.
+      (`core/drums/progress/coverage.ts`). Milestones landed 2026-09-18 (`33cbe48`): a
+      seventh panel, six derived milestones with reached dates
+      (`core/drums/progress/milestones.ts`).
 
 ## Phase D3 — Musicianship and the intermediate package
 
@@ -549,3 +565,76 @@ milestones, the kit-map wizard (DR-02) and its link to the monitor. New notes:
 - The orphan-signals gate went red again on `openings.ts` (a helper took the whole
   `GrooveScore` to read `beats`), the same class as wave 8's `hhFoot`. Fixed at the
   source; the builder brief now says to pass helpers the fields they read.
+
+### 2026-09-18 — orchestrated drum session, wave 10
+
+Four slices, committed and pushed WITHOUT the gate: swing in the run plan
+(`swingPercent`/`swingUnit` performance metadata on a `GrooveRunPlan`), jazz ride
+drills (DR-15, the coordination trainer's fifth intro), a milestones panel (DR-23,
+six derived milestones with reached dates), and a kit-map preset picker (DR-02,
+GM/Roland TD/Alesis/Yamaha selectable, still no learn wizard) — all in `33cbe48`.
+Recovered 2026-09-19 at the start of the next session: `npm run verify` green, the
+kit-map e2e green, the orphan scan green, visual passes green (Coordination,
+Progress, Latency). An Opus review of `swing.ts` + `plan.ts` (the recovery's own
+gate) found 1 red, 7 amber and 4 nits; two re-review rounds each found one new red
+before the reviewer called it green — all three rounds' fixes landed together in
+wave 11's swing-fix commit (`c8ae924`). New notes:
+
+- Committing without the gate did not save time; it moved the verify/review/visual
+  cost to the start of the next session instead, plus the cost of two extra review
+  rounds the deferred review needed. The wave-11 process change (below) exists
+  because of what those rounds found.
+
+### 2026-09-19 — orchestrated drum session, wave 11
+
+Four commits: (a) `c8ae924` fix(drums/practice) — swung plans grade, wait and
+report on the nominal grid, closing the swing/plan review carried over from wave
+10's recovery; (b) `4f01c60` fix(content/drums) — six tier-3/4 stickings (single
+flammed mill, flam drag, double drag tap, single dragadiddle, inverted flam tap,
+lesson 25) corrected against the PAS rudiment sheet, closing DR-10's "six
+unverified stickings"; (c) `9fa8638` feat(drums/kitmap) — a MIDI-learn wizard on
+`/drums/latency` ("Learn your kit": 9 required + 6 optional pads, conflict
+refusal, skip/undo/cancel, saved as "Learned kit" and persisted), closing DR-02's
+wizard half (the "link from calibration to the monitor" item was already
+satisfied — the monitor lives on that screen); (d) `3f2dce5` feat(adapters/audio)
+— drum voices over MIDI out on channel 10: `MidiOutput` port gains a channel,
+`createMidiDrumOutput`, a router in `createDrumAudioOutput`, and a Settings "Drum
+voices" control (Built-in synth / MIDI out (channel 10), option never disabled,
+note texts explaining why), landing DR-06's MIDI-out (the wave-10 hand-off filed
+this as DR-05; it belongs to DR-06). Opus review of (d) found 3 red + 6 amber in
+round 1, a further 2 red in round 2 (a Settings deadlock — the MIDI option was
+disabled until connected, but only selecting it connected; an open-hat release
+stamped before its own onset) and 2 amber in round 3 (a zero-length open hat; a
+Firefox permission error not surfaced) — all fixed across four rounds.
+
+Spec decisions recorded this session: a same-pad swung-tick collision is a
+validation error (only 75% eighth-swing over sixteenths collides; 58/58 shipped
+scores pass); compound meters (beat type 8, beats divisible by 3) never swing;
+swung plans skip the slip-step pass (real per-cell slip detection on swung plans
+deferred, see "What is next" in the hand-off); a run where every stroke misses
+gets a diagnosis sentence unless a slip was found; an F5 residual is accepted — a
+200 bpm sixteenth-swing score at 75% would have an 18.75 ms window, no floor
+added, no library content does this; the Coordination trainer's "Swing NN%"
+header badge is the learner cue for DR-15's swing (the staff still engraves
+straight eighths — the DR-15 tail stays open); the MIDI drum option in Settings is
+never disabled (a disabled option only the option itself could enable was a
+deadlock); an open hi-hat over MIDI is released by the next in-order hi-hat
+event, never before its own onset.
+
+Still open: DR-15 staff swing marking, real swung slip detection (DR-07),
+DR-07/DR-03 velocity classes, a MIDI-out port picker (DR-06), the rudiment
+evenness first-frame reference bug (DR-10). New notes:
+
+- The swing reviewer found the slip-step pass measuring in swung gaps against the
+  nominal grid — a jazz-ride run one eighth late read "2 eighths behind" instead
+  of one.
+- A review fix introduced a new red twice, in two different rounds: the
+  all-missed diagnosis sentence pre-empted the slip sentence; an open-hat clamp
+  turned a stuck note into a zero-length one. A fix to timing/audio code is now
+  re-reviewed by the same Opus agent until it says green — "all findings applied"
+  is not accepted as green.
+- The Settings MIDI-voice deadlock survived a "fixed" round because its test
+  seeded the route programmatically instead of clicking through the UI.
+- The stickings brief's cited URLs 404'd; the builder rendered the PAS PDF
+  locally and cited page 2 instead.
+- `npm run verify` ran once per wave in the background (~10 min), as planned.

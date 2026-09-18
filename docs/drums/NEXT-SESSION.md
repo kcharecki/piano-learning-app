@@ -1,6 +1,6 @@
 # Drum session — hand-off for the next orchestration session
 
-Written 2026-09-18 after wave 10. Read this before `docs/drums/ROADMAP.md`. Keep it short;
+Written 2026-09-19 after wave 11. Read this before `docs/drums/ROADMAP.md`. Keep it short;
 rewrite it at the end of every session (it is a hand-off, not a log — the log is
 `docs/retro-log.md`).
 
@@ -18,21 +18,15 @@ Adjust the spec when a better version is obvious, and have the integrator say so
 commit body.
 
 Order of work:
-1. Recover: 33cbe48 (wave 10: swing in the run plan, jazz ride drills, milestones, kit-map
-   picker) was committed and pushed WITHOUT the gate. Run `npm run verify`, launch an Opus
-   review of src/core/drums/model/swing.ts + src/core/drums/practice/plan.ts, run the
-   kit-map slice's acceptance (E2E_PORT=5292 npx playwright test e2e/drums-latency.spec.ts
-   e2e/drums-input-monitor.spec.ts; node scripts/orphan-signals.mjs --all | grep -i kitmap),
-   visual passes for Coordination, Progress and Latency, fix what they find, commit.
-2. Wave-10 docs: ROADMAP DR-15 and DR-23 close, DR-02 preset picker landed (wizard still
-   open); retro entry (30 slices / 10 waves). Commit with runs/orphan-ages.json.
-3. Then waves of three slices, each with disjoint file ownership, each proven by the
-   experience gate before commit. Candidates in "What is next" below.
+1. Check the tree is clean and `git log -1` is the wave-11 docs commit; then waves of
+   three slices, each with disjoint file ownership, each proven by the experience gate
+   before commit. Candidates in "What is next" below.
 
 Rules that bit us (full list in NEXT-SESSION.md "Watch out for"): never start on a dirty
 tree; never --no-verify; commit only on green verify; every builder brief says "pass a
 function the fields it reads, not the record they live on"; read what replaced a removed
-throw; compute brief example numbers from the code, never by hand.
+throw; compute brief example numbers from the code, never by hand; a review fix to
+timing/audio code is re-reviewed by the same Opus agent until it says green.
 ```
 
 ## Roles (user direction 2026-09-18: the main session architects; workers do the rest)
@@ -52,20 +46,25 @@ timing slice while the others build → architect routes findings back to the ow
 verifier proves each commit (verify, visual passes, driven proof) → docs agent closes the
 wave. The architect never types code; if glue is needed, the integrator types it.
 
-## What is next (after recovery)
+## What is next (after wave 11)
 
 | Item | Roadmap | Notes |
 |---|---|---|
-| Kit-map MIDI-learn wizard + link from the calibration screen to the monitor | DR-02 | preset picker landed in 33cbe48; the wizard is the open half |
-| MIDI-out channel on `MidiOutput` | DR-05 | small; adapter + settings |
 | Velocity classes in grading + keyboard dynamics | DR-07, DR-03 | timing/grading code → Opus review mandatory |
-| Six unverified stickings in the rudiment table | DR-10 | content check against a cited source |
-| Swing marking engraved on the staff | DR-15 tail | the plan swings, the notation does not say so yet |
+| Swing marking engraved on the staff | DR-15 tail | the plan swings and the header badges it; the staff still shows straight eighths |
+| Real slip detection on swung plans | DR-07 | per-cell swung times — the wave-11 fix skips the slip-step pass on swung plans rather than get it wrong |
+| MIDI-out port picker | DR-06 | channel-10 routing landed 2026-09-19; picking which output device is still open |
+| Rudiment evenness first-frame reference bug | DR-10 | check the 2026-09-19 ROADMAP note before scoping |
+| Sampled kit behind the DR-06 port | DR-B5 | only if the synth grates |
 
-## Watch out for (findings from waves 1–10, newest first)
+## Watch out for (findings from waves 1–11, newest first)
 
-1. **33cbe48 is unverified.** Treat it as triage item 1. Do not build on it until verify,
-   the Opus swing review and the visual passes are green.
+1. **A review fix to timing/audio code is re-reviewed by the same Opus agent until it
+   says green.** The architect never accepts "all findings applied" as green. Wave 11's
+   swing and MIDI-out reviews each needed a second and third round because a "fixed"
+   round introduced its own new red (an all-missed sentence pre-empting a slip sentence;
+   a Settings deadlock that survived one round because its test seeded state instead of
+   clicking).
 2. **The orphan-signals scan is a gate on every slice.** A function that takes a core
    record and reads one field adds a row that pushes a ground-truth row out of the capped
    table, and `npm run verify` goes red on a test about something else. Three builders were
@@ -95,6 +94,17 @@ wave. The architect never types code; if glue is needed, the integrator types it
     memory pointer current at the end of every wave so a resume costs one file read.
 12. **Grader tolerance after swing.** The smallest subdivision gap on a swung groove is 158
     ticks (not 240); check the tolerance cap and wait-mode boundaries in the Opus review.
+13. **Run `visual-pass.mjs` with the default `--out` (`./visual-pass`), or copy the receipt
+    there before committing.** The pre-commit hook reads only `./visual-pass/receipt.json`;
+    wave 11's passes wrote receipts into scratchpad `--out` dirs, and the hook called the
+    receipt stale until the newest one was copied to the default path.
+14. **A disabled control whose only enabler is the control itself is a deadlock.** The
+    wave-11 Settings "MIDI out" option was disabled until connected, but only selecting it
+    connected. The test must click through the UI, not seed the route programmatically —
+    a seeded-state test passed while the real deadlock stood.
+15. **Out-of-order scheduling.** Trainers dispatch a pass up front with future `atMs` while
+    live hits arrive at `now()`; any stateful voice (open hat) must tolerate a release that
+    precedes its own onset.
 
 ## Using sub-agents well
 
