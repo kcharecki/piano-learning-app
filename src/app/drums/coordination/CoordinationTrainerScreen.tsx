@@ -1,12 +1,13 @@
 /**
- * The coordination trainer (roadmap DR-15) — two drills built on the same
+ * The coordination trainer (roadmap DR-15) — three drills built on the same
  * groove-run engine `GrooveTrainerScreen` uses, for the problem that screen
  * does not solve: a learner who cannot yet hold a whole groove together
  * meets it one limb at a time (Layer build), or isolates the one thing that
  * makes a beat feel syncopated — where the kick lands against a steady
- * hat/snare backbone (Kick permutations) — one placement at a time.
+ * hat/snare backbone, one placement at a time (Kick permutations), or two
+ * placements at once (Two kicks).
  *
- * Both drills share one shape: a numbered list of steps, each its own
+ * All three drills share one shape: a numbered list of steps, each its own
  * `GrooveScore`/plan/run, unlocking left to right as a pass comes back
  * steady. `useCoordinationTrainer` (see its own module comment) owns that
  * state; this file is presentation, mirroring `GrooveTrainerScreen`'s own
@@ -56,6 +57,7 @@ export type CoordinationTrainerScreenProps = {
 const MODE_OPTIONS: ReadonlyArray<{ readonly value: DrillMode; readonly label: string }> = [
   { value: 'layers', label: 'Layer build' },
   { value: 'kicks', label: 'Kick permutations' },
+  { value: 'kicks2', label: 'Two kicks' },
 ]
 
 /** Every groove the picker offers — the library itself never changes at runtime. */
@@ -107,7 +109,7 @@ export function CoordinationTrainerScreen(props: CoordinationTrainerScreenProps)
       <div className="page-header">
         <h1>Coordination</h1>
         <p className="page-header-subtitle">
-          Build a groove one limb at a time, or isolate one kick placement against a steady backbone.
+          Build a groove one limb at a time, or move one kick — then two — through the bar against a steady backbone.
         </p>
       </div>
 

@@ -7,14 +7,19 @@
  * a finished run recorded to `useDrumsHistoryStore` — with the addition of
  * `advance()` deciding whether the next step unlocks.
  *
- * Changing the mode, the groove, or the tempo all retire the current
- * progress: `index` and `unlocked` reset to 0 and any run in flight stops.
- * A different mode or groove is a different drill list entirely, so a
- * step index from the old list would point at the wrong thing (or nothing)
- * in the new one; a tempo change is treated the same way here so a verdict
- * always reflects the tempo the learner is currently set to attempt steps
- * at, deliberately more conservative than the groove trainer's own T.31,
- * which lets a single groove's result survive a retune.
+ * Changing the mode or the groove retires the current progress: `index` and
+ * `unlocked` reset to 0 and any run in flight stops. A different mode or
+ * groove is a different drill list entirely, so a step index from the old
+ * list would point at the wrong thing (or nothing) in the new one.
+ *
+ * A tempo change is deliberately NOT treated the same way (reversing an
+ * earlier, more conservative choice here): the step list does not change
+ * shape when the bpm does, so a learner slowing down to nail the step they
+ * are stuck on must not be thrown back to step 1. `setBpm` still stops any
+ * run in flight and clears the latched result — a verdict mid-flight was
+ * graded at the old tempo, so it cannot stand — but `index` and `unlocked`
+ * are left untouched. This now matches the groove trainer's own T.31, which
+ * likewise lets a single groove's result survive a retune.
  *
  * ## Why `run.result` is latched here, not read straight from `useGrooveRun`
  *
@@ -36,11 +41,12 @@ import { useCallback, useMemo, useState } from 'react'
 import { useDrumsHistoryStore } from '@app/state/drumsHistoryStore.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { useGrooveRun, type GradedRun, type GrooveRunApi } from '@app/drums/groove/useGrooveRun.ts'
+import { createBrowserRng } from '@app/sightreading/rng.ts'
 import type { GrooveScore } from '@core/drums/model/groove.ts'
 import type { GrooveRunResult } from '@core/drums/practice/grade.ts'
 import { grooveTrainerLibrary } from '@core/drums/practice/library.ts'
 import { planGrooveRun, type GrooveRunPlan } from '@core/drums/practice/plan.ts'
-import type { Clock, DrumAudioOutput } from '@core/ports/index.ts'
+import type { Clock, DrumAudioOutput, Rng } from '@core/ports/index.ts'
 import { advance, drillSteps, type DrillMode, type DrillStep } from './coordinationRun.ts'
 
 /** Opens on the groove trainer's own default tempo — a familiar starting point. */
@@ -68,6 +74,8 @@ export type UseCoordinationTrainerOptions = {
   readonly clock?: Clock
   readonly driver?: FrameDriver
   readonly audio?: () => DrumAudioOutput
+  /** Test seam. Defaults to `createBrowserRng()`, created once per hook instance. */
+  readonly rng?: Rng
 }
 
 export function useCoordinationTrainer(opts: UseCoordinationTrainerOptions = {}): CoordinationTrainer {
@@ -77,9 +85,12 @@ export function useCoordinationTrainer(opts: UseCoordinationTrainerOptions = {})
   const [bpm, setBpmState] = useState(DEFAULT_BPM)
   const [index, setIndex] = useState(0)
   const [unlocked, setUnlocked] = useState(0)
+  // Stable for the hook's life (like `library` above) so `steps` below is
+  // not rebuilt — and 'kicks2' not re-drawn — on every render.
+  const [rng] = useState<Rng>(() => opts.rng ?? createBrowserRng())
 
   const groove = library.find((g) => g.id === grooveId) ?? library[0]
-  const steps = useMemo(() => drillSteps(mode, groove), [mode, groove])
+  const steps = useMemo(() => drillSteps(mode, groove, rng), [mode, groove, rng])
   const boundedIndex = Math.min(index, steps.length - 1)
   const step = steps[boundedIndex] ?? steps[0]
   if (step === undefined) {
@@ -165,11 +176,10 @@ export function useCoordinationTrainer(opts: UseCoordinationTrainerOptions = {})
 
   const setBpm = useCallback(
     (nextBpm: number): void => {
+      // Deliberately does NOT reset index/unlocked — see the module comment.
       rawRun.stop()
       setLatchedResult(undefined)
       setBpmState(nextBpm)
-      setIndex(0)
-      setUnlocked(0)
     },
     [rawRun],
   )

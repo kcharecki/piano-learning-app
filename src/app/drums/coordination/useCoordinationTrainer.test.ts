@@ -2,11 +2,12 @@
  * `useCoordinationTrainer` (roadmap DR-15) — the drill-list/progress wiring,
  * not grading itself (that is `grade.test.ts`) and not the pure step-list
  * math (that is `coordinationRun.test.ts`). What is pinned here: switching
- * mode/groove/tempo resets progress, `select` refuses a locked step, a
- * steady pass unlocks and moves to the next step and records an attempt, an
- * unsteady pass changes nothing, and the just-graded verdict survives the
- * step change it itself triggers (see the hook's own module comment on why
- * that needs a latch).
+ * mode/groove resets progress, a tempo change keeps `index`/`unlocked` but
+ * stops any run in flight and clears the latched verdict, `select` refuses a
+ * locked step, a steady pass unlocks and moves to the next step and records
+ * an attempt, an unsteady pass changes nothing, and the just-graded verdict
+ * survives the step change it itself triggers (see the hook's own module
+ * comment on why that needs a latch).
  */
 import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -212,20 +213,35 @@ describe('useCoordinationTrainer', () => {
     expect(h.view.result.current.run.result).toBeUndefined()
   })
 
-  it('changing the tempo resets progress and clears any latched verdict', () => {
+  it('changing the tempo keeps progress, but stops any run in flight and clears the latched verdict', () => {
     const h = harness()
     act(() => h.view.result.current.setMode('kicks'))
     driveRun(h, true)
     expect(h.view.result.current.index).toBe(1)
+    expect(h.view.result.current.unlocked).toBe(1)
     expect(h.view.result.current.run.result).toBeDefined()
 
     act(() => h.view.result.current.setBpm(100))
 
     const view = h.view.result.current
     expect(view.bpm).toBe(100)
+    // index/unlocked survive a tempo change: a learner slowing down to nail
+    // a step must not be thrown back to step 1.
+    expect(view.index).toBe(1)
+    expect(view.unlocked).toBe(1)
+    expect(view.run.phase).toBe('idle')
+    expect(view.run.result).toBeUndefined()
+  })
+
+  it('switching to kicks2 mode draws TWO_KICK_DRILLS fresh steps and resets progress', () => {
+    const h = harness()
+    act(() => h.view.result.current.setMode('kicks2'))
+    const view = h.view.result.current
+    expect(view.mode).toBe('kicks2')
+    expect(view.steps).toHaveLength(12)
     expect(view.index).toBe(0)
     expect(view.unlocked).toBe(0)
-    expect(view.run.result).toBeUndefined()
+    view.steps.forEach((step) => expect(step.title).toMatch(/^Kick on \S+ and \S+$/))
   })
 
   it('changing the groove (layers mode) resets progress', () => {

@@ -5,7 +5,7 @@
  * active step), not grading (`grade.test.ts`) and not the progress math
  * (`coordinationRun.test.ts`, `useCoordinationTrainer.test.ts`).
  */
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
@@ -93,6 +93,26 @@ describe('CoordinationTrainerScreen', () => {
     expect(screen.getByRole('combobox', { name: 'Groove' })).toBeInTheDocument()
     await user.click(screen.getByRole('radio', { name: 'Kick permutations' }))
     expect(screen.queryByRole('combobox', { name: 'Groove' })).not.toBeInTheDocument()
+  })
+
+  it('switching to Two kicks lists 12 steps with only the first unlocked, and hides the groove picker', async () => {
+    const { user } = setup()
+    await user.click(screen.getByRole('radio', { name: 'Two kicks' }))
+
+    expect(screen.getByRole('radio', { name: 'Two kicks' })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.queryByRole('combobox', { name: 'Groove' })).not.toBeInTheDocument()
+
+    const stepsList = screen.getByRole('list', { name: 'Steps' })
+    const items = stepsList.querySelectorAll('li')
+    expect(items).toHaveLength(12)
+
+    const stepListButtons = within(stepsList).getAllByRole('button')
+    expect(stepListButtons[0]).not.toBeDisabled()
+    expect(stepListButtons[0]).toHaveAttribute('aria-current', 'step')
+    expect(stepListButtons[1]).toBeDisabled()
+    stepListButtons.forEach((button) => expect(button.textContent ?? '').toMatch(/^Kick on \S+ and \S+$/))
+    const labels = stepListButtons.map((button) => button.textContent ?? '')
+    expect(new Set(labels).size).toBe(12)
   })
 
   it('an unsteady pass (nothing played) does not unlock step 2', async () => {

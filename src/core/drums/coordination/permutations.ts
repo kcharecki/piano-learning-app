@@ -15,6 +15,7 @@
  */
 import { makeGrooveScore, type GrooveScore } from '@core/drums/model/groove.ts'
 import { randomInt, type Rng } from '@core/ports/rng.ts'
+import { at } from '@core/shared/invariant.ts'
 
 /** Ticks per sixteenth note (`TICKS_PER_QUARTER / 4`). */
 export const SIXTEENTH_TICKS = 120
@@ -88,31 +89,63 @@ export function singleKickPermutations(): readonly KickDrill[] {
   }))
 }
 
+/** A two-kick slot pair, `a < b`. */
+type SlotPair = readonly [SixteenthSlot, SixteenthSlot]
+
+function pairWeight([a, b]: SlotPair): number {
+  return syncopationWeight(a) + syncopationWeight(b)
+}
+
+function comparePairs(x: SlotPair, y: SlotPair): number {
+  return pairWeight(x) - pairWeight(y) || x[0] - y[0] || x[1] - y[1]
+}
+
 /**
- * `count` two-kick drills, each landing on two DISTINCT sixteenth slots drawn
- * via the `Rng` port — never `Math.random`, so a script reproduces an exact
- * drill list. A collision (the second draw matches the first) is redrawn
- * rather than kept, so every drill genuinely has two different placements.
- * `count <= 0` yields `[]`.
+ * Every distinct two-kick slot pair (`a < b` over the 16 sixteenth slots —
+ * 120 pairs), sorted `(syncopationWeight(a) + syncopationWeight(b)) asc, a
+ * asc, b asc` — easiest combined placement first. Built once at module load;
+ * `twoKickPermutations` draws from this fixed table rather than sampling
+ * slots independently, which is what let the old implementation repeat a
+ * pair across a drill list.
+ */
+const ALL_PAIRS: readonly SlotPair[] = (() => {
+  const pairs: SlotPair[] = []
+  for (let a = 0; a < 16; a++) {
+    for (let b = a + 1; b < 16; b++) {
+      pairs.push([a, b])
+    }
+  }
+  return [...pairs].sort(comparePairs)
+})()
+
+/**
+ * `count` DISTINCT two-kick drills (a < b over the 16 sixteenth slots — 120
+ * possible pairs), chosen through `rng` and returned easy → hard: sorted by
+ * `syncopationWeight(a) + syncopationWeight(b)` ascending, then `a`, then
+ * `b`. `count` is clamped to `[0, 120]`.
+ *
+ * Loop-free per element: a partial Fisher–Yates shuffle over the 120-pair
+ * table (`randomInt(rng, i, 119)` at step `i`), so a degenerate rng — a
+ * scripted fake that keeps returning the same value — still terminates
+ * after exactly `count` draws instead of retrying toward a collision that
+ * may never resolve.
  */
 export function twoKickPermutations(rng: Rng, count: number): readonly KickDrill[] {
-  if (count <= 0) return []
-  const drills: KickDrill[] = []
-  for (let i = 0; i < count; i++) {
-    // Two draws, never a retry loop: the second draw picks one of the 15
-    // slots that are NOT `a` (0..14, shifted up past `a`), so a degenerate
-    // rng that keeps returning the same value — a scripted fake cycling a
-    // short list, or a broken adapter — still terminates in two calls
-    // instead of spinning forever on `b === a`.
-    const a = randomInt(rng, 0, 15)
-    const drawn = randomInt(rng, 0, 14)
-    const b = drawn >= a ? drawn + 1 : drawn
-    const slots: readonly SixteenthSlot[] = a < b ? [a, b] : [b, a]
-    const [lo, hi] = slots
-    drills.push({
-      slots,
-      score: buildKickDrillScore(slots, `Kick on ${slotName(lo ?? 0)} and ${slotName(hi ?? 0)}`),
-    })
+  const n = Math.min(Math.max(count, 0), ALL_PAIRS.length)
+  if (n === 0) return []
+
+  const table = [...ALL_PAIRS]
+  for (let i = 0; i < n; i++) {
+    const j = randomInt(rng, i, table.length - 1)
+    const pairI = at(table, i)
+    const pairJ = at(table, j)
+    table[i] = pairJ
+    table[j] = pairI
   }
-  return drills
+
+  const chosen = table.slice(0, n).sort(comparePairs)
+  return chosen.map(([lo, hi]) => ({
+    slots: [lo, hi],
+    score: buildKickDrillScore([lo, hi], `Kick on ${slotName(lo)} and ${slotName(hi)}`),
+  }))
 }

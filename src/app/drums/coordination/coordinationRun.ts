@@ -7,9 +7,13 @@
  */
 import type { GrooveScore } from '@core/drums/model/groove.ts'
 import { layerStack } from '@core/drums/coordination/layers.ts'
-import { singleKickPermutations } from '@core/drums/coordination/permutations.ts'
+import { singleKickPermutations, twoKickPermutations } from '@core/drums/coordination/permutations.ts'
+import type { Rng } from '@core/ports/index.ts'
 
-export type DrillMode = 'layers' | 'kicks'
+export type DrillMode = 'layers' | 'kicks' | 'kicks2'
+
+/** How many two-kick drills one visit to the mode draws. */
+export const TWO_KICK_DRILLS = 12
 
 export type DrillStep = {
   readonly index: number
@@ -22,9 +26,11 @@ export type DrillStep = {
  * `'layers'`: `layerStack(groove)`, one step per cumulative layer.
  * `'kicks'`: the 16 single-kick permutation drills — `groove` is ignored,
  * since the kick drills are their own fixed content, not built from the
- * groove library.
+ * groove library. `'kicks2'`: `TWO_KICK_DRILLS` two-kick drills drawn fresh
+ * through `rng` — `groove` is ignored here too. `rng` is consulted ONLY in
+ * `'kicks2'`; the other two modes never call it.
  */
-export function drillSteps(mode: DrillMode, groove: GrooveScore): readonly DrillStep[] {
+export function drillSteps(mode: DrillMode, groove: GrooveScore, rng: Rng): readonly DrillStep[] {
   if (mode === 'layers') {
     return layerStack(groove).map((layer) => ({
       index: layer.index,
@@ -33,7 +39,7 @@ export function drillSteps(mode: DrillMode, groove: GrooveScore): readonly Drill
       score: layer.score,
     }))
   }
-  const drills = singleKickPermutations()
+  const drills = mode === 'kicks' ? singleKickPermutations() : twoKickPermutations(rng, TWO_KICK_DRILLS)
   return drills.map((drill, index) => ({
     index,
     count: drills.length,

@@ -3,12 +3,21 @@ import { describe, expect, it } from 'vitest'
 import { moneyBeat } from '@core/drums/model/referenceGrooves.ts'
 import { singleKickPermutations } from '@core/drums/coordination/permutations.ts'
 import { layerStack } from '@core/drums/coordination/layers.ts'
-import { advance, drillSteps } from './coordinationRun.ts'
+import type { Rng } from '@core/ports/index.ts'
+import { scriptedRng } from '@test/fakes.ts'
+import { advance, drillSteps, TWO_KICK_DRILLS } from './coordinationRun.ts'
+
+/** A drill mode that must never touch the rng — calling `next()` fails the test. */
+const throwingRng: Rng = {
+  next: () => {
+    throw new Error('rng consulted')
+  },
+}
 
 describe('drillSteps', () => {
   it('layers mode maps layerStack(groove) 1:1', () => {
     const groove = moneyBeat()
-    const steps = drillSteps('layers', groove)
+    const steps = drillSteps('layers', groove, throwingRng)
     const stack = layerStack(groove)
     expect(steps).toHaveLength(stack.length)
     steps.forEach((step, i) => {
@@ -19,8 +28,8 @@ describe('drillSteps', () => {
     })
   })
 
-  it('kicks mode returns the 16 single-kick permutation drills, ignoring the groove', () => {
-    const steps = drillSteps('kicks', moneyBeat())
+  it('kicks mode returns the 16 single-kick permutation drills, ignoring the groove and never touching the rng', () => {
+    const steps = drillSteps('kicks', moneyBeat(), throwingRng)
     const drills = singleKickPermutations()
     expect(steps).toHaveLength(16)
     steps.forEach((step, i) => {
@@ -30,8 +39,34 @@ describe('drillSteps', () => {
     })
 
     // A different groove changes nothing about the kicks list.
-    const other = drillSteps('kicks', moneyBeat())
+    const other = drillSteps('kicks', moneyBeat(), throwingRng)
     expect(other.map((s) => s.title)).toEqual(steps.map((s) => s.title))
+  })
+
+  it('kicks2 mode returns TWO_KICK_DRILLS two-kick drills, ignoring the groove', () => {
+    const rng = scriptedRng([0.1, 0.3, 0.5, 0.7, 0.9])
+    const steps = drillSteps('kicks2', moneyBeat(), rng)
+    expect(steps).toHaveLength(TWO_KICK_DRILLS)
+    steps.forEach((step, i) => {
+      expect(step.count).toBe(TWO_KICK_DRILLS)
+      expect(step.index).toBe(i)
+      expect(step.title).toMatch(/^Kick on \S+ and \S+$/)
+    })
+  })
+
+  it('kicks2 mode returns TWO_KICK_DRILLS distinct titles', () => {
+    const rng = scriptedRng([0.1, 0.3, 0.5, 0.7, 0.9])
+    const steps = drillSteps('kicks2', moneyBeat(), rng)
+    expect(new Set(steps.map((s) => s.title)).size).toBe(TWO_KICK_DRILLS)
+  })
+
+  it("kicks2 mode's first title is pinned for a known rng script", () => {
+    // randomInt(rng, 0, 119) with next()=0.0 -> 0: the shuffle leaves index 0
+    // of the (weight, a, b)-sorted pair table in place, which is the globally
+    // lightest pair, [0, 4]. slotName(0) = "1", slotName(4) = "2".
+    const rng = scriptedRng([0.0, 0.5])
+    const steps = drillSteps('kicks2', moneyBeat(), rng)
+    expect(steps[0]?.title).toBe('Kick on 1 and 2')
   })
 })
 

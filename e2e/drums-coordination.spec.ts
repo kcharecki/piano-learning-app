@@ -7,8 +7,10 @@ import { playGrooveHits, type TimedHit } from './drum-pads.ts'
  * Grading and the step-progress math are proved against a `FakeClock` in
  * `coordinationRun.test.ts` and `useCoordinationTrainer.test.ts`; what only a
  * real browser run can show is the whole page wired together: choosing Kick
- * permutations really lists all 16 drills with only the first unlocked, and
- * playing that first drill steady really unlocks the second one on screen.
+ * permutations really lists all 16 drills with only the first unlocked,
+ * playing that first drill steady really unlocks the second one on screen,
+ * a real tempo-field edit leaves that unlocked progress alone, and choosing
+ * Two kicks really lists a fresh 12-drill set through the real (browser) rng.
  *
  * The first kick-permutation drill (easiest — slot 0, syncopation weight 0)
  * is eighth-note hi-hats, snare on beats 2 & 4, and the kick on the downbeat.
@@ -68,6 +70,46 @@ test('Kick permutations lists all 16 drills, and a steady first pass unlocks the
   await expect(result(page).getByText('Steady — next step unlocked')).toBeVisible()
   await expect(stepButtons.nth(1)).toBeEnabled()
   await expect(stepButtons.nth(1)).toHaveAttribute('aria-current', 'step')
+
+  // Roadmap DR-15 follow-up: changing tempo keeps progress. A learner who
+  // just unlocked step 2 and slows down to work on it must not be thrown
+  // back to step 1 — only mode/groove changes reset the step list.
+  const tempoField = page.getByLabel('Tempo')
+  await tempoField.fill('60')
+  await tempoField.blur()
+
+  await expect(stepButtons.nth(1)).toBeEnabled()
+  await expect(stepButtons.nth(1)).toHaveAttribute('aria-current', 'step')
+
+  expect(consoleErrors).toEqual([])
+})
+
+// @serial — see the note on the spec above; this one plays no notes but
+// still drives the same real dev server and app clock.
+test('Two kicks lists 12 fresh drills, only the first unlocked (roadmap DR-15) @serial', async ({
+  page,
+}) => {
+  const consoleErrors: string[] = []
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') consoleErrors.push(msg.text())
+  })
+  page.on('pageerror', (err) => consoleErrors.push(String(err)))
+
+  await page.goto('/drums/coordination')
+  await expect(page.getByRole('heading', { level: 1, name: 'Coordination' })).toBeVisible()
+
+  await page.getByRole('radio', { name: 'Two kicks' }).click()
+
+  const stepButtons = steps(page)
+  await expect(stepButtons).toHaveCount(12)
+  await expect(stepButtons.nth(0)).toBeEnabled()
+  await expect(stepButtons.nth(0)).toHaveAttribute('aria-current', 'step')
+  await expect(stepButtons.nth(1)).toBeDisabled()
+
+  const labels = await stepButtons.allTextContents()
+  expect(labels).toHaveLength(12)
+  for (const label of labels) expect(label).toMatch(/^Kick on \S+ and \S+$/)
+  expect(new Set(labels).size).toBe(12)
 
   expect(consoleErrors).toEqual([])
 })
