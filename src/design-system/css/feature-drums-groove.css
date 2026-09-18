@@ -335,6 +335,19 @@
   color: var(--fb-extra-ink);
 }
 
+/* E-kit status (roadmap DR-02): one quiet line under the transport saying
+   which kit and map are live, or that none is — the pads and keys keep
+   working either way, and the line says so. */
+.groove-ekit {
+  min-height: 1.5em;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: var(--text-sm);
+  color: var(--text-3);
+}
+
 /* ---------- Per-limb mute (roadmap DR-09 "per-limb mute") ----------
    One switch per displayed pad, above the pads themselves. Same shape as
    `.groove-loop-toggle` above — see that rule's own comment for why the knob

@@ -81,7 +81,8 @@ import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import { grooveTrainerLibrary } from '@core/drums/practice/library.ts'
 import type { GrooveRunResult } from '@core/drums/practice/grade.ts'
 import { planGrooveRun, type GrooveRunPlan } from '@core/drums/practice/plan.ts'
-import type { Clock, DrumAudioOutput } from '@core/ports/index.ts'
+import type { Clock, DrumAudioOutput, MidiInput } from '@core/ports/index.ts'
+import { useDrumMidiInput } from '@app/drums/input/useDrumMidiInput.ts'
 import { Pad, TempoField } from './GrooveControls.tsx'
 import { useFlash, useKeyboardPads } from './groovePadHooks.ts'
 import { liveHitText } from './liveHitText.ts'
@@ -103,6 +104,8 @@ export type GrooveTrainerScreenProps = {
   readonly clock?: Clock
   readonly audio?: () => DrumAudioOutput
   readonly frameDriver?: FrameDriver
+  /** A ready-made e-kit MIDI input (roadmap DR-02); defaults to Web MIDI through `useMidiConnection`. */
+  readonly midiInput?: MidiInput
 }
 
 export function GrooveTrainerScreen(props: GrooveTrainerScreenProps) {
@@ -188,6 +191,7 @@ export function GrooveTrainerScreen(props: GrooveTrainerScreenProps) {
       }
       {...(props.clock === undefined ? {} : { clock: props.clock })}
       {...(props.audio === undefined ? {} : { audio: props.audio })}
+      {...(props.midiInput === undefined ? {} : { midiInput: props.midiInput })}
       {...(props.frameDriver === undefined ? {} : { frameDriver: props.frameDriver })}
     />
   )
@@ -206,6 +210,7 @@ type TrainerProps = {
   readonly clock?: Clock
   readonly audio?: () => DrumAudioOutput
   readonly frameDriver?: FrameDriver
+  readonly midiInput?: MidiInput
 }
 
 function Trainer({
@@ -246,6 +251,15 @@ function Trainer({
     ...(seams.clock === undefined ? {} : { clock: seams.clock }),
     ...(seams.audio === undefined ? {} : { audio: seams.audio }),
     ...(seams.frameDriver === undefined ? {} : { driver: seams.frameDriver }),
+  })
+
+  // An e-drum kit over Web MIDI (roadmap DR-02) lands on the same `run.hit`
+  // the pads and keys use, so a real stroke is graded exactly like a tap.
+  // `onHit` is read through a ref inside the hook, so `run.hit`'s identity
+  // changing per run never resubscribes the device.
+  const ekit = useDrumMidiInput({
+    onHit: run.hit,
+    ...(seams.midiInput === undefined ? {} : { midiInput: seams.midiInput }),
   })
   const running = run.phase === 'count-in' || run.phase === 'playing'
   // `running` alone gates the Space-is-the-kick binding (see the module
@@ -417,6 +431,10 @@ function Trainer({
           data-kind={run.lastHit?.kind}
         >
           {run.lastHit === undefined ? '' : liveHitText(run.lastHit)}
+        </p>
+
+        <p role="status" aria-label="E-kit" className="groove-ekit">
+          {ekit.statusText}
         </p>
       </div>
 

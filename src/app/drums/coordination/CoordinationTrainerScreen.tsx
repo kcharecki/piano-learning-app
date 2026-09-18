@@ -38,7 +38,8 @@ import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { describeGroove } from '@core/drums/engrave/describe.ts'
 import { engraveGroove } from '@core/drums/engrave/staff.ts'
 import { grooveTrainerLibrary } from '@core/drums/practice/library.ts'
-import type { Clock, DrumAudioOutput } from '@core/ports/index.ts'
+import type { Clock, DrumAudioOutput, MidiInput } from '@core/ports/index.ts'
+import { useDrumMidiInput } from '@app/drums/input/useDrumMidiInput.ts'
 import { Pad, TempoField } from '@app/drums/groove/GrooveControls.tsx'
 import { useFlash, useKeyboardPads } from '@app/drums/groove/groovePadHooks.ts'
 import { GROOVE_PAD_KEY, GROOVE_PAD_LABEL, keyLabel, sortPadsForDisplay } from '@app/drums/groove/padLabels.ts'
@@ -52,6 +53,8 @@ export type CoordinationTrainerScreenProps = {
   readonly clock?: Clock
   readonly audio?: () => DrumAudioOutput
   readonly frameDriver?: FrameDriver
+  /** A ready-made e-kit MIDI input (roadmap DR-02); defaults to Web MIDI through `useMidiConnection`. */
+  readonly midiInput?: MidiInput
 }
 
 const MODE_OPTIONS: ReadonlyArray<{ readonly value: DrillMode; readonly label: string }> = [
@@ -70,6 +73,13 @@ export function CoordinationTrainerScreen(props: CoordinationTrainerScreenProps)
     ...(props.frameDriver === undefined ? {} : { driver: props.frameDriver }),
   })
   const { mode, groove, steps, index, unlocked, plan, run } = trainer
+
+  // Same e-kit join as `GrooveTrainerScreen` (roadmap DR-02): a real stroke
+  // lands on `run.hit` exactly like a pad tap or a key press.
+  const ekit = useDrumMidiInput({
+    onHit: run.hit,
+    ...(props.midiInput === undefined ? {} : { midiInput: props.midiInput }),
+  })
 
   const step = steps[index]
 
@@ -199,6 +209,10 @@ export function CoordinationTrainerScreen(props: CoordinationTrainerScreenProps)
 
         <p role="status" aria-label="Run state" className="groove-run-state">
           {runStateText(run.phase, run.countInBeat, run.bar, plan.gradedBars)}
+        </p>
+
+        <p role="status" aria-label="E-kit" className="groove-ekit">
+          {ekit.statusText}
         </p>
       </div>
 

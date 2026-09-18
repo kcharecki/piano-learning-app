@@ -10,7 +10,8 @@
  */
 import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { FakeClock } from '@test/fakes.ts'
+import { FakeClock, FakeMidiInput } from '@test/fakes.ts'
+import { midi, millis } from '@core/shared/units.ts'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { useDrumsHistoryStore } from '@app/state/drumsHistoryStore.ts'
@@ -37,7 +38,7 @@ function fakeDrumAudio(clock: FakeClock): DrumAudioOutput {
   }
 }
 
-function setup() {
+function setup(opts: { readonly midiInput?: FakeMidiInput } = {}) {
   const clock = new FakeClock()
   const audio = fakeDrumAudio(clock)
   let frame: (() => void) | undefined
@@ -48,7 +49,14 @@ function setup() {
     }
   }
   const user = userEvent.setup()
-  render(<GrooveTrainerScreen clock={clock} audio={() => audio} frameDriver={frameDriver} />)
+  render(
+    <GrooveTrainerScreen
+      clock={clock}
+      audio={() => audio}
+      frameDriver={frameDriver}
+      {...(opts.midiInput === undefined ? {} : { midiInput: opts.midiInput })}
+    />,
+  )
   return {
     user,
     clock,
@@ -554,6 +562,36 @@ describe('GrooveTrainerScreen', () => {
       const kickPad = screen.getByRole('button', { name: 'Kick' })
       expect(kickPad).toHaveAttribute('data-muted', 'true')
       expect(kickPad).not.toHaveAttribute('data-verdict')
+    })
+  })
+
+  describe('e-kit input (roadmap DR-02)', () => {
+    it('says no kit is connected when Web MIDI is unavailable, and that the pads still work', async () => {
+      setup()
+      const status = screen.getByRole('status', { name: 'E-kit' })
+      expect(status.textContent).toMatch(/^No e-kit/)
+      await screen.findByText(/^No e-kit: Web MIDI API is not available/)
+    })
+
+    it('names the connected kit and map, and grades a real stroke like a pad tap', async () => {
+      const kit = new FakeMidiInput()
+      const { user, clock, frameAt } = setup({ midiInput: kit })
+      const name = kit.listDevices()[0]?.name ?? ''
+      expect(screen.getByRole('status', { name: 'E-kit' })).toHaveTextContent(
+        `E-kit: ${name} · General MIDI map`,
+      )
+
+      await user.click(screen.getByRole('button', { name: 'Start' }))
+      frameAt(BAR_MS)
+      expect(runState()).toMatch(/^Playing/)
+
+      // GM 38 = acoustic snare, on the first graded instant (snare on beat 2).
+      clock.setTime(BAR_MS + 750)
+      act(() => {
+        kit.emit({ type: 'noteOn', note: midi(38), velocity: 100, time: millis(clock.now()) })
+      })
+      expect(lastHitText()).toContain('Snare')
+      expect(screen.getByRole('button', { name: 'Snare' })).toHaveAttribute('data-verdict', 'on-time')
     })
   })
 })

@@ -11,7 +11,8 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { useDrumsHistoryStore } from '@app/state/drumsHistoryStore.ts'
 import type { DrumAudioOutput } from '@core/ports/index.ts'
-import { FakeClock } from '@test/fakes.ts'
+import { FakeClock, FakeMidiInput } from '@test/fakes.ts'
+import { midi, millis } from '@core/shared/units.ts'
 import { CoordinationTrainerScreen } from './CoordinationTrainerScreen.tsx'
 
 /** One bar of count-in, two graded, at the trainer's default 80 bpm — same shape `GrooveTrainerScreen.test.tsx` uses. */
@@ -28,7 +29,7 @@ function fakeDrumAudio(clock: FakeClock): DrumAudioOutput {
   }
 }
 
-function setup() {
+function setup(opts: { readonly midiInput?: FakeMidiInput } = {}) {
   const clock = new FakeClock()
   const audio = fakeDrumAudio(clock)
   let frame: (() => void) | undefined
@@ -39,7 +40,14 @@ function setup() {
     }
   }
   const user = userEvent.setup()
-  render(<CoordinationTrainerScreen clock={clock} audio={() => audio} frameDriver={frameDriver} />)
+  render(
+    <CoordinationTrainerScreen
+      clock={clock}
+      audio={() => audio}
+      frameDriver={frameDriver}
+      {...(opts.midiInput === undefined ? {} : { midiInput: opts.midiInput })}
+    />,
+  )
   return {
     user,
     clock,
@@ -188,5 +196,25 @@ describe('CoordinationTrainerScreen', () => {
     const attempts = useDrumsHistoryStore.getState().attempts
     expect(attempts).toHaveLength(1)
     expect(attempts[0]?.steady).toBe(true)
+  })
+
+  it('names a connected e-kit, and a real stroke lights the pad like a tap (roadmap DR-02)', async () => {
+    const kit = new FakeMidiInput()
+    const { user, clock, frameAt } = setup({ midiInput: kit })
+    const name = kit.listDevices()[0]?.name ?? ''
+    expect(screen.getByRole('status', { name: 'E-kit' })).toHaveTextContent(
+      `E-kit: ${name} · General MIDI map`,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Start' }))
+    frameAt(BAR_MS)
+    expect(runState()).toMatch(/^Playing/)
+
+    // Layer 1 of the default groove is hi-hat only; GM 42 = closed hi-hat.
+    clock.setTime(BAR_MS)
+    act(() => {
+      kit.emit({ type: 'noteOn', note: midi(42), velocity: 100, time: millis(clock.now()) })
+    })
+    expect(screen.getByRole('button', { name: 'Hi-hat' })).toHaveAttribute('data-lit', 'true')
   })
 })
