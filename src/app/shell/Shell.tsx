@@ -742,7 +742,7 @@ export function Shell() {
               deck,
               theoryDrill,
             )
-          : renderDrumsScreen(appRoute.route.screen, () => goToDrums('drums-groove'))}
+          : renderDrumsScreen(appRoute.route.screen, goToDrums)}
       </main>
       {/* Sibling AFTER app-main, never a wrapper around it and never a layout
           column (module doc + parallel-round-10.md Q2) — position:fixed, so

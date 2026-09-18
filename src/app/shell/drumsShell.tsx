@@ -54,11 +54,15 @@ export const DRUMS_NAV_GROUPS: readonly NavGroup<DrumsScreenId>[] = [
   },
 ]
 
-/** Drums' own screen renderer (roadmap DR-01), grows per phase. */
-export function renderDrumsScreen(screen: DrumsScreenId, goToGroove: () => void) {
+/**
+ * Drums' own screen renderer (roadmap DR-01), grows per phase. `goTo` is the
+ * shell's Drums navigation; the Today hub uses it to open any of the four
+ * trainers.
+ */
+export function renderDrumsScreen(screen: DrumsScreenId, goTo: (screen: DrumsScreenId) => void) {
   switch (screen) {
     case 'drums-today':
-      return <DrumsTodayScreen onOpenGroove={goToGroove} />
+      return <DrumsTodayScreen onOpen={goTo} />
     case 'drums-groove':
       return <GrooveTrainerScreen />
     case 'drums-reading':

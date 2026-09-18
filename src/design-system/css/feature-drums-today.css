@@ -1,0 +1,46 @@
+/* Drums home hub (roadmap DR-01/DR-09/DR-10/DR-11/DR-12). `.page`,
+   `.page-header` and `.card` come from base.css/primitives.css; this file
+   holds only the hub's own grid and the per-card layout that pushes each
+   card's button to the bottom regardless of how long its status line runs. */
+
+.drums-today-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+
+/* Column flex so the button always sits flush with the card's bottom edge,
+   the same reasoning `.dashboard-grid`'s cards use: a short status line on
+   one card and a long one on its neighbour must not leave their buttons at
+   two different heights. */
+.drums-today-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.drums-today-card > svg {
+  width: 1.5em;
+  height: 1.5em;
+  color: var(--text-2);
+}
+.drums-today-card h2 {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--text-1);
+  margin: 0;
+}
+.drums-today-card p {
+  margin: 0;
+  color: var(--text-2);
+  line-height: var(--leading-normal);
+}
+.drums-today-status {
+  font-size: var(--text-sm);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.drums-today-card button {
+  margin-top: auto;
+  align-self: flex-start;
+}

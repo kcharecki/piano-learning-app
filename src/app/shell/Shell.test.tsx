@@ -429,12 +429,16 @@ describe('Shell', () => {
     // piano's `playingLevel` — a piano number would describe nothing here.
     it('omits the level from the rail footer while on Drums, keeping only the shared streak', async () => {
       const user = userEvent.setup()
-      render(<Shell />)
+      const { container } = render(<Shell />)
 
       await user.click(screen.getByRole('radio', { name: 'Drums' }))
 
-      expect(screen.getByText('No streak yet')).toBeInTheDocument()
-      expect(screen.queryByText(/Level/)).not.toBeInTheDocument()
+      // Scoped to the rail footer: the Drums hub's reading card carries its own
+      // "Level n of 7" line, which is that trainer's level, not the piano one.
+      const footer = container.querySelector('.nav-rail-footer')
+      expect(footer).not.toBeNull()
+      expect(footer?.textContent).toContain('No streak yet')
+      expect(footer?.textContent).not.toMatch(/Level/)
     })
 
     // Roadmap DR-01: the learner's last-used instrument persists (via
