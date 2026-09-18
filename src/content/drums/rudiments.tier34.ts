@@ -5,15 +5,18 @@
  * judgment call (per AGENTS' brief: "the ones commonly taught next" go in
  * tier 3), not a cited source.
  *
- * A handful of these are genuinely obscure enough that published sources
- * disagree on the exact sticking/accent placement, or the author simply
- * isn't fully confident of the standard reading. Each such rudiment says so
- * in its own comment; they are also called out in this package's delivery
- * notes rather than resolved silently. Everything else here (the roll
- * family, drag paradiddles, ratamacues, flam paradiddle) follows the
- * standard PAS chart directly.
+ * Six of these (`single-flammed-mill`, `flam-drag`, `double-drag-tap`,
+ * `single-dragadiddle`, `inverted-flam-tap`, `lesson-25` — DR-10) previously
+ * carried a `// Less certain:` comment because their sticking was written
+ * from memory rather than a cited source; each now carries a `// Source:`
+ * comment citing the PAS chart it was checked against (2026-09-18). Any
+ * remaining oddities — a chart pattern that doesn't fit this file's grace-note
+ * model, or a source showing an alternate reading — are called out in the
+ * comment for that entry and in this package's delivery notes, not resolved
+ * silently. Everything else here (the roll family, drag paradiddles,
+ * ratamacues, flam paradiddle) follows the standard PAS chart directly.
  */
-import { EIGHTH, makeRudiment, seq, SIXTEENTH, TRIPLET_EIGHTH } from './rudimentBuilders.ts'
+import { chain, EIGHTH, makeRudiment, seq, SIXTEENTH, TRIPLET_EIGHTH } from './rudimentBuilders.ts'
 import type { Rudiment } from '@core/drums/rudiment/types.ts'
 
 const TIER3_BAND = { start: 60, target: 120 }
@@ -71,11 +74,12 @@ export const TIER_3_RUDIMENTS: readonly Rudiment[] = [
     pasNumber: 25,
     name: 'Single Flammed Mill',
     tier: 3,
-    // Less certain: sources vary on exact placement. Modeled as a fully alternating
-    // 6-note phrase with flams on the 1st and 4th notes, mirroring Flamacue's shape
-    // but without the accent gap — flag this one if it needs correcting against a
-    // specific method book.
-    strokes: seq('RLRLRL', SIXTEENTH, { flams: [0, 3], accents: [0, 3] }),
+    // Source: Percussive Arts Society, "40 International Drum Rudiments" (PDF),
+    // https://pas.org/wp-content/uploads/2024/04/pas-rudiments.pdf, fetched 2026-09-18.
+    // Sticking as printed: "lR R L R  rL L R L" — a "mill" shape (the double stroke
+    // leads each group, unlike a paradiddle's diddle-last shape), flammed on the
+    // lead note of each group.
+    strokes: seq('RRLRLLRL', SIXTEENTH, { flams: [0, 4], accents: [0, 4] }),
     bpmBand: TIER3_BAND,
     transfer: 'Flammed mill pattern used to thicken sustained alternating fills.',
   }),
@@ -94,19 +98,33 @@ export const TIER_3_RUDIMENTS: readonly Rudiment[] = [
     pasNumber: 30,
     name: 'Flam Drag',
     tier: 3,
-    // Less certain: modeled as flam, tap, drag, tap — the two ornaments in one short phrase.
-    strokes: seq('RLLR', EIGHTH, { flams: [0], drags: [2] }),
+    // Source: Percussive Arts Society, "40 International Drum Rudiments" (PDF),
+    // https://pas.org/wp-content/uploads/2024/04/pas-rudiments.pdf, fetched 2026-09-18.
+    // Sticking as printed: "lR L L R  rL R R L" — rhythm eighth, sixteenth,
+    // sixteenth, eighth per group. Flam on the lead note; the "drag" is realized as
+    // a measured (written-out, same-hand) double on the two sixteenths, not as a
+    // grace-note ruff, so no `drags` index is set — see delivery notes.
+    strokes: chain(
+      seq('R', EIGHTH, { flams: [0], accents: [0] }),
+      seq('LL', SIXTEENTH),
+      seq('R', EIGHTH),
+      seq('L', EIGHTH, { flams: [0], accents: [0] }),
+      seq('RR', SIXTEENTH),
+      seq('L', EIGHTH),
+    ),
     bpmBand: TIER3_BAND,
-    transfer: 'Combines both grace-note ornaments in one phrase — a compact fill accent.',
+    transfer: 'A flam, a measured same-hand double, then a tap — a compact fill accent.',
   }),
   makeRudiment({
     id: 'double-drag-tap',
     pasNumber: 33,
     name: 'Double Drag Tap',
     tier: 3,
-    // Less certain: modeled as two drag-decorated alternating notes then an accented
-    // tap, mirrored — "drag drag tap, drag drag tap".
-    strokes: seq('LRLRLR', SIXTEENTH, { drags: [0, 1, 3, 4], accents: [2, 5] }),
+    // Source: Percussive Arts Society, "40 International Drum Rudiments" (PDF),
+    // https://pas.org/wp-content/uploads/2024/04/pas-rudiments.pdf, fetched 2026-09-18.
+    // Sticking as printed: "llR llR L  rrL rrL R" — three eighth notes per group
+    // (drag-tap, drag-tap, accented tap), mirrored onto the other hand.
+    strokes: seq('RRLLLR', EIGHTH, { drags: [0, 1, 3, 4], accents: [2, 5] }),
     bpmBand: TIER3_BAND,
     transfer: 'Two drags into an accented tap — a common fill turnaround into the next phrase.',
   }),
@@ -115,8 +133,11 @@ export const TIER_3_RUDIMENTS: readonly Rudiment[] = [
     pasNumber: 35,
     name: 'Single Dragadiddle',
     tier: 3,
-    // Less certain: modeled as a drag leading into a 3-note paradiddle-style tail.
-    strokes: seq('RLLR', SIXTEENTH, { drags: [0] }),
+    // Source: Percussive Arts Society, "40 International Drum Rudiments" (PDF),
+    // https://pas.org/wp-content/uploads/2024/04/pas-rudiments.pdf, fetched 2026-09-18.
+    // Sticking as printed: "rR L R R  lL R L L" — a drag into an RLRR / LRLL
+    // "diddle" tail, mirrored onto the other hand for the second group.
+    strokes: seq('RLRRLRLL', SIXTEENTH, { drags: [0, 4], accents: [0, 4] }),
     bpmBand: TIER3_BAND,
     transfer: 'Drag-led diddle shape for fills that need a soft lead-in before the accent.',
   }),
@@ -202,9 +223,12 @@ export const TIER_4_RUDIMENTS: readonly Rudiment[] = [
     pasNumber: 29,
     name: 'Inverted Flam Tap',
     tier: 4,
-    // Less certain: modeled as Flam Tap with the flam moved to the second note of
-    // each pair instead of the first (the "inversion").
-    strokes: seq('RRLL', EIGHTH, { flams: [1, 3], accents: [1, 3] }),
+    // Source: Percussive Arts Society, "40 International Drum Rudiments" (PDF),
+    // https://pas.org/wp-content/uploads/2024/04/pas-rudiments.pdf, fetched 2026-09-18.
+    // Sticking as printed: "lR L rL R  lR L rL R" — flams on the 1st and 3rd
+    // sixteenth of each 4-note group (not the usual 1st-only), both groups
+    // identical rather than lead-alternating.
+    strokes: seq('RLLRRLLR', SIXTEENTH, { flams: [0, 2, 4, 6], accents: [0, 2, 4, 6] }),
     bpmBand: TIER4_BAND,
     transfer: 'Flam Tap with the accent placement flipped — trains independence from the standard version.',
   }),
@@ -213,10 +237,21 @@ export const TIER_4_RUDIMENTS: readonly Rudiment[] = [
     pasNumber: 34,
     name: 'Lesson 25',
     tier: 4,
-    // Less certain: modeled as a compact two-drag alternating phrase, a shorter
-    // sibling of Double Drag Tap — flag this one if it needs correcting against
-    // Wilcoxon's original notation.
-    strokes: seq('RLRL', SIXTEENTH, { drags: [0, 2], accents: [1, 3] }),
+    // Source: Percussive Arts Society, "40 International Drum Rudiments" (PDF),
+    // https://pas.org/wp-content/uploads/2024/04/pas-rudiments.pdf, fetched 2026-09-18.
+    // Sticking as printed (primary line): "llR L R  llR L R", rhythm eighth-
+    // sixteenth-sixteenth per group (drag-tap, tap, accented tap). PAS also prints
+    // a fully mirrored alternate reading ("RRL R L  RRL R L") beneath the primary
+    // line; this codes the primary line, unmirrored between the two groups,
+    // exactly as printed — see delivery notes.
+    strokes: chain(
+      seq('R', EIGHTH, { drags: [0] }),
+      seq('L', SIXTEENTH),
+      seq('R', SIXTEENTH, { accents: [0] }),
+      seq('R', EIGHTH, { drags: [0] }),
+      seq('L', SIXTEENTH),
+      seq('R', SIXTEENTH, { accents: [0] }),
+    ),
     bpmBand: TIER4_BAND,
     transfer: 'A compact double-drag phrase historically used as a standalone reading exercise.',
   }),

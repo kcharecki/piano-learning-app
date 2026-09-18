@@ -11,6 +11,7 @@ import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import { validateGrooveScore } from '@core/drums/model/groove.ts'
 import { rudimentToScore } from '@core/drums/rudiment/score.ts'
+import type { RudimentStroke } from '@core/drums/rudiment/types.ts'
 import { RUDIMENTS, rudimentById, rudimentsInTier } from './rudiments.ts'
 
 const TIER_1_IDS = [
@@ -109,6 +110,38 @@ describe('RUDIMENTS', () => {
 
   it('double stroke open roll sticking is exactly RRLL RRLL', () => {
     expect(stickingOf('double-stroke-open-roll')).toBe('RRLLRRLL')
+  })
+
+  it('the six formerly-unverified tier-3/4 stickings match their cited sources', () => {
+    // Transcribed from the Percussive Arts Society "40 International Drum Rudiments"
+    // PDF (https://pas.org/wp-content/uploads/2024/04/pas-rudiments.pdf), fetched
+    // 2026-09-18 — see the `// Source:` comment on each entry in rudiments.tier34.ts
+    // for the sticking exactly as printed. Indices are 0-based into the stripped
+    // sticking string, matching `seq()`'s `SeqOptions`.
+    const expected: Readonly<
+      Record<string, { sticking: string; flams?: readonly number[]; drags?: readonly number[]; accents: readonly number[] }>
+    > = {
+      'single-flammed-mill': { sticking: 'RRLRLLRL', flams: [0, 4], accents: [0, 4] },
+      'flam-drag': { sticking: 'RLLRLRRL', flams: [0, 4], accents: [0, 4] },
+      'double-drag-tap': { sticking: 'RRLLLR', drags: [0, 1, 3, 4], accents: [2, 5] },
+      'single-dragadiddle': { sticking: 'RLRRLRLL', drags: [0, 4], accents: [0, 4] },
+      'inverted-flam-tap': { sticking: 'RLLRRLLR', flams: [0, 2, 4, 6], accents: [0, 2, 4, 6] },
+      'lesson-25': { sticking: 'RLRRLR', drags: [0, 3], accents: [2, 5] },
+    }
+
+    for (const [id, exp] of Object.entries(expected)) {
+      const rudiment = rudimentById(id)
+      if (rudiment === undefined) throw new Error(`no such rudiment: ${id}`)
+      expect(stickingOf(id)).toBe(exp.sticking)
+
+      const strokes = rudiment.strokes
+      const indicesWhere = (pred: (s: RudimentStroke) => boolean): number[] =>
+        strokes.reduce<number[]>((acc, s, i) => (pred(s) ? [...acc, i] : acc), [])
+
+      expect(indicesWhere((s) => s.articulation === 'flam')).toEqual(exp.flams ?? [])
+      expect(indicesWhere((s) => s.articulation === 'drag')).toEqual(exp.drags ?? [])
+      expect(indicesWhere((s) => s.accent === true)).toEqual(exp.accents)
+    }
   })
 
   it('every rudiment converts through rudimentToScore into a validating score, for 1..4 cycles', () => {
