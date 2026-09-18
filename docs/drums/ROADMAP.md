@@ -158,7 +158,14 @@ item lands inside a slice that drives something (specs state their proof surface
       `core/drums/practice/grade.ts` is the matcher today (greedy pairing, inclusive window,
       articulation slips — Opus-reviewed 2026-09-17, `1ff79e7`). Velocity classes and
       per-level windows still open.
-- [ ] DR-08 Latency calibration + input monitor → [spec](features/DR-08-latency-calibration.md)
+- [~] DR-08 Latency calibration + input monitor → [spec](features/DR-08-latency-calibration.md).
+      Calibration landed 2026-09-18 (`77d34f0`): `/drums/latency` plays a one-bar count-in
+      then a click at 80 bpm; the learner hits any pad on 16 clicks, each judged against its
+      nearest click (`core/drums/scoring/latency.ts`), and the median deviation with a
+      median-absolute-deviation spread is offered as the offset. Saved per input — the
+      e-kit's device id, or "Pads and keys" — persisted with the other drum slices, and
+      subtracted from every graded hit's clock time in both trainers (`useGrooveRun`'s
+      `inputOffsetMs`). Still open: input monitor, BLE honesty copy.
 
 ## Phase D1 — The trainers: where practice happens
 
@@ -179,7 +186,12 @@ item lands inside a slice that drives something (specs state their proof surface
       grader's own instants (`mutedVoices.ts`, one pass ahead in loop mode) and dropped from
       the grading plan (`core/drums/practice/mute.ts`), so it gets no result row and no
       live verdict, while a tap on it still sounds and flashes. The last switch on cannot
-      be switched off. Still open: wait mode.
+      be switched off. Wait mode landed 2026-09-18 (`ce06836`): a Wait switch (exclusive
+      with Loop) replaces the clock with a playhead that advances only when the learner has
+      played every pad of the current step (`core/drums/practice/wait.ts`); the required
+      pads are ringed, extra strokes sound but do not advance, and the status line names
+      what is still owed and where in the bar it sits. Nothing is graded or recorded — it is
+      a learning mode, not a scoring mode. DR-09 UI is now feature-complete against its spec.
 - [~] DR-10 ‖ Rudiment trainer — the 40 in Wooton tiers, tempo ladder, evenness, PRs
       → [spec](features/DR-10-rudiment-trainer.md). Core landed 2026-09-17 (`17e4b4f`):
       `content/drums/rudiments*.ts` (40 PAS), `core/drums/rudiment/` score conversion +
@@ -244,7 +256,11 @@ item lands inside a slice that drives something (specs state their proof surface
       `/drums/progress` landed 2026-09-18 (`04e5918`): rudiment tiers at target / started,
       best steady tempo per groove, matched-weighted limb bias over the last ten runs,
       reading level with the last three accuracies — four panels, each seeded-e2e with an
-      exclusion trap. Still open: tightness trends over time, coverage, milestones.
+      exclusion trap. Tightness trends landed 2026-09-18 (`a5bbbe8`): per groove, the
+      worst-limb mean deviation of the last eight runs in play order, a direction verdict
+      (tightening / loosening / flat within 2 ms / too few runs) from the first-half vs
+      second-half means, and the steady count (`core/drums/progress/trend.ts`). Still open:
+      coverage, milestones.
 
 ## Phase D3 — Musicianship and the intermediate package
 
@@ -441,3 +457,29 @@ open-hat choke against a hat scheduled ahead of it (`093de46`). Still open from 
   treated as muting nothing rather than thrown.
 - Three property tests restated their implementation (rebuilt the expected list with
   the same filter and compared). Rewritten as independent membership and count checks.
+
+### 2026-09-18 — orchestrated drum session, wave 7
+
+Three slices: tightness trends on the progress screen (`a5bbbe8`), groove wait mode
+(`ce06836`), and latency calibration with the offset wired into both trainers
+(`77d34f0`). Still open from above: `everyNBars` count-in awareness, the six
+unverified stickings, MIDI-out channel, `ladderText`'s hard-coded counts, the input
+monitor, hi-hat foot and openings, the jazz ride introduction. New notes:
+
+- The calibration slice shipped inert: the store, the screen, the hook option on
+  `useGrooveRun` and the persistence all landed green, and nothing passed the stored
+  offset to a run. The reviewer found it by grepping for production callers of
+  `offsetFor` (zero). Wired on the main thread; the e-kit hook now mounts before the run
+  hook in both trainer screens so the device id can pick the offset, with the run's
+  `hit` reaching the kit through a ref.
+- Calibration hits were gated on the frame loop's phase, not on the clock — a dead zone
+  of one frame after the collecting downbeat and a first-sample bias toward late. Now
+  judged by the clock with a half-beat window before the first collecting click.
+- Reaching "done" in calibration stopped scheduling clicks but did not silence the bar
+  already in the audio graph; up to seven clicks after the screen said Done.
+- Wait mode's step boundaries come from the plan's absolute tick positions, so unison
+  strokes (kick + hat on one instant) are one step with two required pads, and a swung
+  or off-beat pad reads its position from the subdivision, not from a beat guess.
+- The wait-mode e2e failed on its own indexing (1-based step number fed to a 0-based
+  helper), not on the app. Found by logging every click's DOM event on the main thread;
+  the spec now asserts the exact status line after every click.
