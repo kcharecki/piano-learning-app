@@ -162,8 +162,12 @@ item lands inside a slice that drives something (specs state their proof surface
 - [~] DR-09 Groove trainer — the core loop: per-hit feedback, loop, BPM, per-limb mute,
       wait mode, results → [spec](features/DR-09-groove-trainer.md). `/drums/groove` has
       staff, Listen through the synth, graded results with articulation sentences, result
-      retired on groove change (`3960a5c`). Still open: per-hit live feedback, loop,
-      per-limb mute, wait mode.
+      retired on groove change (`3960a5c`). Loop mode landed 2026-09-18 (`e8e3ee7`): one
+      count-in, then the graded window repeats back-to-back, each pass graded on its own
+      (`core/drums/practice/loop.ts` files a boundary hit to the pass whose expected instant
+      is nearer), a pass tally in the result card, one history attempt per loop run (the
+      last graded pass), and a stalled frame drops the passes it slept through instead of
+      replaying their clicks. Still open: per-hit live feedback, per-limb mute, wait mode.
 - [~] DR-10 ‖ Rudiment trainer — the 40 in Wooton tiers, tempo ladder, evenness, PRs
       → [spec](features/DR-10-rudiment-trainer.md). Core landed 2026-09-17 (`17e4b4f`):
       `content/drums/rudiments*.ts` (40 PAS), `core/drums/rudiment/` score conversion +
@@ -340,3 +344,26 @@ stickings, MIDI-out channel, the duplicated epoch-anchor filter. New notes:
   The next Drums screen goes into those, not the spine files.
 - The Drums Today screen still links only to the groove trainer; reading, rudiments and
   the metronome are reachable from the nav rail only.
+
+### 2026-09-18 — orchestrated drum session, wave 4
+
+Three slices (`57bb514`, `6966868`, `e8e3ee7`): the Drums Today hub, rudiment evenness,
+groove loop mode. Closed from the list above: Drums Today now opens all four trainers
+with a status line per store. Still open: `everyNBars` count-in awareness, the six
+unverified stickings, MIDI-out channel, the duplicated epoch-anchor filter. New notes:
+
+- The rudiment trainer never showed a failed verdict: it keyed the plan's grooveId on the
+  bpm so a tempo step read as a chart change, and the ladder steps on every fail. Found
+  in the builder's own "contract ambiguity" note, which described the symptom as a test
+  obstacle. Fixed on the main thread (`6966868`); a builder note that says "could never be
+  observed" is a defect report.
+- Loop mode's stalled-frame rule is the metronome's: a pass whose grading instant is more
+  than one pass old when the frame arrives is dropped, not graded, and the click track
+  resumes at the current pass. Third time this class appeared (piano metronome, drum
+  metronome, loop) — any per-frame scheduler needs a stall test before review.
+- A loop run is one history attempt (its last graded pass), not one per pass; the hook
+  has `onPassGraded` for per-pass consumers.
+- Evenness reads the engine's phase through a render-mirrored ref: a stroke in the first
+  frame of the window, or any stroke while the tab is hidden, is graded but not scored.
+- `tempoLadder.ts` does not export its default pass/fail counts; `ladderText` still
+  hard-codes 2 and 3.

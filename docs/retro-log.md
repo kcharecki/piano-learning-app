@@ -16,17 +16,19 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
-## 2026-09-17/18 — the drum session: nine slices in three waves, four Opus reviews, and a review fix that needed reviewing
+## 2026-09-17/18 — the drum session: twelve slices in four waves, five Opus reviews, and a review fix that needed reviewing
 
 - **user-reported defects since last session:** 0.
-- **slices proven / started:** 9 / 9. `T.30`–`T.34` closed (`1ff79e7`, `98c0a9b`, `0cf90ed`,
+- **slices proven / started:** 12 / 12. `T.30`–`T.34` closed (`1ff79e7`, `98c0a9b`, `0cf90ed`,
   `3960a5c`), DR-05 done, DR-06/07/09 advanced, DR-10/11/12 landed as core-only slices
   (`17e4b4f`) in wave 2 and got their screens in wave 3 (`897c05f` sticking row,
-  `4084575` rudiments, `1a68f51` reading + wiring, `8687e4c` metronome), each driven in the
-  running app, e2e-covered and visual-passed in both themes at both widths. Orchestrated:
-  main thread integrated and committed only; ~20 Sonnet builders/fixers, 4 Opus adversarial
-  reviews (synth, grader, reading hook, metronome scheduler).
-- **gate catches before commit:** 7.
+  `4084575` rudiments, `1a68f51` reading + wiring, `8687e4c` metronome); wave 4 added the
+  Drums Today hub (`57bb514`), rudiment evenness (`6966868`) and groove loop mode
+  (`e8e3ee7`). Each driven in the running app, e2e-covered and visual-passed in both themes
+  at both widths. Orchestrated: main thread integrated and committed only; ~23 Sonnet
+  builders/fixers, 5 Opus adversarial reviews (synth, grader, reading hook, metronome
+  scheduler, loop mode).
+- **gate catches before commit:** 9.
   1. **The e2e gate refused the T.33 slice, and that refusal is the gate's review-by clause
      satisfied.** `improve-DR-09-heldout.spec.ts` was a baseline capture asserting the wrong
      behaviour (`Open hi-hat — 0 of 2, 2 missed, 2 extra`); unit tests were green. The gate
@@ -59,6 +61,19 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
      into one — which re-timed ticks already dispatched under the replaced mark and shifted
      every later click by up to ~100 ms on a fast drag. Read on the main thread: append
      only, pinned by a property test in `core/timing/metronomeRun.test.ts`.
+  8. **A builder's "contract ambiguity" was the bug.** The rudiment evenness builder
+     reported it could not test a failed pass because the verdict "could never be observed
+     after driving frames past the finish" — and rewrote its screen test around a clean
+     pass. Read on the main thread: the trainer keyed the plan's grooveId on the bpm, the
+     ladder steps the bpm on every fail, so `useGrooveRun` retired every failed verdict in
+     the commit it was graded. Shipped in wave 3, never seen by a learner. Fixed with the
+     evenness slice; the test the builder could not write is now the regression test.
+  9. **The loop review found catch 5 a third time.** Opus: a hidden tab made the loop
+     scheduler replay every skipped pass's clicks into the past (the synth clamps them to
+     "now") and grade every skipped pass as all-missed — each one a persisted history
+     attempt, ten in one frame. Same class as the piano and drum metronome stalls, fixed
+     with the same rule (drop what the learner could not have heard, resume at now) and a
+     per-pass callback so a loop run is one attempt, not one per pass.
 - **docs budget:** no warnings.
 - **cost note:** integration, not building. Five agents' work landed on one tree, then one
   full `verify`, one visual pass, and a commit chain that failed once on shell quoting
@@ -67,6 +82,10 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
   right; two fixers' answers to right findings were wrong in a way only reading the diff
   against the data it touches could catch. The expensive seat is not the reviewer, it
   is whoever reads the fix — and this session that was the main thread, three times.
+  Wave 4 added a corollary: a builder's report is also worth reading as a defect list —
+  the one real learner-facing bug of the wave was in a note filed as a testing obstacle.
+  And the stalled-frame class has now cost three reviews; it belongs in the builder brief
+  for any per-frame scheduler, not in the reviewer's checklist.
 - **change:** one. Review-driven fixes to timing, grading or adaptation code are read on
   the main thread before commit, diff against the data shape they touch, not just their
   own tests. Recorded in `docs/PROCESS.md`'s review step.
