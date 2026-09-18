@@ -26,13 +26,27 @@ function makePlan(
     gradedBars: 2,
     gradedMs: 6000,
     subdivisionMs: windowMs * 4,
+    // Placeholder: judgeLiveHit never reads ticks, so msPerTick 1 keeps
+    // subdivisionMs === subdivisionTicks * msPerTick and expectedNominalTicks
+    // numerically equal to the (straight) expectedMs below.
+    subdivisionTicks: windowMs * 4,
+    nominalSubdivisionTicks: windowMs * 4,
+    nominalSubdivisionMs: windowMs * 4,
+    msPerTick: 1,
     windowMs,
     toleranceMs: windowMs,
     // Straight fixture throughout: nominal instants equal the swung ones,
     // same rule `plan.ts` applies when `swingPercent === 50`.
-    pads: pads.map(({ pad, expectedMs }) => ({ pad, loopTicks: [], expectedMs, expectedNominalMs: expectedMs })),
+    pads: pads.map(({ pad, expectedMs }) => ({
+      pad,
+      loopTicks: [],
+      expectedMs,
+      expectedNominalMs: expectedMs,
+      expectedNominalTicks: expectedMs,
+    })),
     unisonPairs: [],
     swingPercent: 50,
+    swing: { percent: 50, unit: 'eighth', measureTicks: 1920, beats: 4, beatType: 4 },
   }
 }
 

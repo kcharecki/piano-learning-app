@@ -33,7 +33,7 @@
 import { measureDurationTicks } from '@core/notation/score.ts'
 import { TICKS_PER_QUARTER } from '@core/shared/units.ts'
 import { invariant } from '@core/shared/invariant.ts'
-import type { GrooveScore } from '@core/drums/model/groove.ts'
+import type { GrooveScore, SwingUnit } from '@core/drums/model/groove.ts'
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import { swungTick } from '@core/drums/model/swing.ts'
 
@@ -72,10 +72,33 @@ export type GroovePadPlan = {
    * never off the swung `atMs`, which does not sit on the nominal grid).
    */
   readonly expectedNominalMs: readonly number[]
+  /**
+   * `expectedMs`/`expectedNominalMs`'s own instant, in absolute NOMINAL
+   * ticks from the window opening — same length, same order, index-for-index
+   * with both. This is what `grade.ts`'s swung slip pass shifts (in tick
+   * space, before re-swinging) rather than shifting `expectedMs` by a
+   * constant millisecond amount, which is only valid on a straight grid.
+   */
+  readonly expectedNominalTicks: readonly number[]
 }
 
 /** Two pads the score puts on the same notated instant — the only pairs a flam sentence may name. */
 export type UnisonPair = readonly [MappedDrumPad, MappedDrumPad]
+
+/**
+ * Everything `swungTick` needs besides the tick itself, carried on the plan
+ * so `grade.ts`'s slip pass can re-swing a shifted nominal tick without
+ * reaching back into `GrooveScore`. `percent: 50` (straight) makes
+ * `swungTick` an identity — see that function's own doc — so this is always
+ * present, never optional on a straight plan.
+ */
+export type SwingContext = {
+  readonly percent: number
+  readonly unit: SwingUnit
+  readonly measureTicks: number
+  readonly beats: number
+  readonly beatType: number
+}
 
 export type GrooveRunPlan = {
   readonly grooveId: string
@@ -90,14 +113,40 @@ export type GrooveRunPlan = {
   readonly gradedMs: number
   /** The score's own finest grid, in ms. See the module comment. */
   readonly subdivisionMs: number
+  /** `subdivisionMs`'s own tick value: `subdivisionMs === subdivisionTicks * msPerTick`. */
+  readonly subdivisionTicks: number
+  /**
+   * The smallest gap between two distinct notated instants on the NOMINAL
+   * (straight, unswung) grid — `note.tick` itself, never `swungTick`'d. This,
+   * not `subdivisionTicks`, is the shift cell `grade.ts`'s slip pass steps by:
+   * swinging can move a nominal gap of a whole grid step (e.g. 240 ticks, one
+   * eighth) down to something that does not evenly divide it (158 ticks for a
+   * 67%-swung eighth grid), so stepping by the SWUNG gap and re-swinging lands
+   * a "played one grid step late" candidate a few ticks off the true swung
+   * position — inside the match window, where it silently reports the wrong
+   * displacement (see `slipShift.ts`'s module doc). Stepping by the nominal
+   * gap and re-swinging each candidate is exact for every step, straight or
+   * swung, because it is asking the same question `swungTick` itself answers:
+   * "where does the note AT THIS NOMINAL POSITION actually land". Equal to
+   * `subdivisionTicks` on every straight score (`swungTick` is the identity at
+   * `percent: 50`), and on any score whose swing genuinely leaves the nominal
+   * grid's smallest gap unchanged.
+   */
+  readonly nominalSubdivisionTicks: number
+  /** `nominalSubdivisionTicks * msPerTick`. */
+  readonly nominalSubdivisionMs: number
+  /** Ticks -> ms conversion factor for this plan's tempo. See the module comment. */
+  readonly msPerTick: number
   /** Half-width of the match window: `min(toleranceMs, subdivisionMs / 2)`. */
   readonly windowMs: number
   readonly toleranceMs: number
   /** Only pads the score actually uses, in the score's own pad order. */
   readonly pads: readonly GroovePadPlan[]
   readonly unisonPairs: readonly UnisonPair[]
-  /** Copied from `score.swingPercent` — 50 is straight; `grade.ts`/`resultLines.ts` branch on it. */
+  /** Copied from `score.swingPercent` — 50 is straight; `grade.ts`/`resultLines.ts` branch on it. Always equal to `swing.percent`. */
   readonly swingPercent: number
+  /** `swungTick`'s other arguments, bundled — see `SwingContext`'s own doc. */
+  readonly swing: SwingContext
 }
 
 export type PlanGrooveRunOptions = {
@@ -166,6 +215,21 @@ export function subdivisionTicks(score: GrooveScore): number {
       ),
     ),
   ].sort((a, b) => a - b)
+  return smallestGapTicks(distinct, loopTicks)
+}
+
+/**
+ * The smallest gap between two distinct notated instants in one loop of
+ * `score`, on the NOMINAL (straight) grid — `note.tick` itself, never
+ * `swungTick`'d. This is the grid a learner's slip is actually measured in
+ * grid steps of: see `GrooveRunPlan.nominalSubdivisionTicks`'s own doc for why
+ * this, not the swung `subdivisionTicks` above, is the slip pass's shift
+ * cell. Equal to `subdivisionTicks` on every straight score.
+ */
+export function nominalSubdivisionTicks(score: GrooveScore): number {
+  const barTicks = measureDurationTicks(score.timeSignature)
+  const loopTicks = barTicks * score.measures.length
+  const distinct = [...new Set(score.notes.map((note) => note.tick as number))].sort((a, b) => a - b)
   return smallestGapTicks(distinct, loopTicks)
 }
 
@@ -280,6 +344,7 @@ export function planGrooveRun(
     })
     const expectedMs: number[] = []
     const expectedNominalMs: number[] = []
+    const expectedNominalTicks: number[] = []
     for (let loop = 0; loop < loops; loop++) {
       for (let i = 0; i < loopTicksSorted.length; i++) {
         const tick = loopTicksSorted[i]
@@ -287,14 +352,26 @@ export function planGrooveRun(
         if (tick === undefined || nominalTick === undefined) continue
         const absolute = tick + loop * loopTicks
         if (absolute >= gradedTicks) continue
+        const absoluteNominalTick = nominalTick + loop * loopTicks
         expectedMs.push(absolute * msPerTick)
-        expectedNominalMs.push((nominalTick + loop * loopTicks) * msPerTick)
+        expectedNominalMs.push(absoluteNominalTick * msPerTick)
+        expectedNominalTicks.push(absoluteNominalTick)
       }
     }
-    pads.push({ pad, loopTicks: loopTicksSorted, expectedMs, expectedNominalMs })
+    pads.push({ pad, loopTicks: loopTicksSorted, expectedMs, expectedNominalMs, expectedNominalTicks })
   }
 
-  const subdivisionMs = subdivisionTicks(score) * msPerTick
+  const subdivisionTicksValue = subdivisionTicks(score)
+  const subdivisionMs = subdivisionTicksValue * msPerTick
+  const nominalSubdivisionTicksValue = nominalSubdivisionTicks(score)
+  const nominalSubdivisionMs = nominalSubdivisionTicksValue * msPerTick
+  const swing: SwingContext = {
+    percent: score.swingPercent,
+    unit: score.swingUnit,
+    measureTicks: barTicks,
+    beats: score.timeSignature.beats,
+    beatType: score.timeSignature.beatType,
+  }
   return {
     grooveId: score.id,
     title: score.title,
@@ -306,11 +383,16 @@ export function planGrooveRun(
     gradedBars,
     gradedMs: gradedTicks * msPerTick,
     subdivisionMs,
+    subdivisionTicks: subdivisionTicksValue,
+    nominalSubdivisionTicks: nominalSubdivisionTicksValue,
+    nominalSubdivisionMs,
+    msPerTick,
     // Never wider than half a subdivision — see the module comment.
     windowMs: Math.min(toleranceMs, subdivisionMs / 2),
     toleranceMs,
     pads,
     unisonPairs: unisonPairsOf(score),
     swingPercent: score.swingPercent,
+    swing,
   }
 }

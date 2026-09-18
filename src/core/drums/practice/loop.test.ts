@@ -21,6 +21,7 @@ function makePlan(
   windowMs: number,
   expectedMs: readonly number[],
 ): GrooveRunPlan {
+  const sorted = [...expectedMs].sort((a, b) => a - b)
   return {
     grooveId: 'test-groove',
     title: 'Test Groove',
@@ -32,6 +33,13 @@ function makePlan(
     gradedBars: 2,
     gradedMs,
     subdivisionMs: windowMs * 2,
+    // Placeholder: loop.ts never reads ticks, so msPerTick 1 keeps
+    // subdivisionMs === subdivisionTicks * msPerTick and expectedNominalTicks
+    // numerically equal to the (straight) expectedMs below.
+    subdivisionTicks: windowMs * 2,
+    nominalSubdivisionTicks: windowMs * 2,
+    nominalSubdivisionMs: windowMs * 2,
+    msPerTick: 1,
     windowMs,
     toleranceMs: windowMs,
     // Straight fixture: nominal instants equal the swung ones (`swingPercent: 50` below).
@@ -39,12 +47,14 @@ function makePlan(
       {
         pad: 'kick',
         loopTicks: [],
-        expectedMs: [...expectedMs].sort((a, b) => a - b),
-        expectedNominalMs: [...expectedMs].sort((a, b) => a - b),
+        expectedMs: sorted,
+        expectedNominalMs: sorted,
+        expectedNominalTicks: sorted,
       },
     ],
     unisonPairs: [],
     swingPercent: 50,
+    swing: { percent: 50, unit: 'eighth', measureTicks: 1920, beats: 4, beatType: 4 },
   }
 }
 
@@ -70,6 +80,11 @@ function makePlanWithPads(
     gradedBars: 2,
     gradedMs,
     subdivisionMs: windowMs * 2,
+    // Placeholder, as in `makePlan` above.
+    subdivisionTicks: windowMs * 2,
+    nominalSubdivisionTicks: windowMs * 2,
+    nominalSubdivisionMs: windowMs * 2,
+    msPerTick: 1,
     windowMs,
     toleranceMs: windowMs,
     // Straight fixture: nominal instants equal the swung ones (`swingPercent: 50` below).
@@ -80,10 +95,12 @@ function makePlanWithPads(
         loopTicks: [],
         expectedMs: sorted,
         expectedNominalMs: sorted,
+        expectedNominalTicks: sorted,
       }
     }),
     unisonPairs: [],
     swingPercent: 50,
+    swing: { percent: 50, unit: 'eighth', measureTicks: 1920, beats: 4, beatType: 4 },
   }
 }
 

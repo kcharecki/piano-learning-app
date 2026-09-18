@@ -38,7 +38,8 @@
  */
 import { invariant } from '@core/shared/invariant.ts'
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
-import type { GroovePadPlan, GrooveRunPlan, UnisonPair } from './plan.ts'
+import type { GroovePadPlan, GrooveRunPlan, SwingContext, UnisonPair } from './plan.ts'
+import { shiftedExpectedMs } from './slipShift.ts'
 
 /** One pad press, in ms from the moment the graded window opened. */
 export type GrooveHit = {
@@ -62,7 +63,7 @@ export const STEADY_DRIFT_FRACTION = 0.5
 export const FLAM_FRACTION = 0.5
 
 /** How many subdivisions either side `slipSteps` will look for a displaced pattern. */
-const MAX_SLIP_STEPS = 4
+export const MAX_SLIP_STEPS = 4
 
 /** A whole-pattern displacement is only claimed if it explains this much of the run. */
 const SLIP_COVERAGE = 0.75
@@ -210,18 +211,9 @@ function pair(expected: readonly number[], hits: readonly number[], windowMs: nu
   return { offsets, matched: offsets.length, unmatchedExpected, unmatchedHits }
 }
 
-/** How many of `expected`, shifted by `shiftMs`, find a hit. Counting only — no assignment kept. */
-function matchCountAt(
-  expected: readonly number[],
-  hits: readonly number[],
-  windowMs: number,
-  shiftMs: number,
-): number {
-  return pair(
-    expected.map((instant) => instant + shiftMs),
-    hits,
-    windowMs,
-  ).matched
+/** How many of (already-shifted) `expected` find a hit. Counting only — no assignment kept. */
+function matchCountAt(expected: readonly number[], hits: readonly number[], windowMs: number): number {
+  return pair(expected, hits, windowMs).matched
 }
 
 function mean(values: readonly number[]): number {
@@ -258,24 +250,32 @@ function drift(offsets: readonly number[]): number | undefined {
  * best displacements are equal and opposite, and calling that a phase slip
  * would blame the clock for a hand problem.
  *
- * **Straight scores only.** `subdivisionMs` (`plan.ts`) is the smallest gap
- * between distinct notated instants — on a swung score that gap is the
- * SWUNG spacing, not a constant grid-step multiple (a jazz-ride bar's gaps
- * alternate 322/158 ticks at 67%, never a uniform step), so `step *
- * subdivisionMs` does not mean "N grid steps" once the grid is uneven. F1:
- * a run played exactly one nominal eighth late on a swung score would
- * therefore land on the wrong `step` (or none), so this whole pass is
- * skipped — `undefined` — for anything but a straight (`swingPercent ===
- * 50`) score, rather than reporting a wrong displacement.
+ * **Nominal-tick shift, re-swung.** The shift cell is `plan.ts`'s
+ * `nominalSubdivisionTicks` — the smallest gap between distinct notated
+ * instants on the NOMINAL (straight) grid, never the SWUNG one
+ * (`subdivisionTicks`/`subdivisionMs`, which only feed `windowMs`). Swinging
+ * can shrink a nominal grid step under itself unevenly (a jazz-ride bar's
+ * nominal eighths are 240 ticks apart, but 67%-swing packs the swung pair down
+ * to 322/158), so stepping by the SWUNG gap and re-swinging can land a
+ * "played one grid step late" candidate a handful of ticks off the note's
+ * true swung position — close enough that the match window still catches it,
+ * far enough that it is the wrong displacement. Stepping by the NOMINAL gap
+ * and then re-swinging each candidate (`padPlan.expectedNominalTicks[i] +
+ * step * nominalSubdivisionTicks`, then `shiftedExpectedMs`, `slipShift.ts`)
+ * asks exactly the question that matters: "if every note had been written
+ * `step` grid-steps later, where would swing have put it". On a straight
+ * score `swungTick` is the identity and `nominalSubdivisionTicks ===
+ * subdivisionTicks`, so this is the old constant-offset formula unchanged
+ * (`slipShift.test.ts`'s property test checks that equivalence).
  */
 function runSlipSteps(
   pads: readonly GroovePadPlan[],
   windowMs: number,
-  subdivisionMs: number,
-  swingPercent: number,
+  nominalSubdivisionTicks: number,
+  swing: SwingContext,
+  msPerTick: number,
   hitsByPad: ReadonlyMap<MappedDrumPad, readonly number[]>,
 ): number | undefined {
-  if (swingPercent !== 50) return undefined
   const steps = [...Array(MAX_SLIP_STEPS * 2 + 1).keys()].map((i) => i - MAX_SLIP_STEPS)
   const totals = new Map<number, number>(steps.map((step) => [step, 0]))
   let expectedTotal = 0
@@ -287,7 +287,11 @@ function runSlipSteps(
     expectedTotal += padPlan.expectedMs.length
     const counts = steps.map((step) => ({
       step,
-      count: matchCountAt(padPlan.expectedMs, hits, windowMs, step * subdivisionMs),
+      count: matchCountAt(
+        shiftedExpectedMs(padPlan.expectedNominalTicks, step, nominalSubdivisionTicks, swing, msPerTick),
+        hits,
+        windowMs,
+      ),
     }))
     for (const { step, count } of counts) totals.set(step, (totals.get(step) ?? 0) + count)
     if (hits.length === 0) continue
@@ -477,7 +481,14 @@ export function gradeGrooveRun(plan: GrooveRunPlan, hits: readonly GrooveHit[]):
     pads,
     unison,
     articulation,
-    slipSteps: runSlipSteps(plan.pads, plan.windowMs, plan.subdivisionMs, plan.swingPercent, hitsByPad),
+    slipSteps: runSlipSteps(
+      plan.pads,
+      plan.windowMs,
+      plan.nominalSubdivisionTicks,
+      plan.swing,
+      plan.msPerTick,
+      hitsByPad,
+    ),
     limits,
   }
 }

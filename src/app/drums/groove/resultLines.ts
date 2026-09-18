@@ -112,16 +112,16 @@ export function padLineText(row: GroovePadResult): string {
  * What one grid step is called at this groove's density, so a phase slip can be
  * reported in musical units rather than as "1 step".
  *
- * A2: this is only ever reached through `diagnosisSentences`'s
- * `result.slipSteps !== undefined` branch, and F1 makes `slipSteps` always
- * `undefined` for a swung plan (`swingPercent !== 50`) — so `swingPercent`
- * here is always 50 in practice, and the swung branch this function used to
- * have (naming the step from `swingUnit` instead) was dead code reachable
- * only by a hand-built `GrooveRunResult` the real grader can never produce.
- * Real per-cell swung slip detection is deferred to a later slice.
+ * DR-07: `slipSteps` counts NOMINAL grid steps (`GrooveRunPlan.
+ * nominalSubdivisionTicks` — the shift cell `runSlipSteps` uses), so the name
+ * has to come from the same nominal cell (`nominalSubdivisionMs`), not the
+ * swung `subdivisionMs` (which only sizes the match window) — naming the step
+ * from a different cell than the one that produced the count would mislabel a
+ * swung score's slip (e.g. calling a whole nominal eighth a "sixteenth"
+ * because the swung grid happens to be finer).
  */
-function stepName(beatMs: number, subdivisionMs: number): string {
-  const perBeat = beatMs / subdivisionMs
+function stepName(beatMs: number, nominalSubdivisionMs: number): string {
+  const perBeat = beatMs / nominalSubdivisionMs
   if (perBeat >= 3.5) return 'sixteenth'
   if (perBeat >= 1.5) return 'eighth'
   return 'beat'
@@ -202,18 +202,18 @@ export function diagnosisSentences(
   }
 
   // R1: hits registered, but every one of them missed its window — a
-  // uniform offset (a swung run started a full nominal step late, say) has
-  // no matches for `slipSteps` (undefined when swung, F1), `worstUnisonGap`,
+  // uniform offset that is not a whole nominal grid-step (a flat latency-like
+  // ms shift, say) has no matches for `slipSteps`, `worstUnisonGap`,
   // `spreadMs` or `driftMs` to read (all need matched hits), so without this
   // branch the panel said only "Not there yet" with no diagnosis at all.
   //
-  // Round-3 RED: gated on `result.slipSteps === undefined` too — a STRAIGHT
-  // drill shifted by exactly one whole subdivision also has every pad
-  // `matched === 0` (the grid position pass can't match anything either),
-  // but `slipSteps` is defined there (it is only ever `undefined` when
-  // swung, F1) and names the fix precisely ("sat 1 beat behind the click").
-  // Without this gate, this branch pre-empted that strictly more useful
-  // sentence with the generic one below it.
+  // Round-3 RED, still true after DR-07: gated on `result.slipSteps ===
+  // undefined` too — a drill (straight or swung) shifted by exactly one whole
+  // NOMINAL grid-step also has every pad `matched === 0` (the grid position
+  // pass can't match anything either), but `slipSteps` is defined there and
+  // names the fix precisely ("sat 1 beat behind the click"). Without this
+  // gate, this branch would pre-empt that strictly more useful sentence with
+  // the generic one below it.
   if (
     result.slipSteps === undefined &&
     result.pads.length > 0 &&
@@ -237,7 +237,7 @@ export function diagnosisSentences(
     const steps = Math.abs(result.slipSteps)
     const direction = result.slipSteps > 0 ? 'behind' : 'ahead of'
     sentences.push(
-      `The whole pattern sat ${plural(steps, stepName(plan.beatMs, plan.subdivisionMs))} ${direction} the click. The pattern is right; where you came in is not.`,
+      `The whole pattern sat ${plural(steps, stepName(plan.beatMs, plan.nominalSubdivisionMs))} ${direction} the click. The pattern is right; where you came in is not.`,
     )
   }
 

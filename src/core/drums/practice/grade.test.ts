@@ -2,9 +2,12 @@ import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import { jazzRideDrills } from '@core/drums/coordination/jazzRide.ts'
 import { ghostFunkBar, moneyBeat, moneyBeatOpenHat, referenceGrooves } from '@core/drums/model/referenceGrooves.ts'
+import { swungTick } from '@core/drums/model/swing.ts'
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
+import { EIGHTH, ticks } from '@core/shared/units.ts'
 import { gradeGrooveRun, worstUnisonGap, type GrooveHit } from './grade.ts'
-import { planGrooveRun, type GrooveRunPlan } from './plan.ts'
+import { MAX_BPM, MIN_BPM, planGrooveRun, type GrooveRunPlan } from './plan.ts'
+import { shiftedExpectedMs } from './slipShift.ts'
 
 /**
  * The money beat at 80 bpm, graded over two bars: 16 closed hi-hats, 4 kicks,
@@ -142,33 +145,141 @@ describe('gradeGrooveRun', () => {
   })
 
   /**
-   * F1. `subdivisionMs` on a swung plan is the smallest SWUNG gap, not a
-   * constant grid-step multiple — jazz-ride step 3 ("comp on the & of 2",
-   * swingPercent 67) at 120 bpm has `windowMs` 82.29 ms (computed by the
-   * plan, not by hand). Pre-fix, shifting every instant by exactly one
-   * nominal eighth late (+240 ticks = +250 ms at 120 bpm, msPerTick =
-   * 60000/120/480) reported `slipSteps: 2`, and a uniform +83 ms reported
-   * `slipSteps: 1` with 15 of 18 strokes missed — both wrong, since neither
-   * shift is "N nominal grid steps" on the swung grid `subdivisionMs *
-   * step` assumes. This kills that mutant: the whole-pattern-displacement
-   * pass is now skipped for any swung score, so both come back `undefined`,
-   * with the offsets themselves untouched (every stroke still finds its
-   * instant once shifted the same amount).
+   * DR-07. `runSlipSteps` no longer skips swung scores: it shifts in NOMINAL
+   * tick space by the NOMINAL grid cell (`padPlan.expectedNominalTicks[i] +
+   * step * plan.nominalSubdivisionTicks`) and re-swings with `swungTick`
+   * before comparing — see `slipShift.ts`. This plays jazz-ride drill 3
+   * ("comp on the & of 2", swingPercent 67) at 120 bpm with every instant
+   * struck at the SWUNG position of (its own nominal tick + one nominal
+   * eighth), built with `swungTick`/`plan.msPerTick` here, not typed by hand.
+   *
+   * The result is `slipSteps === 1`, exactly the nominal grid-step the
+   * strokes were shifted by: `plan.nominalSubdivisionTicks` is 240 ticks (one
+   * straight eighth — `note.tick` itself, never swung), so "one nominal
+   * eighth late, then swung" IS candidate step 1 by construction, and every
+   * instant on every played pad lands there — asserted below by sweeping
+   * every candidate step and confirming 1 is the unique, unanimous,
+   * full-coverage winner, not a number typed in from outside the test.
+   * `plan.subdivisionTicks` (158 ticks — the score's smallest SWUNG gap,
+   * `subdivisionTicks(score)`, `plan.ts`) is asserted too, only to show it is
+   * NOT the cell this pass uses: 158 is not a multiple of 240, so stepping by
+   * it instead (the pre-fix-of-the-fix bug) would land off the true swung
+   * position — see `does not call a flat (old-formula) offset` below for the
+   * concrete miss.
    */
-  it('does not call a grid position on a swung score — the whole-pattern displacement pass is skipped when swung (F1)', () => {
+  it('calls a jazz-ride whole-pattern displacement by its grid position on the nominal grid (DR-07)', () => {
     const jazzStep3 = jazzRideDrills()[2]
     expect(jazzStep3).toBeDefined()
     if (jazzStep3 === undefined) return
     const jazzPlan = planGrooveRun(jazzStep3.score, 120)
     expect(jazzPlan.swingPercent).toBe(67)
-    const msPerTick = 60_000 / 120 / 480
+    // The shift cell is the NOMINAL grid (240 ticks, one straight eighth),
+    // never the swung `subdivisionTicks` (158) — 158 is the smallest gap
+    // between two SWUNG instants, not a grid step any note was ever written
+    // at, and stepping by it would land a "one grid-step late" candidate off
+    // the note's true swung position (see `slipShift.ts`'s module doc).
+    expect(jazzPlan.nominalSubdivisionTicks).toBe(240)
+    expect(jazzPlan.subdivisionTicks).toBe(158)
     expect(jazzPlan.windowMs).toBeCloseTo(82.29, 2)
 
-    const oneEighthLate = gradeGrooveRun(jazzPlan, play(jazzPlan, () => 240 * msPerTick))
-    expect(oneEighthLate.slipSteps).toBeUndefined()
+    /** Every expected instant struck at the swung position of (nominal tick + `eighthShift` nominal eighths). */
+    const playSwungShift = (eighthShift: number): GrooveHit[] =>
+      jazzPlan.pads.flatMap((padPlan) =>
+        padPlan.expectedNominalTicks.map((nominalTick) => ({
+          pad: padPlan.pad,
+          ms:
+            (swungTick(
+              ticks(nominalTick + eighthShift * EIGHTH),
+              jazzPlan.swing.percent,
+              jazzPlan.swing.unit,
+              jazzPlan.swing.measureTicks,
+              jazzPlan.swing.beats,
+              jazzPlan.swing.beatType,
+            ) as number) * jazzPlan.msPerTick,
+        })),
+      )
 
-    const uniformLatency = gradeGrooveRun(jazzPlan, play(jazzPlan, () => 83))
-    expect(uniformLatency.slipSteps).toBeUndefined()
+    // Confirm the "1, not some alias" reading independently of
+    // `gradeGrooveRun`, by sweeping every candidate step `runSlipSteps` tries
+    // (-4..4) and counting how many of the late-shifted hits each one
+    // recovers, per pad, shifting by the NOMINAL cell (`nominalSubdivisionTicks`).
+    const lateHits = playSwungShift(1)
+    for (const padPlan of jazzPlan.pads) {
+      const hits = lateHits.filter((h) => h.pad === padPlan.pad).map((h) => h.ms)
+      const counts = [-4, -3, -2, -1, 0, 1, 2, 3, 4].map((step) => ({
+        step,
+        count: shiftedExpectedMs(
+          padPlan.expectedNominalTicks,
+          step,
+          jazzPlan.nominalSubdivisionTicks,
+          jazzPlan.swing,
+          jazzPlan.msPerTick,
+        ).filter((instant) => hits.some((h) => Math.abs(h - instant) <= jazzPlan.windowMs)).length,
+      }))
+      const best = counts.reduce((a, b) => (b.count > a.count ? b : a))
+      expect(best.step).toBe(1)
+      expect(best.count).toBe(padPlan.expectedNominalTicks.length) // unanimous, full coverage
+    }
+
+    const late = gradeGrooveRun(jazzPlan, lateHits)
+    expect(late.slipSteps).toBe(1)
+
+    // On time: every stroke matches its own instant, so there is no
+    // displacement to report.
+    const onTime = gradeGrooveRun(jazzPlan, play(jazzPlan))
+    expect(onTime.slipSteps).toBeUndefined()
+
+    // One nominal eighth EARLY: every pad's best candidate is unanimously -1
+    // under the nominal-cell shift (rideBow, hhPedal and snare all recover
+    // every one of their own instants at step -1 — no aliasing, no
+    // disagreement), so `runSlipSteps` reports the displacement cleanly.
+    const early = gradeGrooveRun(jazzPlan, playSwungShift(-1))
+    expect(early.slipSteps).toBe(-1)
+  })
+
+  /**
+   * A flat millisecond shift (the OLD, pre-DR-07 mental model: "one
+   * subdivision late" means "add a constant number of ms to every swung
+   * instant") is not a grid displacement on a swung score at all, and must
+   * not be read as any whole step. Under the nominal-cell shift, every pad
+   * matches 0 of its own instants at every candidate step -2..2 (ties across
+   * the board), so `runSlipSteps` correctly returns `undefined` rather than
+   * naming a step. Concretely, for `rideBow`'s third instant (nominal tick
+   * 720): the swung expected instant, the true one-nominal-eighth-late
+   * candidate, and where the flat-shifted hit actually lands are three
+   * different points, computed here from the plan and `swungTick` (never
+   * typed): the hit sits `diffMs` from the candidate, further than
+   * `jazzPlan.windowMs` can reach.
+   */
+  it('does not call a flat (old-formula) offset "one subdivision" on a swung score', () => {
+    const jazzStep3 = jazzRideDrills()[2]
+    expect(jazzStep3).toBeDefined()
+    if (jazzStep3 === undefined) return
+    const jazzPlan = planGrooveRun(jazzStep3.score, 120)
+    const flatOneEighthMs = EIGHTH * jazzPlan.msPerTick
+
+    const rideBow = jazzPlan.pads.find((p) => p.pad === 'rideBow')
+    expect(rideBow).toBeDefined()
+    if (rideBow === undefined) return
+    const nominalTick = rideBow.expectedNominalTicks[2]
+    const expectedMs = rideBow.expectedMs[2]
+    expect(nominalTick).toBeDefined()
+    expect(expectedMs).toBeDefined()
+    if (nominalTick === undefined || expectedMs === undefined) return
+    const swingArgs = [jazzPlan.swing.percent, jazzPlan.swing.unit, jazzPlan.swing.measureTicks, jazzPlan.swing.beats, jazzPlan.swing.beatType] as const
+    const swungExpectedMs = (swungTick(ticks(nominalTick), ...swingArgs) as number) * jazzPlan.msPerTick
+    const candidateMs =
+      (swungTick(ticks(nominalTick + jazzPlan.nominalSubdivisionTicks), ...swingArgs) as number) * jazzPlan.msPerTick
+    const hitMs = expectedMs + flatOneEighthMs
+    const diffMs = Math.abs(hitMs - candidateMs)
+    // Swing really moved this instant off its own nominal position — not just
+    // "differs from the candidate", which would hold for any nonzero shift
+    // regardless of swing.
+    expect(swungExpectedMs).not.toBe(nominalTick * jazzPlan.msPerTick)
+    expect(diffMs).toBeGreaterThan(jazzPlan.windowMs) // the flat shift misses the true candidate's window
+
+    const result = gradeGrooveRun(jazzPlan, play(jazzPlan, () => flatOneEighthMs))
+    expect(result.slipSteps).toBeUndefined()
   })
 
   it('fails a run whose strokes scatter about their own mean', () => {
@@ -529,5 +640,191 @@ describe('gradeGrooveRun: articulation slip pass', () => {
     // played, so it stays matched.
     expect(row(result, 'hhOpen')).toMatchObject({ matched: 1, missed: 0, slipped: 1 })
     expect(result.articulation).toEqual([{ expected: 'hhOpen', played: 'hhClosed', count: 1 }])
+  })
+})
+
+describe('runSlipSteps on a swung plan (DR-07 properties)', () => {
+  const MAX_SLIP_STEPS = 4
+  const SLIP_COVERAGE = 0.75
+
+  /** Nearest-first match count — an INDEPENDENT re-implementation of `grade.ts`'s own `pair`, not a call into it. */
+  function matchCount(expected: readonly number[], hits: readonly number[], windowMs: number): number {
+    const taken = new Array<boolean>(hits.length).fill(false)
+    let matched = 0
+    for (const instant of expected) {
+      let bestIndex = -1
+      let bestDistance = Number.POSITIVE_INFINITY
+      for (let i = 0; i < hits.length; i++) {
+        if (taken[i] === true) continue
+        const hit = hits[i]
+        if (hit === undefined) continue
+        const distance = Math.abs(hit - instant)
+        if (distance > windowMs) continue
+        if (distance < bestDistance) {
+          bestDistance = distance
+          bestIndex = i
+        }
+      }
+      if (bestIndex < 0) continue
+      taken[bestIndex] = true
+      matched++
+    }
+    return matched
+  }
+
+  /**
+   * The OLD (pre-DR-07) whole-pattern-displacement search — `expected + step
+   * * subdivisionMs`, a constant ms offset — re-implemented independently
+   * here so the property below can compare `gradeGrooveRun`'s real output
+   * against it, rather than against a hand-typed number.
+   */
+  function oldConstantOffsetSlipSteps(
+    runPlan: GrooveRunPlan,
+    hitsByPad: ReadonlyMap<MappedDrumPad, readonly number[]>,
+  ): number | undefined {
+    const steps = [...Array(MAX_SLIP_STEPS * 2 + 1).keys()].map((i) => i - MAX_SLIP_STEPS)
+    const totals = new Map<number, number>(steps.map((step) => [step, 0]))
+    let expectedTotal = 0
+    let agreed: number | undefined
+    let first = true
+    for (const padPlan of runPlan.pads) {
+      const hits = hitsByPad.get(padPlan.pad) ?? []
+      expectedTotal += padPlan.expectedMs.length
+      const counts = steps.map((step) => ({
+        step,
+        count: matchCount(
+          padPlan.expectedMs.map((ms) => ms + step * runPlan.subdivisionMs),
+          hits,
+          runPlan.windowMs,
+        ),
+      }))
+      for (const { step, count } of counts) totals.set(step, (totals.get(step) ?? 0) + count)
+      if (hits.length === 0) continue
+      const best = counts.reduce((a, b) => (b.count > a.count ? b : a))
+      const tied = counts.filter((c) => c.count === best.count).length > 1
+      if (tied) return undefined
+      if (first) {
+        agreed = best.step
+        first = false
+      } else if (agreed !== best.step) {
+        return undefined
+      }
+    }
+    if (agreed === undefined || agreed === 0) return undefined
+    const atAgreed = totals.get(agreed) ?? 0
+    if (atAgreed <= (totals.get(0) ?? 0)) return undefined
+    if (atAgreed < expectedTotal * SLIP_COVERAGE) return undefined
+    return agreed
+  }
+
+  /**
+   * DR-07's central regression proof: on a STRAIGHT score `shiftedExpectedMs`
+   * is provably identical to the old constant-offset formula (`swungTick` is
+   * the identity at `swingPercent === 50`, `slipShift.test.ts`'s own property
+   * checks that directly) — so `gradeGrooveRun`'s `slipSteps` on any straight
+   * groove, at any tempo, for any random hit set, must still match the OLD
+   * behaviour exactly. `oldConstantOffsetSlipSteps` above is that old
+   * behaviour, re-implemented independently rather than imported, so this is
+   * a real cross-check and not a tautology against the refactor.
+   */
+  it('property: on straight reference grooves, slipSteps agrees with the old constant-offset search, for random hits at random tempos', () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...referenceGrooves()),
+        fc.integer({ min: 40, max: 200 }),
+        fc.array(
+          fc.record({
+            pad: fc.constantFrom<MappedDrumPad>('kick', 'snare', 'hhClosed', 'hhOpen', 'tomHigh'),
+            ms: fc.integer({ min: -500, max: 6500 }),
+          }),
+          { maxLength: 30 },
+        ),
+        (score, bpm, rawHits) => {
+          const runPlan = planGrooveRun(score, bpm)
+          expect(runPlan.swingPercent).toBe(50)
+          const hits: GrooveHit[] = rawHits.map(({ pad, ms }) => ({ pad, ms }))
+          const result = gradeGrooveRun(runPlan, hits)
+
+          const hitsByPad = new Map<MappedDrumPad, number[]>()
+          for (const hit of hits) {
+            const list = hitsByPad.get(hit.pad) ?? []
+            list.push(hit.ms)
+            hitsByPad.set(hit.pad, list)
+          }
+          for (const list of hitsByPad.values()) list.sort((a, b) => a - b)
+
+          expect(result.slipSteps).toBe(oldConstantOffsetSlipSteps(runPlan, hitsByPad))
+        },
+      ),
+    )
+  })
+
+  /**
+   * No double-count. `pair`'s `taken` bookkeeping already stops one hit
+   * claiming two instants WITHIN a single candidate step's match; what this
+   * checks is the structural precondition that makes that matching correct
+   * rather than merely non-crashing — no two elements of any candidate
+   * shift's own list are close enough for their windows to overlap. The
+   * tightest case is eighth-swing at 67%: a pair's second cell sits at
+   * `swungTick(EIGHTH, 67, 'eighth', …)` ticks into the pair, so the next
+   * pair's first cell (at `2 * EIGHTH`) is only `2 * EIGHTH -
+   * swungTick(EIGHTH, …)` ticks further on — 158 ticks, computed here from
+   * `swungTick` directly, not typed by hand — and `windowMs` must stay under
+   * half of that at every tempo the trainer allows.
+   */
+  it('no double-count: windowMs stays under half the tightest swung gap, so no two elements of any candidate shift can share a hit', () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...jazzRideDrills()),
+        fc.integer({ min: MIN_BPM, max: MAX_BPM }),
+        fc.integer({ min: -4, max: 4 }),
+        (drill, bpm, step) => {
+          const jazzPlan = planGrooveRun(drill.score, bpm)
+
+          const pairSpan = EIGHTH * 2
+          const swungSecondCellOffset = swungTick(
+            ticks(EIGHTH),
+            67,
+            'eighth',
+            jazzPlan.swing.measureTicks,
+            jazzPlan.swing.beats,
+            jazzPlan.swing.beatType,
+          ) as number
+          const smallestGapTicks = pairSpan - swungSecondCellOffset
+          expect(smallestGapTicks).toBe(158)
+          // `windowMs` is `min(toleranceMs, subdivisionMs / 2)` (`plan.ts`) — a
+          // CAP, so it reaches exactly half the smallest gap when the score's
+          // own tolerance is not the tighter bound (this score's smallest gap
+          // IS 158 ticks, so `subdivisionMs / 2` and this independently-derived
+          // half-gap coincide exactly at some tempos). Never strictly wider.
+          expect(jazzPlan.windowMs).toBeLessThanOrEqual((smallestGapTicks * jazzPlan.msPerTick) / 2)
+
+          // And directly, for this plan's own candidate shift at this step —
+          // shifted by the NOMINAL cell (`nominalSubdivisionTicks`), the same
+          // cell `runSlipSteps` actually uses (DR-07 root-cause fix; the
+          // SWUNG `subdivisionTicks` above only sizes the window, it is never
+          // the shift cell) — no two adjacent elements are closer than
+          // 2 * windowMs to each other, on any played pad: the guarantee that
+          // makes one greedy pass over `pair` correct rather than
+          // order-dependent.
+          for (const padPlan of jazzPlan.pads) {
+            const shifted = shiftedExpectedMs(
+              padPlan.expectedNominalTicks,
+              step,
+              jazzPlan.nominalSubdivisionTicks,
+              jazzPlan.swing,
+              jazzPlan.msPerTick,
+            )
+            for (let i = 1; i < shifted.length; i++) {
+              const gap = (shifted[i] as number) - (shifted[i - 1] as number)
+              // `>=` up to float slop: both sides are ms computed by multiplying
+              // the same tick-domain quantities in a different order, so exact
+              // equality can differ in the last bit.
+              expect(gap).toBeGreaterThanOrEqual(2 * jazzPlan.windowMs - 1e-9)
+            }
+          }
+        },
+      ),
+    )
   })
 })
