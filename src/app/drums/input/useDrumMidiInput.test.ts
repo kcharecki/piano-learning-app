@@ -6,11 +6,16 @@
  * subscription reads the latest `onHit` without resubscribing.
  */
 import { act, renderHook } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { FakeMidiInput } from '@test/fakes.ts'
+import { useDrumsKitMapStore } from '@app/state/drumsKitMapStore.ts'
 import { midi, millis } from '@core/shared/units.ts'
 import { MONITOR_CAPACITY } from './monitor.ts'
 import { ekitStatusText, useDrumMidiInput } from './useDrumMidiInput.ts'
+
+beforeEach(() => {
+  useDrumsKitMapStore.setState({ presetName: 'General MIDI' })
+})
 
 describe('useDrumMidiInput', () => {
   it('calls onHit once for a mapped stroke, with the pad and the note-on velocity', () => {
@@ -298,6 +303,57 @@ describe('useDrumMidiInput monitor (roadmap DR-08)', () => {
     expect(result.current.monitor).toHaveLength(MONITOR_CAPACITY)
     expect(result.current.monitor[0]?.raw).toEqual({ kind: 'cc', controller: 4, value: MONITOR_CAPACITY + 4 })
     expect(result.current.monitor.at(-1)?.raw).toEqual({ kind: 'cc', controller: 4, value: 5 })
+  })
+})
+
+describe('useDrumMidiInput kit-map store (roadmap DR-02)', () => {
+  // Note 22 (hi-hat edge closed) is one of Roland's own extended-zone
+  // numbers (see `presets.ts`'s comment on `ROLAND_TD_KIT_MAP`) — GM_KIT_MAP
+  // has no entry for it at all, so it is unmapped under the default preset
+  // and only reaches `onHit` once the Roland preset is selected.
+  const ROLAND_ONLY_NOTE = 22
+
+  it('with no explicit kitMap, a Roland-only note reads as unmapped under the default (General MIDI) preset', () => {
+    const input = new FakeMidiInput()
+    const onHit = vi.fn()
+    const { result } = renderHook(() => useDrumMidiInput({ onHit, midiInput: input }))
+
+    act(() => {
+      input.emit({ type: 'noteOn', note: midi(ROLAND_ONLY_NOTE), velocity: 90, time: millis(0) })
+    })
+
+    expect(onHit).not.toHaveBeenCalled()
+    expect(result.current.lastUnmappedNote).toBe(ROLAND_ONLY_NOTE)
+  })
+
+  it('with the store set to Roland TD family and no explicit kitMap, a Roland-only note reaches onHit', () => {
+    useDrumsKitMapStore.getState().setPreset('Roland TD family')
+    const input = new FakeMidiInput()
+    const onHit = vi.fn()
+    renderHook(() => useDrumMidiInput({ onHit, midiInput: input }))
+
+    act(() => {
+      input.emit({ type: 'noteOn', note: midi(ROLAND_ONLY_NOTE), velocity: 90, time: millis(0) })
+    })
+
+    expect(onHit).toHaveBeenCalledTimes(1)
+    expect(onHit.mock.calls[0]?.[0]).toBe('hhClosed')
+  })
+
+  it('an explicit kitMap option still wins over the store', () => {
+    useDrumsKitMapStore.getState().setPreset('Roland TD family')
+    const input = new FakeMidiInput()
+    const onHit = vi.fn()
+    const { result } = renderHook(() =>
+      useDrumMidiInput({ onHit, midiInput: input, kitMap: { name: 'Custom', notes: {} } }),
+    )
+
+    act(() => {
+      input.emit({ type: 'noteOn', note: midi(ROLAND_ONLY_NOTE), velocity: 90, time: millis(0) })
+    })
+
+    expect(onHit).not.toHaveBeenCalled()
+    expect(result.current.statusText).toContain('Custom map')
   })
 })
 

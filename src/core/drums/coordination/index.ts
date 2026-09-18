@@ -8,6 +8,10 @@ export {
   type OpeningDrill,
 } from './openings.ts'
 export {
+  jazzRideDrills,
+  type JazzRideDrill,
+} from './jazzRide.ts'
+export {
   LAYER_ORDER,
   layerGroupOf,
   layerStack,

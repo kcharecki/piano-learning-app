@@ -14,6 +14,7 @@ import { DrumsProgressScreen } from './DrumsProgressScreen.tsx'
 import { useDrumsHistoryStore } from '@app/state/drumsHistoryStore.ts'
 import { useDrumsReadingStore } from '@app/state/drumsReadingStore.ts'
 import { useDrumsRudimentStore } from '@app/state/drumsRudimentStore.ts'
+import { formatDay } from '@app/drums/progressText.ts'
 import { RUDIMENTS } from '@content/drums/rudiments.ts'
 
 afterEach(() => {
@@ -23,7 +24,7 @@ afterEach(() => {
 })
 
 describe('DrumsProgressScreen', () => {
-  it('renders the "Progress" heading and six labelled panels', () => {
+  it('renders the "Progress" heading and seven labelled panels', () => {
     render(<DrumsProgressScreen />)
     expect(screen.getByRole('heading', { level: 1, name: 'Progress' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Rudiments' })).toBeInTheDocument()
@@ -31,6 +32,7 @@ describe('DrumsProgressScreen', () => {
     expect(screen.getByRole('region', { name: 'Limb bias' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Trends' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Coverage' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Milestones' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Reading' })).toBeInTheDocument()
   })
 
@@ -185,6 +187,31 @@ describe('DrumsProgressScreen', () => {
     )
     expect(within(panel).getByLabelText('Rudiment coverage')).not.toHaveTextContent(/Single Stroke Roll/)
     expect(within(panel).getByLabelText('Rudiment coverage')).not.toHaveTextContent(/Multiple Bounce Roll/)
+  })
+
+  it('shows the milestones panel with none reached when the stores are empty', () => {
+    render(<DrumsProgressScreen />)
+    const panel = screen.getByRole('region', { name: 'Milestones' })
+    expect(within(panel).getByLabelText('Milestone summary')).toHaveTextContent('0 of 6 reached.')
+    expect(within(panel).getByText('First steady run — not yet. Play any groove steady once.')).toBeInTheDocument()
+    expect(within(panel).getByText('Money Beat at 100 — not yet. Play Money Beat steady at 100 bpm or faster.')).toBeInTheDocument()
+    expect(within(panel).getByText('Ten steady runs — not yet. Reach 10 steady groove attempts, any groove.')).toBeInTheDocument()
+    expect(within(panel).getByText('Every library groove steady — not yet. Play every groove in the library steady at least once.')).toBeInTheDocument()
+    expect(within(panel).getByText('First rudiment at target — not yet. Bring any rudiment up to its own target tempo.')).toBeInTheDocument()
+    expect(within(panel).getByText('Tier 1 complete — not yet. Bring every tier-1 rudiment up to its own target tempo.')).toBeInTheDocument()
+  })
+
+  it('shows reached milestones with a formatted date, from the same stores as the other panels', () => {
+    const at = Date.UTC(2025, 5, 18)
+    useDrumsHistoryStore.setState({
+      attempts: [{ grooveId: 'money-beat', grooveTitle: 'Money Beat', bpm: 100, at, steady: true }],
+    })
+    render(<DrumsProgressScreen />)
+    const panel = screen.getByRole('region', { name: 'Milestones' })
+    expect(within(panel).getByLabelText('Milestone summary')).toHaveTextContent('2 of 6 reached.')
+    expect(within(panel).getByText(`First steady run — reached ${formatDay(at)}`)).toBeInTheDocument()
+    expect(within(panel).getByText(`Money Beat at 100 — reached ${formatDay(at)}`)).toBeInTheDocument()
+    expect(within(panel).getByText('Ten steady runs — not yet. Reach 10 steady groove attempts, any groove.')).toBeInTheDocument()
   })
 
   it('shows the reading empty state at level 1 with no runs', () => {

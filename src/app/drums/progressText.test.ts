@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   biasLine,
   bestLine,
+  formatDay,
   grooveCoverageLine,
+  milestoneLine,
+  milestoneSummaryLine,
   readingLine,
   rudimentCoverageLine,
   tierLine,
@@ -13,6 +16,7 @@ import type {
   GrooveCoverage,
   GrooveTrend,
   LimbBias,
+  MilestoneStatus,
   RudimentCoverage,
   TierCompletion,
 } from '@core/drums/progress/index.ts'
@@ -211,5 +215,43 @@ describe('rudimentCoverageLine', () => {
   it('ends after the counts once everything is started', () => {
     const c: RudimentCoverage = { total: 40, started: 40, nextUp: [] }
     expect(rudimentCoverageLine(c)).toBe('Rudiments: 40 of 40 started.')
+  })
+})
+
+describe('formatDay', () => {
+  it('formats as day, short month, year, en-GB by default', () => {
+    expect(formatDay(Date.UTC(2025, 5, 18))).toBe('18 Jun 2025')
+  })
+
+  it('accepts an explicit locale', () => {
+    expect(formatDay(Date.UTC(2025, 5, 18), 'en-GB')).toBe('18 Jun 2025')
+  })
+})
+
+describe('milestoneLine', () => {
+  const formatDate = (epochMs: number) => `<${epochMs}>`
+
+  it('formats a reached milestone with its formatted date', () => {
+    const status: MilestoneStatus = { id: 'first-steady-run', title: 'First steady run', how: 'Play any groove steady once.', reachedAt: 42 }
+    expect(milestoneLine(status, formatDate)).toBe('First steady run — reached <42>')
+  })
+
+  it('formats an unreached milestone as "not yet"', () => {
+    const status: MilestoneStatus = { id: 'first-steady-run', title: 'First steady run', how: 'Play any groove steady once.', reachedAt: undefined }
+    expect(milestoneLine(status, formatDate)).toBe('First steady run — not yet. Play any groove steady once.')
+  })
+})
+
+describe('milestoneSummaryLine', () => {
+  it('formats reached count of total', () => {
+    expect(milestoneSummaryLine(2, 6)).toBe('2 of 6 reached.')
+  })
+
+  it('formats zero reached', () => {
+    expect(milestoneSummaryLine(0, 6)).toBe('0 of 6 reached.')
+  })
+
+  it('formats all reached', () => {
+    expect(milestoneSummaryLine(6, 6)).toBe('6 of 6 reached.')
   })
 })

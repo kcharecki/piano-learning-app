@@ -26,6 +26,7 @@ import {
   grooveCoverage,
   grooveTrends,
   limbBias,
+  milestones,
   rudimentCoverage,
   tierCompletion,
   type CoverageItem,
@@ -33,7 +34,10 @@ import {
 import {
   biasLine,
   bestLine,
+  formatDay,
   grooveCoverageLine,
+  milestoneLine,
+  milestoneSummaryLine,
   readingLine,
   rudimentCoverageLine,
   tierLine,
@@ -66,6 +70,13 @@ export function DrumsProgressScreen() {
   const trends = grooveTrends(attempts)
   const coverage = grooveCoverage(GROOVE_LIBRARY, attempts)
   const rudimentsCoverage = rudimentCoverage(RUDIMENT_ITEMS, records)
+  const milestoneRows = milestones({
+    attempts,
+    rudimentRecords: records,
+    rudiments: RUDIMENTS,
+    library: GROOVE_LIBRARY,
+  })
+  const reachedMilestones = milestoneRows.filter((m) => m.reachedAt !== undefined).length
   const recentAccuracies = runs
     .slice(0, RECENT_READING_RUNS)
     .map((run) => run.accuracy)
@@ -149,6 +160,21 @@ export function DrumsProgressScreen() {
           <h2 id="drums-progress-coverage-heading">Coverage</h2>
           <p aria-label="Groove coverage">{grooveCoverageLine(coverage)}</p>
           <p aria-label="Rudiment coverage">{rudimentCoverageLine(rudimentsCoverage)}</p>
+        </section>
+
+        <section
+          className="card drums-progress-card"
+          aria-labelledby="drums-progress-milestones-heading"
+        >
+          <h2 id="drums-progress-milestones-heading">Milestones</h2>
+          <p aria-label="Milestone summary">
+            {milestoneSummaryLine(reachedMilestones, milestoneRows.length)}
+          </p>
+          <ul className="drums-progress-list" aria-label="Milestones">
+            {milestoneRows.map((row) => (
+              <li key={row.id}>{milestoneLine(row, formatDay)}</li>
+            ))}
+          </ul>
         </section>
 
         <section

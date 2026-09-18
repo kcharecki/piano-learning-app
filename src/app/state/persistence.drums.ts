@@ -1,13 +1,13 @@
 /**
- * The drum slices of session persistence (roadmap DR-09/DR-10/DR-11/DR-08):
- * the groove trainer's finished runs, the rhythm reading trainer's level +
- * runs, the rudiment trainer's per-rudiment records, and the per-input
- * latency offsets. Same contract as every
- * slice in `persistence.ts` — validate then `restoreSlice` on the way in,
- * `createWriteQueue` + a `subscribe` on the way out — split into their own
- * module only because `persistence.ts` hit the 500-line limit.
+ * The drum slices of session persistence (roadmap DR-09/DR-10/DR-11/DR-08/
+ * DR-02): the groove trainer's finished runs, the rhythm reading trainer's
+ * level + runs, the rudiment trainer's per-rudiment records, the per-input
+ * latency offsets, and the learner's chosen kit-map preset. Same contract as
+ * every slice in `persistence.ts` — validate then `restoreSlice` on the way
+ * in, `createWriteQueue` + a `subscribe` on the way out — split into their
+ * own module only because `persistence.ts` hit the 500-line limit.
  *
- * All four reuse `COLLECTIONS.settings` under their own keys rather than
+ * All five reuse `COLLECTIONS.settings` under their own keys rather than
  * declaring new collections: a new key in an object store that already
  * exists needs no IndexedDB migration, and each slice is small and written
  * once per run.
@@ -23,12 +23,15 @@ import { useDrumsHistoryStore, MAX_STORED_DRUMS_ATTEMPTS } from '@app/state/drum
 import { useDrumsReadingStore, MAX_STORED_READING_RUNS } from '@app/state/drumsReadingStore.ts'
 import { useDrumsRudimentStore } from '@app/state/drumsRudimentStore.ts'
 import { useDrumsLatencyStore } from '@app/state/drumsLatencyStore.ts'
+import { useDrumsKitMapStore } from '@app/state/drumsKitMapStore.ts'
 import {
   isValidDrumsHistory,
+  isValidDrumsKitMap,
   isValidDrumsLatency,
   isValidDrumsReading,
   isValidDrumsRudiments,
   type PersistedDrumsHistory,
+  type PersistedDrumsKitMap,
   type PersistedDrumsLatency,
   type PersistedDrumsReading,
   type PersistedDrumsRudiments,
@@ -50,12 +53,17 @@ export const DRUMS_RUDIMENTS_KEY = 'drumsRudiments'
 export const DRUMS_LATENCY_COLLECTION = COLLECTIONS.settings
 export const DRUMS_LATENCY_KEY = 'drumsLatency'
 
+/** The learner's chosen kit-map preset (roadmap DR-02). */
+export const DRUMS_KIT_MAP_COLLECTION = COLLECTIONS.settings
+export const DRUMS_KIT_MAP_KEY = 'drumsKitMap'
+
 let applyingRestoredDrumsHistory = false
 let applyingRestoredDrumsReading = false
 let applyingRestoredDrumsRudiments = false
 let applyingRestoredDrumsLatency = false
+let applyingRestoredDrumsKitMap = false
 
-/** Restores the four drum slices, each independently (a corrupt one never blocks the others). */
+/** Restores the five drum slices, each independently (a corrupt one never blocks the others). */
 export async function restoreDrumsSlices(store: Store): Promise<void> {
   await restoreSlice(
     store,
@@ -105,6 +113,17 @@ export async function restoreDrumsSlices(store: Store): Promise<void> {
       applyingRestoredDrumsLatency = guarding
     },
     (data) => useDrumsLatencyStore.getState().hydrate({ offsets: data.offsets }),
+  )
+
+  await restoreSlice(
+    store,
+    DRUMS_KIT_MAP_COLLECTION,
+    DRUMS_KIT_MAP_KEY,
+    isValidDrumsKitMap,
+    (guarding) => {
+      applyingRestoredDrumsKitMap = guarding
+    },
+    (data) => useDrumsKitMapStore.getState().hydrate({ presetName: data.presetName }),
   )
 }
 
@@ -168,12 +187,28 @@ function persistDrumsLatency(store: Store): PersistedSlice {
   return { unsubscribe, flush: write.flush }
 }
 
-/** The four drum slices' subscriptions, for `startPersisting` to spread into its list. */
+/** Subscribes to the kit-map store and writes the chosen preset name on every change. */
+function persistDrumsKitMap(store: Store): PersistedSlice {
+  const write = createWriteQueue<PersistedDrumsKitMap>(
+    store,
+    DRUMS_KIT_MAP_COLLECTION,
+    DRUMS_KIT_MAP_KEY,
+  )
+  const unsubscribe = useDrumsKitMapStore.subscribe((state, prevState) => {
+    if (applyingRestoredDrumsKitMap) return
+    if (state.presetName === prevState.presetName) return
+    write({ presetName: state.presetName })
+  })
+  return { unsubscribe, flush: write.flush }
+}
+
+/** The five drum slices' subscriptions, for `startPersisting` to spread into its list. */
 export function persistDrumsSlices(store: Store): readonly PersistedSlice[] {
   return [
     persistDrumsHistory(store),
     persistDrumsReading(store),
     persistDrumsRudiments(store),
     persistDrumsLatency(store),
+    persistDrumsKitMap(store),
   ]
 }

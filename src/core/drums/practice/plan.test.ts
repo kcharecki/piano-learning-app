@@ -1,6 +1,6 @@
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
-import { makeGrooveScore } from '@core/drums/model/groove.ts'
+import { makeGrooveScore, type GrooveScore } from '@core/drums/model/groove.ts'
 import {
   ghostFunkBar,
   moneyBeat,
@@ -173,6 +173,121 @@ describe('planGrooveRun', () => {
               expect(ms).toBeGreaterThanOrEqual(0)
               expect(ms).toBeLessThan(plan.gradedMs)
             }
+          }
+        },
+      ),
+    )
+  })
+})
+
+/**
+ * Roadmap DR-15 "jazz ride introduction": swing reaches the run plan.
+ * `GrooveScore.notes[].tick` stays nominal (straight — see that field's own
+ * doc), so every literal below is worked out BY HAND from `swungTick`'s own
+ * rule (mirrored from `grid.ts`'s `subdivisionCellTick`, cross-checked there
+ * by `swing.test.ts`): at 67%, an eighth pair's off-beat cell moves to
+ * `round(480 * 0.67) = 322` ticks past the pair start, not the "320" a naive
+ * 2:1 triplet-swing approximation would suggest.
+ */
+describe('swing reaches the run plan (roadmap DR-15)', () => {
+  const swungHiHatTicks = [0, 240, 480, 720, 960, 1200, 1440, 1680]
+
+  function swungMoneyBeatHats(): GrooveScore {
+    return makeGrooveScore({
+      id: 'money-beat-swung',
+      title: 'Money Beat (swung)',
+      measureCount: 1,
+      swingPercent: 67,
+      swingUnit: 'eighth',
+      notes: swungHiHatTicks.map((tick) => ({ pad: 'hhClosed' as const, tick, durationTicks: 240 })),
+    })
+  }
+
+  it('a straight groove (swingPercent 50) plans identically before and after this change', () => {
+    // Regression pin: moneyBeat() is straight, so this must still hold exactly
+    // as it did before swing reached the plan.
+    const plan = planGrooveRun(moneyBeat(), 80)
+    expect(plan.subdivisionMs).toBe(375)
+    expect(padPlan(moneyBeat(), 80, 'hhClosed')?.expectedMs).toEqual([
+      0, 375, 750, 1125, 1500, 1875, 2250, 2625, 3000, 3375, 3750, 4125, 4500, 4875, 5250, 5625,
+    ])
+  })
+
+  it('swings a hi-hat part at 67% eighth: loopTicks land on the swung grid, not the naive 2:1 approximation', () => {
+    const plan = planGrooveRun(swungMoneyBeatHats(), 120)
+    const hhClosed = plan.pads.find((p) => p.pad === 'hhClosed')
+    expect(hhClosed?.loopTicks).toEqual([0, 322, 480, 802, 960, 1282, 1440, 1762])
+  })
+
+  it('swings expectedMs to match: 120 bpm, msPerTick = 500/480', () => {
+    const msPerTick = 500 / 480
+    const swungLoopTicks = [0, 322, 480, 802, 960, 1282, 1440, 1762]
+    const plan = planGrooveRun(swungMoneyBeatHats(), 120)
+    const hhClosed = plan.pads.find((p) => p.pad === 'hhClosed')
+    const expected = [
+      ...swungLoopTicks.map((t) => t * msPerTick),
+      ...swungLoopTicks.map((t) => (t + 1920) * msPerTick),
+    ]
+    expected.forEach((ms, i) => expect(hhClosed?.expectedMs[i]).toBeCloseTo(ms, 6))
+  })
+
+  it('subdivisionTicks/windowMs are measured on the SWUNG grid, so it narrows once the groove swings', () => {
+    // Straight: smallest gap is one eighth (240 ticks). Swung 67%: the
+    // narrowest gap becomes pair-start-to-swung-off-beat, 322 ticks... but
+    // also swung-off-beat-to-next-pair-start (480-322=158 for the first
+    // wrap-style gap within the bar: 480->802 is 322, 802->960 is 158) —
+    // 158 is the true smallest gap once swung, narrower than the straight 240.
+    const straightPlan = planGrooveRun(moneyBeat(), 80)
+    expect(straightPlan.subdivisionMs).toBe(375) // 240 ticks straight
+    const swungPlan = planGrooveRun(swungMoneyBeatHats(), 80)
+    const msPerTick = 60_000 / 80 / 480
+    expect(swungPlan.subdivisionMs).toBeCloseTo(158 * msPerTick, 6)
+  })
+
+  it('property: swinging a groove only ever delays an instant, and by less than one swing cell (ms)', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: referenceGrooves().length - 1 }),
+        fc.integer({ min: MIN_BPM, max: MAX_BPM }),
+        fc.integer({ min: 50, max: 75 }),
+        fc.constantFrom('eighth' as const, 'sixteenth' as const),
+        (index, bpm, swingPercent, swingUnit) => {
+          const straight = referenceGrooves()[index]
+          if (straight === undefined) return
+          const swung = makeGrooveScore({
+            id: straight.id,
+            title: straight.title,
+            timeSignature: straight.timeSignature,
+            swingPercent,
+            swingUnit,
+            measureCount: straight.measures.length,
+            notes: straight.notes.map((n) => ({
+              pad: n.pad,
+              tick: n.tick,
+              durationTicks: n.durationTicks,
+              dynamics: n.dynamics,
+              articulations: n.articulations,
+              ...(n.sticking === undefined ? {} : { sticking: n.sticking }),
+            })),
+          })
+          const straightPlan = planGrooveRun(straight, bpm)
+          const swungPlan = planGrooveRun(swung, bpm)
+          const msPerTick = 60_000 / bpm / 480
+          const cellTicks = swingUnit === 'eighth' ? 240 : 120
+          const cellMs = cellTicks * msPerTick
+          for (const straightPad of straightPlan.pads) {
+            const swungPad = swungPlan.pads.find((p) => p.pad === straightPad.pad)
+            // A swung tick can collide with a neighbour's straight tick,
+            // changing the distinct-instant count for a dense (e.g. ghost
+            // funk's sixteenth) grid — skip the rare case rather than
+            // compare mismatched arrays index-for-index.
+            if (swungPad === undefined || swungPad.expectedMs.length !== straightPad.expectedMs.length) continue
+            straightPad.expectedMs.forEach((straightMs, i) => {
+              const swungMs = swungPad.expectedMs[i]
+              if (swungMs === undefined) return
+              expect(swungMs).toBeGreaterThanOrEqual(straightMs - 1e-9)
+              expect(swungMs).toBeLessThan(straightMs + cellMs + 1e-9)
+            })
           }
         },
       ),

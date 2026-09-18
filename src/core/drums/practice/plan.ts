@@ -35,6 +35,7 @@ import { TICKS_PER_QUARTER } from '@core/shared/units.ts'
 import { invariant } from '@core/shared/invariant.ts'
 import type { GrooveScore } from '@core/drums/model/groove.ts'
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
+import { swungTick } from '@core/drums/model/swing.ts'
 
 /**
  * The tolerance the trainer advertises, before the half-subdivision cap. A
@@ -96,33 +97,66 @@ export type PlanGrooveRunOptions = {
 }
 
 /**
- * The smallest gap between two distinct notated instants in one loop of
- * `score`, in ticks — including the wrap from the last instant back to the
- * first instant of the next loop, because a groove is a loop and the learner
- * plays straight through the bar line.
+ * The smallest gap between two distinct SWUNG notated instants in one loop —
+ * `distinctSwungTicks` (sorted, distinct, already-swung) and `loopTicks`
+ * (fields, not the record they came from — the repo-wide orphan-signals scan
+ * flags a helper that takes a whole record but never reads one of its
+ * fields). Including the wrap from the last instant back to the first
+ * instant of the next loop, because a groove is a loop and the learner plays
+ * straight through the bar line.
  *
  * A score with a single distinct instant has no gap to measure; its whole
  * loop is the grid.
  */
-export function subdivisionTicks(score: GrooveScore): number {
-  const loopTicks = measureDurationTicks(score.timeSignature) * score.measures.length
-  const distinct = [...new Set(score.notes.map((note) => note.tick as number))].sort((a, b) => a - b)
-  const first = distinct[0]
+function smallestGapTicks(distinctSwungTicks: readonly number[], loopTicks: number): number {
+  const first = distinctSwungTicks[0]
   if (first === undefined) return loopTicks
-  if (distinct.length === 1) return loopTicks
+  if (distinctSwungTicks.length === 1) return loopTicks
   let smallest = loopTicks
-  for (let i = 1; i < distinct.length; i++) {
-    const prev = distinct[i - 1]
-    const curr = distinct[i]
+  for (let i = 1; i < distinctSwungTicks.length; i++) {
+    const prev = distinctSwungTicks[i - 1]
+    const curr = distinctSwungTicks[i]
     if (prev === undefined || curr === undefined) continue
     smallest = Math.min(smallest, curr - prev)
   }
   // The wrap: the last instant of this loop to the first of the next.
-  smallest = Math.min(smallest, loopTicks - (distinct[distinct.length - 1] ?? 0) + first)
+  smallest = Math.min(smallest, loopTicks - (distinctSwungTicks[distinctSwungTicks.length - 1] ?? 0) + first)
   return smallest
 }
 
-/** Pairs of distinct pads the score puts on a shared instant, deduplicated and ordered. */
+/**
+ * The smallest gap between two distinct notated instants in one loop of
+ * `score`, in ticks. `score`'s notes are always nominal (straight — see
+ * `GrooveScore.swingPercent`'s doc), but the window this feeds
+ * (`planGrooveRun`'s `windowMs`) must be measured on the grid the learner
+ * actually plays against, which for a swung score is the SWUNG grid: a
+ * swung "&" sixteenth-inside-an-eighth-swing-groove case aside, swinging
+ * moves notated instants closer together (never further apart — see
+ * `swing.ts`'s "result within `[tick, tick+cell)`" property), so grading off
+ * the nominal grid would advertise a window wider than the swung instants
+ * actually support. Ticks are swung with `swungTick`, the same function
+ * `planGrooveRun` swings `GroovePadPlan.loopTicks`/`expectedMs` with, so the
+ * window and the instants it windows are always measured on the same grid.
+ */
+export function subdivisionTicks(score: GrooveScore): number {
+  const barTicks = measureDurationTicks(score.timeSignature)
+  const loopTicks = barTicks * score.measures.length
+  const distinct = [
+    ...new Set(
+      score.notes.map((note) => swungTick(note.tick, score.swingPercent, score.swingUnit, barTicks) as number),
+    ),
+  ].sort((a, b) => a - b)
+  return smallestGapTicks(distinct, loopTicks)
+}
+
+/**
+ * Pairs of distinct pads the score puts on a shared instant, deduplicated and
+ * ordered. Deliberately reads `note.tick` NOMINAL (unswung): which pads are
+ * written together is a notation fact (what a flam sentence may name), not a
+ * performance-swing one, and swing never moves two same-tick notes apart
+ * (every pad on one tick swings identically, since `swungTick` is a pure
+ * function of the tick/percent/unit/measure — never the pad).
+ */
 function unisonPairsOf(score: GrooveScore): readonly UnisonPair[] {
   const padsByTick = new Map<number, Set<MappedDrumPad>>()
   for (const note of score.notes) {
@@ -179,10 +213,17 @@ export function planGrooveRun(
   const barMs = barTicks * msPerTick
   const beatMs = (60_000 / bpm) * (4 / score.timeSignature.beatType)
 
+  // Swung here, once, at the score's own tick (never baked into `GrooveScore`
+  // itself — see that type's doc): every downstream consumer of a plan (the
+  // run hook, the audio preview, the grader) reads `expectedMs`/`loopTicks`
+  // off `GroovePadPlan`, never `score.notes[].tick` directly, so swinging the
+  // tick right here is what makes the run, the preview and the grading all
+  // swing together.
   const byPad = new Map<MappedDrumPad, number[]>()
   for (const note of score.notes) {
+    const swung = swungTick(note.tick, score.swingPercent, score.swingUnit, barTicks) as number
     const list = byPad.get(note.pad) ?? []
-    list.push(note.tick as number)
+    list.push(swung)
     byPad.set(note.pad, list)
   }
 

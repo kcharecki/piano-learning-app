@@ -29,6 +29,20 @@ import { expect, test, type Page } from '@playwright/test'
  * rather than by `grooveId`, or that never marked anything played, would
  * both list `Money Beat` there too). The two rudiment records leave 38 of
  * the 40 curriculum rudiments unstarted.
+ *
+ * Milestones (roadmap DR-23 "milestones") reuses this same seed plus one
+ * extra attempt (`freestyle-fill`, a groove outside the library). Three of
+ * the six read as reached, not two, because the coverage fixture above
+ * already puts `single-stroke-roll` at its own target — reusing rather than
+ * duplicating that record also exercises `first-rudiment-at-target`:
+ *   - `first-steady-run` and `money-beat-100` — both from the `money-beat`
+ *     steady run at 100 bpm.
+ *   - `first-rudiment-at-target` — from `single-stroke-roll`'s record
+ *     already being at its `bpmBand.target` (100) for the coverage/tier
+ *     assertions above.
+ * `ten-steady-runs` (only 3 steady attempts total), `all-library-grooves-
+ * steady` (two library grooves never played) and `tier-1-complete` (only 1
+ * of many tier-1 rudiments at target) stay "not yet".
  */
 
 async function seedDrumsProgress(page: Page): Promise<void> {
@@ -88,6 +102,22 @@ async function seedDrumsProgress(page: Page): Promise<void> {
                     { pad: 'kick', expected: 8, matched: 8, meanOffsetMs: 15 },
                     { pad: 'snare', expected: 4, matched: 4, meanOffsetMs: -6 },
                   ],
+                },
+                // Milestones (roadmap DR-23 "milestones") fixture: a steady
+                // run of a groove NOT in the trainer's three-groove library
+                // (`quarter-note-rock`/`money-beat`/`money-beat-open-hat`) —
+                // it must still count toward `first-steady-run`, but never
+                // toward `all-library-grooves-steady` (that one stays
+                // "not yet" here regardless, since two library grooves are
+                // still never played at all). `at: 0` keeps it older than
+                // every `money-beat` attempt above, so it changes no
+                // existing reachedAt.
+                {
+                  grooveId: 'freestyle-fill',
+                  grooveTitle: 'Freestyle Fill',
+                  bpm: 80,
+                  at: 0,
+                  steady: true,
                 },
               ],
             },
@@ -162,6 +192,18 @@ test('the drums progress screen reads rudiment tiers, groove bests, limb bias an
   expect(rudimentCoverageText).toMatch(/^Rudiments: 2 of 40 started\. Next up: /)
   expect(rudimentCoverageText).not.toMatch(/Single Stroke Roll/)
   expect(rudimentCoverageText).not.toMatch(/Multiple Bounce Roll/)
+
+  // Milestones (roadmap DR-23 "milestones"): 3 of 6 reached, per the module
+  // comment above — `first-steady-run`/`money-beat-100` from the seeded
+  // `money-beat` run, `first-rudiment-at-target` from `single-stroke-roll`
+  // already being at target for the coverage fixture. `ten-steady-runs`
+  // stays "not yet" with only 3 steady attempts seeded.
+  const milestonesPanel = page.getByRole('region', { name: 'Milestones' })
+  await expect(milestonesPanel.getByLabel('Milestone summary')).toHaveText('3 of 6 reached.')
+  await expect(milestonesPanel.getByText('First steady run — reached 1 Jan 1970')).toBeVisible()
+  await expect(milestonesPanel.getByText('Money Beat at 100 — reached 1 Jan 1970')).toBeVisible()
+  await expect(milestonesPanel.getByText('First rudiment at target — reached 1 Jan 1970')).toBeVisible()
+  await expect(milestonesPanel.getByText('Ten steady runs — not yet. Reach 10 steady groove attempts, any groove.')).toBeVisible()
 
   expect(consoleErrors).toEqual([])
 })

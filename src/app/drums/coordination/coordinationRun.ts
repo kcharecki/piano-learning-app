@@ -7,12 +7,13 @@
  */
 import type { GrooveScore } from '@core/drums/model/groove.ts'
 import { hhFootDrills } from '@core/drums/coordination/hhFoot.ts'
+import { jazzRideDrills } from '@core/drums/coordination/jazzRide.ts'
 import { layerStack } from '@core/drums/coordination/layers.ts'
 import { openingDrills } from '@core/drums/coordination/openings.ts'
 import { singleKickPermutations, twoKickPermutations } from '@core/drums/coordination/permutations.ts'
 import type { Rng } from '@core/ports/index.ts'
 
-export type DrillMode = 'layers' | 'kicks' | 'kicks2' | 'hhFoot' | 'openings'
+export type DrillMode = 'layers' | 'kicks' | 'kicks2' | 'hhFoot' | 'openings' | 'jazz'
 
 /** How many two-kick drills one visit to the mode draws. */
 export const TWO_KICK_DRILLS = 12
@@ -41,8 +42,11 @@ export type DrillStep = {
  * `hhFootDrills(groove)`, one step per cumulative build stage (ride + foot,
  * then kick, then snare). `'openings'`: `openingDrills(groove)`, one step per
  * cumulative hi-hat-opening stage (`[]` when the groove has no hat on an
- * "&"). `rng` is consulted ONLY in `'kicks2'`; the other four modes never
- * call it.
+ * "&"). `'jazz'`: the six fixed `jazzRideDrills()` steps — `groove` is
+ * ignored, the same as `'kicks'`, since the jazz ride content (a swung ride
+ * pattern plus one comp figure at a time) is fixed, not built from the
+ * groove library. `rng` is consulted ONLY in `'kicks2'`; the other five modes
+ * never call it.
  */
 export function drillSteps(mode: DrillMode, groove: GrooveScore, rng: Rng): readonly DrillStep[] {
   if (mode === 'layers') {
@@ -64,6 +68,15 @@ export function drillSteps(mode: DrillMode, groove: GrooveScore, rng: Rng): read
   }
   if (mode === 'openings') {
     const drills = openingDrills(groove)
+    return drills.map((drill, index) => ({
+      index,
+      count: drills.length,
+      title: drill.score.title,
+      score: drill.score,
+    }))
+  }
+  if (mode === 'jazz') {
+    const drills = jazzRideDrills()
     return drills.map((drill, index) => ({
       index,
       count: drills.length,

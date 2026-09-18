@@ -13,12 +13,19 @@
  * This hook renders nothing. `GrooveTrainerScreen` and
  * `CoordinationTrainerScreen` each call it with their run's `hit` as `onHit`
  * and render `statusText` as one `role="status"` line labelled "E-kit".
+ *
+ * Which kit map applies (roadmap DR-02): an explicit `kitMap` option always
+ * wins (tests and any future caller that knows its own map rely on this).
+ * Otherwise the map comes from `useDrumsKitMapStore`'s `presetName`, resolved
+ * through `presetByName` — this is how a learner's Roland/Alesis/Yamaha pick
+ * on the calibration screen reaches every trainer without each one having to
+ * read the store itself.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMidiConnection, type ConnectMidi } from '@app/practice/useMidiConnection.ts'
+import { presetByName, useDrumsKitMapStore } from '@app/state/drumsKitMapStore.ts'
 import { createKitMapEngine, type KitMapOutput } from '@core/drums/kitmap/engine.ts'
 import type { KitMap } from '@core/drums/kitmap/kitMap.ts'
-import { GM_KIT_MAP } from '@core/drums/kitmap/presets.ts'
 import type { RawDrumHit } from '@core/drums/model/hit.ts'
 import { isMappedDrumPad, type MappedDrumPad } from '@core/drums/model/pad.ts'
 import type { MidiEvent, MidiInput } from '@core/ports/index.ts'
@@ -31,7 +38,12 @@ export type DrumMidiInputOptions = {
   readonly midiInput?: MidiInput
   /** Test seam, passed straight through to `useMidiConnection`. */
   readonly connect?: ConnectMidi
-  /** Defaults to `GM_KIT_MAP`. A new map builds a new engine. */
+  /**
+   * Defaults to the learner's stored kit-map preset
+   * (`useDrumsKitMapStore`/`presetByName`, itself `GM_KIT_MAP` until a
+   * preset is chosen or the stored name is unrecognised). An explicit map
+   * here always wins over the store. A new map builds a new engine.
+   */
   readonly kitMap?: KitMap
   /**
    * Keeps a rolling `MonitorEntry[]` (roadmap DR-08's input monitor) built
@@ -74,7 +86,13 @@ export function ekitStatusText(
 }
 
 export function useDrumMidiInput(options: DrumMidiInputOptions): DrumMidiInputState {
-  const { onHit, midiInput, connect, kitMap = GM_KIT_MAP, monitor = false } = options
+  const { onHit, midiInput, connect, kitMap: explicitKitMap, monitor = false } = options
+
+  // Always called (rules of hooks) even when an explicit `kitMap` wins below —
+  // reading only `presetName` keeps this a no-op re-render whenever some
+  // other field of the store might change in the future.
+  const storedPresetName = useDrumsKitMapStore((state) => state.presetName)
+  const kitMap = explicitKitMap ?? presetByName(storedPresetName)
 
   const { input, devices, selectedDeviceId, connectionError } = useMidiConnection({
     ...(midiInput === undefined ? {} : { midiInput }),

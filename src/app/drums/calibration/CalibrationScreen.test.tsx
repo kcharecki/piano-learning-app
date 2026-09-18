@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { FakeClock, FakeMidiInput } from '@test/fakes.ts'
 import type { ConnectMidi } from '@app/practice/useMidiConnection.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
+import { useDrumsKitMapStore } from '@app/state/drumsKitMapStore.ts'
 import { useDrumsLatencyStore } from '@app/state/drumsLatencyStore.ts'
 import type { DrumAudioOutput } from '@core/ports/index.ts'
 import { midi, millis } from '@core/shared/units.ts'
@@ -99,6 +100,7 @@ async function hitKickRepeatedly(
 
 beforeEach(() => {
   useDrumsLatencyStore.setState({ offsets: {} })
+  useDrumsKitMapStore.setState({ presetName: 'General MIDI' })
 })
 
 describe('CalibrationScreen', () => {
@@ -229,5 +231,23 @@ describe('CalibrationScreen', () => {
 
     expect(useDrumsLatencyStore.getState().offsets['fake-piano']).toMatchObject({ offsetMs: 30 })
     expect(storedOffsetLine()).toBe('Fake Digital Piano: 30 ms late offset stored')
+  })
+
+  it('the kit map select lists every preset and choosing one updates the store (roadmap DR-02)', async () => {
+    const { user } = setup()
+
+    const select = screen.getByRole('combobox', { name: 'Kit map' })
+    expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual([
+      'General MIDI',
+      'Roland TD family',
+      'Alesis (GM mode)',
+      'Yamaha DTX',
+    ])
+    expect(select).toHaveValue('General MIDI')
+
+    await user.selectOptions(select, 'Roland TD family')
+
+    expect(select).toHaveValue('Roland TD family')
+    expect(useDrumsKitMapStore.getState().presetName).toBe('Roland TD family')
   })
 })

@@ -14,6 +14,7 @@ import type {
   GrooveCoverage,
   GrooveTrend,
   LimbBias,
+  MilestoneStatus,
   RudimentCoverage,
   TierCompletion,
 } from '@core/drums/progress/index.ts'
@@ -110,4 +111,27 @@ export function rudimentCoverageLine(c: RudimentCoverage): string {
   const counts = `Rudiments: ${c.started} of ${c.total} started.`
   if (c.nextUp.length === 0) return counts
   return `${counts} Next up: ${c.nextUp.map((r) => r.title).join(', ')}.`
+}
+
+/**
+ * "18 Sep 2026" — day/month/year, en-GB so the day always leads (stable
+ * text for the e2e suite, locale-independent of whatever the CI machine's
+ * own default locale is).
+ */
+const DAY_FORMAT: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', year: 'numeric' }
+
+export function formatDay(epochMs: number, locale = 'en-GB'): string {
+  return new Intl.DateTimeFormat(locale, DAY_FORMAT).format(new Date(epochMs))
+}
+
+/** "First steady run — reached 18 Sep 2026" | "First steady run — not yet. Play any groove steady once." */
+export function milestoneLine(status: MilestoneStatus, formatDate: (epochMs: number) => string): string {
+  return status.reachedAt === undefined
+    ? `${status.title} — not yet. ${status.how}`
+    : `${status.title} — reached ${formatDate(status.reachedAt)}`
+}
+
+/** "2 of 6 reached." */
+export function milestoneSummaryLine(reachedCount: number, total: number): string {
+  return `${reachedCount} of ${total} reached.`
 }

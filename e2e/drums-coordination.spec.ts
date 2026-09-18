@@ -222,3 +222,146 @@ test('Hi-hat openings: the default groove has no eighth-note "&", Money Beat lis
 
   expect(consoleErrors).toEqual([])
 })
+
+/**
+ * Jazz ride (roadmap DR-15 "jazz ride introduction"): the only mode whose
+ * content is swung (`swingPercent: 67`), which only matters because
+ * `practice/plan.ts` now turns that into swung `expectedMs` — proved against
+ * a `FakeClock` in `plan.test.ts`, but what only a real browser run can show
+ * is that the WHOLE app plays what the plan says: the pads really schedule
+ * from `expectedMs`, so hitting the ride pattern's own swung instants (not
+ * the straight ones a naive reading of "1, 2, 2&, 3, 4, 4&" would suggest)
+ * really grades steady, in real time, end to end.
+ *
+ * `drum-pads.ts`'s `playGrooveHits` only knows the hi-hat/open-hat/snare/kick
+ * pads `GrooveTrainerScreen`'s own drills use — Jazz ride's step 1 ("ride
+ * alone") is the ride pad alone, which is out of scope for this change
+ * (`drum-pads.ts` is not among the files this change owns), so this spec
+ * drives it directly with the same real-dispatch-timing discipline
+ * `playGrooveHits` uses (see that file's own module comment for why a
+ * Playwright-side `locator.click()` per hit does not work here), rather than
+ * widen that shared helper's pad vocabulary for one drill.
+ */
+async function playRideHits(page: Page, msTimes: readonly number[], startName = 'Start'): Promise<void> {
+  await page.evaluate(
+    async ({ msTimes, startName }) => {
+      const button = (name: string): HTMLButtonElement => {
+        const el = document.querySelector(`button[aria-label="${name}"]`)
+        if (!(el instanceof HTMLButtonElement)) {
+          throw new Error(`drums-coordination: no button with accessible name "${name}" on this screen`)
+        }
+        return el
+      }
+      const runStateText = (): string =>
+        document.querySelector('[role="status"][aria-label="Run state"]')?.textContent ?? ''
+
+      // Same origin-detection discipline as `playGrooveHits`: armed BEFORE
+      // Start, off a MutationObserver on the run-state live region, so the
+      // graded window's open instant is not missed between the click and the
+      // observer being attached.
+      const graded: Promise<number> = new Promise((resolve, reject) => {
+        const settle = (): boolean => {
+          if (!runStateText().startsWith('Playing')) return false
+          observer.disconnect()
+          clearTimeout(bail)
+          resolve(performance.now())
+          return true
+        }
+        const observer = new MutationObserver(settle)
+        const bail = setTimeout(() => {
+          observer.disconnect()
+          reject(new Error(`drums-coordination: graded window never opened; run state was "${runStateText()}"`))
+        }, 30_000)
+        observer.observe(document.body, { childList: true, characterData: true, subtree: true })
+        settle()
+      })
+
+      button(startName).click()
+      const origin = await graded
+
+      const pending = [...msTimes]
+        .sort((a, b) => a - b)
+        .map(
+          (ms) =>
+            new Promise<void>((resolve) => {
+              const fire = (): void => {
+                button('Ride').dispatchEvent(
+                  new PointerEvent('pointerdown', {
+                    bubbles: true,
+                    cancelable: true,
+                    button: 0,
+                    pointerId: 1,
+                    pointerType: 'mouse',
+                    isPrimary: true,
+                  }),
+                )
+                resolve()
+              }
+              const delay = origin + ms - performance.now()
+              if (delay <= 0) fire()
+              else setTimeout(fire, delay)
+            }),
+        )
+
+      await Promise.all(pending)
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    },
+    { msTimes: [...msTimes], startName },
+  )
+}
+
+/**
+ * Jazz ride step 1's ride pattern (1, 2, 2&, 3, 4, 4&), SWUNG at 67% eighth,
+ * at the trainer's default 80 bpm (msPerTick = 1.5625). The nominal ticks are
+ * 0, 480, 720, 960, 1440, 1680; `swungTick`'s rule (proved in `swing.test.ts`
+ * against `grid.ts`'s own `subdivisionCellTick`) only moves the "&"s (the
+ * second cell of each swing pair): 720 -> 802, 1680 -> 1762 ticks — NOT the
+ * 800/1760 a naive 2:1 triplet-swing approximation would suggest. Beats
+ * (0, 480, 960, 1440) are pair starts and stay put.
+ */
+const JAZZ_RIDE_SWUNG_TICKS = [0, 480, 802, 960, 1440, 1762] as const
+const JAZZ_MS_PER_TICK = 1.5625
+const JAZZ_RIDE_IN_BAR = JAZZ_RIDE_SWUNG_TICKS.map((t) => t * JAZZ_MS_PER_TICK)
+
+// @serial — plays a whole two-bar pass in real time; see the note on the specs above.
+test('Jazz ride lists its six fixed steps, hides the groove picker, and a swung ride pass grades steady (roadmap DR-15) @serial', async ({
+  page,
+}) => {
+  const consoleErrors: string[] = []
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') consoleErrors.push(msg.text())
+  })
+  page.on('pageerror', (err) => consoleErrors.push(String(err)))
+
+  await page.goto('/drums/coordination')
+  await expect(page.getByRole('heading', { level: 1, name: 'Coordination' })).toBeVisible()
+
+  await page.getByRole('radio', { name: 'Jazz ride' }).click()
+  await expect(page.getByRole('radio', { name: 'Jazz ride' })).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByRole('combobox', { name: 'Groove' })).not.toBeVisible()
+
+  const stepButtons = steps(page)
+  await expect(stepButtons).toHaveCount(6)
+  const labels = await stepButtons.allTextContents()
+  expect(labels).toEqual([
+    'Jazz ride — ride alone',
+    'Jazz ride — ride and hi-hat foot',
+    'Jazz ride — comp on the & of 2',
+    'Jazz ride — comp on 4',
+    'Jazz ride — comp on the & of 1 and the & of 3',
+    'Jazz ride — comp on 2 and the & of 4',
+  ])
+  await expect(stepButtons.nth(0)).toBeEnabled()
+  await expect(stepButtons.nth(0)).toHaveAttribute('aria-current', 'step')
+  await expect(stepButtons.nth(1)).toBeDisabled()
+
+  // Both graded bars of step 1 ("ride alone"), hit at the SWUNG instants.
+  const msTimes = [...JAZZ_RIDE_IN_BAR, ...JAZZ_RIDE_IN_BAR.map((ms) => ms + BAR_MS)]
+  await playRideHits(page, msTimes)
+
+  await expect(result(page).getByText('Steady — next step unlocked')).toBeVisible()
+  await expect(stepButtons.nth(1)).toBeEnabled()
+  await expect(stepButtons.nth(1)).toHaveAttribute('aria-current', 'step')
+
+  expect(consoleErrors).toEqual([])
+})

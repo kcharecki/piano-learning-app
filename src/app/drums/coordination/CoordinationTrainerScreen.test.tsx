@@ -184,6 +184,28 @@ describe('CoordinationTrainerScreen', () => {
     expect(new Set(labels).size).toBe(12)
   })
 
+  it('switching to Jazz ride lists the six fixed steps with only the first unlocked, and hides the groove picker', async () => {
+    const { user } = setup()
+    await user.click(screen.getByRole('radio', { name: 'Jazz ride' }))
+
+    expect(screen.getByRole('radio', { name: 'Jazz ride' })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.queryByRole('combobox', { name: 'Groove' })).not.toBeInTheDocument()
+
+    const stepsList = screen.getByRole('list', { name: 'Steps' })
+    const stepListButtons = within(stepsList).getAllByRole('button')
+    expect(stepListButtons.map((b) => b.textContent)).toEqual([
+      'Jazz ride — ride alone',
+      'Jazz ride — ride and hi-hat foot',
+      'Jazz ride — comp on the & of 2',
+      'Jazz ride — comp on 4',
+      'Jazz ride — comp on the & of 1 and the & of 3',
+      'Jazz ride — comp on 2 and the & of 4',
+    ])
+    expect(stepListButtons[0]).not.toBeDisabled()
+    expect(stepListButtons[0]).toHaveAttribute('aria-current', 'step')
+    expect(stepListButtons[1]).toBeDisabled()
+  })
+
   it('an unsteady pass (nothing played) does not unlock step 2', async () => {
     const { user, frameAt } = setup()
     await user.click(screen.getByRole('radio', { name: 'Kick permutations' }))

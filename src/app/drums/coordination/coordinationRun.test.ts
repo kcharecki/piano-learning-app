@@ -2,6 +2,7 @@ import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import { moneyBeat, quarterNoteRock } from '@core/drums/model/referenceGrooves.ts'
 import { hhFootDrills } from '@core/drums/coordination/hhFoot.ts'
+import { jazzRideDrills } from '@core/drums/coordination/jazzRide.ts'
 import { openingDrills } from '@core/drums/coordination/openings.ts'
 import { singleKickPermutations } from '@core/drums/coordination/permutations.ts'
 import { layerStack } from '@core/drums/coordination/layers.ts'
@@ -92,6 +93,34 @@ describe('drillSteps', () => {
   it('openings mode returns no steps for a groove with no hat on an "&" (Quarter-Note Rock), and never touches the rng', () => {
     const steps = drillSteps('openings', quarterNoteRock(), throwingRng)
     expect(steps).toEqual([])
+  })
+
+  it('jazz mode returns the 6 fixed jazz ride drills, ignoring the groove and never touching the rng', () => {
+    const steps = drillSteps('jazz', moneyBeat(), throwingRng)
+    const drills = jazzRideDrills()
+    expect(steps).toHaveLength(6)
+    steps.forEach((step, i) => {
+      expect(step.index).toBe(i)
+      expect(step.count).toBe(6)
+      expect(step.title).toBe(drills[i]?.score.title)
+      expect(step.score).toEqual(drills[i]?.score)
+    })
+
+    // A different groove changes nothing about the jazz ride list.
+    const other = drillSteps('jazz', quarterNoteRock(), throwingRng)
+    expect(other.map((s) => s.title)).toEqual(steps.map((s) => s.title))
+  })
+
+  it('jazz mode titles are exact, in order', () => {
+    const steps = drillSteps('jazz', moneyBeat(), throwingRng)
+    expect(steps.map((s) => s.title)).toEqual([
+      'Jazz ride — ride alone',
+      'Jazz ride — ride and hi-hat foot',
+      'Jazz ride — comp on the & of 2',
+      'Jazz ride — comp on 4',
+      'Jazz ride — comp on the & of 1 and the & of 3',
+      'Jazz ride — comp on 2 and the & of 4',
+    ])
   })
 
   it("kicks2 mode's first title is pinned for a known rng script", () => {

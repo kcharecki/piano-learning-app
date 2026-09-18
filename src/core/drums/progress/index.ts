@@ -20,3 +20,6 @@ export { DEFAULT_TREND_RUNS, TREND_FLAT_MS, grooveTrends } from './trend.ts'
 
 export type { CoverageItem, GrooveCoverage, RudimentCoverage } from './coverage.ts'
 export { grooveCoverage, rudimentCoverage } from './coverage.ts'
+
+export type { MilestoneId, MilestoneStatus, MilestonesInput } from './milestones.ts'
+export { milestones } from './milestones.ts'

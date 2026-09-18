@@ -1,5 +1,5 @@
 import { expect, test, type ConsoleMessage, type Page } from '@playwright/test'
-import { installFakeMidi } from './fake-midi.ts'
+import { armFakeMidiOnClick, installFakeMidi, waitForArmedFakeMidiSchedule } from './fake-midi.ts'
 import { readStored } from './readStored.ts'
 
 /**
@@ -39,6 +39,10 @@ function storedOffset(page: Page) {
 
 function wirelessNotice(page: Page) {
   return page.getByRole('note', { name: 'Wireless notice' })
+}
+
+function kitMapSelect(page: Page) {
+  return page.getByRole('combobox', { name: 'Kit map' })
 }
 
 // @serial — plays a real count-in and real clicks in real time, the same
@@ -107,6 +111,65 @@ test('a wireless-looking e-kit name shows the BLE honesty notice (roadmap DR-08)
   await expect(wirelessNotice(page)).toHaveText(
     'Bluetooth MIDI adds jitter that calibration cannot remove — only the constant offset is. Use USB for scored work.',
   )
+
+  expect(errors).toEqual([])
+})
+
+// @serial — shares the /drums/latency route with the timing-sensitive test
+// above, same grouping reason as the wireless-notice test.
+test('choosing a kit map persists across reload and reaches the input monitor (roadmap DR-02) @serial', async ({
+  page,
+}) => {
+  const errors = collectErrors(page)
+
+  await installFakeMidi(page)
+  await page.goto('/drums/latency')
+  await expect(page.getByRole('heading', { name: 'Latency' })).toBeVisible()
+
+  // Confirms the fake e-kit is actually wired, under the default preset,
+  // before switching maps.
+  await expect(page.getByRole('status', { name: 'E-kit' })).toContainText('General MIDI map')
+
+  // Gate the reload on the preset actually being in IndexedDB, not just in
+  // the on-screen store — same race `drums-latency.spec.ts`'s own offset
+  // test documents: the store update is synchronous, the write goes through
+  // persistence.ts's async write queue, and reloading before it lands
+  // destroys it unwritten. Selecting back to 'General MIDI' before each
+  // retry's real selection (rather than selecting 'Roland TD family' once,
+  // before the loop) covers a narrower startup race too: `App.tsx`'s own
+  // comment on `startPersisting`'s mandatory call order notes the write
+  // queue is not wired up until `restoreSession` resolves, a handful of ms
+  // after mount. A change made before then is silently dropped rather than
+  // queued, and selecting the same already-selected option again fires no
+  // 'change' event at all — so without the detour through 'General MIDI'
+  // first, a retry that lost the race once would keep re-selecting an
+  // unchanged value and never fire a second attempt.
+  await expect(async () => {
+    const select = kitMapSelect(page)
+    await select.selectOption('General MIDI')
+    await select.selectOption('Roland TD family')
+    const stored = (await readStored(page, 'settings', 'drumsKitMap')) as
+      | { readonly presetName?: string }
+      | undefined
+    expect(stored?.presetName).toBe('Roland TD family')
+  }).toPass({ timeout: 10_000 })
+
+  await expect(page.getByRole('status', { name: 'E-kit' })).toContainText('· Roland TD family map')
+
+  await page.reload()
+  await expect(kitMapSelect(page)).toHaveValue('Roland TD family')
+
+  // GM note 22 is not in `GM_KIT_MAP.notes` at all (unmapped); Roland's own
+  // extended-zone map (`presets.ts`'s `ROLAND_TD_KIT_MAP`) maps it to the
+  // closed hi-hat pad — reaching the monitor only because the Roland preset
+  // is now selected proves the hook actually reads the persisted preset, not
+  // just the screen's own select value.
+  await armFakeMidiOnClick(page, 'Kick', [{ type: 'on', note: 22, offsetMs: 0 }])
+  await page.getByRole('button', { name: 'Kick' }).click()
+  await waitForArmedFakeMidiSchedule(page)
+
+  const list = page.getByRole('list', { name: 'Input events' })
+  await expect(list.getByRole('listitem')).toHaveText(/note 22 · vel 96 → Hi-hat$/)
 
   expect(errors).toEqual([])
 })

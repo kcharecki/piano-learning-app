@@ -67,6 +67,7 @@ const MODE_OPTIONS: ReadonlyArray<{ readonly value: DrillMode; readonly label: s
   { value: 'kicks2', label: 'Two kicks' },
   { value: 'hhFoot', label: 'Hi-hat foot' },
   { value: 'openings', label: 'Hi-hat openings' },
+  { value: 'jazz', label: 'Jazz ride' },
 ]
 
 /** Every groove the picker offers — the library itself never changes at runtime. */

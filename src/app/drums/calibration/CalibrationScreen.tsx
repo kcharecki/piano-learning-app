@@ -15,13 +15,20 @@
  * on-screen pads/keyboard read very differently (a real drum trigger versus
  * a browser keydown), so `LOCAL_INPUT_ID` and a MIDI device's own id each get
  * their own record in `drumsLatencyStore`.
+ *
+ * Also the one place a learner picks their kit-map preset (roadmap DR-02):
+ * the "Kit map" select writes `drumsKitMapStore`, which `useDrumMidiInput`
+ * reads by default in every trainer — so a Roland/Alesis/Yamaha kit's notes
+ * resolve correctly everywhere, not just here.
  */
 import { useDrumMidiInput } from '@app/drums/input/useDrumMidiInput.ts'
 import { Pad } from '@app/drums/groove/GrooveControls.tsx'
 import { useFlash, useKeyboardPads } from '@app/drums/groove/groovePadHooks.ts'
 import type { ConnectMidi } from '@app/practice/useMidiConnection.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
+import { useDrumsKitMapStore } from '@app/state/drumsKitMapStore.ts'
 import { LOCAL_INPUT_ID, useDrumsLatencyStore } from '@app/state/drumsLatencyStore.ts'
+import { KIT_MAP_PRESETS } from '@core/drums/kitmap/presets.ts'
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import type { Clock, DrumAudioOutput, MidiInput } from '@core/ports/index.ts'
 import {
@@ -65,6 +72,9 @@ export function CalibrationScreen(props: CalibrationScreenProps) {
   const setOffset = useDrumsLatencyStore((state) => state.setOffset)
   const clearOffset = useDrumsLatencyStore((state) => state.clearOffset)
 
+  const kitMapPresetName = useDrumsKitMapStore((state) => state.presetName)
+  const setKitMapPreset = useDrumsKitMapStore((state) => state.setPreset)
+
   const inputId = ekit.deviceId ?? LOCAL_INPUT_ID
   const inputLabel = ekit.deviceName ?? 'Pads and keys'
   const storedRecord = offsets[inputId]
@@ -95,6 +105,27 @@ export function CalibrationScreen(props: CalibrationScreenProps) {
         <p role="status" aria-label="E-kit" className="groove-ekit">
           {ekit.statusText}
         </p>
+
+        <div className="card field calibration-kit-map-field">
+          <label htmlFor="drums-kit-map-select">Kit map</label>
+          <select
+            id="drums-kit-map-select"
+            aria-label="Kit map"
+            value={kitMapPresetName}
+            onChange={(event) => setKitMapPreset(event.target.value)}
+          >
+            {KIT_MAP_PRESETS.map((preset) => (
+              <option key={preset.name} value={preset.name}>
+                {preset.name}
+              </option>
+            ))}
+          </select>
+          <p>
+            Which notes your kit sends for each pad. Change it if pads show as unmapped in the
+            monitor below.
+          </p>
+        </div>
+
         {wirelessNotice !== undefined && (
           <p className="calibration-warning" role="note" aria-label="Wireless notice">
             {wirelessNotice}
