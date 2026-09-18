@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   calibrationStateText,
+  looksWireless,
   spreadWarningText,
   storedOffsetText,
   summaryText,
+  wirelessNoticeText,
 } from './calibrationText.ts'
 
 describe('calibrationStateText', () => {
@@ -53,14 +55,49 @@ describe('summaryText', () => {
   })
 })
 
+describe('looksWireless', () => {
+  it.each(['Bluetooth MIDI Kit', 'TD-17 BLE', 'WIDI Master', 'CME WIDI Bud'])('true for %s', (name) => {
+    expect(looksWireless(name)).toBe(true)
+  })
+
+  it.each([undefined, 'Fake MIDI Test Keyboard', 'TD-17 USB', 'Cable'])('false for %s', (name) => {
+    expect(looksWireless(name)).toBe(false)
+  })
+})
+
+describe('wirelessNoticeText', () => {
+  it('is undefined for a non-wireless-looking name', () => {
+    expect(wirelessNoticeText('TD-17 USB')).toBeUndefined()
+    expect(wirelessNoticeText(undefined)).toBeUndefined()
+  })
+
+  it('names the jitter caveat for a wireless-looking name', () => {
+    expect(wirelessNoticeText('Bluetooth MIDI Kit')).toBe(
+      'Bluetooth MIDI adds jitter that calibration cannot remove — only the constant offset is. Use USB for scored work.',
+    )
+  })
+})
+
 describe('spreadWarningText', () => {
   it('is undefined at or below 20ms spread', () => {
     expect(spreadWarningText({ offsetMs: 0, spreadMs: 20, samples: 16 })).toBeUndefined()
   })
 
   it('warns above 20ms spread', () => {
-    expect(spreadWarningText({ offsetMs: 0, spreadMs: 21, samples: 16 })).toBe(
-      'Windows tighter than that will feel random.',
+    expect(spreadWarningText({ offsetMs: 0, spreadMs: 20.1, samples: 16 })).toBe(
+      'That spread is jitter, which calibration cannot remove — only the constant offset is. Use USB for scored work.',
+    )
+  })
+
+  it('shortens the sentence above 20ms spread when the device looks wireless', () => {
+    expect(spreadWarningText({ offsetMs: 0, spreadMs: 25, samples: 16 }, 'Bluetooth MIDI Kit')).toBe(
+      'That spread is the Bluetooth jitter.',
+    )
+  })
+
+  it('uses the full sentence above 20ms spread when the device does not look wireless', () => {
+    expect(spreadWarningText({ offsetMs: 0, spreadMs: 25, samples: 16 }, 'TD-17 USB')).toBe(
+      'That spread is jitter, which calibration cannot remove — only the constant offset is. Use USB for scored work.',
     )
   })
 })

@@ -24,7 +24,13 @@ import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { LOCAL_INPUT_ID, useDrumsLatencyStore } from '@app/state/drumsLatencyStore.ts'
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import type { Clock, DrumAudioOutput, MidiInput } from '@core/ports/index.ts'
-import { calibrationStateText, spreadWarningText, storedOffsetText, summaryText } from './calibrationText.ts'
+import {
+  calibrationStateText,
+  spreadWarningText,
+  storedOffsetText,
+  summaryText,
+  wirelessNoticeText,
+} from './calibrationText.ts'
 import { InputMonitor } from './InputMonitor.tsx'
 import { useCalibration } from './useCalibration.ts'
 
@@ -72,7 +78,8 @@ export function CalibrationScreen(props: CalibrationScreenProps) {
   useKeyboardPads(CALIBRATION_PADS, cal.hit, running)
 
   const summary = cal.summary
-  const warning = summary === undefined ? undefined : spreadWarningText(summary)
+  const warning = summary === undefined ? undefined : spreadWarningText(summary, ekit.deviceName)
+  const wirelessNotice = wirelessNoticeText(ekit.deviceName)
 
   return (
     <div className="page page--focus calibration-screen">
@@ -88,6 +95,11 @@ export function CalibrationScreen(props: CalibrationScreenProps) {
         <p role="status" aria-label="E-kit" className="groove-ekit">
           {ekit.statusText}
         </p>
+        {wirelessNotice !== undefined && (
+          <p className="calibration-warning" role="note" aria-label="Wireless notice">
+            {wirelessNotice}
+          </p>
+        )}
         <p role="status" aria-label="Stored offset" className="calibration-stored-offset">
           {storedOffsetText(inputLabel, storedRecord)}
         </p>

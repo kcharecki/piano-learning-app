@@ -1,4 +1,5 @@
 import { expect, test, type ConsoleMessage, type Page } from '@playwright/test'
+import { installFakeMidi } from './fake-midi.ts'
 import { readStored } from './readStored.ts'
 
 /**
@@ -36,6 +37,10 @@ function storedOffset(page: Page) {
   return page.getByRole('status', { name: 'Stored offset' })
 }
 
+function wirelessNotice(page: Page) {
+  return page.getByRole('note', { name: 'Wireless notice' })
+}
+
 // @serial — plays a real count-in and real clicks in real time, the same
 // reason every other timing-sensitive drums spec in this suite is.
 test('calibrates a rig from 16 real pad strokes and saves the offset @serial', async ({ page }) => {
@@ -43,6 +48,10 @@ test('calibrates a rig from 16 real pad strokes and saves the offset @serial', a
 
   await page.goto('/drums/latency')
   await expect(page.getByRole('heading', { name: 'Latency' })).toBeVisible()
+
+  // No e-kit connected here (pads/keyboard only), so the device name is not
+  // wireless-looking — the notice must not render (roadmap DR-08).
+  await expect(wirelessNotice(page)).toHaveCount(0)
 
   await page.getByRole('button', { name: 'Start' }).click()
   await expect(calibrationState(page)).toHaveText(/^Hit 0 of 16/, { timeout: 10_000 })
@@ -75,6 +84,29 @@ test('calibrates a rig from 16 real pad strokes and saves the offset @serial', a
   // if this fails here, that wiring is what to check first, not this spec.
   await page.reload()
   await expect(storedOffset(page)).toHaveText(/\d+ ms (late |early )?offset stored$/)
+
+  expect(errors).toEqual([])
+})
+
+// @serial — no real timing here, but grouped with the rest of this spec's
+// drums-latency runs for the same reason `drums-input-monitor.spec.ts` isn't:
+// this one shares the route with the timing-sensitive test above.
+test('a wireless-looking e-kit name shows the BLE honesty notice (roadmap DR-08) @serial', async ({
+  page,
+}) => {
+  const errors = collectErrors(page)
+
+  await installFakeMidi(page, { deviceName: 'Bluetooth MIDI Kit' })
+  await page.goto('/drums/latency')
+  await expect(page.getByRole('heading', { name: 'Latency' })).toBeVisible()
+
+  // Confirms the fake e-kit is actually wired (and its overridden name has
+  // taken effect) before asserting on the notice it drives.
+  await expect(page.getByRole('status', { name: 'E-kit' })).toContainText('Bluetooth MIDI Kit')
+
+  await expect(wirelessNotice(page)).toHaveText(
+    'Bluetooth MIDI adds jitter that calibration cannot remove — only the constant offset is. Use USB for scored work.',
+  )
 
   expect(errors).toEqual([])
 })

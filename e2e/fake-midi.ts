@@ -120,8 +120,15 @@ const LEAD_MS = 50
  * Install the fake `navigator.requestMIDIAccess` and `window.__fakeMidi`.
  * MUST be awaited before `page.goto` — `addInitScript` only affects
  * navigations that happen after it is registered.
+ *
+ * `options.deviceName` overrides the port's `name` (default
+ * `FAKE_MIDI_DEVICE_NAME`) — e.g. to make the fake device look like a
+ * Bluetooth/wireless kit for DR-08's wireless-notice copy.
  */
-export async function installFakeMidi(page: Page): Promise<void> {
+export async function installFakeMidi(
+  page: Page,
+  options?: { readonly deviceName?: string },
+): Promise<void> {
   await page.addInitScript(
     (device: { id: string; name: string; manufacturer: string; leadMs: number }) => {
       type OnMidiMessage = (event: { data: Uint8Array; timeStamp: number }) => void
@@ -209,7 +216,7 @@ export async function installFakeMidi(page: Page): Promise<void> {
     },
     {
       id: FAKE_MIDI_DEVICE_ID,
-      name: FAKE_MIDI_DEVICE_NAME,
+      name: options?.deviceName ?? FAKE_MIDI_DEVICE_NAME,
       manufacturer: FAKE_MIDI_DEVICE_MANUFACTURER,
       leadMs: LEAD_MS,
     },

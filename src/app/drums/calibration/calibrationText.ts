@@ -32,9 +32,28 @@ export function summaryText(summary: CalibrationSummary): string {
   return `Your hits read ${abs} ms ${directionOf(summary.offsetMs)} on average (spread ±${spread} ms)`
 }
 
-/** `undefined` when the spread is tight enough that a tighter window would still feel fair. */
-export function spreadWarningText(summary: CalibrationSummary): string | undefined {
-  return summary.spreadMs > 20 ? 'Windows tighter than that will feel random.' : undefined
+/** True when a MIDI port name suggests a Bluetooth/wireless link (BLE-MIDI adds 3–50 ms of jitter). */
+export function looksWireless(deviceName: string | undefined): boolean {
+  if (deviceName === undefined) return false
+  return /bluetooth|\bble\b|bt[- ]?midi|wireless|widi|cme\b/i.test(deviceName)
+}
+
+/** `undefined` unless `looksWireless(deviceName)` — stated once, at connection time. */
+export function wirelessNoticeText(deviceName: string | undefined): string | undefined {
+  if (!looksWireless(deviceName)) return undefined
+  return 'Bluetooth MIDI adds jitter that calibration cannot remove — only the constant offset is. Use USB for scored work.'
+}
+
+/**
+ * `undefined` when the spread is tight enough that a tighter window would
+ * still feel fair. When `deviceName` also looks wireless, the sentence is
+ * shortened so the result-moment line does not repeat the wireless notice
+ * already shown at connection time.
+ */
+export function spreadWarningText(summary: CalibrationSummary, deviceName?: string): string | undefined {
+  if (summary.spreadMs <= 20) return undefined
+  if (looksWireless(deviceName)) return 'That spread is the Bluetooth jitter.'
+  return 'That spread is jitter, which calibration cannot remove — only the constant offset is. Use USB for scored work.'
 }
 
 export function storedOffsetText(inputLabel: string, record: LatencyRecord | undefined): string {

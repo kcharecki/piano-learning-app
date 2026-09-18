@@ -194,6 +194,28 @@ describe('CalibrationScreen', () => {
     expect(within(list).getByRole('listitem')).toHaveTextContent('note 38 · vel 92 → Snare')
   })
 
+  it('shows the wireless notice when the e-kit device name looks Bluetooth', () => {
+    // Same id as the default fake device (`fake-piano`) — only the name
+    // differs — so auto-select still finds it regardless of which device id
+    // `useScoreStore`'s `selectedMidiDeviceId` carried over from an earlier
+    // test in this file (that store is not reset between tests here).
+    const midiInput = new FakeMidiInput([
+      { id: 'fake-piano', name: 'Bluetooth MIDI Kit', manufacturer: 'Test' },
+    ])
+    setup({ midiInput })
+
+    expect(screen.getByRole('note', { name: 'Wireless notice' })).toHaveTextContent(
+      'Bluetooth MIDI adds jitter that calibration cannot remove — only the constant offset is. Use USB for scored work.',
+    )
+  })
+
+  it('has no wireless notice for the default (non-wireless) e-kit device', () => {
+    const midiInput = new FakeMidiInput()
+    setup({ midiInput })
+
+    expect(screen.queryByRole('note', { name: 'Wireless notice' })).not.toBeInTheDocument()
+  })
+
   it('with an e-kit connected, the input id is the device id and the label is its name', async () => {
     const midiInput = new FakeMidiInput()
     const { user, clock, frameAt } = setup({ midiInput })
