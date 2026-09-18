@@ -151,9 +151,14 @@ import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import { gradeGrooveRun, type GrooveHit, type GrooveRunResult } from '@core/drums/practice/grade.ts'
 import { claimKey, judgeLiveHit, type LiveHitVerdict } from '@core/drums/practice/liveHit.ts'
 import { passGradeableAt, passOfHit, passOrigin } from '@core/drums/practice/loop.ts'
+import { mutePads } from '@core/drums/practice/mute.ts'
 import type { GrooveRunPlan } from '@core/drums/practice/plan.ts'
 import type { Clock, DrumAudioOutput } from '@core/ports/index.ts'
 import { millis } from '@core/shared/units.ts'
+import { mutedStrikes, VOICED_VELOCITY } from './mutedVoices.ts'
+
+/** `UseGrooveRunOptions.muted`'s own default — a stable empty set, never re-allocated per render. */
+const NO_MUTED_PADS: ReadonlySet<MappedDrumPad> = new Set()
 
 export type GrooveRunPhase = 'idle' | 'count-in' | 'playing' | 'graded' | 'preview'
 
@@ -200,6 +205,13 @@ export type UseGrooveRunOptions = {
    * option's presence.
    */
   readonly loop?: boolean
+  /**
+   * Pads the app voices itself instead of grading (roadmap DR-09 "per-limb
+   * mute"). Read once at `start()` and frozen for the run, exactly like
+   * `loop` — see the module comment. Ignored by `preview()`, which always
+   * plays every pad. Defaults to none.
+   */
+  readonly muted?: ReadonlySet<MappedDrumPad>
   /** Injection seams. The browser defaults are built lazily, inside the first press. */
   readonly clock?: Clock
   readonly audio?: () => DrumAudioOutput
@@ -312,9 +324,16 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
   onPassGradedRef.current = options.onPassGraded
   const loopOptionRef = useRef(options.loop ?? false)
   loopOptionRef.current = options.loop ?? false
+  /** Mirrors `options.muted` every render — frozen into `frozenMutedRef` at `start()`, exactly like `loop`. */
+  const mutedRef = useRef(options.muted)
+  mutedRef.current = options.muted
 
   /** Whether the run CURRENTLY IN PROGRESS is looping — frozen at `start()`, since the toggle is disabled while busy. */
   const loopingRef = useRef(false)
+  /** The muted set CURRENTLY IN PROGRESS — frozen at `start()`, cleared at `stop()`. */
+  const frozenMutedRef = useRef<ReadonlySet<MappedDrumPad>>(NO_MUTED_PADS)
+  /** `plan` with every frozen-muted pad removed, computed once at `start()` — what grading reads instead of `planRef`. `undefined` outside a run. */
+  const gradingPlanRef = useRef<GrooveRunPlan | undefined>(undefined)
   /** How many passes' click tracks have been scheduled so far. Only ever advances — see the module comment. */
   const scheduledPassesRef = useRef(0)
   /** This run's hits, bucketed by which pass `passOfHit` says they answer, ms relative to THAT pass's own origin. Loop mode only. */
@@ -363,6 +382,8 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
     gradedThroughRef.current = -1
     scheduledPassesRef.current = 0
     loopingRef.current = false
+    frozenMutedRef.current = NO_MUTED_PADS
+    gradingPlanRef.current = undefined
     phaseRef.current = 'idle'
     beatRef.current = -1
     passRef.current = 0
@@ -389,6 +410,21 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
   const start = useCallback((): void => {
     const runPlan = planRef.current
     loopingRef.current = loopOptionRef.current
+    // Frozen for the whole run, exactly like `loopingRef` above — the mute
+    // switches are disabled while busy for the same reason the loop toggle
+    // is: a run must not have its own grading plan pulled out from under it.
+    //
+    // `mutePads` throws if EVERY plan pad is muted — a run needs at least one
+    // graded limb. The screen already disables the last switch to prevent
+    // that, but this hook must be total on its own: it must not depend on a
+    // caller keeping that promise, and a throw here would escape into a React
+    // click handler with `loopingRef`/`frozenMutedRef` already mutated above.
+    // So a request that would mute everything is silently treated as muting
+    // nothing, rather than thrown.
+    const requested = mutedRef.current ?? NO_MUTED_PADS
+    const muted = runPlan.pads.every((p) => requested.has(p.pad)) ? NO_MUTED_PADS : requested
+    frozenMutedRef.current = muted
+    gradingPlanRef.current = mutePads(runPlan, muted)
     const startedAt = clock.now()
     const gradedOrigin = startedAt + runPlan.countInBars * runPlan.barMs
     timingRef.current = { startedAt, gradedOrigin, endAt: gradedOrigin + runPlan.gradedMs }
@@ -426,6 +462,18 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
         out.click(beat % beatsPerBar === 0, millis(startedAt + beat * runPlan.beatMs))
       }
     })
+    // The FIRST pass's muted voices, scheduled alongside the clicks above for
+    // the same reason: one origin, nothing re-derived per frame. Later
+    // passes' muted voices are scheduled by `onFrame`, one pass ahead,
+    // exactly like their own click tracks. Its OWN `withAudio` call, separate
+    // from the clicks' above: they share one `DrumAudioOutput`, but a
+    // throwing `out.click` must not abort this loop and leave a muted limb
+    // silent while still ungraded (best-effort applies to each independently).
+    withAudio((out) => {
+      for (const strike of mutedStrikes(runPlan, muted, gradedOrigin)) {
+        out.strike(strike.pad, VOICED_VELOCITY, millis(strike.atMs))
+      }
+    })
   }, [clock, withAudio])
 
   const preview = useCallback((): void => {
@@ -456,11 +504,26 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
     // what turns the staff from notation to decode into a pattern to copy.
     const beatsPerBar = Math.max(1, Math.round(runPlan.barMs / runPlan.beatMs))
     const totalBeats = beatsPerBar * runPlan.gradedBars
+
+    // Flattened across pads and sorted by instant, then by pad name — the
+    // same order `mutedStrikes` uses — before any `out.strike` call is made.
+    // Scheduling pad by pad instead would call every `hhClosed` strike before
+    // any `hhOpen` strike regardless of timing, and a synth that chokes by
+    // CALL ORDER (as a hi-hat voice does — a new closed-hat strike cuts off a
+    // still-ringing open one) would then never see the open hat's strike
+    // arrive after its closed-hat neighbours, so it rings out its full decay
+    // instead of being choked where the score says it should be.
+    const strikes: { pad: MappedDrumPad; at: number }[] = []
+    for (const pad of runPlan.pads) {
+      for (const ms of pad.expectedMs) {
+        strikes.push({ pad: pad.pad, at: startedAt + ms })
+      }
+    }
+    strikes.sort((a, b) => a.at - b.at || (a.pad < b.pad ? -1 : a.pad > b.pad ? 1 : 0))
+
     withAudio((out) => {
-      for (const pad of runPlan.pads) {
-        for (const ms of pad.expectedMs) {
-          out.strike(pad.pad, PREVIEW_VELOCITY, millis(startedAt + ms))
-        }
+      for (const strike of strikes) {
+        out.strike(strike.pad, PREVIEW_VELOCITY, millis(strike.at))
       }
       for (let beat = 0; beat < totalBeats; beat++) {
         out.click(beat % beatsPerBar === 0, millis(startedAt + beat * runPlan.beatMs))
@@ -469,7 +532,7 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
   }, [clock, withAudio])
 
   const finish = useCallback((): void => {
-    const graded = gradeGrooveRun(planRef.current, hitsRef.current)
+    const graded = gradeGrooveRun(gradingPlanRef.current ?? planRef.current, hitsRef.current)
     timingRef.current = undefined
     phaseRef.current = 'graded'
     setPhase('graded')
@@ -554,6 +617,16 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
           out.click(clickBeat % beatsPerBar === 0, millis(at))
         }
       })
+      // This pass's muted voices, one pass ahead exactly like its clicks
+      // above — same past-instant guard, same reason. Its OWN `withAudio`
+      // call, not shared with the clicks': a throwing `out.click` must not
+      // abort this loop and leave a muted limb silent while still ungraded.
+      withAudio((out) => {
+        for (const strike of mutedStrikes(runPlan, frozenMutedRef.current, passStart)) {
+          if (strike.atMs < now) continue
+          out.strike(strike.pad, VOICED_VELOCITY, millis(strike.atMs))
+        }
+      })
       scheduledPassesRef.current += 1
     }
 
@@ -585,7 +658,7 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
       hitsByPassRef.current.delete(nextToGrade)
       claimedByPassRef.current.delete(nextToGrade)
       gradedThroughRef.current = nextToGrade
-      const graded = gradeGrooveRun(runPlan, hits)
+      const graded = gradeGrooveRun(gradingPlanRef.current ?? runPlan, hits)
       setResult({ result: graded, bpm: runPlan.bpm })
       lastGradedRef.current = graded
       onPassGradedRef.current?.(graded, nextToGrade + 1)
@@ -617,10 +690,15 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
       seqRef.current += 1
       setFlash({ pad, seq: seqRef.current })
       sound(pad)
+      // A muted pad still flashes and sounds (above) — that is what tells the
+      // learner their own tap on it still registers as a stroke — but it is
+      // never recorded and never gets a live verdict, in or out of a run.
+      if (frozenMutedRef.current.has(pad)) return
 
       const timing = timingRef.current
       if (timing === undefined) return
       const runPlan = planRef.current
+      const gradingPlan = gradingPlanRef.current ?? runPlan
       const now = clock.now()
       if (now < timing.gradedOrigin - runPlan.windowMs) return
 
@@ -629,14 +707,18 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
       // never by which pass the screen happens to be showing.
       if (loopingRef.current) {
         const relative = now - timing.gradedOrigin
-        const passIndex = passOfHit(runPlan, relative)
+        // The boundary rule ("file a hit to the pass whose nearest notated
+        // instant is nearer") must consult the GRADER's own instants — a
+        // muted pad's instants are not in `gradingPlan` and must not pull a
+        // boundary hit toward a pass by a note nobody is grading there.
+        const passIndex = passOfHit(gradingPlan, relative)
         const list = hitsByPassRef.current.get(passIndex) ?? []
-        const passMs = relative - passOrigin(runPlan, passIndex)
+        const passMs = relative - passOrigin(gradingPlan, passIndex)
         list.push({ pad, ms: passMs })
         hitsByPassRef.current.set(passIndex, list)
 
         const claimed = claimedByPassRef.current.get(passIndex) ?? new Set<string>()
-        const verdict = judgeLiveHit(runPlan, pad, passMs, claimed)
+        const verdict = judgeLiveHit(gradingPlan, pad, passMs, claimed)
         if (verdict.instantIndex !== undefined) claimed.add(claimKey(pad, verdict.instantIndex))
         claimedByPassRef.current.set(passIndex, claimed)
         publishLiveHit(pad, verdict)
@@ -647,7 +729,7 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
       const ms = now - timing.gradedOrigin
       hitsRef.current.push({ pad, ms })
 
-      const verdict = judgeLiveHit(runPlan, pad, ms, claimedRef.current)
+      const verdict = judgeLiveHit(gradingPlan, pad, ms, claimedRef.current)
       if (verdict.instantIndex !== undefined)
         claimedRef.current.add(claimKey(pad, verdict.instantIndex))
       publishLiveHit(pad, verdict)

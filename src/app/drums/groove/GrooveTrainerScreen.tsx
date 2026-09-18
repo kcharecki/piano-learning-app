@@ -77,6 +77,7 @@ import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { describeGroove } from '@core/drums/engrave/describe.ts'
 import { engraveGroove } from '@core/drums/engrave/staff.ts'
 import type { StaffLayout } from '@core/drums/engrave/layout.ts'
+import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import { grooveTrainerLibrary } from '@core/drums/practice/library.ts'
 import type { GrooveRunResult } from '@core/drums/practice/grade.ts'
 import { planGrooveRun, type GrooveRunPlan } from '@core/drums/practice/plan.ts'
@@ -225,10 +226,23 @@ function Trainer({
   // out from under audio already scheduled against the current run.
   const [loop, setLoop] = useState(false)
 
+  // The pads the learner has switched off (roadmap DR-09 "per-limb mute") —
+  // local, transport-level state for the same reason `loop` is. Reset when
+  // the groove changes, mid-render, the exact pattern `useGrooveRun` uses for
+  // its own `seenGrooveId`: a mute set chosen for one groove's pads must not
+  // survive onto a different groove, which may not even use them.
+  const [muted, setMuted] = useState<ReadonlySet<MappedDrumPad>>(new Set())
+  const [seenGrooveId, setSeenGrooveId] = useState(plan.grooveId)
+  if (plan.grooveId !== seenGrooveId) {
+    setSeenGrooveId(plan.grooveId)
+    setMuted(new Set())
+  }
+
   const run = useGrooveRun({
     plan,
     onFinished,
     loop,
+    muted,
     ...(seams.clock === undefined ? {} : { clock: seams.clock }),
     ...(seams.audio === undefined ? {} : { audio: seams.audio }),
     ...(seams.frameDriver === undefined ? {} : { driver: seams.frameDriver }),
@@ -406,6 +420,40 @@ function Trainer({
         </p>
       </div>
 
+      {/* Per-limb mute (roadmap DR-09 "per-limb mute"): switching a pad off
+          here has the app voice that limb itself during the run, on the
+          grader's own instants, while the learner plays the rest — that pad
+          gets no result row and no live verdict, but a hit on it still
+          sounds and flashes below. At least one pad must stay on, so the
+          only switch left on is disabled rather than lettable-off. */}
+      <div className="groove-limbs" role="group" aria-label="Play">
+        {pads.map((pad) => {
+          const isOn = !muted.has(pad)
+          const onCount = pads.length - muted.size
+          return (
+            <button
+              key={pad}
+              type="button"
+              role="switch"
+              aria-checked={isOn}
+              aria-label={`Play ${GROOVE_PAD_LABEL[pad]}`}
+              className="groove-limb-toggle"
+              disabled={busy || (isOn && onCount === 1)}
+              onClick={() =>
+                setMuted((prev) => {
+                  const next = new Set(prev)
+                  if (next.has(pad)) next.delete(pad)
+                  else next.add(pad)
+                  return next
+                })
+              }
+            >
+              {GROOVE_PAD_LABEL[pad]}
+            </button>
+          )
+        })}
+      </div>
+
       <div className="groove-pads">
         {pads.map((pad) => {
           // Driven by `hitByPad`, not `lastHit`: a unison instant (hat and
@@ -413,13 +461,21 @@ function Trainer({
           // would otherwise have the second accepted hit's single `lastHit`
           // slot overwrite the first pad's verdict within the same frame.
           // `hitByPad` keeps one verdict per pad so both survive.
-          const verdict = run.hitByPad.get(pad)?.kind
+          //
+          // `hitByPad` survives a finished run (see `useGrooveRun`'s module
+          // comment), and the mute switches are enabled once that run is
+          // graded — so a pad switched off AFTER a run could otherwise still
+          // carry that run's stale `data-verdict` alongside `data-muted`.
+          // Muting a pad retires its old verdict along with it.
+          const isMuted = muted.has(pad)
+          const verdict = isMuted ? undefined : run.hitByPad.get(pad)?.kind
           return (
             <Pad
               key={pad}
               pad={pad}
               lit={lit === pad}
               onHit={run.hit}
+              muted={isMuted}
               {...(verdict === undefined ? {} : { verdict })}
             />
           )

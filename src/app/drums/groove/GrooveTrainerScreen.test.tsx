@@ -448,4 +448,112 @@ describe('GrooveTrainerScreen', () => {
       expect(screen.getByText('0 of 1 pass steady')).toBeInTheDocument()
     })
   })
+
+  describe('Mute (roadmap DR-09 "per-limb mute")', () => {
+    /**
+     * `setup()`'s own `fakeDrumAudio` is a no-op stub — nothing here needs to
+     * assert against it elsewhere in the file, so it never records a call.
+     * The one test below that needs to see a strike gets its own small
+     * recording fake instead of teaching the shared stub to remember things
+     * every other test would then carry too.
+     */
+    function setupWithRecordingAudio() {
+      const clock = new FakeClock()
+      const strikes: { pad: string }[] = []
+      const audio: DrumAudioOutput = {
+        strike: (pad) => {
+          strikes.push({ pad })
+        },
+        click: () => {},
+        allNotesOff: () => {},
+        setVolume: () => {},
+        now: () => clock.now(),
+      }
+      // No frames are pumped in the one test that uses this setup — `start()`
+      // schedules pass 0's strikes synchronously, before any frame runs.
+      const frameDriver: FrameDriver = () => () => {}
+      const user = userEvent.setup()
+      render(<GrooveTrainerScreen clock={clock} audio={() => audio} frameDriver={frameDriver} />)
+      return { user, strikes }
+    }
+
+    it('shows one switch per pad, named "Play <label>", all on by default', () => {
+      setup()
+      for (const label of ['Kick', 'Snare', 'Hi-hat']) {
+        const toggle = screen.getByRole('switch', { name: `Play ${label}` })
+        expect(toggle).toHaveAttribute('aria-checked', 'true')
+        expect(toggle).toBeEnabled()
+      }
+    })
+
+    it('switching a pad off unchecks it and marks its pad dashed, without touching the others', async () => {
+      const { user } = setup()
+      const kickToggle = screen.getByRole('switch', { name: 'Play Kick' })
+
+      await user.click(kickToggle)
+      expect(kickToggle).toHaveAttribute('aria-checked', 'false')
+      expect(screen.getByRole('button', { name: 'Kick' })).toHaveAttribute('data-muted', 'true')
+
+      const snareToggle = screen.getByRole('switch', { name: 'Play Snare' })
+      expect(snareToggle).toHaveAttribute('aria-checked', 'true')
+      expect(screen.getByRole('button', { name: 'Snare' })).not.toHaveAttribute('data-muted')
+    })
+
+    it('will not let the last pad still on be switched off', async () => {
+      const { user } = setup()
+      await user.click(screen.getByRole('switch', { name: 'Play Kick' }))
+      await user.click(screen.getByRole('switch', { name: 'Play Snare' }))
+
+      const hatToggle = screen.getByRole('switch', { name: 'Play Hi-hat' })
+      expect(hatToggle).toHaveAttribute('aria-checked', 'true')
+      expect(hatToggle).toBeDisabled()
+    })
+
+    it('disables every switch once a run is on', async () => {
+      const { user } = setup()
+      await user.click(screen.getByRole('button', { name: 'Start' }))
+      for (const label of ['Kick', 'Snare', 'Hi-hat']) {
+        expect(screen.getByRole('switch', { name: `Play ${label}` })).toBeDisabled()
+      }
+    })
+
+    it('starting a run with a pad muted has the app strike that pad itself', async () => {
+      const { user, strikes } = setupWithRecordingAudio()
+      await user.click(screen.getByRole('switch', { name: 'Play Kick' }))
+      await user.click(screen.getByRole('button', { name: 'Start' }))
+      expect(strikes.some((s) => s.pad === 'kick')).toBe(true)
+    })
+
+    /**
+     * F5: `hitByPad` survives a finished run (by design — see
+     * `useGrooveRun`'s module comment), and the mute switches are enabled
+     * again the moment that run grades. Without this fix a pad could carry
+     * BOTH `data-muted="true"` and a `data-verdict` left over from the run
+     * before it was muted.
+     */
+    it('drops a stale verdict from a finished run when the pad is muted afterward', async () => {
+      const { user, frameAt } = setup()
+      await user.click(screen.getByRole('button', { name: 'Start' }))
+      frameAt(BAR_MS)
+
+      await user.keyboard(' ') // kick, on time
+      expect(screen.getByRole('button', { name: 'Kick' })).toHaveAttribute(
+        'data-verdict',
+        'on-time',
+      )
+
+      frameAt(BAR_MS + GRADED_MS)
+      expect(runState()).toBe('Run finished')
+      // The verdict survives the run finishing, same as `hitByPad` does.
+      expect(screen.getByRole('button', { name: 'Kick' })).toHaveAttribute(
+        'data-verdict',
+        'on-time',
+      )
+
+      await user.click(screen.getByRole('switch', { name: 'Play Kick' }))
+      const kickPad = screen.getByRole('button', { name: 'Kick' })
+      expect(kickPad).toHaveAttribute('data-muted', 'true')
+      expect(kickPad).not.toHaveAttribute('data-verdict')
+    })
+  })
 })

@@ -34,6 +34,13 @@ export type PadProps = {
    * that was not the one just hit.
    */
   readonly verdict?: LiveHitKind
+  /**
+   * Rendered as `data-muted="true"` (roadmap DR-09 "per-limb mute") — the pad
+   * still fires `onHit`, since a muted pad still sounds and flashes when
+   * struck; only grading ignores it, and that decision lives entirely in
+   * `useGrooveRun`, not here.
+   */
+  readonly muted?: boolean
 }
 
 /**
@@ -41,7 +48,7 @@ export type PadProps = {
  * A mouse press fires both, so the ref swallows the click that follows its own
  * pointerdown rather than counting the stroke twice.
  */
-export function Pad({ pad, lit, onHit, verdict }: PadProps) {
+export function Pad({ pad, lit, onHit, verdict, muted }: PadProps) {
   const fromPointer = useRef(false)
   const key = GROOVE_PAD_KEY[pad]
   return (
@@ -51,6 +58,7 @@ export function Pad({ pad, lit, onHit, verdict }: PadProps) {
       aria-label={GROOVE_PAD_LABEL[pad]}
       data-lit={lit ? 'true' : undefined}
       data-verdict={verdict}
+      data-muted={muted ? 'true' : undefined}
       onPointerDown={() => {
         fromPointer.current = true
         onHit(pad)

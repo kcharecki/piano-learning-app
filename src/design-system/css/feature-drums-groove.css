@@ -334,3 +334,59 @@
 .groove-live-hit[data-kind='extra'] {
   color: var(--fb-extra-ink);
 }
+
+/* ---------- Per-limb mute (roadmap DR-09 "per-limb mute") ----------
+   One switch per displayed pad, above the pads themselves. Same shape as
+   `.groove-loop-toggle` above — see that rule's own comment for why the knob
+   stays instead of being `content: none`-d away — copied rather than shared
+   because the two live in unrelated rows and a future change to one (say,
+   Loop growing a third state) has no reason to move the other. */
+.groove-limbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.groove-limb-toggle {
+  --_h: 14px;
+  position: relative;
+  width: auto;
+  min-height: var(--control-h);
+  height: auto;
+  padding: 0 calc(var(--control-pad-x) + var(--_h) * 1.9 + var(--space-2)) 0 var(--control-pad-x);
+  border-radius: var(--radius-round);
+  background: transparent;
+  border: var(--border-w) solid var(--border-2);
+  color: var(--text-2);
+}
+.groove-limb-toggle::after {
+  top: 50%;
+  left: auto;
+  right: calc(var(--space-2) + var(--_h) * 0.9);
+  width: var(--_h);
+  height: var(--_h);
+  background: var(--text-2);
+  transform: translateY(-50%);
+  transition:
+    right var(--dur-1) var(--ease-out),
+    background var(--dur-1);
+}
+.groove-limb-toggle[aria-checked='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  box-shadow: none;
+}
+.groove-limb-toggle[aria-checked='true']::after {
+  right: var(--space-2);
+  background: var(--on-accent);
+  transform: translateY(-50%);
+}
+
+/* A muted pad is still struck (it flashes and sounds — see `useGrooveRun`),
+   so this is deliberately quieter than `[data-verdict]`'s colour treatment:
+   dashed and faded, "not being marked", not "wrong". */
+.drum-pad[data-muted='true'] {
+  opacity: 0.55;
+  border-style: dashed;
+}

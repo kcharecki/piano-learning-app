@@ -15,6 +15,7 @@ import { planGrooveRun, type GrooveRunPlan } from '@core/drums/practice/plan.ts'
 import type { GrooveRunResult } from '@core/drums/practice/grade.ts'
 import type { Clock, DrumAudioOutput } from '@core/ports/index.ts'
 import type { Millis } from '@core/shared/units.ts'
+import { VOICED_VELOCITY } from './mutedVoices.ts'
 import { useGrooveRun, type UseGrooveRunOptions } from './useGrooveRun.ts'
 
 function manualDriver(): { driver: FrameDriver; pump: () => void } {
@@ -91,14 +92,22 @@ type Harness = {
   readonly passesGraded: PassGraded[]
   /** Re-render with a different plan — what picking another groove or tempo does. */
   readonly swapPlan: (plan: GrooveRunPlan) => void
+  /** Re-render with a different `muted` option — what flipping a limb switch does. */
+  readonly setMuted: (muted: ReadonlySet<MappedDrumPad> | undefined) => void
 }
 
-function harness(initialPlan: GrooveRunPlan = moneyBeatPlan(), loop = false): Harness {
+function harness(
+  initialPlan: GrooveRunPlan = moneyBeatPlan(),
+  loop = false,
+  initialMuted?: ReadonlySet<MappedDrumPad>,
+): Harness {
   const clock = new FakeClock()
   const audio = new RecordingDrumAudio(clock)
   const manual = manualDriver()
   const finished: GrooveRunResult[] = []
   const passesGraded: PassGraded[] = []
+  let currentMuted = initialMuted
+  let currentPlan = initialPlan
   const optionsFor = (plan: GrooveRunPlan): UseGrooveRunOptions => ({
     plan,
     clock,
@@ -107,6 +116,7 @@ function harness(initialPlan: GrooveRunPlan = moneyBeatPlan(), loop = false): Ha
     onFinished: (graded) => finished.push(graded),
     onPassGraded: (graded, pass) => passesGraded.push({ result: graded, pass }),
     ...(loop ? { loop: true } : {}),
+    ...(currentMuted === undefined ? {} : { muted: currentMuted }),
   })
   const view = renderHook((plan: GrooveRunPlan) => useGrooveRun(optionsFor(plan)), {
     initialProps: initialPlan,
@@ -120,7 +130,12 @@ function harness(initialPlan: GrooveRunPlan = moneyBeatPlan(), loop = false): Ha
     finished,
     passesGraded,
     swapPlan: (plan) => {
+      currentPlan = plan
       act(() => view.rerender(plan))
+    },
+    setMuted: (muted) => {
+      currentMuted = muted
+      act(() => view.rerender(currentPlan))
     },
   }
 }
@@ -658,6 +673,28 @@ describe('useGrooveRun', () => {
       expect(openPads.has('hhOpen')).toBe(true)
     })
 
+    /**
+     * A synth voice that chokes by CALL ORDER (a hi-hat's own behaviour: a
+     * new closed-hat strike cuts off a still-ringing open one) needs the
+     * calls themselves in time order, not just their recorded instants —
+     * scheduling pad by pad would call every `hhClosed` strike before any
+     * `hhOpen` strike regardless of when each falls, so the open hat's own
+     * strike would never arrive after a later closed-hat neighbour and would
+     * ring out its full decay instead of being choked where the score says.
+     */
+    it('schedules every strike in non-decreasing time order, even across pads (Money Beat Open Hat)', () => {
+      const h = harness(planGrooveRun(moneyBeatOpenHat(), 80))
+      act(() => h.result.current.preview())
+
+      expect(h.audio.strikes.length).toBeGreaterThan(1)
+      for (let i = 1; i < h.audio.strikes.length; i++) {
+        const prev = h.audio.strikes[i - 1]
+        const curr = h.audio.strikes[i]
+        if (prev === undefined || curr === undefined) continue
+        expect(curr.atMs).toBeGreaterThanOrEqual(prev.atMs)
+      }
+    })
+
     it('returns to idle when stopped mid-preview', () => {
       const h = harness()
       act(() => h.result.current.preview())
@@ -1095,6 +1132,242 @@ describe('useGrooveRun', () => {
           { numRuns: 25 },
         )
       })
+    })
+  })
+
+  describe('per-limb mute (roadmap DR-09 "per-limb mute")', () => {
+    /** This plan's `pad`'s expected instants, within ONE pass, sorted. */
+    function padExpectedMs(plan: GrooveRunPlan, pad: MappedDrumPad): readonly number[] {
+      const found = plan.pads.find((p) => p.pad === pad)
+      return found?.expectedMs ?? []
+    }
+
+    it('start() voices every muted instant itself, at the grader’s own ms, and schedules nothing for the pads still on', () => {
+      const h = harness(moneyBeatPlan(), false, new Set<MappedDrumPad>(['kick']))
+      act(() => h.result.current.start())
+
+      const gradedOrigin = h.plan.barMs
+      const kickMs = padExpectedMs(h.plan, 'kick')
+      expect(kickMs.length).toBeGreaterThan(0)
+      expect(h.audio.strikes).toEqual(
+        kickMs.map((ms) => ({ pad: 'kick', velocity: VOICED_VELOCITY, atMs: gradedOrigin + ms })),
+      )
+
+      // Nothing else is voiced by the app — the pads still on are left for
+      // the learner to play.
+      expect(h.audio.strikes.every((s) => s.pad === 'kick')).toBe(true)
+    })
+
+    it('grades the pads still on exactly as it would unmuted, and drops the muted pad from the result entirely', () => {
+      const unmuted = harness(moneyBeatPlan())
+      const muted = harness(moneyBeatPlan(), false, new Set<MappedDrumPad>(['kick']))
+      const gradedOrigin = unmuted.plan.barMs
+
+      for (const h of [unmuted, muted]) {
+        act(() => h.result.current.start())
+        // Driven in time order across both pads — the clock is monotonic,
+        // so hhClosed's and snare's own instants must be interleaved rather
+        // than played out one pad at a time.
+        const strokes = (['hhClosed', 'snare'] as const)
+          .flatMap((pad) => padExpectedMs(h.plan, pad).map((ms) => ({ pad, ms })))
+          .sort((a, b) => a.ms - b.ms)
+        for (const { pad, ms } of strokes) {
+          act(() => {
+            h.clock.setTime(gradedOrigin + ms)
+            h.result.current.hit(pad)
+          })
+        }
+        frameAt(h, gradedOrigin + h.plan.gradedMs)
+      }
+
+      const mutedRows = muted.result.current.result?.result.pads ?? []
+      expect(mutedRows.find((row) => row.pad === 'kick')).toBeUndefined()
+
+      const unmutedRows = unmuted.result.current.result?.result.pads ?? []
+      for (const pad of ['hhClosed', 'snare'] as const) {
+        expect(mutedRows.find((row) => row.pad === pad)).toEqual(
+          unmutedRows.find((row) => row.pad === pad),
+        )
+      }
+    })
+
+    it('a hit on a muted pad is never recorded: no lastHit, no hitByPad entry, no result row', () => {
+      const h = harness(moneyBeatPlan(), false, new Set<MappedDrumPad>(['kick']))
+      act(() => h.result.current.start())
+      const gradedOrigin = h.plan.barMs
+      const kickMs = padExpectedMs(h.plan, 'kick')
+      const firstKick = kickMs[0]
+      if (firstKick === undefined) throw new Error('fixture has no kick instants')
+
+      act(() => {
+        h.clock.setTime(gradedOrigin + firstKick)
+        h.result.current.hit('kick')
+      })
+      expect(h.result.current.lastHit).toBeUndefined()
+      expect(h.result.current.hitByPad.size).toBe(0)
+
+      frameAt(h, gradedOrigin + h.plan.gradedMs)
+      const kickRow = h.result.current.result?.result.pads.find((row) => row.pad === 'kick')
+      expect(kickRow).toBeUndefined()
+    })
+
+    it('loop mode: the second pass’s muted strikes are scheduled one pass ahead, at that pass’s own origin', () => {
+      const h = harness(moneyBeatPlan(), true, new Set<MappedDrumPad>(['kick']))
+      act(() => h.result.current.start())
+
+      const gradedOrigin = h.plan.barMs
+      const kickMs = padExpectedMs(h.plan, 'kick')
+      const pass0Strikes = kickMs.map((ms) => ({
+        pad: 'kick' as const,
+        velocity: VOICED_VELOCITY,
+        atMs: gradedOrigin + ms,
+      }))
+      expect(h.audio.strikes).toEqual(pass0Strikes)
+
+      // The instant pass 0 opens, pass 1's muted strikes are scheduled too —
+      // one pass ahead, exactly like its click track (see the click-track
+      // test above this describe block).
+      frameAt(h, gradedOrigin)
+      const pass1Origin = gradedOrigin + h.plan.gradedMs
+      const pass1Strikes = kickMs.map((ms) => ({
+        pad: 'kick' as const,
+        velocity: VOICED_VELOCITY,
+        atMs: pass1Origin + ms,
+      }))
+      expect(h.audio.strikes).toEqual([...pass0Strikes, ...pass1Strikes])
+    })
+
+    it('changing muted mid-run changes nothing until the next start()', () => {
+      const h = harness(moneyBeatPlan())
+      act(() => h.result.current.start())
+      const gradedOrigin = h.plan.barMs
+      const kickMs = padExpectedMs(h.plan, 'kick')
+      const firstKick = kickMs[0]
+      if (firstKick === undefined) throw new Error('fixture has no kick instants')
+
+      // Flipping the switch mid-run does not touch the run in progress: it
+      // was started unmuted, so a kick hit still grades normally.
+      h.setMuted(new Set<MappedDrumPad>(['kick']))
+      act(() => {
+        h.clock.setTime(gradedOrigin + firstKick)
+        h.result.current.hit('kick')
+      })
+      expect(h.result.current.lastHit).toBeDefined()
+      expect(h.result.current.hitByPad.has('kick')).toBe(true)
+
+      // A fresh start() freezes the now-current muted set (kick).
+      act(() => h.result.current.stop())
+      const strikesBeforeRestart = h.audio.strikes.length
+      act(() => h.result.current.start())
+      const gradedOrigin2 = h.clock.now() + h.plan.barMs
+      expect(
+        h.audio.strikes
+          .slice(strikesBeforeRestart)
+          .some((s) => s.pad === 'kick' && s.atMs === gradedOrigin2 + firstKick),
+      ).toBe(true)
+
+      // F6: changing `muted` AGAIN, this time mid the SECOND run, must not
+      // touch that run either — the freeze holds the set from ITS OWN
+      // start() (kick), not whatever `options.muted` has drifted to since.
+      // Asserting `hitByPad.has('kick')` is false right after `start()`
+      // would be trivially true regardless of the freeze (start() always
+      // resets `hitByPad` to empty) — so this changes `muted` to a
+      // DIFFERENT set first: if `hit()` read the live ref instead of the
+      // one frozen at start(), the kick hit below would no longer be
+      // filtered (mutedRef no longer has kick) and would show up in
+      // `hitByPad`, the result, and would not match the strikes already
+      // scheduled — only the freeze keeps all three as they were.
+      h.setMuted(new Set<MappedDrumPad>())
+      act(() => {
+        h.clock.setTime(gradedOrigin2 + firstKick)
+        h.result.current.hit('kick')
+      })
+      expect(h.result.current.hitByPad.has('kick')).toBe(false)
+
+      frameAt(h, gradedOrigin2 + h.plan.gradedMs)
+      const kickRow = h.result.current.result?.result.pads.find((row) => row.pad === 'kick')
+      expect(kickRow).toBeUndefined()
+
+      // And the voices the APP itself scheduled for this run are still the
+      // ORIGINAL frozen set's (kick) — not recomputed against the changed
+      // (now empty) live `muted`. Filtered to `VOICED_VELOCITY`: the kick
+      // press above also sounds at `HIT_VELOCITY` — every press does,
+      // muted or not (see the module comment) — which is a different thing
+      // from what the app voices on the learner's behalf.
+      const voiced = h.audio.strikes
+        .slice(strikesBeforeRestart)
+        .filter((s) => s.velocity === VOICED_VELOCITY)
+      expect(voiced).toEqual(
+        kickMs.map((ms) => ({ pad: 'kick', velocity: VOICED_VELOCITY, atMs: gradedOrigin2 + ms })),
+      )
+    })
+
+    it('start() does not throw when every pad would be muted — it grades as if unmuted instead', () => {
+      // F3: `mutePads` (the core primitive) THROWS when `muted` covers every
+      // plan pad — a run needs at least one graded limb. The screen already
+      // disables the last switch to prevent a learner from reaching this,
+      // but the hook must be total on its own, not merely lucky that its one
+      // caller behaves: a throw here would escape `start()` into a React
+      // click handler with `loopingRef`/`frozenMutedRef` already mutated.
+      const allPads = new Set(moneyBeatPlan().pads.map((p) => p.pad))
+      const h = harness(moneyBeatPlan(), false, allPads)
+
+      expect(() => act(() => h.result.current.start())).not.toThrow()
+      expect(h.result.current.phase).toBe('count-in')
+
+      const gradedOrigin = h.plan.barMs
+      frameAt(h, gradedOrigin + h.plan.gradedMs)
+
+      // Graded as if nothing were muted: every plan pad gets a result row.
+      const rows = h.result.current.result?.result.pads ?? []
+      for (const padPlan of h.plan.pads) {
+        expect(rows.find((row) => row.pad === padPlan.pad)).toBeDefined()
+      }
+    })
+
+    /**
+     * F4: the voiced strikes used to share one `withAudio` block with the
+     * clicks, in both `start()` and the loop's per-pass scheduling — a
+     * throwing `out.click` would abort the strikes right after it, leaving a
+     * muted limb silent while still ungraded. Each now gets its own
+     * `withAudio` call.
+     */
+    it('still records the muted pad’s strikes even when out.click throws', () => {
+      class ThrowingClickAudio extends RecordingDrumAudio {
+        override click(): void {
+          throw new Error('click failed')
+        }
+      }
+      const clock = new FakeClock()
+      const audio = new ThrowingClickAudio(clock)
+      const manual = manualDriver()
+      const view = renderHook(
+        (plan: GrooveRunPlan) =>
+          useGrooveRun({
+            plan,
+            clock,
+            audio: () => audio,
+            driver: manual.driver,
+            muted: new Set<MappedDrumPad>(['kick']),
+          }),
+        { initialProps: moneyBeatPlan() },
+      )
+
+      expect(() => act(() => view.result.current.start())).not.toThrow()
+
+      const plan = moneyBeatPlan()
+      const gradedOrigin = plan.barMs
+      const kickMs = padExpectedMs(plan, 'kick')
+      expect(kickMs.length).toBeGreaterThan(0)
+      expect(audio.strikes).toEqual(
+        kickMs.map((ms) => ({ pad: 'kick', velocity: VOICED_VELOCITY, atMs: gradedOrigin + ms })),
+      )
+    })
+
+    it('preview() ignores mute and still strikes the muted pad', () => {
+      const h = harness(moneyBeatPlan(), false, new Set<MappedDrumPad>(['kick']))
+      act(() => h.result.current.preview())
+      expect(h.audio.strikes.some((s) => s.pad === 'kick')).toBe(true)
     })
   })
 })
