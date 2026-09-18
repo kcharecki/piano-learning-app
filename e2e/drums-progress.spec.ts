@@ -128,6 +128,11 @@ test('the drums progress screen reads rudiment tiers, groove bests, limb bias an
   await expect(bias.getByText(/^Kick: 15 ms late/)).toBeVisible()
   await expect(bias.getByText(/^Snare: 6 ms early/)).toBeVisible()
 
+  const trends = page.getByRole('region', { name: 'Trends' })
+  await expect(
+    trends.getByText('Money Beat — worst limb 15, 15, 15 ms · too few runs · steady 2 of 3'),
+  ).toBeVisible()
+
   const reading = page.getByRole('region', { name: 'Reading' })
   await expect(reading.getByText('Level 3 — last runs 80%, 90%, 100%')).toBeVisible()
 

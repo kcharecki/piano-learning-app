@@ -9,7 +9,7 @@
  * already-read values, so they can live and be tested without React.
  */
 import { GROOVE_PAD_LABEL } from '@app/drums/groove/padLabels.ts'
-import type { GrooveBest, LimbBias, TierCompletion } from '@core/drums/progress/index.ts'
+import type { GrooveBest, GrooveTrend, LimbBias, TierCompletion } from '@core/drums/progress/index.ts'
 
 /** "Tier 1: 3 of 8 at target, 5 started" */
 export function tierLine(t: TierCompletion): string {
@@ -40,6 +40,27 @@ export function biasLine(b: LimbBias): string {
   return rounded > 0
     ? `${label}: ${rounded} ms late ${hitsText}`
     : `${label}: ${Math.abs(rounded)} ms early ${hitsText}`
+}
+
+const TREND_DIRECTION_WORD: Record<GrooveTrend['direction'], string> = {
+  tightening: 'tightening',
+  loosening: 'loosening',
+  flat: 'flat',
+  unknown: 'too few runs',
+}
+
+/**
+ * "Money Beat — worst limb 15, 15, 15 ms · too few runs · steady 2 of 3" |
+ * "Money Beat — no timing data yet · steady 0 of 3" (no point has an offset)
+ */
+export function trendLine(t: GrooveTrend): string {
+  const steadyText = `steady ${t.steadyCount} of ${t.points.length}`
+  const hasAnyOffset = t.points.some((p) => p.worstAbsOffsetMs !== undefined)
+  if (!hasAnyOffset) return `${t.grooveTitle} — no timing data yet · ${steadyText}`
+
+  const offsets = t.points.map((p) => (p.worstAbsOffsetMs === undefined ? '–' : `${p.worstAbsOffsetMs}`)).join(', ')
+  const directionWord = TREND_DIRECTION_WORD[t.direction]
+  return `${t.grooveTitle} — worst limb ${offsets} ms · ${directionWord} · ${steadyText}`
 }
 
 /**

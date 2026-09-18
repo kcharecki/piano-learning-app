@@ -20,8 +20,8 @@ import { useDrumsHistoryStore } from '@app/state/drumsHistoryStore.ts'
 import { useDrumsReadingStore } from '@app/state/drumsReadingStore.ts'
 import { useDrumsRudimentStore } from '@app/state/drumsRudimentStore.ts'
 import { RUDIMENTS } from '@content/drums/rudiments.ts'
-import { grooveBests, limbBias, tierCompletion } from '@core/drums/progress/index.ts'
-import { biasLine, bestLine, readingLine, tierLine } from '@app/drums/progressText.ts'
+import { grooveBests, grooveTrends, limbBias, tierCompletion } from '@core/drums/progress/index.ts'
+import { biasLine, bestLine, readingLine, tierLine, trendLine } from '@app/drums/progressText.ts'
 
 /** How many of the reading trainer's most recent runs the Reading panel names. */
 const RECENT_READING_RUNS = 3
@@ -35,6 +35,7 @@ export function DrumsProgressScreen() {
   const tiers = tierCompletion(RUDIMENTS, records)
   const bests = grooveBests(attempts)
   const bias = limbBias(attempts)
+  const trends = grooveTrends(attempts)
   const recentAccuracies = runs
     .slice(0, RECENT_READING_RUNS)
     .map((run) => run.accuracy)
@@ -88,6 +89,24 @@ export function DrumsProgressScreen() {
             <ul className="drums-progress-list">
               {bias.map((row) => (
                 <li key={row.pad}>{biasLine(row)}</li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <section
+          className="card drums-progress-card"
+          aria-labelledby="drums-progress-trends-heading"
+        >
+          <h2 id="drums-progress-trends-heading">Trends</h2>
+          {trends.length === 0 ? (
+            <p className="drums-progress-empty">
+              Play a few runs of one groove to see whether it is tightening.
+            </p>
+          ) : (
+            <ul className="drums-progress-list">
+              {trends.map((trend) => (
+                <li key={trend.grooveId}>{trendLine(trend)}</li>
               ))}
             </ul>
           )}

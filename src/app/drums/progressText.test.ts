@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { biasLine, bestLine, readingLine, tierLine } from './progressText.ts'
-import type { GrooveBest, LimbBias, TierCompletion } from '@core/drums/progress/index.ts'
+import { biasLine, bestLine, readingLine, tierLine, trendLine } from './progressText.ts'
+import type { GrooveBest, GrooveTrend, LimbBias, TierCompletion } from '@core/drums/progress/index.ts'
 
 describe('tierLine', () => {
   it('formats tier, atTarget/total and started', () => {
@@ -77,6 +77,57 @@ describe('biasLine', () => {
 
   it('singularizes a single hit', () => {
     expect(biasLine({ pad: 'kick', meanMs: 10, samples: 1 })).toBe('Kick: 10 ms late (1 hit)')
+  })
+})
+
+describe('trendLine', () => {
+  function point(worstAbsOffsetMs: number | undefined, steady = true) {
+    return { at: 1, bpm: 90, steady, worstAbsOffsetMs }
+  }
+
+  it('formats offsets, direction word and steady count', () => {
+    const t: GrooveTrend = {
+      grooveId: 'money-beat',
+      grooveTitle: 'Money Beat',
+      points: [point(15, false), point(15, true), point(15, true)],
+      direction: 'unknown',
+      steadyCount: 2,
+    }
+    expect(trendLine(t)).toBe('Money Beat — worst limb 15, 15, 15 ms · too few runs · steady 2 of 3')
+  })
+
+  it('formats tightening, loosening and flat direction words', () => {
+    const base: Omit<GrooveTrend, 'direction'> = {
+      grooveId: 'g',
+      grooveTitle: 'G',
+      points: [point(30), point(25), point(20), point(10)],
+      steadyCount: 4,
+    }
+    expect(trendLine({ ...base, direction: 'tightening' })).toContain('· tightening ·')
+    expect(trendLine({ ...base, direction: 'loosening' })).toContain('· loosening ·')
+    expect(trendLine({ ...base, direction: 'flat' })).toContain('· flat ·')
+  })
+
+  it('renders an undefined point as an en dash', () => {
+    const t: GrooveTrend = {
+      grooveId: 'g',
+      grooveTitle: 'G',
+      points: [point(undefined), point(10), point(10), point(10)],
+      direction: 'flat',
+      steadyCount: 4,
+    }
+    expect(trendLine(t)).toBe('G — worst limb –, 10, 10, 10 ms · flat · steady 4 of 4')
+  })
+
+  it('reports no timing data yet when no point has an offset', () => {
+    const t: GrooveTrend = {
+      grooveId: 'g',
+      grooveTitle: 'G',
+      points: [point(undefined), point(undefined, false)],
+      direction: 'unknown',
+      steadyCount: 1,
+    }
+    expect(trendLine(t)).toBe('G — no timing data yet · steady 1 of 2')
   })
 })
 

@@ -23,12 +23,13 @@ afterEach(() => {
 })
 
 describe('DrumsProgressScreen', () => {
-  it('renders the "Progress" heading and four labelled panels', () => {
+  it('renders the "Progress" heading and five labelled panels', () => {
     render(<DrumsProgressScreen />)
     expect(screen.getByRole('heading', { level: 1, name: 'Progress' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Rudiments' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Grooves' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Limb bias' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Trends' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Reading' })).toBeInTheDocument()
   })
 
@@ -94,6 +95,59 @@ describe('DrumsProgressScreen', () => {
     const panel = screen.getByRole('region', { name: 'Limb bias' })
     expect(within(panel).getByText('Kick: 15 ms late (8 hits)')).toBeInTheDocument()
     expect(within(panel).getByText('Snare: 6 ms early (4 hits)')).toBeInTheDocument()
+  })
+
+  it('shows the trends empty state with no attempts', () => {
+    render(<DrumsProgressScreen />)
+    const panel = screen.getByRole('region', { name: 'Trends' })
+    expect(
+      within(panel).getByText('Play a few runs of one groove to see whether it is tightening.'),
+    ).toBeInTheDocument()
+  })
+
+  it('shows a trendLine row per groove from the most recent attempts', () => {
+    useDrumsHistoryStore.setState({
+      attempts: [
+        // Newest first: the learner tightened 30 -> 25 -> 20 -> 10 ms.
+        {
+          grooveId: 'money-beat',
+          grooveTitle: 'Money Beat',
+          bpm: 100,
+          at: 4,
+          steady: true,
+          pads: [{ pad: 'kick', expected: 8, matched: 8, meanOffsetMs: 10 }],
+        },
+        {
+          grooveId: 'money-beat',
+          grooveTitle: 'Money Beat',
+          bpm: 100,
+          at: 3,
+          steady: true,
+          pads: [{ pad: 'kick', expected: 8, matched: 8, meanOffsetMs: 20 }],
+        },
+        {
+          grooveId: 'money-beat',
+          grooveTitle: 'Money Beat',
+          bpm: 100,
+          at: 2,
+          steady: true,
+          pads: [{ pad: 'kick', expected: 8, matched: 8, meanOffsetMs: 25 }],
+        },
+        {
+          grooveId: 'money-beat',
+          grooveTitle: 'Money Beat',
+          bpm: 100,
+          at: 1,
+          steady: false,
+          pads: [{ pad: 'kick', expected: 8, matched: 8, meanOffsetMs: 30 }],
+        },
+      ],
+    })
+    render(<DrumsProgressScreen />)
+    const panel = screen.getByRole('region', { name: 'Trends' })
+    expect(
+      within(panel).getByText('Money Beat — worst limb 30, 25, 20, 10 ms · tightening · steady 3 of 4'),
+    ).toBeInTheDocument()
   })
 
   it('shows the reading empty state at level 1 with no runs', () => {

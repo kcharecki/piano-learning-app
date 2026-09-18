@@ -14,3 +14,6 @@ export type {
   LimbBias,
 } from './grooveBests.ts'
 export { grooveBests, limbBias } from './grooveBests.ts'
+
+export type { GrooveTrend, GrooveTrendPoint, TrendDirection } from './trend.ts'
+export { DEFAULT_TREND_RUNS, TREND_FLAT_MS, grooveTrends } from './trend.ts'
