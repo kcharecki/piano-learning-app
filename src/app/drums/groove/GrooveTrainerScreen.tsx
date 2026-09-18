@@ -21,6 +21,9 @@
  *
  * ## The persona has no e-kit
  *
+ * (The pad, the tempo stepper and the keyboard binding live in
+ * `GrooveControls.tsx` since DR-15 shares them; the reasoning stays here.)
+ *
  * Everything is reachable by mouse and by keyboard: J is the hi-hat (right
  * hand), K the open hat, F the snare (left hand), Space the kick (right
  * foot). Pads dispatch on `pointerdown`, not `click` — a drum stroke happens
@@ -65,7 +68,7 @@
  * runs, which is its own slice; this screen grades one tempo at a time and
  * says so.
  */
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { Icon } from '@app/ui/Icon.tsx'
 import { DrumKey } from '@app/drums/notation/DrumKey.tsx'
 import { GrooveStaff } from '@app/drums/notation/GrooveStaff.tsx'
@@ -74,11 +77,12 @@ import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { describeGroove } from '@core/drums/engrave/describe.ts'
 import { engraveGroove } from '@core/drums/engrave/staff.ts'
 import type { StaffLayout } from '@core/drums/engrave/layout.ts'
-import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import { grooveTrainerLibrary } from '@core/drums/practice/library.ts'
 import type { GrooveRunResult } from '@core/drums/practice/grade.ts'
-import { MAX_BPM, MIN_BPM, planGrooveRun, type GrooveRunPlan } from '@core/drums/practice/plan.ts'
+import { planGrooveRun, type GrooveRunPlan } from '@core/drums/practice/plan.ts'
 import type { Clock, DrumAudioOutput } from '@core/ports/index.ts'
+import { Pad, TempoField } from './GrooveControls.tsx'
+import { useFlash, useKeyboardPads } from './groovePadHooks.ts'
 import { GROOVE_PAD_KEY, GROOVE_PAD_LABEL, keyLabel, sortPadsForDisplay } from './padLabels.ts'
 import {
   diagnosisSentences,
@@ -87,13 +91,10 @@ import {
   padLineText,
   verdictText,
 } from './resultLines.ts'
-import { useGrooveRun, type GrooveRunPhase, type PadFlash } from './useGrooveRun.ts'
+import { useGrooveRun, type GrooveRunPhase } from './useGrooveRun.ts'
 
 /** The persona's goal tempo for the Debut rock groove, and the tempo the screen opens on. */
 const DEFAULT_BPM = 80
-
-/** How long a struck pad stays lit. Long enough to see at sixteenths, short enough not to smear. */
-const PAD_FLASH_MS = 90
 
 export type GrooveTrainerScreenProps = {
   /** Injection seams for tests; each defaults to the real browser adapter. */
@@ -467,183 +468,4 @@ function runStateText(
     case 'preview':
       return 'Listening — the groove as written'
   }
-}
-
-type PadProps = {
-  readonly pad: MappedDrumPad
-  readonly lit: boolean
-  readonly onHit: (pad: MappedDrumPad) => void
-}
-
-/**
- * `pointerdown` is the stroke; the `click` handler is the keyboard path only.
- * A mouse press fires both, so the ref swallows the click that follows its own
- * pointerdown rather than counting the stroke twice.
- */
-function Pad({ pad, lit, onHit }: PadProps) {
-  const fromPointer = useRef(false)
-  const key = GROOVE_PAD_KEY[pad]
-  return (
-    <button
-      type="button"
-      className="drum-pad"
-      aria-label={GROOVE_PAD_LABEL[pad]}
-      data-lit={lit ? 'true' : undefined}
-      onPointerDown={() => {
-        fromPointer.current = true
-        onHit(pad)
-      }}
-      onClick={() => {
-        if (fromPointer.current) {
-          fromPointer.current = false
-          return
-        }
-        onHit(pad)
-      }}
-    >
-      <span className="drum-pad-name" aria-hidden="true">
-        {GROOVE_PAD_LABEL[pad]}
-      </span>
-      {key !== undefined && (
-        <span className="drum-pad-key" aria-hidden="true">
-          {keyLabel(key)}
-        </span>
-      )}
-    </button>
-  )
-}
-
-type TempoFieldProps = {
-  readonly bpm: number
-  readonly onBpm: (bpm: number) => void
-  readonly disabled: boolean
-}
-
-/**
- * The same typeable `.stepper` `MetronomeScreen` uses, and held as a draft
- * string for the same reason: typing "70" passes through "7", which clamps to
- * MIN_BPM and rewrites the field under the caret. Commit is blur or Enter.
- */
-function TempoField({ bpm, onBpm, disabled }: TempoFieldProps) {
-  const inputId = useId()
-  const [draft, setDraft] = useState(String(bpm))
-  useEffect(() => {
-    setDraft(String(bpm))
-  }, [bpm])
-
-  function commit(): void {
-    const parsed = Number.parseInt(draft, 10)
-    if (Number.isNaN(parsed)) {
-      setDraft(String(bpm))
-      return
-    }
-    const clamped = Math.min(MAX_BPM, Math.max(MIN_BPM, parsed))
-    setDraft(String(clamped))
-    onBpm(clamped)
-  }
-
-  return (
-    <div className="field groove-tempo-field">
-      <label htmlFor={inputId}>Tempo</label>
-      <div className="stepper">
-        <button
-          type="button"
-          aria-label="Slower"
-          disabled={disabled || bpm <= MIN_BPM}
-          onClick={() => onBpm(bpm - 1)}
-        >
-          <Icon name="minus" />
-        </button>
-        <input
-          id={inputId}
-          className="stepper-value"
-          type="number"
-          inputMode="numeric"
-          min={MIN_BPM}
-          max={MAX_BPM}
-          step={1}
-          disabled={disabled}
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onBlur={commit}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault()
-              commit()
-            } else if (event.key === 'Escape') {
-              setDraft(String(bpm))
-            }
-          }}
-        />
-        <button
-          type="button"
-          aria-label="Faster"
-          disabled={disabled || bpm >= MAX_BPM}
-          onClick={() => onBpm(bpm + 1)}
-        >
-          <Icon name="plus" />
-        </button>
-      </div>
-    </div>
-  )
-}
-
-/** Lights a pad for `PAD_FLASH_MS` each time `flash` changes — the "it registered" signal. */
-function useFlash(flash: PadFlash | undefined) {
-  const [lit, setLit] = useState<MappedDrumPad | undefined>(undefined)
-  useEffect(() => {
-    if (flash === undefined) return undefined
-    setLit(flash.pad)
-    const timer = window.setTimeout(() => setLit(undefined), PAD_FLASH_MS)
-    return () => window.clearTimeout(timer)
-  }, [flash])
-  return lit
-}
-
-/**
- * Binds the pad keys on `document`, so a learner never has to keep a pad
- * focused to play it. See the module comment for why Space alone is gated on
- * the run phase.
- */
-function useKeyboardPads(
-  pads: readonly MappedDrumPad[],
-  hit: (pad: MappedDrumPad) => void,
-  running: boolean,
-): void {
-  const hitRef = useRef(hit)
-  hitRef.current = hit
-  const runningRef = useRef(running)
-  runningRef.current = running
-
-  const byKey = useMemo(() => {
-    const map = new Map<string, MappedDrumPad>()
-    for (const pad of pads) {
-      const key = GROOVE_PAD_KEY[pad]
-      if (key !== undefined) map.set(key, pad)
-    }
-    return map
-  }, [pads])
-
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent): void {
-      if (event.repeat || event.ctrlKey || event.metaKey || event.altKey) return
-      const target = event.target
-      if (
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        target instanceof HTMLSelectElement
-      ) {
-        return
-      }
-      const pad = byKey.get(event.key.toLowerCase())
-      if (pad === undefined) return
-      if (event.key === ' ') {
-        if (!runningRef.current) return
-        event.preventDefault()
-      }
-      hitRef.current(pad)
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
-  }, [byKey])
 }
