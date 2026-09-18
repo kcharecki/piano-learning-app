@@ -23,13 +23,14 @@ import type { GrooveRunResult } from '@core/drums/practice/grade.ts'
 import type { Rudiment } from '@core/drums/rudiment/index.ts'
 import type { TempoLadderState } from '@core/drums/rudiment/index.ts'
 import { isEvenEnough } from '@core/drums/rudiment/index.ts'
+import { DEFAULT_FAILS_TO_PLATEAU, DEFAULT_PASSES_TO_ADVANCE } from '@core/drums/rudiment/tempoLadder.ts'
 
 /** One 4/4 bar at `TICKS_PER_QUARTER = 480`: 4 beats * 480. Mirrors `score.ts`'s own private constant — not exported there. */
 const BAR_TICKS = 1920
 
-/** `tempoLadder.ts`'s own defaults. `useRudimentTrainer.ts` never overrides `passesToAdvance`/`failsToPlateau`, so these read back exactly what actually governs every ladder in this app — see `ladderText`'s delivery note. */
-const PASSES_TO_ADVANCE = 2
-const FAILS_TO_PLATEAU = 3
+/** `useRudimentTrainer.ts` never overrides `passesToAdvance`/`failsToPlateau`, so `tempoLadder.ts`'s own defaults are exactly what governs every ladder in this app. */
+const PASSES_TO_ADVANCE = DEFAULT_PASSES_TO_ADVANCE
+const FAILS_TO_PLATEAU = DEFAULT_FAILS_TO_PLATEAU
 
 function gcd(a: number, b: number): number {
   let x = a

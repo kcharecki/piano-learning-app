@@ -62,8 +62,9 @@ const DEFAULT_STEP_BPM = 5
 const DEFAULT_MIN_BPM = 40
 const DEFAULT_MAX_BPM = 200
 const DEFAULT_MODE: LadderMode = 'up'
-const DEFAULT_PASSES_TO_ADVANCE = 2
-const DEFAULT_FAILS_TO_PLATEAU = 3
+/** Exported so a status line can read back the counts that govern a ladder built with the defaults. */
+export const DEFAULT_PASSES_TO_ADVANCE = 2
+export const DEFAULT_FAILS_TO_PLATEAU = 3
 
 function stepBpmOf(config: TempoLadderConfig): number {
   return config.stepBpm ?? DEFAULT_STEP_BPM
