@@ -312,6 +312,18 @@ export function createDrumSynth(opts: DrumSynthOptions): DrumAudioOutput {
 
   let liveVoices: Voice[] = []
   let openHatVoices: OpenHatVoice[] = []
+  /**
+   * `startSec` of every hi-hat event (`isHiHatEvent`) `strike()` has
+   * scheduled, whether already sounded or still ahead — this is what lets a
+   * live/late-registering `hhOpen` find a hi-hat event that was scheduled
+   * ahead of it but arrives (in ctx time) before it, which `chokeOpenHats`
+   * alone cannot: that function only walks *already-registered* open-hat
+   * voices at the chokER's call time, so a choker scheduled ahead of an
+   * `hhOpen` that has not been struck yet has nothing to choke when it runs.
+   * Pruned of stale (past) entries on every `strike()` call — see the prune
+   * below — so this cannot grow unbounded over a long session.
+   */
+  let pendingHiHatSec: number[] = []
 
   function removeLiveVoice(voice: Voice): void {
     const i = liveVoices.indexOf(voice)
@@ -397,31 +409,48 @@ export function createDrumSynth(opts: DrumSynthOptions): DrumAudioOutput {
   }
 
   /**
+   * Releases one open-hat voice at `atSec`: pins its true envelope value
+   * before cancelling the in-flight ramp (see the inline comment this
+   * replaces, preserved below), ramps to 0 over `CHOKE_RAMP_S`, then stops
+   * the source shortly after. Shared by `chokeOpenHats` (choking an
+   * already-registered voice when a later hi-hat event arrives) and
+   * `strike`'s `hhOpen` registration path (choking a brand-new voice
+   * immediately, when a hi-hat event already pending ahead of it will
+   * release it before it would otherwise ring).
+   *
+   * `cancelScheduledValues` deletes the in-flight attack/decay ramp
+   * outright — without pinning the envelope's actual value at `atSec` first,
+   * the choke ramp below starts from whatever value the AudioParam happens
+   * to hold (its last explicit target, i.e. the attack peak), not from where
+   * the decay had actually reached. That turns a mid-ring choke into an
+   * audible discontinuity, and a choke scheduled well into the decay into a
+   * fade that runs the full choke... from full volume over CHOKE_RAMP_S.
+   * Same pattern `webaudio.ts`'s `noteOff` uses for exactly this reason.
+   */
+  function chokeVoiceAt(ohv: OpenHatVoice, atSec: number): void {
+    const pinnedGain = envelopeValueAt(ohv.voice, atSec)
+    ohv.voice.gain.gain.cancelScheduledValues(atSec)
+    ohv.voice.gain.gain.setValueAtTime(pinnedGain, atSec)
+    ohv.voice.gain.gain.linearRampToValueAtTime(0, atSec + CHOKE_RAMP_S)
+    ohv.voice.source.stop(atSec + CHOKE_RAMP_S + CHOKE_STOP_TAIL_S)
+  }
+
+  /**
    * The choke rule (`core/ports/drumAudio.ts`'s module comment): every open
-   * hat that started before `atSec` is released now, by ramping its gain to
-   * 0 over `CHOKE_RAMP_S` starting at `atSec`, then stopping its source
-   * shortly after. A voice not yet started by `atSec` (a strike scheduled
-   * out of order) is left alone — it has not rung yet, so there is nothing
-   * to release.
+   * hat that started before `atSec` is released now (see `chokeVoiceAt`). A
+   * voice not yet started by `atSec` (a strike scheduled out of order) is
+   * left alone — it has not rung yet, so there is nothing to release.
+   *
+   * This only reaches voices already in `openHatVoices` at call time — the
+   * case where the hi-hat event doing the choking was scheduled *ahead* of
+   * an `hhOpen` that has not been struck yet is handled separately, at the
+   * `hhOpen` registration site in `strike`, via `pendingHiHatSec`.
    */
   function chokeOpenHats(atSec: number): void {
     const remaining: OpenHatVoice[] = []
     for (const ohv of openHatVoices) {
       if (ohv.startSec < atSec) {
-        // `cancelScheduledValues` deletes the in-flight attack/decay ramp
-        // outright — without pinning the envelope's actual value at `atSec`
-        // first, the choke ramp below starts from whatever value the
-        // AudioParam happens to hold (its last explicit target, i.e. the
-        // attack peak), not from where the decay had actually reached. That
-        // turns a mid-ring choke into an audible discontinuity, and a choke
-        // scheduled well into the decay into a fade that runs the full
-        // choke... from full volume over CHOKE_RAMP_S. Same pattern
-        // `webaudio.ts`'s `noteOff` uses for exactly this reason.
-        const pinnedGain = envelopeValueAt(ohv.voice, atSec)
-        ohv.voice.gain.gain.cancelScheduledValues(atSec)
-        ohv.voice.gain.gain.setValueAtTime(pinnedGain, atSec)
-        ohv.voice.gain.gain.linearRampToValueAtTime(0, atSec + CHOKE_RAMP_S)
-        ohv.voice.source.stop(atSec + CHOKE_RAMP_S + CHOKE_STOP_TAIL_S)
+        chokeVoiceAt(ohv, atSec)
       } else {
         remaining.push(ohv)
       }
@@ -438,11 +467,18 @@ export function createDrumSynth(opts: DrumSynthOptions): DrumAudioOutput {
     if (eng === undefined) return
     ensureRunning(eng.ctx)
     try {
+      // Entries that can no longer choke anything new (their instant has
+      // already passed on the ctx clock) are pruned on every call — see
+      // `pendingHiHatSec`'s own comment.
+      pendingHiHatSec = pendingHiHatSec.filter((t) => t >= eng.ctx.currentTime)
       const startSec =
         atMs === undefined
           ? eng.ctx.currentTime
           : toCtxSeconds(atMs, updateOffsetAnchor(eng.ctx), eng.ctx)
-      if (isHiHatEvent(pad)) chokeOpenHats(startSec)
+      if (isHiHatEvent(pad)) {
+        pendingHiHatSec.push(startSec)
+        chokeOpenHats(startSec)
+      }
       const voices = buildVoices(eng, pad, startSec, velocity)
       for (const voice of voices) {
         liveVoices.push(voice)
@@ -455,7 +491,22 @@ export function createDrumSynth(opts: DrumSynthOptions): DrumAudioOutput {
             // by allNotesOff racing this callback) must not throw here.
           }
         }
-        if (pad === 'hhOpen') openHatVoices.push({ voice, startSec })
+        if (pad === 'hhOpen') {
+          const ohv: OpenHatVoice = { voice, startSec }
+          // A hi-hat event already pending strictly after this voice's own
+          // start (scheduled ahead, e.g. the groove trainer's muted-hat
+          // pre-schedule, or a live one that just happened to be struck
+          // first) releases it right away, at that instant — see this
+          // module's header comment and `pendingHiHatSec`'s own comment for
+          // why `chokeOpenHats` alone cannot catch this ordering. A hat at
+          // the exact same instant is a unison, not a release: left alone.
+          const futureHiHatSec = pendingHiHatSec.filter((t) => t > startSec)
+          if (futureHiHatSec.length > 0) {
+            chokeVoiceAt(ohv, Math.min(...futureHiHatSec))
+          } else {
+            openHatVoices.push(ohv)
+          }
+        }
       }
     } catch {
       // A node-creation call throwing mid-strike must not escape — see
@@ -538,6 +589,7 @@ export function createDrumSynth(opts: DrumSynthOptions): DrumAudioOutput {
     }
     liveVoices = []
     openHatVoices = []
+    pendingHiHatSec = []
   }
 
   function setVolume(volume: number): void {

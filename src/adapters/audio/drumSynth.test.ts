@@ -318,6 +318,112 @@ describe('createDrumSynth', () => {
     expect(wasEverChoked(openGain)).toBe(false)
   })
 
+  // Roadmap review finding: a hi-hat event scheduled AHEAD (a preview) whose
+  // `strike()` call has already run cannot choke an `hhOpen` that only
+  // starts *after* it in call order but *before* it in ctx time — e.g. the
+  // groove trainer pre-schedules every muted `hhClosed` at `start()`, and the
+  // learner's own live `hhOpen` arrives seconds later but at an earlier
+  // ctx-time slot relative to a hat further down the pre-schedule. See the
+  // port contract's "whether that strike is scheduled ahead ... or arrives
+  // live" clause in `core/ports/drumAudio.ts`.
+  describe('choke by a hi-hat event pending ahead of a later-registering hhOpen', () => {
+    it('a pending hhClosed scheduled ahead chokes an hhOpen registered afterwards but earlier in ctx time', () => {
+      const ctx = makeCtx()
+      const out = synth(ctx)
+
+      out.strike('hhClosed', 100, millis(3000))
+      out.strike('hhOpen', 100, millis(2625))
+      const openGain = ctx.gains.at(-1)
+      const openSource = ctx.bufferSources.at(-1)
+      if (openGain === undefined || openSource === undefined) throw new Error('no open-hat voice')
+      // The choke happens synchronously inside this same `strike('hhOpen', …)`
+      // call (registered-and-immediately-released), so both the voice's
+      // natural stop (scheduled first, by `buildVoices`) and its choked stop
+      // (scheduled second, by `chokeVoiceAt`) are already in `stoppedAt` by
+      // the time we look — unlike the in-order test above, there is no
+      // window to observe the natural stop before it gets superseded.
+      const naturalStop = openSource.stoppedAt[0]
+      const chokedStop = openSource.stoppedAt.at(-1)
+      if (naturalStop === undefined || chokedStop === undefined) {
+        throw new Error('expected both a natural and a choked stop scheduled')
+      }
+
+      expect(wasChokedAt(openGain, 3.0)).toBe(true)
+      expect(chokedStop).toBeLessThan(naturalStop)
+
+      const closedGain = ctx.gains.find((g) => g !== openGain)
+      if (closedGain === undefined) throw new Error('no closed-hat gain')
+      expect(wasEverChoked(closedGain)).toBe(false)
+    })
+
+    it('chokes at the FIRST pending hi-hat instant after it, not a later one', () => {
+      const ctx = makeCtx()
+      const out = synth(ctx)
+
+      out.strike('hhClosed', 100, millis(3000))
+      out.strike('hhClosed', 100, millis(3375))
+      out.strike('hhClosed', 100, millis(3750))
+      out.strike('hhOpen', 100, millis(2625))
+      const openGain = ctx.gains.at(-1)
+      if (openGain === undefined) throw new Error('no open-hat gain')
+
+      expect(wasChokedAt(openGain, 3.0)).toBe(true)
+    })
+
+    it('a pending hi-hat at the exact same instant is a unison, not a choke', () => {
+      const ctx = makeCtx()
+      const out = synth(ctx)
+
+      out.strike('hhClosed', 100, millis(2625))
+      out.strike('hhOpen', 100, millis(2625))
+      const openGain = ctx.gains.at(-1)
+      if (openGain === undefined) throw new Error('no open-hat gain')
+
+      expect(wasEverChoked(openGain)).toBe(false)
+    })
+
+    it('prunes hi-hat instants already in the past: a later hhOpen with no future hat left is not choked', () => {
+      const ctx = makeCtx()
+      vi.spyOn(performance, 'now').mockReturnValue(0)
+      ctx.currentTime = 0
+      const out = createDrumSynth({ context: () => ctx as unknown as AudioContext })
+
+      out.strike('hhClosed', 100, millis(1000)) // pending hat at ctx 1.0s
+
+      // Real time and the ctx clock both advance past that pending hat —
+      // it can no longer choke anything.
+      ctx.currentTime = 2.0
+      vi.spyOn(performance, 'now').mockReturnValue(2000)
+
+      out.strike('hhOpen', 100, millis(2500))
+      const openGain = ctx.gains.at(-1)
+      if (openGain === undefined) throw new Error('no open-hat gain')
+      expect(wasEverChoked(openGain)).toBe(false)
+    })
+
+    it('a live hhOpen (no atMs) arriving after several pre-scheduled hats is choked at the first one still ahead of it', () => {
+      const ctx = makeCtx()
+      vi.spyOn(performance, 'now').mockReturnValue(0)
+      ctx.currentTime = 0
+      const out = createDrumSynth({ context: () => ctx as unknown as AudioContext })
+
+      // Ten pre-scheduled hhClosed strikes, as the groove trainer does with
+      // "Play Hi-hat" muted: every hat of the pass scheduled up front at
+      // `start()`.
+      for (let i = 0; i < 10; i++) {
+        out.strike('hhClosed', 100, millis(3000 + i * 375))
+      }
+
+      // The learner's own live hhOpen, arriving mid-pass.
+      ctx.currentTime = 2.625
+      out.strike('hhOpen', 100)
+      const openGain = ctx.gains.at(-1)
+      if (openGain === undefined) throw new Error('no open-hat gain')
+
+      expect(wasChokedAt(openGain, 3.0)).toBe(true)
+    })
+  })
+
   // Kills a mutant that gives hhOpen the same short envelope as hhClosed
   // (the bug this whole feature exists to fix: today's placeholder plays an
   // indistinguishable blip for both).
