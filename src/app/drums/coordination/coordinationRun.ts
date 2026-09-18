@@ -8,13 +8,22 @@
 import type { GrooveScore } from '@core/drums/model/groove.ts'
 import { hhFootDrills } from '@core/drums/coordination/hhFoot.ts'
 import { layerStack } from '@core/drums/coordination/layers.ts'
+import { openingDrills } from '@core/drums/coordination/openings.ts'
 import { singleKickPermutations, twoKickPermutations } from '@core/drums/coordination/permutations.ts'
 import type { Rng } from '@core/ports/index.ts'
 
-export type DrillMode = 'layers' | 'kicks' | 'kicks2' | 'hhFoot'
+export type DrillMode = 'layers' | 'kicks' | 'kicks2' | 'hhFoot' | 'openings'
 
 /** How many two-kick drills one visit to the mode draws. */
 export const TWO_KICK_DRILLS = 12
+
+/**
+ * What `CoordinationTrainerScreen` says in place of the step list when
+ * `'openings'` yields zero steps — a groove with no hi-hat sitting on an "&"
+ * (roadmap DR-15's `openingDrills`), e.g. the trainer's default Quarter-Note
+ * Rock.
+ */
+export const OPENINGS_EMPTY_TEXT = 'No hi-hat on an "&" in this groove — pick an eighth-note groove.'
 
 export type DrillStep = {
   readonly index: number
@@ -30,8 +39,10 @@ export type DrillStep = {
  * groove library. `'kicks2'`: `TWO_KICK_DRILLS` two-kick drills drawn fresh
  * through `rng` — `groove` is ignored here too. `'hhFoot'`:
  * `hhFootDrills(groove)`, one step per cumulative build stage (ride + foot,
- * then kick, then snare). `rng` is consulted ONLY in `'kicks2'`; the other
- * three modes never call it.
+ * then kick, then snare). `'openings'`: `openingDrills(groove)`, one step per
+ * cumulative hi-hat-opening stage (`[]` when the groove has no hat on an
+ * "&"). `rng` is consulted ONLY in `'kicks2'`; the other four modes never
+ * call it.
  */
 export function drillSteps(mode: DrillMode, groove: GrooveScore, rng: Rng): readonly DrillStep[] {
   if (mode === 'layers') {
@@ -44,6 +55,15 @@ export function drillSteps(mode: DrillMode, groove: GrooveScore, rng: Rng): read
   }
   if (mode === 'hhFoot') {
     const drills = hhFootDrills(groove)
+    return drills.map((drill, index) => ({
+      index,
+      count: drills.length,
+      title: drill.score.title,
+      score: drill.score,
+    }))
+  }
+  if (mode === 'openings') {
+    const drills = openingDrills(groove)
     return drills.map((drill, index) => ({
       index,
       count: drills.length,

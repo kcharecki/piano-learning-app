@@ -4,6 +4,10 @@ export {
   type HhFootDrill,
 } from './hhFoot.ts'
 export {
+  openingDrills,
+  type OpeningDrill,
+} from './openings.ts'
+export {
   LAYER_ORDER,
   layerGroupOf,
   layerStack,

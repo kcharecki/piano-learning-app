@@ -122,6 +122,41 @@ describe('CoordinationTrainerScreen', () => {
     expect(screen.getByRole('button', { name: 'Hi-hat pedal' })).toBeInTheDocument()
   })
 
+  it('offers Hi-hat openings, keeps the groove picker, and shows the empty state for the default groove (no hat on an "&")', async () => {
+    const { user } = setup()
+    await user.click(screen.getByRole('radio', { name: 'Hi-hat openings' }))
+
+    expect(screen.getByRole('radio', { name: 'Hi-hat openings' })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('combobox', { name: 'Groove' })).toBeInTheDocument()
+
+    expect(screen.queryByRole('list', { name: 'Steps' })).not.toBeInTheDocument()
+    expect(screen.getByRole('status', { name: 'Drill steps' })).toHaveTextContent(
+      'No hi-hat on an "&" in this groove — pick an eighth-note groove.',
+    )
+    // Nothing to drill: no staff, and Start cannot run the raw groove.
+    expect(screen.getByRole('button', { name: 'Start' })).toBeDisabled()
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+  })
+
+  it('Hi-hat openings lists 3 steps once a groove with an "&" hat is picked', async () => {
+    const { user } = setup()
+    await user.click(screen.getByRole('radio', { name: 'Hi-hat openings' }))
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Groove' }), 'Money Beat')
+
+    expect(screen.queryByRole('status', { name: 'Drill steps' })).not.toBeInTheDocument()
+    const stepsList = screen.getByRole('list', { name: 'Steps' })
+    const stepListButtons = within(stepsList).getAllByRole('button')
+    expect(stepListButtons.map((b) => b.textContent)).toEqual([
+      'Money Beat — open on the & of 4',
+      'Money Beat — open on the & of 2 and 4',
+      'Money Beat — open on every &',
+    ])
+    expect(stepListButtons[0]).not.toBeDisabled()
+    expect(stepListButtons[0]).toHaveAttribute('aria-current', 'step')
+    expect(stepListButtons[1]).toBeDisabled()
+    expect(stepListButtons[2]).toBeDisabled()
+  })
+
   it('hides the groove picker in kicks mode', async () => {
     const { user } = setup()
     expect(screen.getByRole('combobox', { name: 'Groove' })).toBeInTheDocument()

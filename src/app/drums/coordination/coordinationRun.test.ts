@@ -1,7 +1,8 @@
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
-import { moneyBeat } from '@core/drums/model/referenceGrooves.ts'
+import { moneyBeat, quarterNoteRock } from '@core/drums/model/referenceGrooves.ts'
 import { hhFootDrills } from '@core/drums/coordination/hhFoot.ts'
+import { openingDrills } from '@core/drums/coordination/openings.ts'
 import { singleKickPermutations } from '@core/drums/coordination/permutations.ts'
 import { layerStack } from '@core/drums/coordination/layers.ts'
 import type { Rng } from '@core/ports/index.ts'
@@ -72,6 +73,25 @@ describe('drillSteps', () => {
       expect(step.title).toBe(drills[i]?.score.title)
       expect(step.score).toEqual(drills[i]?.score)
     })
+  })
+
+  it('openings mode maps openingDrills(groove) 1:1, and never touches the rng', () => {
+    const groove = moneyBeat()
+    const steps = drillSteps('openings', groove, throwingRng)
+    const drills = openingDrills(groove)
+    expect(steps).toHaveLength(drills.length)
+    expect(steps.length).toBeGreaterThan(0)
+    steps.forEach((step, i) => {
+      expect(step.index).toBe(i)
+      expect(step.count).toBe(drills.length)
+      expect(step.title).toBe(drills[i]?.score.title)
+      expect(step.score).toEqual(drills[i]?.score)
+    })
+  })
+
+  it('openings mode returns no steps for a groove with no hat on an "&" (Quarter-Note Rock), and never touches the rng', () => {
+    const steps = drillSteps('openings', quarterNoteRock(), throwingRng)
+    expect(steps).toEqual([])
   })
 
   it("kicks2 mode's first title is pinned for a known rng script", () => {

@@ -49,7 +49,7 @@ import { useFlash, useKeyboardPads } from '@app/drums/groove/groovePadHooks.ts'
 import { GROOVE_PAD_KEY, GROOVE_PAD_LABEL, keyLabel, sortPadsForDisplay } from '@app/drums/groove/padLabels.ts'
 import { padLineText } from '@app/drums/groove/resultLines.ts'
 import type { GrooveRunPhase } from '@app/drums/groove/useGrooveRun.ts'
-import type { DrillMode } from './coordinationRun.ts'
+import { OPENINGS_EMPTY_TEXT, type DrillMode } from './coordinationRun.ts'
 import { useCoordinationTrainer } from './useCoordinationTrainer.ts'
 
 export type CoordinationTrainerScreenProps = {
@@ -66,6 +66,7 @@ const MODE_OPTIONS: ReadonlyArray<{ readonly value: DrillMode; readonly label: s
   { value: 'kicks', label: 'Kick permutations' },
   { value: 'kicks2', label: 'Two kicks' },
   { value: 'hhFoot', label: 'Hi-hat foot' },
+  { value: 'openings', label: 'Hi-hat openings' },
 ]
 
 /** Every groove the picker offers — the library itself never changes at runtime. */
@@ -161,7 +162,7 @@ export function CoordinationTrainerScreen(props: CoordinationTrainerScreenProps)
         </div>
       </div>
 
-      {(mode === 'layers' || mode === 'hhFoot') && (
+      {(mode === 'layers' || mode === 'hhFoot' || mode === 'openings') && (
         <div className="card field coordination-groove-field">
           <label htmlFor="coordination-groove-select">Groove</label>
           <select
@@ -180,22 +181,28 @@ export function CoordinationTrainerScreen(props: CoordinationTrainerScreenProps)
         </div>
       )}
 
-      <ol className="card coordination-steps" aria-label="Steps">
-        {steps.map((s) => (
-          <li key={s.index}>
-            <button
-              type="button"
-              disabled={busy || s.index > unlocked}
-              aria-current={s.index === index ? 'step' : undefined}
-              onClick={() => trainer.select(s.index)}
-            >
-              {s.title}
-            </button>
-          </li>
-        ))}
-      </ol>
+      {steps.length === 0 ? (
+        <p role="status" aria-label="Drill steps" className="drums-progress-empty">
+          {OPENINGS_EMPTY_TEXT}
+        </p>
+      ) : (
+        <ol className="card coordination-steps" aria-label="Steps">
+          {steps.map((s) => (
+            <li key={s.index}>
+              <button
+                type="button"
+                disabled={busy || s.index > unlocked}
+                aria-current={s.index === index ? 'step' : undefined}
+                onClick={() => trainer.select(s.index)}
+              >
+                {s.title}
+              </button>
+            </li>
+          ))}
+        </ol>
+      )}
 
-      {layout !== undefined && (
+      {layout !== undefined && steps.length > 0 && (
         <div className="card groove-notation">
           <GrooveStaff layout={layout} label={staffLabel} grooveId={plan.grooveId} />
           <DrumKey
@@ -217,7 +224,7 @@ export function CoordinationTrainerScreen(props: CoordinationTrainerScreenProps)
             type="button"
             className="btn-primary groove-start"
             aria-label={running ? 'Stop' : 'Start'}
-            disabled={run.phase === 'preview'}
+            disabled={run.phase === 'preview' || steps.length === 0}
             onClick={running ? run.stop : run.start}
           >
             <Icon name={running ? 'stop' : 'play'} />

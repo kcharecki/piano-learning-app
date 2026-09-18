@@ -95,20 +95,20 @@ export function useCoordinationTrainer(opts: UseCoordinationTrainerOptions = {})
   const steps = useMemo(() => drillSteps(mode, groove, rng), [mode, groove, rng])
   const boundedIndex = Math.min(index, steps.length - 1)
   const step = steps[boundedIndex] ?? steps[0]
-  if (step === undefined) {
-    // `grooveTrainerLibrary` is non-empty and every one of its grooves has
-    // notes, and `singleKickPermutations` always returns 16 — `drillSteps`
-    // cannot legitimately return `[]` for real content. Reaching this is a
-    // programmer error, not a state the UI can render its way out of.
-    throw new Error('coordination trainer: drillSteps returned no steps for a real groove')
-  }
-
-  const plan = useMemo(() => planGrooveRun(step.score, bpm), [step, bpm])
+  // `'openings'` legitimately returns `[]` for a groove with no hat on an
+  // "&" (Quarter-Note Rock, the trainer's default) — see `openingDrills`'s
+  // own doc comment. Every other mode's content is fixed or built from a
+  // groove that always has notes, so `step` is only ever undefined here for
+  // `'openings'`; `plan` falls back to the raw groove (never graded — `run`
+  // is not started while there is nothing to drill) purely so this hook
+  // never has to hand back a `GrooveRunPlan` for a step that does not exist.
+  const plan = useMemo(() => planGrooveRun(step?.score ?? groove, bpm), [step, groove, bpm])
 
   const addAttempt = useDrumsHistoryStore((state) => state.addAttempt)
 
   const onFinished = useCallback(
     (result: GrooveRunResult): void => {
+      if (step === undefined) return
       const next = advance({ index: boundedIndex, unlocked }, result.steady, steps.length)
       setIndex(next.index)
       setUnlocked(next.unlocked)
@@ -148,10 +148,13 @@ export function useCoordinationTrainer(opts: UseCoordinationTrainerOptions = {})
     setLatchedResult(rawRun.result)
   }
 
+  // Nothing to drill (`'openings'` on a groove with no hat on an "&"):
+  // Start is a no-op, so the fallback `plan` above is never run.
   const start = useCallback((): void => {
+    if (step === undefined) return
     setLatchedResult(undefined)
     rawRun.start()
-  }, [rawRun])
+  }, [rawRun, step])
 
   const run: GrooveRunApi = { ...rawRun, result: latchedResult, start }
 
