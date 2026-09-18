@@ -15,6 +15,7 @@
  * `persistence.ts` owns the call order: `restoreDrumsSlices` runs inside
  * `restoreSession`, `persistDrumsSlices` inside `startPersisting`.
  */
+import type { KitMap, KitMapEntry } from '@core/drums/kitmap/kitMap.ts'
 import type { Store } from '@core/ports/index.ts'
 import { COLLECTIONS } from '@core/ports/store.ts'
 import { createWriteQueue } from '@app/state/writeQueue.ts'
@@ -26,16 +27,47 @@ import { useDrumsLatencyStore } from '@app/state/drumsLatencyStore.ts'
 import { useDrumsKitMapStore } from '@app/state/drumsKitMapStore.ts'
 import {
   isValidDrumsHistory,
-  isValidDrumsKitMap,
   isValidDrumsLatency,
   isValidDrumsReading,
   isValidDrumsRudiments,
   type PersistedDrumsHistory,
-  type PersistedDrumsKitMap,
   type PersistedDrumsLatency,
   type PersistedDrumsReading,
   type PersistedDrumsRudiments,
 } from '@app/state/persistedShapes.ts'
+import { isValidDrumsKitMap, type PersistedDrumsKitMap } from '@app/state/persistedShapes.drumsKitMap.ts'
+
+/**
+ * The `restoreSlice` gate for the kit-map slice is deliberately lenient —
+ * only `presetName`'s type, not `learned`'s — so a corrupt `learned` blob
+ * cannot also take the (perfectly fine) preset name down with it. The full,
+ * deep check (`isValidDrumsKitMap`, including every `learned.notes` entry)
+ * runs again inside `apply`, below, to decide whether `learned` itself is
+ * trustworthy enough to hydrate.
+ */
+function hasValidPresetName(value: unknown): value is { readonly presetName: string } {
+  if (typeof value !== 'object' || value === null) return false
+  return typeof (value as Record<string, unknown>).presetName === 'string'
+}
+
+/** `PersistedDrumsKitMap['learned']` (string-keyed notes) -> `KitMap` (number-keyed notes). */
+function toLearnedKitMap(learned: PersistedDrumsKitMap['learned']): KitMap | undefined {
+  if (learned === undefined) return undefined
+  const notes: Record<number, KitMapEntry> = {}
+  for (const [key, entry] of Object.entries(learned.notes)) {
+    notes[Number(key)] = entry
+  }
+  return { name: learned.name, notes }
+}
+
+/** `KitMap` (number-keyed notes) -> `PersistedDrumsKitMap['learned']` (string-keyed notes). */
+function toPersistedLearned(map: KitMap): NonNullable<PersistedDrumsKitMap['learned']> {
+  const notes: Record<string, KitMapEntry> = {}
+  for (const [key, entry] of Object.entries(map.notes)) {
+    notes[key] = entry
+  }
+  return { name: map.name, notes }
+}
 
 /** The groove trainer's finished runs (roadmap DR-09/T.17). */
 export const DRUMS_HISTORY_COLLECTION = COLLECTIONS.settings
@@ -119,11 +151,15 @@ export async function restoreDrumsSlices(store: Store): Promise<void> {
     store,
     DRUMS_KIT_MAP_COLLECTION,
     DRUMS_KIT_MAP_KEY,
-    isValidDrumsKitMap,
+    hasValidPresetName,
     (guarding) => {
       applyingRestoredDrumsKitMap = guarding
     },
-    (data) => useDrumsKitMapStore.getState().hydrate({ presetName: data.presetName }),
+    (data) =>
+      useDrumsKitMapStore.getState().hydrate({
+        presetName: data.presetName,
+        learned: isValidDrumsKitMap(data) ? toLearnedKitMap(data.learned) : undefined,
+      }),
   )
 }
 
@@ -196,8 +232,11 @@ function persistDrumsKitMap(store: Store): PersistedSlice {
   )
   const unsubscribe = useDrumsKitMapStore.subscribe((state, prevState) => {
     if (applyingRestoredDrumsKitMap) return
-    if (state.presetName === prevState.presetName) return
-    write({ presetName: state.presetName })
+    if (state.presetName === prevState.presetName && state.learned === prevState.learned) return
+    write({
+      presetName: state.presetName,
+      ...(state.learned === undefined ? {} : { learned: toPersistedLearned(state.learned) }),
+    })
   })
   return { unsubscribe, flush: write.flush }
 }

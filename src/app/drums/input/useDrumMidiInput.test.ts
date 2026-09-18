@@ -14,7 +14,7 @@ import { MONITOR_CAPACITY } from './monitor.ts'
 import { ekitStatusText, useDrumMidiInput } from './useDrumMidiInput.ts'
 
 beforeEach(() => {
-  useDrumsKitMapStore.setState({ presetName: 'General MIDI' })
+  useDrumsKitMapStore.setState({ presetName: 'General MIDI', learned: undefined })
 })
 
 describe('useDrumMidiInput', () => {
@@ -181,7 +181,7 @@ describe('useDrumMidiInput', () => {
 })
 
 describe('useDrumMidiInput monitor (roadmap DR-08)', () => {
-  it('off: `monitor` stays [] and firing events causes no extra render', () => {
+  it('off: `monitor` stays [], and only the note-on (via `lastNoteOn`) causes a render', () => {
     const input = new FakeMidiInput()
     const onHit = vi.fn()
     let renders = 0
@@ -194,13 +194,23 @@ describe('useDrumMidiInput monitor (roadmap DR-08)', () => {
 
     act(() => {
       input.emit({ type: 'noteOn', note: midi(38), velocity: 92, time: millis(0) })
+    })
+    // `lastNoteOn` is a plain state update independent of `monitor`, so this
+    // event — and only this one — renders once more.
+    const rendersAfterNoteOn = renders
+    expect(rendersAfterNoteOn).toBe(rendersAfterMount + 1)
+
+    act(() => {
       input.emit({ type: 'noteOff', note: midi(38), time: millis(50) })
       input.emit({ type: 'controlChange', controller: 4, value: 127, time: millis(60) })
     })
 
     expect(onHit).toHaveBeenCalledTimes(1)
-    expect(renders).toBe(rendersAfterMount)
-    expect(result.current.monitor).toBe(monitorAfterMount)
+    expect(renders).toBe(rendersAfterNoteOn)
+    // Not a `toBe`: `monitor: false` returns a fresh `[]` literal every
+    // render (see the hook's return), so identity only holds within a
+    // single render, not across the one `lastNoteOn` caused above.
+    expect(result.current.monitor).toEqual(monitorAfterMount)
     expect(result.current.monitor).toEqual([])
   })
 
@@ -357,6 +367,55 @@ describe('useDrumMidiInput kit-map store (roadmap DR-02)', () => {
   })
 })
 
+describe('lastNoteOn', () => {
+  it('is undefined until the first note-on, regardless of whether the map knows the note', () => {
+    const input = new FakeMidiInput()
+    const { result } = renderHook(() => useDrumMidiInput({ onHit: vi.fn(), midiInput: input }))
+
+    expect(result.current.lastNoteOn).toBeUndefined()
+  })
+
+  it('reports a mapped note-on with its note, velocity and an incrementing seq', () => {
+    const input = new FakeMidiInput()
+    const { result } = renderHook(() => useDrumMidiInput({ onHit: vi.fn(), midiInput: input }))
+
+    act(() => {
+      input.emit({ type: 'noteOn', note: midi(38), velocity: 100, time: millis(0) })
+    })
+    expect(result.current.lastNoteOn).toEqual({ note: 38, velocity: 100, seq: 0 })
+
+    act(() => {
+      input.emit({ type: 'noteOn', note: midi(38), velocity: 90, time: millis(10) })
+    })
+    expect(result.current.lastNoteOn).toEqual({ note: 38, velocity: 90, seq: 1 })
+  })
+
+  it('reports a note-on even when the kit map does not recognise the note', () => {
+    const input = new FakeMidiInput()
+    const { result } = renderHook(() => useDrumMidiInput({ onHit: vi.fn(), midiInput: input }))
+
+    act(() => {
+      input.emit({ type: 'noteOn', note: midi(61), velocity: 90, time: millis(0) })
+    })
+
+    expect(result.current.lastNoteOn).toEqual({ note: 61, velocity: 90, seq: 0 })
+    expect(result.current.lastUnmappedNote).toBe(61)
+  })
+
+  it('is unaffected by note-off, sustain or other non-note-on events', () => {
+    const input = new FakeMidiInput()
+    const { result } = renderHook(() => useDrumMidiInput({ onHit: vi.fn(), midiInput: input }))
+
+    act(() => {
+      input.emit({ type: 'noteOn', note: midi(38), velocity: 90, time: millis(0) })
+      input.emit({ type: 'noteOff', note: midi(38), time: millis(10) })
+      input.emit({ type: 'sustain', down: true, time: millis(20) })
+    })
+
+    expect(result.current.lastNoteOn).toEqual({ note: 38, velocity: 90, seq: 0 })
+  })
+})
+
 describe('ekitStatusText', () => {
   it('renders the connected, unmapped-suffix, error and disconnected branches exactly', () => {
     expect(
@@ -367,6 +426,7 @@ describe('ekitStatusText', () => {
           deviceId: 'td17-1',
           connectionError: undefined,
           lastUnmappedNote: undefined,
+          lastNoteOn: undefined,
         },
         'General MIDI',
       ),
@@ -380,6 +440,7 @@ describe('ekitStatusText', () => {
           deviceId: 'td17-1',
           connectionError: undefined,
           lastUnmappedNote: 61,
+          lastNoteOn: undefined,
         },
         'General MIDI',
       ),
@@ -393,6 +454,7 @@ describe('ekitStatusText', () => {
           deviceId: undefined,
           connectionError: 'no access',
           lastUnmappedNote: undefined,
+          lastNoteOn: undefined,
         },
         'General MIDI',
       ),
@@ -406,6 +468,7 @@ describe('ekitStatusText', () => {
           deviceId: undefined,
           connectionError: undefined,
           lastUnmappedNote: undefined,
+          lastNoteOn: undefined,
         },
         'General MIDI',
       ),

@@ -14,7 +14,11 @@ import { useDrumsLatencyStore } from '@app/state/drumsLatencyStore.ts'
 import type { DrumAudioOutput } from '@core/ports/index.ts'
 import { midi, millis } from '@core/shared/units.ts'
 import { CALIBRATION_HITS } from '@core/drums/scoring/latency.ts'
+import { pad, type KitMap } from '@core/drums/kitmap/kitMap.ts'
+import { LEARNED_KIT_MAP_NAME } from '@core/drums/kitmap/learn.ts'
 import { CalibrationScreen } from './CalibrationScreen.tsx'
+
+const LEARNED_MAP: KitMap = { name: LEARNED_KIT_MAP_NAME, notes: { 36: pad('kick'), 38: pad('snare') } }
 
 /**
  * Never resolves. With no `midiInput` seam given, `useMidiConnection` would
@@ -100,7 +104,7 @@ async function hitKickRepeatedly(
 
 beforeEach(() => {
   useDrumsLatencyStore.setState({ offsets: {} })
-  useDrumsKitMapStore.setState({ presetName: 'General MIDI' })
+  useDrumsKitMapStore.setState({ presetName: 'General MIDI', learned: undefined })
 })
 
 describe('CalibrationScreen', () => {
@@ -249,5 +253,39 @@ describe('CalibrationScreen', () => {
 
     expect(select).toHaveValue('Roland TD family')
     expect(useDrumsKitMapStore.getState().presetName).toBe('Roland TD family')
+  })
+
+  it('mounts the "Learn your kit" card, disabled with no e-kit connected (roadmap DR-02)', () => {
+    setup()
+
+    expect(screen.getByRole('heading', { name: 'Learn your kit' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Learn kit' })).toBeDisabled()
+    expect(screen.getByText('Connect your e-kit to learn it.')).toBeInTheDocument()
+  })
+
+  it('enables the learn-kit button once an e-kit is connected (roadmap DR-02)', () => {
+    const midiInput = new FakeMidiInput()
+    setup({ midiInput })
+
+    expect(screen.getByRole('button', { name: 'Learn kit' })).toBeEnabled()
+  })
+
+  it('once a kit map is learned, the picker offers "Learned kit" and selecting it stores the choice (roadmap DR-02)', async () => {
+    const { user } = setup()
+    const select = screen.getByRole('combobox', { name: 'Kit map' })
+    expect(within(select).queryByRole('option', { name: LEARNED_KIT_MAP_NAME })).not.toBeInTheDocument()
+
+    act(() => {
+      useDrumsKitMapStore.getState().setLearned(LEARNED_MAP)
+    })
+
+    expect(within(select).getByRole('option', { name: LEARNED_KIT_MAP_NAME })).toBeInTheDocument()
+    expect(select).toHaveValue(LEARNED_KIT_MAP_NAME)
+
+    await user.selectOptions(select, 'General MIDI')
+    expect(useDrumsKitMapStore.getState().presetName).toBe('General MIDI')
+
+    await user.selectOptions(select, LEARNED_KIT_MAP_NAME)
+    expect(useDrumsKitMapStore.getState().presetName).toBe(LEARNED_KIT_MAP_NAME)
   })
 })

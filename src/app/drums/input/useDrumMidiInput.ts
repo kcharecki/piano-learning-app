@@ -16,14 +16,20 @@
  *
  * Which kit map applies (roadmap DR-02): an explicit `kitMap` option always
  * wins (tests and any future caller that knows its own map rely on this).
- * Otherwise the map comes from `useDrumsKitMapStore`'s `presetName`, resolved
- * through `presetByName` — this is how a learner's Roland/Alesis/Yamaha pick
- * on the calibration screen reaches every trainer without each one having to
- * read the store itself.
+ * Otherwise the map comes from `useDrumsKitMapStore`'s `presetName` and
+ * `learned`, resolved through `kitMapFor` — this is how a learner's
+ * Roland/Alesis/Yamaha pick, or their own MIDI-learned map, reaches every
+ * trainer without each one having to read the store itself.
+ *
+ * `lastNoteOn` (roadmap DR-02's MIDI-learn wizard) mirrors every note-on the
+ * connection delivers, mapped or not, with a `seq` that increments per event
+ * so the wizard (which advances a step per stroke) can tell two hits of the
+ * same note apart even though the payload itself would otherwise be
+ * `Object.is`-equal from one render to the next.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMidiConnection, type ConnectMidi } from '@app/practice/useMidiConnection.ts'
-import { presetByName, useDrumsKitMapStore } from '@app/state/drumsKitMapStore.ts'
+import { kitMapFor, useDrumsKitMapStore } from '@app/state/drumsKitMapStore.ts'
 import { createKitMapEngine, type KitMapOutput } from '@core/drums/kitmap/engine.ts'
 import type { KitMap } from '@core/drums/kitmap/kitMap.ts'
 import type { RawDrumHit } from '@core/drums/model/hit.ts'
@@ -39,10 +45,11 @@ export type DrumMidiInputOptions = {
   /** Test seam, passed straight through to `useMidiConnection`. */
   readonly connect?: ConnectMidi
   /**
-   * Defaults to the learner's stored kit-map preset
-   * (`useDrumsKitMapStore`/`presetByName`, itself `GM_KIT_MAP` until a
-   * preset is chosen or the stored name is unrecognised). An explicit map
-   * here always wins over the store. A new map builds a new engine.
+   * Defaults to the learner's stored kit-map preset or learned map
+   * (`useDrumsKitMapStore`/`kitMapFor`, itself `GM_KIT_MAP` until a preset
+   * is chosen, a map is learned, or the stored name is unrecognised). An
+   * explicit map here always wins over the store. A new map builds a new
+   * engine.
    */
   readonly kitMap?: KitMap
   /**
@@ -64,6 +71,14 @@ export type DrumMidiInputState = {
   readonly connectionError: string | undefined
   /** The note number of the most recent note-on the kit map did not recognise; undefined until one arrives. Never cleared by a mapped hit. */
   readonly lastUnmappedNote: number | undefined
+  /**
+   * The most recent raw note-on, regardless of whether the active kit map
+   * knows it — the MIDI-learn wizard (roadmap DR-02) captures pads the
+   * current map already claims just as readily as ones it does not.
+   * `seq` increments on every note-on so two hits of the same note are
+   * distinguishable; undefined until the first note-on arrives.
+   */
+  readonly lastNoteOn: { readonly note: number; readonly velocity: number; readonly seq: number } | undefined
   /** Learner copy for one status line — see `ekitStatusText`. */
   readonly statusText: string
   /** Newest-first, capped at `MONITOR_CAPACITY`. Always `[]` when `monitor` is false. */
@@ -88,11 +103,10 @@ export function ekitStatusText(
 export function useDrumMidiInput(options: DrumMidiInputOptions): DrumMidiInputState {
   const { onHit, midiInput, connect, kitMap: explicitKitMap, monitor = false } = options
 
-  // Always called (rules of hooks) even when an explicit `kitMap` wins below —
-  // reading only `presetName` keeps this a no-op re-render whenever some
-  // other field of the store might change in the future.
+  // Always called (rules of hooks) even when an explicit `kitMap` wins below.
   const storedPresetName = useDrumsKitMapStore((state) => state.presetName)
-  const kitMap = explicitKitMap ?? presetByName(storedPresetName)
+  const storedLearned = useDrumsKitMapStore((state) => state.learned)
+  const kitMap = explicitKitMap ?? kitMapFor(storedPresetName, storedLearned)
 
   const { input, devices, selectedDeviceId, connectionError } = useMidiConnection({
     ...(midiInput === undefined ? {} : { midiInput }),
@@ -104,6 +118,12 @@ export function useDrumMidiInput(options: DrumMidiInputOptions): DrumMidiInputSt
   const engine = useMemo(() => createKitMapEngine({ kitMap }), [kitMap])
 
   const [lastUnmappedNote, setLastUnmappedNote] = useState<number | undefined>(undefined)
+
+  // The wizard's raw feed (roadmap DR-02): a plain counter ref for `seq`,
+  // same reasoning as `seqRef` below — it must keep counting across
+  // renders and is cheap enough to always run, `monitor` or not.
+  const noteOnSeqRef = useRef(0)
+  const [lastNoteOn, setLastNoteOn] = useState<DrumMidiInputState['lastNoteOn']>(undefined)
 
   const onHitRef = useRef(onHit)
   useEffect(() => {
@@ -121,6 +141,12 @@ export function useDrumMidiInput(options: DrumMidiInputOptions): DrumMidiInputSt
   useEffect(() => {
     if (input === undefined) return undefined
     return input.onEvent((event: MidiEvent) => {
+      if (event.type === 'noteOn') {
+        const seq = noteOnSeqRef.current
+        noteOnSeqRef.current += 1
+        setLastNoteOn({ note: event.note, velocity: event.velocity, seq })
+      }
+
       const outputs: readonly KitMapOutput[] = engine.handle(event)
 
       if (monitor) {
@@ -152,6 +178,7 @@ export function useDrumMidiInput(options: DrumMidiInputOptions): DrumMidiInputSt
     deviceId: connected ? selectedDevice?.id : undefined,
     connectionError,
     lastUnmappedNote,
+    lastNoteOn,
   }
 
   return { ...state, statusText: ekitStatusText(state, kitMap.name), monitor: monitor ? monitorEntries : [] }

@@ -95,8 +95,9 @@ export type PersistedDrumsLatency = {
   readonly offsets: Readonly<Record<string, LatencyRecord>>
 }
 
-/** The learner's chosen kit-map preset (roadmap DR-02) — see `drumsKitMapStore.ts`. */
-export type PersistedDrumsKitMap = { readonly presetName: string }
+// `PersistedDrumsKitMap` and `isValidDrumsKitMap` (roadmap DR-02) live in
+// `persistedShapes.drumsKitMap.ts` — split out when this file hit the
+// 500-line limit.
 
 export type PersistedLevelState = {
   readonly levelState: LevelState
@@ -521,11 +522,6 @@ export function isValidDrumsLatency(value: unknown): value is PersistedDrumsLate
   const v = value as Record<string, unknown>
   if (typeof v.offsets !== 'object' || v.offsets === null || Array.isArray(v.offsets)) return false
   return Object.values(v.offsets).every(isValidLatencyRecord)
-}
-
-export function isValidDrumsKitMap(value: unknown): value is PersistedDrumsKitMap {
-  const v = value as Record<string, unknown>
-  return typeof value === 'object' && value !== null && typeof v.presetName === 'string'
 }
 
 export function isValidDrumsHistory(value: unknown): value is PersistedDrumsHistory {

@@ -28,6 +28,7 @@ import type { ConnectMidi } from '@app/practice/useMidiConnection.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { useDrumsKitMapStore } from '@app/state/drumsKitMapStore.ts'
 import { LOCAL_INPUT_ID, useDrumsLatencyStore } from '@app/state/drumsLatencyStore.ts'
+import { LEARNED_KIT_MAP_NAME } from '@core/drums/kitmap/learn.ts'
 import { KIT_MAP_PRESETS } from '@core/drums/kitmap/presets.ts'
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import type { Clock, DrumAudioOutput, MidiInput } from '@core/ports/index.ts'
@@ -39,6 +40,7 @@ import {
   wirelessNoticeText,
 } from './calibrationText.ts'
 import { InputMonitor } from './InputMonitor.tsx'
+import { KitMapLearnCard } from './KitMapLearnCard.tsx'
 import { useCalibration } from './useCalibration.ts'
 
 /** The three pads the groove trainer keys map to — enough to play along with any hand. */
@@ -74,6 +76,8 @@ export function CalibrationScreen(props: CalibrationScreenProps) {
 
   const kitMapPresetName = useDrumsKitMapStore((state) => state.presetName)
   const setKitMapPreset = useDrumsKitMapStore((state) => state.setPreset)
+  const learnedKitMap = useDrumsKitMapStore((state) => state.learned)
+  const setLearnedKitMap = useDrumsKitMapStore((state) => state.setLearned)
 
   const inputId = ekit.deviceId ?? LOCAL_INPUT_ID
   const inputLabel = ekit.deviceName ?? 'Pads and keys'
@@ -119,12 +123,17 @@ export function CalibrationScreen(props: CalibrationScreenProps) {
                 {preset.name}
               </option>
             ))}
+            {learnedKitMap !== undefined && (
+              <option value={LEARNED_KIT_MAP_NAME}>{LEARNED_KIT_MAP_NAME}</option>
+            )}
           </select>
           <p>
             Which notes your kit sends for each pad. Change it if pads show as unmapped in the
             monitor below.
           </p>
         </div>
+
+        <KitMapLearnCard lastNoteOn={ekit.lastNoteOn} connected={ekit.connected} onSave={setLearnedKitMap} />
 
         {wirelessNotice !== undefined && (
           <p className="calibration-warning" role="note" aria-label="Wireless notice">
