@@ -188,6 +188,21 @@ export type EngravedRepeatLabel = {
 }
 
 /**
+ * The swing marking drawn over the staff of a swung score — "Swing NN%" for
+ * eighth-note swing, "Swing 16ths NN%" for sixteenth (`staff.ts`'s
+ * `swingMarkText` picks the text). Present only when `GrooveScore.swingPercent
+ * !== 50`. Anchored start (`x` is its left edge); `y` is its baseline, the
+ * same band the repeat label sits in — `engraveGroove` nudges it up by one
+ * staff space when the two would otherwise overlap, since a swung score with
+ * a repeat is exactly where both are drawn at once.
+ */
+export type EngravedSwingMark = {
+  readonly text: string
+  readonly x: number
+  readonly y: number
+}
+
+/**
  * One sticking letter drawn under a note, in the sticking row below the count
  * row (roadmap DR-10). `x` always equals the note's own `x`; every entry in
  * `StaffLayout.stickings` shares one `y`, the sticking row's baseline.
@@ -238,6 +253,8 @@ export type StaffLayout = {
   readonly playCount: number
   /** Present exactly when `playCount > 1`. */
   readonly repeatLabel: EngravedRepeatLabel | undefined
+  /** Present exactly when the score's `swingPercent !== 50`. See `EngravedSwingMark`. */
+  readonly swingMark: EngravedSwingMark | undefined
 }
 
 /** Options for `engraveGroove`. */
@@ -303,6 +320,16 @@ export const MARK_RESERVE = 2.5
 export const REPEAT_LABEL_RESERVE = 2.2
 /** Gap between the score's topmost note ink and the repeat label's baseline. */
 export const REPEAT_LABEL_GAP = 0.6
+/**
+ * Rough width, in staff spaces, one character of the swing mark's text
+ * occupies — used only to decide whether the mark's drawn span would run
+ * into the repeat label ("×N"), never to lay out actual glyphs (that is the
+ * renderer's font, which this module never learns). Sized off the same
+ * 1.3-unit font size `.groove-repeat-label` already uses in
+ * `feature-drums-notation.css`, so the estimate is in the right ballpark
+ * without this module knowing anything about fonts.
+ */
+export const SWING_MARK_CHAR_W = 0.7
 /**
  * Extra width between the last notehead and the final barline when that
  * barline is a repeat. A repeat barline is not a line, it is an apparatus —

@@ -3,10 +3,16 @@ import { describe, expect, it } from 'vitest'
 import { at, invariant } from '@core/shared/invariant.ts'
 import { measureDurationTicks } from '@core/notation/score.ts'
 import { SIXTEENTH } from '@core/shared/units.ts'
-import { makeGrooveScore, type DynamicsClass, type GrooveScore, type GrooveScoreInput } from '@core/drums/model/groove.ts'
+import {
+  makeGrooveScore,
+  type DynamicsClass,
+  type GrooveScore,
+  type GrooveScoreInput,
+  type SwingUnit,
+} from '@core/drums/model/groove.ts'
 import { MAPPED_PADS, type MappedDrumPad } from '@core/drums/model/pad.ts'
 import { ghostFunkBar, moneyBeat, moneyBeatOpenHat, quarterNoteRock } from '@core/drums/model/referenceGrooves.ts'
-import { engraveGroove } from './staff.ts'
+import { engraveGroove, swingMarkText } from './staff.ts'
 import {
   CLEF_WIDTH,
   COUNT_ROW_DESCENT,
@@ -715,6 +721,94 @@ describe('engraveGroove — sticking row (roadmap DR-10)', () => {
           expect(sticking.y).toBeLessThanOrEqual(layout.height)
         }
       }),
+    )
+  })
+})
+
+// ------------------------------------------------------------- swing mark
+
+describe('engraveGroove — swing mark (roadmap DR-15 tail)', () => {
+  it('is undefined for a straight score (swingPercent 50)', () => {
+    const layout = engraveGroove(moneyBeat())
+    expect(layout.swingMark).toBeUndefined()
+  })
+
+  it('marks a swung eighth score "Swing NN%", right of the time signature, level with an uncrowded repeat label', () => {
+    const score = makeGrooveScore({
+      id: 'swing-eighth',
+      measureCount: 1,
+      swingPercent: 67,
+      swingUnit: 'eighth',
+      notes: [
+        { pad: 'hhClosed', tick: 0, durationTicks: 240 },
+        { pad: 'snare', tick: 480, durationTicks: 480 },
+      ],
+    })
+    const layout = engraveGroove(score, { playCount: 2 })
+    invariant(layout.swingMark !== undefined, 'expected a swing mark')
+    invariant(layout.repeatLabel !== undefined, 'expected a repeat label')
+
+    expect(layout.swingMark.text).toBe('Swing 67%')
+    expect(layout.swingMark.x).toBeGreaterThan(layout.timeSignature.x)
+    // Both texts are short enough, against this bar's width, not to collide —
+    // see the collision test below for the case where they do.
+    expect(layout.swingMark.y).toBe(layout.repeatLabel.y)
+  })
+
+  it('marks a swung sixteenth score "Swing 16ths NN%"', () => {
+    const score = makeGrooveScore({
+      id: 'swing-sixteenth',
+      measureCount: 1,
+      swingPercent: 58,
+      swingUnit: 'sixteenth',
+      notes: [{ pad: 'hhClosed', tick: 0, durationTicks: 120 }],
+    })
+    const layout = engraveGroove(score)
+    invariant(layout.swingMark !== undefined, 'expected a swing mark')
+    expect(layout.swingMark.text).toBe('Swing 16ths 58%')
+  })
+
+  it('raises the swing mark by exactly one staff space when its span would otherwise reach the repeat label', () => {
+    // One whole-note kick keeps the bar (and so the repeat label's x) as
+    // narrow as a 4/4 bar can be, while the sixteenth-swing text is the
+    // longest this module draws — together they cross the collision line
+    // the "uncrowded" test above stays clear of.
+    const score = makeGrooveScore({
+      id: 'swing-collision',
+      measureCount: 1,
+      swingPercent: 67,
+      swingUnit: 'sixteenth',
+      notes: [{ pad: 'kick', tick: 0, durationTicks: 1920 }],
+    })
+    const layout = engraveGroove(score, { playCount: 2 })
+    invariant(layout.swingMark !== undefined, 'expected a swing mark')
+    invariant(layout.repeatLabel !== undefined, 'expected a repeat label')
+
+    // Staff lines sit one staff space apart (`buildStaffLines`'s own step),
+    // which is what "one staff space" means here — there is no separate
+    // named constant for it in `layout.ts`.
+    expect(layout.repeatLabel.y - layout.swingMark.y).toBeCloseTo(1)
+  })
+})
+
+describe('swingMarkText', () => {
+  it('is undefined at 50 for either unit', () => {
+    expect(swingMarkText(50, 'eighth')).toBeUndefined()
+    expect(swingMarkText(50, 'sixteenth')).toBeUndefined()
+  })
+
+  it('states the percent, and contains "16ths" iff the unit is sixteenth, over 51..75 both units', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 51, max: 75 }),
+        fc.constantFrom<SwingUnit>('eighth', 'sixteenth'),
+        (swingPercent, swingUnit) => {
+          const text = swingMarkText(swingPercent, swingUnit)
+          invariant(text !== undefined, 'expected swing text above 50%')
+          expect(text).toContain(String(swingPercent))
+          expect(text.includes('16ths')).toBe(swingUnit === 'sixteenth')
+        },
+      ),
     )
   })
 })

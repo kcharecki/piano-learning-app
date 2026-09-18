@@ -52,7 +52,7 @@ import { at, invariant } from '@core/shared/invariant.ts'
 import { measureDurationTicks } from '@core/notation/score.ts'
 import { TICKS_PER_QUARTER } from '@core/shared/units.ts'
 import type { Sticking } from '@core/drums/model/articulation.ts'
-import type { DynamicsClass, GrooveNote, GrooveScore } from '@core/drums/model/groove.ts'
+import type { DynamicsClass, GrooveNote, GrooveScore, SwingUnit } from '@core/drums/model/groove.ts'
 import { staffPositionOf, type MappedDrumPad, type Notehead, type StaffStep, type Voice } from '@core/drums/model/pad.ts'
 import {
   CLEF_WIDTH,
@@ -70,6 +70,7 @@ import {
   STEM_LENGTH,
   STICKING_ROW_DESCENT,
   STICKING_ROW_GAP,
+  SWING_MARK_CHAR_W,
   TIME_SIGNATURE_WIDTH,
   type EngraveOptions,
   type EngravedBeam,
@@ -77,8 +78,10 @@ import {
   type EngravedCount,
   type EngravedLine,
   type EngravedNote,
+  type EngravedRepeatLabel,
   type EngravedRest,
   type EngravedSticking,
+  type EngravedSwingMark,
   type NoteMark,
   type StaffLayout,
 } from './layout.ts'
@@ -537,6 +540,53 @@ function buildRests(score: GrooveScore, staffTopY: number, x: (tick: number) => 
   return rests
 }
 
+// ----------------------------------------------------------------- swing mark
+
+/**
+ * The swing marking's own text, or `undefined` at 50 (straight) — see
+ * `EngravedSwingMark`'s doc for what draws it and where. Pure, and reads only
+ * the two fields it needs rather than a whole `GrooveScore`, so it can be
+ * tested and reused without dragging the rest of the score along.
+ */
+export function swingMarkText(swingPercent: number, swingUnit: SwingUnit): string | undefined {
+  if (swingPercent === 50) return undefined
+  return swingUnit === 'sixteenth' ? `Swing 16ths ${swingPercent}%` : `Swing ${swingPercent}%`
+}
+
+/**
+ * Positions the swing mark, when there is one — anchored start just right of
+ * the time signature, baseline level with the repeat label's own band. The
+ * two must never collide: a swung score with a repeat is exactly the case
+ * where both are drawn at once, and the mark grows right from a fixed x while
+ * the label grows left from the final barline, so on a short bar their spans
+ * can meet in the middle. Rather than measuring real glyphs (this module
+ * never learns the renderer's font), it compares both texts' length against
+ * `SWING_MARK_CHAR_W` and, if they would overlap, raises the mark by one
+ * staff space — clear of the label's row entirely, without needing to also
+ * know the label's own height.
+ */
+function buildSwingMark(
+  swingPercent: number,
+  swingUnit: SwingUnit,
+  staffTopY: number,
+  topInkRelY: number,
+  repeatLabel: EngravedRepeatLabel | undefined,
+): EngravedSwingMark | undefined {
+  const text = swingMarkText(swingPercent, swingUnit)
+  if (text === undefined) return undefined
+
+  const x = HEAD_WIDTH + TIME_SIGNATURE_WIDTH / 2
+  let y = staffTopY + topInkRelY - REPEAT_LABEL_GAP
+
+  if (repeatLabel !== undefined) {
+    const swingRightEdge = x + text.length * SWING_MARK_CHAR_W
+    const repeatLeftEdge = repeatLabel.x - repeatLabel.text.length * SWING_MARK_CHAR_W
+    if (swingRightEdge > repeatLeftEdge) y -= 1 // one staff space — staff lines are 1 apart, see `buildStaffLines`.
+  }
+
+  return { text, x, y }
+}
+
 // ------------------------------------------------------------------ assembly
 
 export function engraveGroove(score: GrooveScore, options: EngraveOptions = {}): StaffLayout {
@@ -598,6 +648,19 @@ export function engraveGroove(score: GrooveScore, options: EngraveOptions = {}):
     .filter((n): n is EngravedNote & { sticking: NonNullable<EngravedNote['sticking']> } => n.sticking !== undefined)
     .map((n) => ({ noteId: n.id, x: n.x, y: stickingRowY, letter: n.sticking }))
 
+  const repeatLabel: EngravedRepeatLabel | undefined =
+    playCount > 1
+      ? {
+          text: `×${playCount}`,
+          x: finalBarlineX,
+          // The baseline sits just inside the band reserved above every
+          // other piece of ink, so the label clears the tallest stem in the
+          // score rather than a nominal height over the staff.
+          y: staffTopY + noteTopRelInk(score) - REPEAT_LABEL_GAP,
+        }
+      : undefined
+  const swingMark = buildSwingMark(score.swingPercent, score.swingUnit, staffTopY, noteTopRelInk(score), repeatLabel)
+
   return {
     width: finalBarlineX + RIGHT_MARGIN,
     height:
@@ -618,16 +681,7 @@ export function engraveGroove(score: GrooveScore, options: EngraveOptions = {}):
     counts: buildCounts(score, gridStep, countRowY, x),
     stickings,
     playCount,
-    repeatLabel:
-      playCount > 1
-        ? {
-            text: `×${playCount}`,
-            x: finalBarlineX,
-            // The baseline sits just inside the band reserved above every
-            // other piece of ink, so the label clears the tallest stem in the
-            // score rather than a nominal height over the staff.
-            y: staffTopY + noteTopRelInk(score) - REPEAT_LABEL_GAP,
-          }
-        : undefined,
+    repeatLabel,
+    swingMark,
   }
 }

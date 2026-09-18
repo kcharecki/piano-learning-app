@@ -24,6 +24,7 @@ import type {
   EngravedNote,
   EngravedRest,
   EngravedSticking,
+  EngravedSwingMark,
   EngravedTimeSignature,
   NoteMark,
   StaffLayout,
@@ -399,6 +400,35 @@ function RepeatBarline({
   )
 }
 
+/**
+ * The swing marking ("Swing NN%" / "Swing 16ths NN%"), drawn only when
+ * `layout.swingMark` is set (`score.swingPercent !== 50`). Shares
+ * `.groove-repeat-label`'s type styling — same row, same font — rather than
+ * a duplicate CSS rule, and adds `.groove-swing-mark` alongside it only so a
+ * test (or a future rule) can address this text without also matching the
+ * "×N" label. Unlike the repeat label this one is NOT `aria-hidden`: swing is
+ * heard, not seen, so a screen-reader user needs the same "Swing 67 percent"
+ * fact a sighted reader gets from the glyph, which is why it carries its own
+ * `role="img"`/`aria-label` instead of relying on the whole figure's label.
+ */
+function SwingMark({ mark }: { readonly mark: EngravedSwingMark }): ReactElement {
+  const percent = mark.text.match(/(\d+)%/)?.[1] ?? ''
+  return (
+    <g className="groove-swing-mark-group">
+      <text
+        className="groove-repeat-label groove-swing-mark"
+        x={mark.x}
+        y={mark.y}
+        textAnchor="start"
+        role="img"
+        aria-label={`Swing ${percent} percent`}
+      >
+        {mark.text}
+      </text>
+    </g>
+  )
+}
+
 export function GrooveStaff({ layout, label, grooveId }: GrooveStaffProps): ReactElement {
   const { topY, bottomY } = staffSpan(layout.staffLines)
   const lastBarlineIndex = layout.barlines.length - 1
@@ -446,6 +476,7 @@ export function GrooveStaff({ layout, label, grooveId }: GrooveStaffProps): Reac
       ))}
       <CountRow counts={layout.counts} />
       <StickingRow stickings={layout.stickings} />
+      {layout.swingMark !== undefined && <SwingMark mark={layout.swingMark} />}
       {layout.repeatLabel !== undefined && (
         <g className="groove-repeat-label-group" aria-hidden="true">
           <text

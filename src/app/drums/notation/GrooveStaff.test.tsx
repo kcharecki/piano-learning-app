@@ -43,6 +43,7 @@ function baseLayout(overrides: Partial<StaffLayout> = {}): StaffLayout {
     stickings: [],
     playCount: 1,
     repeatLabel: undefined,
+    swingMark: undefined,
     ...overrides,
   }
 }
@@ -440,6 +441,29 @@ describe('GrooveStaff', () => {
       const { container } = render(<GrooveStaff layout={baseLayout()} label="test groove" grooveId="g1" />)
       expect(container.querySelectorAll('.groove-sticking')).toHaveLength(0)
       expect(container.querySelector('.groove-sticking-row')).toBeNull()
+    })
+  })
+
+  describe('swing mark', () => {
+    it('renders the swing mark text with its aria-label when the layout has one', () => {
+      const { container } = render(
+        <GrooveStaff
+          layout={baseLayout({ swingMark: { text: 'Swing 67%', x: 5, y: 3 } })}
+          label="test groove"
+          grooveId="g1"
+        />,
+      )
+      const mark = container.querySelector('.groove-swing-mark')
+      expect(mark).not.toBeNull()
+      expect(mark?.textContent).toBe('Swing 67%')
+      expect(mark).toHaveAttribute('aria-label', 'Swing 67 percent')
+      // Shares the repeat label's type styling, per both classes on the <text>.
+      expect(mark).toHaveClass('groove-repeat-label')
+    })
+
+    it('renders no swing mark element for a straight layout', () => {
+      const { container } = render(<GrooveStaff layout={baseLayout()} label="test groove" grooveId="g1" />)
+      expect(container.querySelector('.groove-swing-mark')).toBeNull()
     })
   })
 })

@@ -92,6 +92,7 @@ function layoutWith(notes: readonly EngravedNote[]): StaffLayout {
     stickings: [],
     playCount: 1,
     repeatLabel: undefined,
+    swingMark: undefined,
   }
 }
 

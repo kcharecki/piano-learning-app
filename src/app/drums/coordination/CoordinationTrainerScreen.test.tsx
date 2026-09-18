@@ -100,9 +100,24 @@ describe('CoordinationTrainerScreen', () => {
     expect(screen.queryByText(/Swing \d+%/)).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('radio', { name: 'Jazz ride' }))
-    const badge = screen.getByText('Swing 67%')
+    // `.badge` picks out the header pill specifically — a bare `getByText`
+    // now also matches the staff's own swing mark (asserted separately
+    // below), and this file only owns this screen, not `GrooveStaff`.
+    const badge = screen.getByText('Swing 67%', { selector: '.badge' })
     expect(badge).toBeInTheDocument()
     expect(badge.closest('.page-header-actions')).not.toBeNull()
+  })
+
+  // DR-15 tail: the staff itself also says "Swing 67 percent" (an accessible
+  // `role="img"` text drawn on the figure, not just the header pill above),
+  // so a screen-reader user reading the notation — not just the header —
+  // still gets the cue. Fails against a stub the moment `GrooveStaff` stops
+  // rendering `layout.swingMark`.
+  it('also states the swing on the staff itself, as an accessible "Swing 67 percent" mark', async () => {
+    const { user } = setup()
+    await user.click(screen.getByRole('radio', { name: 'Jazz ride' }))
+
+    expect(screen.getByRole('img', { name: 'Swing 67 percent' })).toBeInTheDocument()
   })
 
   it('switching to Kick permutations lists 16 steps with only the first unlocked', async () => {
