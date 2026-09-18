@@ -67,6 +67,7 @@ export const DRUMS_SCREEN_IDS = [
   'drums-reading',
   'drums-rudiments',
   'drums-metronome',
+  'drums-progress',
   'drums-notation-dev',
 ] as const
 
@@ -90,6 +91,8 @@ const DRUMS_SCREEN_SEGMENTS: Record<DrumsScreenId, string> = {
   'drums-reading': 'reading',
   'drums-rudiments': 'rudiments',
   'drums-metronome': 'metronome',
+  // DR-23's progress screen (`/drums/progress`).
+  'drums-progress': 'progress',
   // DR-05's development gallery (`/drums/notation-dev`): URL-only, never a
   // nav item — the renderer's proof surface, kept alongside the trainer
   // because it shows every notation case, not just the three the trainer
@@ -135,7 +138,6 @@ export type AppRoute =
 export const PIANO_DEFAULT_ROUTE: PianoRoute = { screen: 'today' }
 export const DRUMS_DEFAULT_ROUTE: DrumsRoute = { screen: 'drums-today' }
 
-
 /**
  * `path/to/thing` -> `['path', 'to', 'thing']`, ignoring leading/trailing
  * slashes and collapsing empties (`//`) so `/today/`, `/today` and `today`
@@ -152,7 +154,10 @@ function segmentsOf(path: string): readonly string[] {
  * only when it parses as a finite number (a non-numeric third segment is
  * dropped, not carried through as garbage).
  */
-function paramsFrom(idSegment: string | undefined, levelSegment: string | undefined): RouteParams | undefined {
+function paramsFrom(
+  idSegment: string | undefined,
+  levelSegment: string | undefined,
+): RouteParams | undefined {
   if (idSegment === undefined) return undefined
   const id = decodeURIComponent(idSegment)
   if (levelSegment === undefined) return { id }
@@ -175,7 +180,8 @@ function serializeParams(params: RouteParams | undefined): string {
  */
 export function parsePianoRoute(segments: readonly string[]): PianoRoute {
   const [screenSegment, idSegment, levelSegment] = segments
-  if (screenSegment === undefined || !PIANO_SCREEN_ID_SET.has(screenSegment)) return PIANO_DEFAULT_ROUTE
+  if (screenSegment === undefined || !PIANO_SCREEN_ID_SET.has(screenSegment))
+    return PIANO_DEFAULT_ROUTE
   const screen = screenSegment as PianoScreenId
   const params = paramsFrom(idSegment, levelSegment)
   return params === undefined ? { screen } : { screen, params }
@@ -191,7 +197,8 @@ export function parsePianoRoute(segments: readonly string[]): PianoRoute {
  */
 export function parseDrumsRoute(segments: readonly string[]): DrumsRoute {
   const [screenSegment, idSegment, levelSegment] = segments
-  const screen = screenSegment === undefined ? undefined : DRUMS_SEGMENT_TO_SCREEN.get(screenSegment)
+  const screen =
+    screenSegment === undefined ? undefined : DRUMS_SEGMENT_TO_SCREEN.get(screenSegment)
   if (screen === undefined) return DRUMS_DEFAULT_ROUTE
   const params = paramsFrom(idSegment, levelSegment)
   return params === undefined ? { screen } : { screen, params }

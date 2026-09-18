@@ -23,7 +23,7 @@ import { useDrumsReadingStore } from '@app/state/drumsReadingStore.ts'
 import { useDrumsRudimentStore } from '@app/state/drumsRudimentStore.ts'
 
 export type DrumsTrainerId =
-  'drums-groove' | 'drums-reading' | 'drums-rudiments' | 'drums-metronome'
+  'drums-groove' | 'drums-reading' | 'drums-rudiments' | 'drums-metronome' | 'drums-progress'
 
 export type DrumsTodayScreenProps = {
   readonly onOpen: (screen: DrumsTrainerId) => void
@@ -108,6 +108,16 @@ export function DrumsTodayScreen({ onOpen }: DrumsTodayScreenProps) {
           </p>
           <button type="button" onClick={() => onOpen('drums-metronome')}>
             Open the metronome
+          </button>
+        </section>
+
+        <section className="card drums-today-card">
+          <Icon name="chart" />
+          <h2>Progress</h2>
+          <p>Rudiment tiers, best steady tempos, limb bias and reading level in one place.</p>
+          <p className="drums-today-status">Read-only summary of every trainer</p>
+          <button type="button" onClick={() => onOpen('drums-progress')}>
+            Open progress
           </button>
         </section>
       </div>

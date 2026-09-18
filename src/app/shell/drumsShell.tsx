@@ -13,6 +13,7 @@ import { GrooveTrainerScreen } from '@app/drums/groove/GrooveTrainerScreen.tsx'
 import { ReadingTrainerScreen } from '@app/drums/reading/ReadingTrainerScreen.tsx'
 import { RudimentTrainerScreen } from '@app/drums/rudiments/RudimentTrainerScreen.tsx'
 import { DrumsMetronomeScreen } from '@app/drums/metronome/DrumsMetronomeScreen.tsx'
+import { DrumsProgressScreen } from '@app/drums/DrumsProgressScreen.tsx'
 
 /**
  * What the topbar calls each Drums screen (roadmap DR-01, DR-09). Every screen
@@ -27,6 +28,7 @@ export const DRUMS_SCREEN_LABEL: Record<DrumsScreenId, string> = {
   'drums-reading': 'Reading',
   'drums-rudiments': 'Rudiments',
   'drums-metronome': 'Metronome',
+  'drums-progress': 'Progress',
   'drums-notation-dev': 'Notation gallery',
 }
 
@@ -52,6 +54,10 @@ export const DRUMS_NAV_GROUPS: readonly NavGroup<DrumsScreenId>[] = [
       { id: 'drums-metronome', label: DRUMS_SCREEN_LABEL['drums-metronome'], icon: 'metronome' },
     ],
   },
+  {
+    label: 'Review',
+    items: [{ id: 'drums-progress', label: DRUMS_SCREEN_LABEL['drums-progress'], icon: 'chart' }],
+  },
 ]
 
 /**
@@ -71,6 +77,8 @@ export function renderDrumsScreen(screen: DrumsScreenId, goTo: (screen: DrumsScr
       return <RudimentTrainerScreen />
     case 'drums-metronome':
       return <DrumsMetronomeScreen />
+    case 'drums-progress':
+      return <DrumsProgressScreen />
     case 'drums-notation-dev':
       return <NotationDevGallery />
   }

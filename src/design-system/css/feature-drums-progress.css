@@ -1,0 +1,51 @@
+/* Drums progress screen (roadmap DR-23 "drums progress MVP"). `.page`,
+   `.page-header` and `.card` come from base.css/primitives.css, the same
+   primitives `feature-drums-today.css` builds its hub on; this file holds
+   only the four-panel grid and the list/empty-state typography those cards
+   do not already give for free.
+
+   No `.card-title`/`.muted` primitives exist in this design system (checked
+   `primitives.css`/`base.css` — only `.card`, `.card--sunken`, `.stat*` do) —
+   flagged in this slice's defect report rather than invented here. Panel
+   headings are bare `<h2>` inside `.card`, the same as
+   `feature-drums-today.css`'s `.drums-today-card h2`; empty-state copy reuses
+   that file's muted-text values (`--text-3`) directly under a new class. */
+
+.drums-progress-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.drums-progress-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.drums-progress-card h2 {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--text-1);
+  margin: 0;
+}
+
+.drums-progress-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.drums-progress-list li {
+  color: var(--text-2);
+  line-height: var(--leading-normal);
+  font-variant-numeric: tabular-nums;
+}
+
+.drums-progress-empty {
+  margin: 0;
+  color: var(--text-3);
+  line-height: var(--leading-normal);
+}
