@@ -84,8 +84,11 @@ export interface MidiInput {
 export interface MidiOutput {
   listDevices(): readonly MidiDevice[]
   selectDevice(deviceId: string | null): void
-  noteOn(note: Midi, velocity: number, atMs?: Millis): void
-  noteOff(note: Midi, atMs?: Millis): void
-  allNotesOff(): void
+  /** `channel` is 0–15 (MIDI channel index; channel 10 is 9). Omitted = 0. */
+  noteOn(note: Midi, velocity: number, atMs?: Millis, channel?: number): void
+  /** `channel` is 0–15 (MIDI channel index; channel 10 is 9). Omitted = 0. */
+  noteOff(note: Midi, atMs?: Millis, channel?: number): void
+  /** `channel` is 0–15 (MIDI channel index; channel 10 is 9). Omitted = 0. */
+  allNotesOff(channel?: number): void
   readonly selectedDeviceId: string | null
 }

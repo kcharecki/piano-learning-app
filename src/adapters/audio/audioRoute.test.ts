@@ -106,6 +106,25 @@ describe('connectMidiOutputRoute / getPlaybackMidiOutput', () => {
     expect(getPlaybackMidiOutput()).toBeUndefined()
   })
 
+  it('getConnectedMidiOutput sees the live connection even when the piano route is webaudio', async () => {
+    const { connectMidiOutputRoute, getConnectedMidiOutput, getPlaybackMidiOutput, setAudioOutputRoute } =
+      await freshAudioRoute()
+    const midiOut = new RecordingMidiOutput()
+    const connect: AudioRoute.ConnectMidiOutput = () => Promise.resolve(ok({ output: midiOut }))
+
+    setAudioOutputRoute('midi')
+    await connectMidiOutputRoute(connect)
+    setAudioOutputRoute('webaudio')
+
+    expect(getConnectedMidiOutput()).toBe(midiOut)
+    expect(getPlaybackMidiOutput()).toBeUndefined()
+  })
+
+  it('getConnectedMidiOutput is undefined until a connection has completed', async () => {
+    const { getConnectedMidiOutput } = await freshAudioRoute()
+    expect(getConnectedMidiOutput()).toBeUndefined()
+  })
+
   it('a later failed reconnect clears a previously-ready output', async () => {
     const { connectMidiOutputRoute, getPlaybackMidiOutput, setAudioOutputRoute } = await freshAudioRoute()
     const midiOut = new RecordingMidiOutput()

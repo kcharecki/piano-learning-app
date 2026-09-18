@@ -263,16 +263,23 @@ class WebMidiOutputAdapter implements MidiOutput {
     this.selectedDeviceId = deviceId
   }
 
-  noteOn(note: Midi, velocity: number, atMs?: Millis): void {
-    this.send([NOTE_ON_STATUS, note, velocity], atMs)
+  noteOn(note: Midi, velocity: number, atMs?: Millis, channel = 0): void {
+    this.send([NOTE_ON_STATUS | (channel & 0x0f), note, velocity], atMs)
   }
 
-  noteOff(note: Midi, atMs?: Millis): void {
-    this.send([NOTE_OFF_STATUS, note, 0], atMs)
+  noteOff(note: Midi, atMs?: Millis, channel = 0): void {
+    this.send([NOTE_OFF_STATUS | (channel & 0x0f), note, 0], atMs)
   }
 
-  allNotesOff(): void {
-    this.send([CONTROL_CHANGE_STATUS, ALL_NOTES_OFF_CONTROLLER, 0])
+  allNotesOff(channel = 0): void {
+    // A future `noteOn` already handed to the device with `port.send(data,
+    // atMs)` is queued on the DEVICE's own clock — sending CC 123 "now" does
+    // nothing to it; it will still sound right on schedule. `MIDIOutput.clear()`
+    // is the one API that actually discards a port's queued messages, so it
+    // must run before the CC 123 send, not instead of it (a device that
+    // ignores `clear()` still gets the CC 123 panic as a fallback).
+    this.currentPort()?.clear()
+    this.send([CONTROL_CHANGE_STATUS | (channel & 0x0f), ALL_NOTES_OFF_CONTROLLER, 0])
   }
 
   private currentPort(): OutputPortHandle | undefined {

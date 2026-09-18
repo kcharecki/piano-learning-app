@@ -104,3 +104,28 @@ export async function connectMidiOutputRoute(
 export function getPlaybackMidiOutput(): MidiOutput | undefined {
   return getAudioOutputRoute() === 'midi' ? readyMidiOutput : undefined
 }
+
+/**
+ * The connected MIDI output regardless of the piano route preference —
+ * unlike `getPlaybackMidiOutput`, this does not gate on `getAudioOutputRoute`.
+ * DR-06's drum router uses this: a learner can route drum voices to MIDI
+ * while the piano itself still plays through Web Audio (or vice versa), so
+ * "is a MIDI output connected" and "does the piano route to it" are two
+ * different questions. `undefined` until `connectMidiOutputRoute` has
+ * succeeded this session.
+ */
+export function getConnectedMidiOutput(): MidiOutput | undefined {
+  return readyMidiOutput
+}
+
+/**
+ * Test-only: clears the cached live MIDI-out connection. `readyMidiOutput`
+ * is module-level state by design (see this module's own comment), which
+ * leaks between tests in a file that shares one module instance across its
+ * `it()` blocks rather than `vi.resetModules()`-ing per test — call this
+ * from such a file's `afterEach` so "no MIDI output connected yet" stays
+ * true regardless of test order or a `--sequence.shuffle.tests` seed.
+ */
+export function __resetMidiOutputRoute(): void {
+  readyMidiOutput = undefined
+}

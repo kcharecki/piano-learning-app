@@ -31,15 +31,23 @@
  * screen did — a learner who sets up their plan from Settings (never having
  * seen Today's first-run banner) should not be nagged by it afterwards.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { MidiInput, Store } from '@core/ports/index.ts'
+import type { MidiOutput } from '@core/ports/midi.ts'
 import {
   connectMidiOutputRoute,
   getAudioOutputRoute,
+  getConnectedMidiOutput,
   setAudioOutputRoute,
   type AudioOutputRoute,
   type ConnectMidiOutput,
 } from '@adapters/audio/audioRoute.ts'
+import {
+  getDrumAudioRoute,
+  setDrumAudioRoute,
+  subscribeDrumAudioRoute,
+  type DrumAudioRoute,
+} from '@adapters/audio/drumAudioRoute.ts'
 import { MidiDeviceStatus } from '@app/practice/MidiDeviceStatus.tsx'
 import { useMidiConnection, type ConnectMidi } from '@app/practice/useMidiConnection.ts'
 import { useLevelStore } from '@app/state/levelStore.ts'
@@ -76,9 +84,40 @@ const AUDIO_ROUTE_OPTIONS: readonly { readonly value: AudioOutputRoute; readonly
   { value: 'midi', label: 'My instrument' },
 ]
 
+const DRUM_ROUTE_OPTIONS: readonly { readonly value: DrumAudioRoute; readonly label: string }[] = [
+  { value: 'synth', label: 'Built-in synth' },
+  { value: 'midi', label: 'MIDI out (channel 10)' },
+]
+
 type MidiRouteStatus = 'idle' | 'connecting' | 'connected' | 'error'
 
 /** The Audio card's status line — the one place "what does the learner actually hear" is stated, so it must always be true of what `createDefaultAudioOutput` really does. */
+/**
+ * The Drum voices control's own status note (roadmap DR-06 review A5): a
+ * learner with a piano AND a separate drum module connected has no picker
+ * this slice (an architect call, not an oversight — see the review finding)
+ * — so once a MIDI output IS connected and the drum route is 'midi', this
+ * names exactly which device channel 10 goes to, rather than leaving a
+ * possible silence-or-garbage outcome undiagnosed.
+ */
+function describeDrumRouteNote(
+  connected: MidiOutput | undefined,
+  drumRoute: DrumAudioRoute,
+  midiRouteStatus: MidiRouteStatus,
+  midiRouteError: string | undefined,
+): string | undefined {
+  if (drumRoute !== 'midi') return undefined
+  // review round 4 AMBER 2: a failed connection (Firefox, a blocked
+  // permission, ...) must not keep reading as a pending one — `midiRouteStatus`
+  // is the SAME connection this screen opens for the piano's "My instrument"
+  // control (see `getConnectedMidiOutput`'s comment), so its 'error' state
+  // applies here too, independent of which route the piano itself is on.
+  if (midiRouteStatus === 'error') return `Built-in synth: ${midiRouteError ?? 'connection failed'}`
+  if (connected === undefined) return 'Using the built-in synth until a MIDI output connects.'
+  const device = connected.listDevices().find((d) => d.id === connected.selectedDeviceId)
+  return `Sending to ${device?.name ?? 'your instrument'} on channel 10.`
+}
+
 function describeAudioRouteStatus(
   route: AudioOutputRoute,
   midiStatus: MidiRouteStatus,
@@ -113,13 +152,26 @@ export function SettingsScreen({
   const [audioRoute, setAudioRoute] = useState<AudioOutputRoute>(() => getAudioOutputRoute())
   const [midiRouteStatus, setMidiRouteStatus] = useState<MidiRouteStatus>('idle')
   const [midiRouteError, setMidiRouteError] = useState<string | undefined>(undefined)
+  const drumRoute = useSyncExternalStore(subscribeDrumAudioRoute, getDrumAudioRoute, getDrumAudioRoute)
+  // Re-render when the piano MIDI-out connection settles (`midiRouteStatus`) so
+  // this section's "is a MIDI output actually connected" check — independent
+  // of which route the PIANO is using, see `getConnectedMidiOutput`'s own
+  // comment — reflects a connection that completed after first render. The
+  // app opens exactly one MIDI-out connection per session (the piano
+  // section's), so that state change is the only thing that can flip this.
+  const connectedMidiOutput = getConnectedMidiOutput()
 
   // Reconnects whenever this screen mounts with MIDI already the learner's
   // choice — mirroring how `useMidiConnection` reconnects its input per-mount
   // rather than at app boot (see that file's module comment) — and again
-  // whenever the learner flips the toggle to MIDI. Never fires on 'webaudio'.
+  // whenever the learner flips the toggle to MIDI. This is the one place a
+  // `MidiOutput` connection is ever opened, and `getConnectedMidiOutput` (the
+  // Drum voices control's own "is anything connected" check) is independent
+  // of the PIANO's route — so a learner who wants MIDI drums with the piano
+  // still on Web Audio still needs this to run. Only truly idle when NEITHER
+  // route wants MIDI.
   useEffect(() => {
-    if (audioRoute !== 'midi') {
+    if (audioRoute !== 'midi' && drumRoute !== 'midi') {
       setMidiRouteStatus('idle')
       return undefined
     }
@@ -139,7 +191,7 @@ export function SettingsScreen({
     return () => {
       cancelled = true
     }
-  }, [audioRoute, connectMidiOutput])
+  }, [audioRoute, drumRoute, connectMidiOutput])
 
   function handlePlanDone(): void {
     gate.markCompleted()
@@ -149,6 +201,10 @@ export function SettingsScreen({
   function handleSelectAudioRoute(route: AudioOutputRoute): void {
     setAudioRoute(route)
     setAudioOutputRoute(route)
+  }
+
+  function handleSelectDrumRoute(route: DrumAudioRoute): void {
+    setDrumAudioRoute(route)
   }
 
   return (
@@ -240,6 +296,26 @@ export function SettingsScreen({
             ? 'Uses the first connected instrument found. If you plug one in after opening this page, reopen Settings to connect it.'
             : 'Pick "My instrument" above to hear your own connected instrument instead of the built-in piano sound.'}
         </p>
+        <div className="field">
+          <label id="settings-drum-route-label">Drum voices</label>
+          <div className="seg-control" role="radiogroup" aria-labelledby="settings-drum-route-label">
+            {DRUM_ROUTE_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                role="radio"
+                aria-checked={drumRoute === option.value}
+                onClick={() => handleSelectDrumRoute(option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {(() => {
+          const note = describeDrumRouteNote(connectedMidiOutput, drumRoute, midiRouteStatus, midiRouteError)
+          return note !== undefined ? <p className="settings-audio-note">{note}</p> : null
+        })()}
       </section>
     </div>
   )

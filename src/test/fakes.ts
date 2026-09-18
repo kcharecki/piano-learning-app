@@ -198,7 +198,12 @@ export class FakeMidiInput implements MidiInput {
 }
 
 export class RecordingMidiOutput implements MidiOutput {
-  readonly sent: { kind: 'noteOn' | 'noteOff' | 'allNotesOff'; note?: number; at?: number }[] = []
+  readonly sent: {
+    kind: 'noteOn' | 'noteOff' | 'allNotesOff'
+    note?: number
+    at?: number
+    channel?: number
+  }[] = []
   selectedDeviceId: string | null = DEFAULT_DEVICE.id
 
   listDevices(): readonly MidiDevice[] {
@@ -209,16 +214,26 @@ export class RecordingMidiOutput implements MidiOutput {
     this.selectedDeviceId = deviceId
   }
 
-  noteOn(note: Midi, _velocity: number, atMs?: Millis): void {
-    this.sent.push({ kind: 'noteOn', note, ...(atMs === undefined ? {} : { at: atMs }) })
+  noteOn(note: Midi, _velocity: number, atMs?: Millis, channel?: number): void {
+    this.sent.push({
+      kind: 'noteOn',
+      note,
+      ...(atMs === undefined ? {} : { at: atMs }),
+      ...(channel === undefined ? {} : { channel }),
+    })
   }
 
-  noteOff(note: Midi, atMs?: Millis): void {
-    this.sent.push({ kind: 'noteOff', note, ...(atMs === undefined ? {} : { at: atMs }) })
+  noteOff(note: Midi, atMs?: Millis, channel?: number): void {
+    this.sent.push({
+      kind: 'noteOff',
+      note,
+      ...(atMs === undefined ? {} : { at: atMs }),
+      ...(channel === undefined ? {} : { channel }),
+    })
   }
 
-  allNotesOff(): void {
-    this.sent.push({ kind: 'allNotesOff' })
+  allNotesOff(channel?: number): void {
+    this.sent.push({ kind: 'allNotesOff', ...(channel === undefined ? {} : { channel }) })
   }
 }
 

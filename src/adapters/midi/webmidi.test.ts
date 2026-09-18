@@ -34,7 +34,7 @@ class FakeMidiInputPort {
 
 type SentMessage = { data: number[]; timestamp?: number }
 
-/** Fakes a Web MIDI output port: records every `send()` call for assertion. */
+/** Fakes a Web MIDI output port: records every `send()`/`clear()` call for assertion. */
 class FakeMidiOutputPort {
   readonly id: string
   readonly name: string
@@ -42,6 +42,7 @@ class FakeMidiOutputPort {
   readonly type = 'output' as const
   state: 'connected' | 'disconnected' = 'connected'
   readonly sent: SentMessage[] = []
+  readonly calls: ('send' | 'clear')[] = []
 
   constructor(id: string, name = 'Fake Output', manufacturer = 'Test') {
     this.id = id
@@ -50,10 +51,15 @@ class FakeMidiOutputPort {
   }
 
   send(data: number[] | Uint8Array, timestamp?: number): void {
+    this.calls.push('send')
     this.sent.push({
       data: Array.from(data),
       ...(timestamp === undefined ? {} : { timestamp }),
     })
+  }
+
+  clear(): void {
+    this.calls.push('clear')
   }
 }
 
@@ -393,6 +399,64 @@ describe('WebMidi output', () => {
     output.allNotesOff()
 
     expect(port.sent).toEqual([{ data: [0xb0, 123, 0] }])
+  })
+
+  // review R2: a future noteOn already handed to the device with an absolute
+  // timestamp is queued on the DEVICE's own clock — CC 123 sent "now" cannot
+  // touch it, so allNotesOff used to be a no-op against anything scheduled
+  // ahead (e.g. the Groove trainer's whole up-front preview). Kills the
+  // mutant that drops the `clear()` call: without it, this test's `calls`
+  // would be `['clear','send']` never appearing — just `['send']`.
+  it('discards the device’s queued messages (MIDIOutput.clear()) before sending the CC 123 panic', async () => {
+    const { port, output } = await setUp()
+
+    output.allNotesOff()
+
+    expect(port.calls).toEqual(['clear', 'send'])
+  })
+
+  it('clear() is also called for an explicit channel', async () => {
+    const { port, output } = await setUp()
+
+    output.allNotesOff(9)
+
+    expect(port.calls).toEqual(['clear', 'send'])
+    expect(port.sent).toEqual([{ data: [0xb9, 123, 0] }])
+  })
+
+  it('does not throw when no device is selected — clear() is only reached through currentPort()', async () => {
+    const { output } = await setUp()
+    output.selectDevice(null)
+
+    expect(() => output.allNotesOff()).not.toThrow()
+  })
+
+  it('folds an explicit channel into the status byte (DR-06: channel 10 for drum voices)', async () => {
+    const { port, output } = await setUp()
+
+    output.noteOn(midi(36), 100, undefined, 9)
+    output.noteOff(midi(36), undefined, 9)
+    output.allNotesOff(9)
+
+    expect(port.sent).toEqual([
+      { data: [0x99, 36, 100] },
+      { data: [0x89, 36, 0] },
+      { data: [0xb9, 123, 0] },
+    ])
+  })
+
+  it('an omitted channel is byte-identical to channel 0 — existing piano callers see no change', async () => {
+    const { port, output } = await setUp()
+
+    output.noteOn(midi(60), 100)
+    output.noteOff(midi(60))
+    output.allNotesOff()
+
+    expect(port.sent).toEqual([
+      { data: [0x90, 60, 100] },
+      { data: [0x80, 60, 0] },
+      { data: [0xb0, 123, 0] },
+    ])
   })
 
   it('is a silent no-op, never a throw, when no device is selected', async () => {
