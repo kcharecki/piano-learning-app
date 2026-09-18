@@ -5,6 +5,7 @@
  * stroke decided by the clock rather than by which phase the screen is in.
  */
 import { act, renderHook } from '@testing-library/react'
+import fc from 'fast-check'
 import { FakeClock } from '@test/fakes.ts'
 import { describe, expect, it, vi } from 'vitest'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
@@ -75,28 +76,37 @@ function moneyBeatPlan(): GrooveRunPlan {
   return planGrooveRun(moneyBeat(), 80)
 }
 
+/** One `onPassGraded` call, as recorded by the harness. */
+type PassGraded = { readonly result: GrooveRunResult; readonly pass: number }
+
 type Harness = {
   readonly plan: GrooveRunPlan
   readonly clock: FakeClock
   readonly audio: RecordingDrumAudio
   readonly pump: () => void
   readonly result: { current: ReturnType<typeof useGrooveRun> }
+  /** Every `onFinished` call — once per non-loop run, or once per loop run at `stop()` (MAJOR 2). */
   readonly finished: GrooveRunResult[]
+  /** Every `onPassGraded` call, loop mode only, in order — see MAJOR 2. */
+  readonly passesGraded: PassGraded[]
   /** Re-render with a different plan — what picking another groove or tempo does. */
   readonly swapPlan: (plan: GrooveRunPlan) => void
 }
 
-function harness(initialPlan: GrooveRunPlan = moneyBeatPlan()): Harness {
+function harness(initialPlan: GrooveRunPlan = moneyBeatPlan(), loop = false): Harness {
   const clock = new FakeClock()
   const audio = new RecordingDrumAudio(clock)
   const manual = manualDriver()
   const finished: GrooveRunResult[] = []
+  const passesGraded: PassGraded[] = []
   const optionsFor = (plan: GrooveRunPlan): UseGrooveRunOptions => ({
     plan,
     clock,
     audio: () => audio,
     driver: manual.driver,
     onFinished: (graded) => finished.push(graded),
+    onPassGraded: (graded, pass) => passesGraded.push({ result: graded, pass }),
+    ...(loop ? { loop: true } : {}),
   })
   const view = renderHook((plan: GrooveRunPlan) => useGrooveRun(optionsFor(plan)), {
     initialProps: initialPlan,
@@ -108,6 +118,7 @@ function harness(initialPlan: GrooveRunPlan = moneyBeatPlan()): Harness {
     pump: manual.pump,
     result: view.result,
     finished,
+    passesGraded,
     swapPlan: (plan) => {
       act(() => view.rerender(plan))
     },
@@ -188,6 +199,29 @@ describe('useGrooveRun', () => {
       seen.push(h.result.current.countInBeat)
     }
     expect(seen).toEqual([1, 2, 3, 4])
+  })
+
+  /**
+   * MINOR e (roadmap DR-09 "loop" review): `pass` is new surface loop mode
+   * added, but a non-loop run must read it as a constant 1 throughout, and
+   * `bar` must still follow exactly the formula it used before loop mode
+   * existed — a non-loop run is not supposed to notice loop mode exists.
+   */
+  it('reads pass as 1 throughout a non-loop run, with bar unchanged from the pre-loop formula', () => {
+    const h = harness(moneyBeatPlan(), false)
+    act(() => h.result.current.start())
+
+    frameAt(h, h.plan.barMs)
+    expect(h.result.current.phase).toBe('playing')
+    expect(h.result.current.pass).toBe(1)
+    expect(h.result.current.bar).toBe(1)
+
+    frameAt(h, h.plan.barMs + h.plan.barMs)
+    expect(h.result.current.pass).toBe(1)
+    expect(h.result.current.bar).toBe(2)
+
+    frameAt(h, h.plan.barMs + h.plan.gradedMs - 1)
+    expect(h.result.current.pass).toBe(1)
   })
 
   /**
@@ -476,6 +510,351 @@ describe('useGrooveRun', () => {
       // The second run is the open-hat groove's own, not the first one
       // resurfacing: it carries the pad the first plan never had.
       expect(graded?.result.pads.map((pad) => pad.pad)).toContain('hhOpen')
+    })
+  })
+
+  /**
+   * Loop mode (roadmap DR-09 "loop"): one count-in, then the graded window
+   * repeats back-to-back with no gap and no further count-in, each pass
+   * graded on its own the moment it can be — see the module comment.
+   */
+  describe('loop mode', () => {
+    /** This plan's `kick` expected instants, within ONE pass, sorted. */
+    function kickExpectedMs(plan: GrooveRunPlan): readonly number[] {
+      const kick = plan.pads.find((pad) => pad.pad === 'kick')
+      return kick?.expectedMs ?? []
+    }
+
+    it('grades two passes back-to-back off a single count-in, with no further count-in between them', () => {
+      const h = harness(moneyBeatPlan(), true)
+      act(() => h.result.current.start())
+
+      const kickMs = kickExpectedMs(h.plan)
+      for (const ms of kickMs) {
+        act(() => {
+          h.clock.setTime(h.plan.barMs + ms)
+          h.result.current.hit('kick')
+        })
+      }
+      // Pass 0 becomes gradeable at gradedMs + windowMs past the graded
+      // origin; nothing before that grades it, and phase stays 'playing'
+      // rather than jumping to 'graded' the way a non-loop run would. Check
+      // this BEFORE pass 1's own downbeat, which — the windows overlap by
+      // windowMs, by design — lands chronologically before pass 0 is graded.
+      frameAt(h, h.plan.barMs + h.plan.gradedMs - 1)
+      expect(h.passesGraded).toHaveLength(0)
+      expect(h.result.current.phase).toBe('playing')
+
+      // Pass 1's downbeat kick, struck the instant pass 1 opens — already
+      // inside the overlap window, before pass 0 is graded.
+      act(() => {
+        h.clock.setTime(h.plan.barMs + h.plan.gradedMs)
+        h.result.current.hit('kick')
+      })
+
+      frameAt(h, h.plan.barMs + h.plan.gradedMs + h.plan.windowMs)
+      // `onPassGraded`, not `onFinished`, fires per pass in loop mode
+      // (MAJOR 2) — `onFinished` is reserved for `stop()`, checked below.
+      expect(h.passesGraded).toHaveLength(1)
+      expect(h.passesGraded[0]?.pass).toBe(1)
+      expect(h.result.current.phase).toBe('playing')
+      expect(h.result.current.passesGraded).toBe(1)
+      const firstKick = h.passesGraded[0]?.result.pads.find((row) => row.pad === 'kick')
+      expect(firstKick?.matched).toBe(kickMs.length)
+
+      // The rest of pass 1's kicks, played at their own pass's origin — no
+      // second count-in, so the origin is exactly one gradedMs after the
+      // first.
+      for (const ms of kickMs.slice(1)) {
+        act(() => {
+          h.clock.setTime(h.plan.barMs + h.plan.gradedMs + ms)
+          h.result.current.hit('kick')
+        })
+      }
+      frameAt(h, h.plan.barMs + 2 * h.plan.gradedMs + h.plan.windowMs)
+      expect(h.passesGraded).toHaveLength(2)
+      expect(h.passesGraded[1]?.pass).toBe(2)
+      expect(h.result.current.passesGraded).toBe(2)
+      expect(h.result.current.phase).toBe('playing')
+      const secondKick = h.passesGraded[1]?.result.pads.find((row) => row.pad === 'kick')
+      expect(secondKick?.matched).toBe(kickMs.length)
+      // Only the kick pad was played — hi-hat and snare were missed both
+      // passes — so neither pass is steady, but both still graded.
+      expect(h.result.current.steadyPasses).toBe(0)
+      // `pass` reads 1-based, off the clock, not the beat count.
+      expect(h.result.current.pass).toBe(3)
+
+      // `onFinished` has not fired at all yet — only `stop()` calls it in
+      // loop mode, with the LAST pass that graded (MAJOR 2).
+      expect(h.finished).toHaveLength(0)
+      act(() => h.result.current.stop())
+      expect(h.finished).toHaveLength(1)
+      expect(h.finished[0]).toBe(h.passesGraded[1]?.result)
+    })
+
+    it('counts a pass toward steadyPasses only when it actually graded steady', () => {
+      const h = harness(moneyBeatPlan(), true)
+      act(() => h.result.current.start())
+      const origin = h.plan.barMs
+
+      // Every notated instant of every pad, in chronological order — the
+      // FakeClock this harness uses cannot go backwards.
+      const allHits = h.plan.pads
+        .flatMap((pad) => pad.expectedMs.map((ms) => ({ pad: pad.pad, ms })))
+        .sort((a, b) => a.ms - b.ms)
+      for (const { pad, ms } of allHits) {
+        act(() => {
+          h.clock.setTime(origin + ms)
+          h.result.current.hit(pad)
+        })
+      }
+
+      frameAt(h, origin + h.plan.gradedMs + h.plan.windowMs)
+      expect(h.result.current.passesGraded).toBe(1)
+      expect(h.result.current.steadyPasses).toBe(1)
+      expect(h.passesGraded[0]?.result.steady).toBe(true)
+    })
+
+    it('sends a boundary hit answering the next pass’s first instant to the next pass, not the one ending', () => {
+      const h = harness(moneyBeatPlan(), true)
+      act(() => h.result.current.start())
+      const gradedOrigin = h.plan.barMs
+
+      // Kick's first instant of every pass is at offset 0 — a hit just past
+      // the pass-0/pass-1 boundary, well within the window, answers pass 1's
+      // downbeat rather than a late stroke of pass 0 (pass 0 has nothing
+      // near its own end on the kick pad — see `moneyBeat`'s pattern).
+      act(() => {
+        h.clock.setTime(gradedOrigin + h.plan.gradedMs + h.plan.windowMs / 2)
+        h.result.current.hit('kick')
+      })
+
+      frameAt(h, gradedOrigin + h.plan.gradedMs + h.plan.windowMs)
+      const firstPassKick = h.passesGraded[0]?.result.pads.find((row) => row.pad === 'kick')
+      expect(firstPassKick?.hits).toBe(0)
+
+      frameAt(h, gradedOrigin + 2 * h.plan.gradedMs + h.plan.windowMs)
+      const secondPassKick = h.passesGraded[1]?.result.pads.find((row) => row.pad === 'kick')
+      expect(secondPassKick?.hits).toBe(1)
+      expect(secondPassKick?.matched).toBe(1)
+    })
+
+    // The genuine near-boundary tie-break (a pass with an instant right at
+    // its own end vs. the next pass having none near its own start, and the
+    // reverse) is proved exhaustively, with hand-crafted plans built for the
+    // purpose, in `loop.test.ts` — this is a hook-level filing check: a
+    // stroke shortly after a pad's own last instant, but nowhere near the
+    // pass boundary itself, stays filed under the pass it answered.
+    it('files a stroke shortly after a pad’s own last instant in the pass that instant belongs to', () => {
+      const h = harness(moneyBeatPlan(), true)
+      act(() => h.result.current.start())
+      const gradedOrigin = h.plan.barMs
+      const kickMs = kickExpectedMs(h.plan)
+      const lastKick = kickMs[kickMs.length - 1]
+      if (lastKick === undefined) throw new Error('fixture has no kick instants')
+      act(() => {
+        h.clock.setTime(gradedOrigin + lastKick + h.plan.windowMs / 4)
+        h.result.current.hit('kick')
+      })
+
+      frameAt(h, gradedOrigin + h.plan.gradedMs + h.plan.windowMs)
+      const firstPassKick = h.passesGraded[0]?.result.pads.find((row) => row.pad === 'kick')
+      expect(firstPassKick?.hits).toBe(1)
+      expect(firstPassKick?.matched).toBe(1)
+    })
+
+    it('schedules the next pass’s clicks exactly once, at the right absolute instants, the moment the pass before it opens', () => {
+      const h = harness(moneyBeatPlan(), true)
+      act(() => h.result.current.start())
+      const beatsPerBar = Math.round(h.plan.barMs / h.plan.beatMs)
+      const startClicks = beatsPerBar * (h.plan.countInBars + h.plan.gradedBars)
+      const perPassClicks = beatsPerBar * h.plan.gradedBars
+      expect(h.audio.clickCalls).toHaveLength(startClicks)
+
+      // The instant pass 0 opens (count-in ends), pass 1's clicks are
+      // scheduled too — one pass ahead, never re-derived, so there is no
+      // audible gap waiting on a frame that happens to land near the
+      // boundary.
+      frameAt(h, h.plan.barMs)
+      expect(h.audio.clickCalls).toHaveLength(startClicks + perPassClicks)
+      const pass1Origin = h.plan.barMs + h.plan.gradedMs
+      const pass1Clicks = h.audio.clickCalls.slice(startClicks)
+      expect(pass1Clicks.map((c) => c.atMs)).toEqual(
+        Array.from({ length: perPassClicks }, (_, beat) => pass1Origin + beat * h.plan.beatMs),
+      )
+
+      // Still inside pass 0: pumping more frames does not re-schedule pass 1,
+      // nor reach ahead to pass 2 yet.
+      frameAt(h, h.plan.barMs + 1)
+      expect(h.audio.clickCalls).toHaveLength(startClicks + perPassClicks)
+
+      // The instant pass 1 opens, pass 2's clicks are scheduled.
+      frameAt(h, h.plan.barMs + h.plan.gradedMs)
+      expect(h.audio.clickCalls).toHaveLength(startClicks + 2 * perPassClicks)
+      const pass2Origin = h.plan.barMs + 2 * h.plan.gradedMs
+      const pass2Clicks = h.audio.clickCalls.slice(startClicks + perPassClicks)
+      expect(pass2Clicks.map((c) => c.atMs)).toEqual(
+        Array.from({ length: perPassClicks }, (_, beat) => pass2Origin + beat * h.plan.beatMs),
+      )
+
+      // Pumping more frames within the same pass does not re-schedule it.
+      frameAt(h, h.plan.barMs + h.plan.gradedMs + 10)
+      expect(h.audio.clickCalls).toHaveLength(startClicks + 2 * perPassClicks)
+    })
+
+    it('stop mid-pass grades nothing further, and calls onFinished exactly once — at Stop, not per pass', () => {
+      const h = harness(moneyBeatPlan(), true)
+      act(() => h.result.current.start())
+      frameAt(h, h.plan.barMs + h.plan.gradedMs + h.plan.windowMs)
+      expect(h.passesGraded).toHaveLength(1)
+      // Not yet — onFinished is reserved for stop() in loop mode (MAJOR 2).
+      expect(h.finished).toHaveLength(0)
+
+      frameAt(h, h.plan.barMs + h.plan.gradedMs + 100)
+      act(() => h.result.current.stop())
+      expect(h.result.current.phase).toBe('idle')
+      // The tally from the pass that DID grade survives Stop — only `start()`
+      // resets it.
+      expect(h.result.current.passesGraded).toBe(1)
+      // Stop is where the one onFinished call happens, with the pass that
+      // DID grade.
+      expect(h.finished).toHaveLength(1)
+      expect(h.finished[0]).toBe(h.passesGraded[0]?.result)
+
+      // Running the clock past where pass 1 would have graded does not
+      // resurrect grading — the timeline is really gone.
+      frameAt(h, h.plan.barMs + 3 * h.plan.gradedMs)
+      expect(h.passesGraded).toHaveLength(1)
+      expect(h.finished).toHaveLength(1)
+      expect(h.result.current.passesGraded).toBe(1)
+    })
+
+    it('stopped before any pass graded, onFinished never fires (MAJOR 2)', () => {
+      const h = harness(moneyBeatPlan(), true)
+      act(() => h.result.current.start())
+      // Mid pass 0, well before it becomes gradeable.
+      frameAt(h, h.plan.barMs + 100)
+      expect(h.passesGraded).toHaveLength(0)
+
+      act(() => h.result.current.stop())
+      expect(h.result.current.phase).toBe('idle')
+      expect(h.finished).toHaveLength(0)
+    })
+
+    it('a loop run of three graded passes calls onPassGraded three times, with passes 1, 2, 3, and onFinished once, at Stop, with the third pass’s result (MAJOR 2)', () => {
+      const h = harness(moneyBeatPlan(), true)
+      act(() => h.result.current.start())
+      const origin = h.plan.barMs
+
+      frameAt(h, origin + h.plan.gradedMs + h.plan.windowMs)
+      frameAt(h, origin + 2 * h.plan.gradedMs + h.plan.windowMs)
+      frameAt(h, origin + 3 * h.plan.gradedMs + h.plan.windowMs)
+      expect(h.passesGraded.map((p) => p.pass)).toEqual([1, 2, 3])
+      expect(h.finished).toHaveLength(0)
+
+      act(() => h.result.current.stop())
+      expect(h.finished).toHaveLength(1)
+      expect(h.finished[0]).toBe(h.passesGraded[2]?.result)
+    })
+
+    it('accepts a hit with no upper bound while looping — unlike a non-loop run, a very late stroke still counts', () => {
+      const h = harness(moneyBeatPlan(), true)
+      act(() => h.result.current.start())
+      const gradedOrigin = h.plan.barMs
+
+      // Grade every earlier pass boundary on its own frame first — the
+      // FakeClock this harness uses cannot go backwards, and the late hit
+      // below has to land after all of them — so this stays a clean test of
+      // `hit()`'s own acceptance rule rather than also exercising the
+      // MAJOR 1 stall-discard below.
+      frameAt(h, gradedOrigin + h.plan.gradedMs + h.plan.windowMs)
+      frameAt(h, gradedOrigin + 2 * h.plan.gradedMs + h.plan.windowMs)
+      frameAt(h, gradedOrigin + 3 * h.plan.gradedMs + h.plan.windowMs)
+
+      // Land well past a single non-loop run's acceptance window
+      // (`endAt + windowMs`), deep into what would be pass 3 (0-based).
+      act(() => {
+        h.clock.setTime(gradedOrigin + 3 * h.plan.gradedMs + 500)
+        h.result.current.hit('kick')
+      })
+      frameAt(h, gradedOrigin + 4 * h.plan.gradedMs + h.plan.windowMs)
+
+      const pass4 = h.passesGraded.find((p) => p.pass === 4)
+      const pass4Kick = pass4?.result.pads.find((row) => row.pad === 'kick')
+      expect(pass4Kick?.hits).toBe(1)
+    })
+
+    /**
+     * MAJOR 1: a hidden tab (or any other large gap between frames) must not
+     * replay a backlog of clicks into the past, nor grade passes the learner
+     * never heard the click track for. See the module comment's "Stalled
+     * frames" section.
+     */
+    describe('stalled frames', () => {
+      it('drops every pass more than one whole gradedMs stale, never schedules a click behind the stalled frame’s instant, and never calls onFinished for any of them', () => {
+        const h = harness(moneyBeatPlan(), true)
+        act(() => h.result.current.start())
+        const clicksBeforeStall = h.audio.clickCalls.length
+
+        // No frame runs for a long stretch, then one arrives exactly on the
+        // instant the 12th pass becomes gradeable — landing many whole
+        // passes past where pass 0 (and the nine after it) became gradeable.
+        // The two MOST RECENT ungraded passes (11 and 12, 1-based) are, by
+        // the windowMs overlap this module already relies on, both within
+        // one gradedMs of "now" at that exact instant — the stall-snap
+        // threshold is "more than a whole EXTRA gradedMs late", so both of
+        // those still grade; only the ones further back than that are stale.
+        const stallPasses = 12
+        const stallAt = h.plan.barMs + stallPasses * h.plan.gradedMs + h.plan.windowMs
+        frameAt(h, stallAt)
+
+        // CLICK FLOOR: nothing scheduled during this frame landed behind
+        // `now` — the backlog was skipped, not replayed.
+        for (const click of h.audio.clickCalls.slice(clicksBeforeStall)) {
+          expect(click.atMs).toBeGreaterThanOrEqual(stallAt)
+        }
+
+        // STALL SNAP: the ten passes further back than that are dropped —
+        // no `onPassGraded`, no tally growth for any of them — and since no
+        // `stop()` has happened yet, `onFinished` was not called for any
+        // pass either (loop mode reserves that call for `stop()` — MAJOR 2).
+        expect(h.passesGraded.map((p) => p.pass)).toEqual([stallPasses - 1, stallPasses])
+        expect(h.result.current.passesGraded).toBe(2)
+        expect(h.finished).toHaveLength(0)
+      })
+
+      /**
+       * A property sweep rather than one hand-picked gap: whatever sequence
+       * of frame gaps arrives — some ordinary, some multi-pass stalls —
+       * `steadyPasses` can never exceed `passesGraded`, and `onPassGraded`
+       * fires exactly once for every pass the tally counts (no pass is
+       * silently double-counted or counted without its own callback).
+       */
+      it('holds steadyPasses <= passesGraded, and one onPassGraded call per counted pass, across arbitrary sequences of frame gaps', () => {
+        const plan = moneyBeatPlan()
+        fc.assert(
+          fc.property(
+            fc.array(fc.integer({ min: 10, max: 3 * plan.gradedMs }), {
+              minLength: 30,
+              maxLength: 30,
+            }),
+            (gapsMs) => {
+              const h = harness(plan, true)
+              act(() => h.result.current.start())
+              let now: number = h.clock.now()
+              for (const gap of gapsMs) {
+                now += gap
+                frameAt(h, now)
+                expect(h.result.current.steadyPasses).toBeLessThanOrEqual(
+                  h.result.current.passesGraded,
+                )
+                expect(h.passesGraded).toHaveLength(h.result.current.passesGraded)
+              }
+            },
+          ),
+          { numRuns: 25 },
+        )
+      })
     })
   })
 })

@@ -253,9 +253,9 @@ describe('GrooveTrainerScreen', () => {
     const { user, frameAt } = setup()
     await user.click(screen.getByRole('button', { name: 'Start' }))
     frameAt(BAR_MS + GRADED_MS)
-    expect(
-      screen.getByRole('region', { name: 'Result' }).textContent ?? '',
-    ).toMatch(/keyboard and speakers/)
+    expect(screen.getByRole('region', { name: 'Result' }).textContent ?? '').toMatch(
+      /keyboard and speakers/,
+    )
   })
 
   /**
@@ -329,6 +329,52 @@ describe('GrooveTrainerScreen', () => {
       await user.click(screen.getByRole('button', { name: 'Listen' }))
       await user.keyboard('f')
       expect(screen.getByRole('button', { name: 'Snare' })).toHaveAttribute('data-lit', 'true')
+    })
+  })
+
+  /**
+   * Loop mode (roadmap DR-09 "loop"): a switch beside Listen, and once a pass
+   * has graded, a running tally line above the verdict. The timing itself —
+   * two passes off one count-in, boundary hit assignment, click scheduling —
+   * is `useGrooveRun.test.ts`'s job; this is wiring and accessible names.
+   */
+  describe('Loop', () => {
+    it('is off by default, toggles on click, and is disabled while a run is on', async () => {
+      const { user } = setup()
+      const toggle = screen.getByRole('switch', { name: 'Loop' })
+      expect(toggle).toHaveAttribute('aria-checked', 'false')
+      expect(toggle).toBeEnabled()
+
+      await user.click(toggle)
+      expect(toggle).toHaveAttribute('aria-checked', 'true')
+
+      await user.click(screen.getByRole('button', { name: 'Start' }))
+      expect(toggle).toBeDisabled()
+      // And it stayed on — Start does not reset a setting the learner just chose.
+      expect(toggle).toHaveAttribute('aria-checked', 'true')
+    })
+
+    it('shows no tally before any pass has graded, then a running one that survives Stop', async () => {
+      const { user, frameAt } = setup()
+      await user.click(screen.getByRole('button', { name: 'Next groove' }))
+      await user.click(screen.getByRole('switch', { name: 'Loop' }))
+      await user.click(screen.getByRole('button', { name: 'Start' }))
+
+      frameAt(BAR_MS)
+      expect(runState()).toBe('Playing — bar 1 of 2, pass 1')
+      expect(screen.queryByText(/passes? steady/)).not.toBeInTheDocument()
+
+      // Nothing played, so pass 1 grades not-steady, but it DID grade — the
+      // run keeps going (only Stop ends a loop run), now on pass 2.
+      frameAt(BAR_MS + GRADED_MS + 100)
+      expect(runState()).toBe('Playing — bar 1 of 2, pass 2')
+      expect(screen.getByText('0 of 1 pass steady')).toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: 'Stop' }))
+      expect(runState()).toBe('Ready when you are')
+      // The tally from the pass that graded survives Stop — it is the record
+      // of what actually happened, not a live readout that vanishes with it.
+      expect(screen.getByText('0 of 1 pass steady')).toBeInTheDocument()
     })
   })
 })

@@ -59,6 +59,57 @@
 .groove-listen {
   min-width: 160px;
 }
+/* ---------- Loop toggle (roadmap DR-09 "loop") ----------
+   `[role="switch"]` in primitives.css (see there) draws a knob-only pill
+   sized for a switch with no visible label — this toggle carries an icon
+   and the word "Loop", so it needs the shape every other transport button
+   has instead. `content: none`-ing the knob away (an earlier version of
+   this rule) left checked/unchecked as two fill colours on the same shape —
+   exactly the "colour alone" case docs/DESIGN.md rule 8 forbids, and it made
+   Loop read as the same control as Listen in both states. So the knob stays,
+   just shrunk (`--_h`) and moved into its own reserved strip at the trailing
+   edge (`right`, not primitives.css's width-relative `translateX`, since
+   this pill's width is content-driven, not fixed): it still slides between
+   two positions on check, a shape/position cue independent of the fill
+   colour. Outlined chip at rest that fills solid on check, deliberately not
+   `.btn-primary`'s shape — Start stays the one control a glance finds
+   (docs/DESIGN.md); Loop is a secondary setting beside it, not a second
+   primary action. */
+.groove-loop-toggle {
+  --_h: 14px;
+  position: relative;
+  width: auto;
+  min-height: var(--control-h);
+  height: auto;
+  padding: 0 calc(var(--control-pad-x) + var(--_h) * 1.9 + var(--space-2)) 0 var(--control-pad-x);
+  border-radius: var(--radius-round);
+  background: transparent;
+  border: var(--border-w) solid var(--border-2);
+  color: var(--text-2);
+}
+.groove-loop-toggle::after {
+  top: 50%;
+  left: auto;
+  right: calc(var(--space-2) + var(--_h) * 0.9);
+  width: var(--_h);
+  height: var(--_h);
+  background: var(--text-2);
+  transform: translateY(-50%);
+  transition:
+    right var(--dur-1) var(--ease-out),
+    background var(--dur-1);
+}
+.groove-loop-toggle[aria-checked='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  box-shadow: none;
+}
+.groove-loop-toggle[aria-checked='true']::after {
+  right: var(--space-2);
+  background: var(--on-accent);
+  transform: translateY(-50%);
+}
 /* The one line the learner reads mid-run, so it holds its height whether it
    says "Ready when you are" or "Playing — bar 2 of 2": a line that appears and
    disappears shifts the pads under the mouse between count-in and bar one.
@@ -108,7 +159,9 @@
      leave the previous stroke glowing into the next one at sixteenth notes. */
   transition: background var(--dur-1) var(--ease-out);
 }
-.drum-pad:hover { background: var(--bg-3); }
+.drum-pad:hover {
+  background: var(--bg-3);
+}
 .drum-pad-name {
   font-size: var(--text-lg);
   font-weight: var(--weight-medium);
@@ -127,13 +180,13 @@
 /* Struck. Fill AND border together (DESIGN.md rule 8 — never colour alone at
    the same shape), with no transition in, so the flash lands on the stroke
    rather than a frame after it. */
-.drum-pad[data-lit="true"] {
+.drum-pad[data-lit='true'] {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--on-accent);
   transition: none;
 }
-.drum-pad[data-lit="true"] .drum-pad-key {
+.drum-pad[data-lit='true'] .drum-pad-key {
   color: var(--on-accent);
   border-color: var(--on-accent);
 }
@@ -152,6 +205,16 @@
   gap: var(--space-3);
   margin-top: var(--space-4);
 }
+/* Loop mode grades a pass at a time, and only Stop ends it — this is the
+   running tally across every pass graded so far, sitting above the verdict
+   because the verdict below it is only the LATEST pass, not the whole run.
+   Same treatment as `.groove-graded-at`: a quiet, tabular-numeral line, not
+   a second verdict competing with the real one. */
+.groove-pass-tally {
+  font-size: var(--text-sm);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
 /* The verdict's own words are the cue ("Steady run" / "Not there yet"); the
    colour and the rule beside it are reinforcement, never the only signal. */
 .groove-verdict {
@@ -160,11 +223,11 @@
   padding-left: var(--space-3);
   border-left: var(--border-w-strong) solid var(--border-2);
 }
-.groove-verdict[data-steady="true"] {
+.groove-verdict[data-steady='true'] {
   color: var(--ok);
   border-left-color: var(--ok);
 }
-.groove-verdict[data-steady="false"] {
+.groove-verdict[data-steady='false'] {
   color: var(--fb-wrong);
   border-left-color: var(--fb-wrong);
 }

@@ -45,6 +45,69 @@
  * when `plan.grooveId` changes, and survives a tempo change by carrying the
  * bpm it was graded at alongside it (`GradedRun`), so the screen can still
  * say what tempo produced it after the control has moved on.
+ *
+ * ## Loop mode (roadmap DR-09 "loop")
+ *
+ * With `{ loop: true }`, `start()` counts in once and the graded window then
+ * repeats back-to-back with no gap and no further count-in until `stop()`.
+ * Three things keep the same discipline the rest of this module rests on:
+ *
+ *  - **The click track is scheduled one pass ahead, never re-derived.**
+ *    `start()` schedules the count-in plus the FIRST pass only, against
+ *    absolute instants exactly as before. `onFrame` schedules pass `k+1`'s
+ *    clicks the moment pass `k` opens — `scheduledPassesRef` only ever
+ *    advances, so a beat is never scheduled twice, and a stalled frame
+ *    catches up (a `while`, not an `if`) rather than skipping a pass's clicks.
+ *  - **A hit is filed by the clock, into the pass the clock says it answers.**
+ *    `@core/drums/practice/loop.ts`'s `passOfHit` — not the phase, not which
+ *    pass the screen happens to be showing — decides which pass's bucket a
+ *    hit lands in, and its ms is stored relative to THAT pass's own origin so
+ *    `gradeGrooveRun` never has to know it is being called from a loop.
+ *  - **A pass is graded the instant it can be, not when the next one opens.**
+ *    `passGradeableAt` is a pass's end plus the window, so pass `k+1` is
+ *    already in progress — by design, the windows overlap by `windowMs` — by
+ *    the time pass `k` is actually graded. `phase` stays `'playing'` through
+ *    every grade; only `stop()` ends a loop run, and every pass that never
+ *    got to grade — the one in progress, and any dropped by a stall (below)
+ *    — is discarded, never graded.
+ *
+ * ## History gets one attempt per loop run, not one per pass
+ *
+ * `onFinished` is the screen's `addAttempt`, capped and persisted — calling
+ * it once per pass would let a multi-minute loop run evict half the
+ * learner's history in one sitting, and a stalled frame (below) could fire
+ * it a dozen times in a single tick. So in loop mode `onFinished` fires
+ * exactly ONCE, from `stop()`, with the LAST graded pass's result — the
+ * learner's state at the end of the drill — and not at all if no pass ever
+ * graded. Per-pass results, for anything that wants them (the live tally),
+ * go through the new `onPassGraded` instead, which loop mode calls once per
+ * graded pass and non-loop mode never calls. Non-loop `onFinished` is
+ * unchanged: it fires once, at the natural end of the one pass it ever runs.
+ *
+ * ## Stalled frames
+ *
+ * A hidden tab (or any other large gap between frames) can leave `onFrame`
+ * discovering many passes have elapsed at once — the same hazard
+ * `useDrumsMetronome` guards against for its click track. Two things would
+ * go wrong without a guard: the click-scheduling loop would replay every
+ * missed pass's clicks in one frame, almost all of them at instants already
+ * in the past (the audio adapter clamps a past instant to "right now", so
+ * they would all sound at once); and the grading loop would grade every
+ * missed pass as entirely missed, one `onPassGraded` call each. Neither
+ * click nor grade is something the learner could have acted on — they were
+ * looking at something else — so both are skipped, not played back:
+ *
+ *  - **Clicks resume at the pass that is ACTUALLY open**, not at the one
+ *    after the last one scheduled — `scheduledPassesRef` jumps forward to
+ *    `currentPass` before scheduling resumes, and no click is ever scheduled
+ *    at an instant that has already passed.
+ *  - **A pass discovered more than one whole pass after it became
+ *    gradeable is dropped, not graded** — no result, no `onPassGraded`, no
+ *    tally change, its hits simply discarded. A pass found only a little
+ *    late (an ordinary scheduling jitter, on the order of tens or a couple
+ *    hundred milliseconds) still grades normally: the threshold is a whole
+ *    extra `gradedMs`, far more than any frame is ever late by outside of a
+ *    hidden tab or a debugger pause.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createBrowserClock } from '@app/practice/clock.ts'
@@ -52,6 +115,7 @@ import { createDrumAudioOutput } from '@adapters/audio/drumAudio.ts'
 import { useTransportLoop, type FrameDriver } from '@app/practice/useTransportLoop.ts'
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import { gradeGrooveRun, type GrooveHit, type GrooveRunResult } from '@core/drums/practice/grade.ts'
+import { passGradeableAt, passOfHit, passOrigin } from '@core/drums/practice/loop.ts'
 import type { GrooveRunPlan } from '@core/drums/practice/plan.ts'
 import type { Clock, DrumAudioOutput } from '@core/ports/index.ts'
 import { millis } from '@core/shared/units.ts'
@@ -77,7 +141,27 @@ export type GradedRun = {
 
 export type UseGrooveRunOptions = {
   readonly plan: GrooveRunPlan
+  /**
+   * Fires once with a run's verdict. Non-loop: the instant that run's one
+   * pass grades, exactly as before loop mode existed. Loop: ONLY from
+   * `stop()`, with the LAST graded pass's result, and not at all if no pass
+   * ever graded — a multi-minute loop run is one attempt in history, not one
+   * per pass (see the module comment). Per-pass results in loop mode go to
+   * `onPassGraded` instead.
+   */
   readonly onFinished?: (result: GrooveRunResult) => void
+  /**
+   * Loop mode only: fires once per pass, the instant that pass grades, with
+   * the pass's own 1-based number. Never called outside loop mode.
+   */
+  readonly onPassGraded?: (result: GrooveRunResult, pass: number) => void
+  /**
+   * With loop on, after the single count-in the graded window repeats
+   * back-to-back with no gap and no further count-in — see the module
+   * comment. Defaults to false; non-loop behaviour is unaffected by this
+   * option's presence.
+   */
+  readonly loop?: boolean
   /** Injection seams. The browser defaults are built lazily, inside the first press. */
   readonly clock?: Clock
   readonly audio?: () => DrumAudioOutput
@@ -90,8 +174,19 @@ export type GrooveRunApi = {
   readonly beatIndex: number
   /** 1-based beat of the count-in bar currently sounding, or 0 outside the count-in. */
   readonly countInBeat: number
-  /** 1-based bar of the graded window, or 0 outside it. */
+  /** 1-based bar of the graded window CURRENTLY IN PROGRESS, or 0 outside it. */
   readonly bar: number
+  /**
+   * 1-based pass currently in progress while `phase` is `'playing'`, 0
+   * otherwise. Always 1 in non-loop mode while playing — a non-loop run is a
+   * one-pass loop run by this reading, which is why the formula is the same
+   * for both.
+   */
+  readonly pass: number
+  /** How many passes have been graded this run. 0 outside a loop run; reset on `start()`. */
+  readonly passesGraded: number
+  /** How many of those graded passes were steady. 0 outside a loop run; reset on `start()`. */
+  readonly steadyPasses: number
   readonly result: GradedRun | undefined
   readonly flash: PadFlash | undefined
   start: () => void
@@ -130,6 +225,9 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
 
   const [phase, setPhase] = useState<GrooveRunPhase>('idle')
   const [beatIndex, setBeatIndex] = useState(-1)
+  const [pass, setPass] = useState(0)
+  const [passesGraded, setPassesGraded] = useState(0)
+  const [steadyPasses, setSteadyPasses] = useState(0)
   const [result, setResult] = useState<GradedRun | undefined>(undefined)
   const [flash, setFlash] = useState<PadFlash | undefined>(undefined)
 
@@ -156,6 +254,23 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
   planRef.current = plan
   const onFinishedRef = useRef(options.onFinished)
   onFinishedRef.current = options.onFinished
+  const onPassGradedRef = useRef(options.onPassGraded)
+  onPassGradedRef.current = options.onPassGraded
+  const loopOptionRef = useRef(options.loop ?? false)
+  loopOptionRef.current = options.loop ?? false
+
+  /** Whether the run CURRENTLY IN PROGRESS is looping — frozen at `start()`, since the toggle is disabled while busy. */
+  const loopingRef = useRef(false)
+  /** How many passes' click tracks have been scheduled so far. Only ever advances — see the module comment. */
+  const scheduledPassesRef = useRef(0)
+  /** This run's hits, bucketed by which pass `passOfHit` says they answer, ms relative to THAT pass's own origin. Loop mode only. */
+  const hitsByPassRef = useRef<Map<number, GrooveHit[]>>(new Map())
+  /** The highest pass index graded so far this run. `-1` means none yet. */
+  const gradedThroughRef = useRef(-1)
+  /** `pass`'s own guard, exactly like `beatRef` — avoids a `setPass` call on every playing frame when the value has not actually changed. */
+  const passRef = useRef(0)
+  /** The most recently graded pass's verdict this run, for `stop()` to hand to `onFinished` — see the module comment. `undefined` until a pass has graded. */
+  const lastGradedRef = useRef<GrooveRunResult | undefined>(undefined)
 
   /** Every call into the audio output goes through here, so none of them can throw into React. */
   const withAudio = useCallback(
@@ -178,32 +293,69 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
   )
 
   const stop = useCallback((): void => {
+    // Captured before the reset below clears them: whether THIS run was
+    // looping, and the last pass it actually graded, if any — `stop()` is
+    // where a loop run's one-and-only `onFinished` call happens (see the
+    // module comment).
+    const wasLooping = loopingRef.current
+    const lastGraded = lastGradedRef.current
+
     timingRef.current = undefined
     previewRef.current = undefined
     hitsRef.current = []
+    hitsByPassRef.current = new Map()
+    gradedThroughRef.current = -1
+    scheduledPassesRef.current = 0
+    loopingRef.current = false
     phaseRef.current = 'idle'
     beatRef.current = -1
+    passRef.current = 0
     setPhase('idle')
     setBeatIndex(-1)
+    setPass(0)
+    // `passesGraded`/`steadyPasses` are deliberately left alone: the screen
+    // still shows the tally for whatever passes DID get graded before Stop —
+    // see the module comment. `start()` is the only place that resets them.
     withAudio((out) => out.allNotesOff())
+
+    // Every pass that never got to grade — the one in progress, and any a
+    // stall dropped — is discarded here, not graded retroactively. What DID
+    // grade still owes the learner's history exactly one attempt: the last
+    // pass, and only if a pass ever actually graded.
+    if (wasLooping && lastGraded !== undefined) {
+      onFinishedRef.current?.(lastGraded)
+    }
   }, [withAudio])
 
   const start = useCallback((): void => {
     const runPlan = planRef.current
+    loopingRef.current = loopOptionRef.current
     const startedAt = clock.now()
     const gradedOrigin = startedAt + runPlan.countInBars * runPlan.barMs
     timingRef.current = { startedAt, gradedOrigin, endAt: gradedOrigin + runPlan.gradedMs }
     previewRef.current = undefined
     hitsRef.current = []
+    hitsByPassRef.current = new Map()
+    gradedThroughRef.current = -1
+    lastGradedRef.current = undefined
+    // Pass 0's clicks are scheduled below, unconditionally; `1` means "pass 0
+    // done", so loop mode's onFrame schedules pass 1 the moment pass 0 opens.
+    scheduledPassesRef.current = 1
     beatRef.current = -1
+    passRef.current = 0
     phaseRef.current = 'count-in'
     setResult(undefined)
     setBeatIndex(-1)
+    setPass(0)
+    setPassesGraded(0)
+    setSteadyPasses(0)
     setPhase('count-in')
 
     // The whole click track, scheduled once against absolute instants on the
     // clock epoch. Nothing re-schedules it per frame, so a stalled frame can
-    // never move the pulse the learner is playing to.
+    // never move the pulse the learner is playing to. In loop mode this is
+    // the count-in plus the FIRST pass only — `onFrame` schedules every pass
+    // after it, one pass ahead, the moment the pass before it opens.
     const beatsPerBar = Math.max(1, Math.round(runPlan.barMs / runPlan.beatMs))
     const totalBeats = beatsPerBar * (runPlan.countInBars + runPlan.gradedBars)
     withAudio((out) => {
@@ -286,8 +438,94 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
       phaseRef.current = 'playing'
       setPhase('playing')
     }
-    if (phaseRef.current === 'playing' && now >= timing.endAt) finish()
-  }, [clock, finish])
+    if (phaseRef.current !== 'playing') return
+
+    // `pass` is read straight off the clock — `floor((now - firstOrigin) /
+    // gradedMs) + 1` — never off the beat count, for the same reason
+    // everything else here is: one origin, every instant derived from it.
+    // This is also correct for a non-loop run: it stays 0 until the graded
+    // window opens, hits 1 the instant it does, and 1 is all a non-loop run
+    // ever needs since it has exactly one pass. Guarded by `passRef` exactly
+    // like `beatRef` above it (MINOR b) — otherwise every playing frame,
+    // looping or not, calls `setPass` with the same unchanged value.
+    const currentPass = Math.max(0, Math.floor((now - timing.gradedOrigin) / runPlan.gradedMs))
+    if (currentPass + 1 !== passRef.current) {
+      passRef.current = currentPass + 1
+      setPass(currentPass + 1)
+    }
+
+    if (!loopingRef.current) {
+      if (now >= timing.endAt) finish()
+      return
+    }
+
+    // Loop mode never auto-finishes; only `stop()` ends it.
+
+    // The click track, one pass at a time, as far ahead as `now` demands. A
+    // `while` rather than an `if` so an ordinary stalled frame catches up
+    // instead of skipping a pass's clicks; `scheduledPassesRef` only ever
+    // advances, so a beat is never scheduled twice.
+    //
+    // CLICK FLOOR (MAJOR 1): a hidden tab can leave `scheduledPassesRef` many
+    // passes behind `currentPass` — replaying every pass in between would
+    // schedule dozens of clicks in one frame, almost all at instants already
+    // in the past (the audio adapter clamps a past instant to "right now",
+    // so they would all sound at once). Snapping the floor up to whichever
+    // pass is ACTUALLY open resumes the click track there instead; the
+    // per-beat `at < now` guard below catches anything still behind even
+    // within that one pass's own beats.
+    const beatsPerBar = Math.max(1, Math.round(runPlan.barMs / runPlan.beatMs))
+    scheduledPassesRef.current = Math.max(scheduledPassesRef.current, currentPass)
+    while (scheduledPassesRef.current <= currentPass + 1) {
+      const nextPass = scheduledPassesRef.current
+      const passStart = timing.gradedOrigin + passOrigin(runPlan, nextPass)
+      withAudio((out) => {
+        for (let clickBeat = 0; clickBeat < beatsPerBar * runPlan.gradedBars; clickBeat++) {
+          const at = passStart + clickBeat * runPlan.beatMs
+          // Never schedule a click at an instant already past — the learner
+          // could not have heard it, and it would only join the pile-up the
+          // floor above exists to prevent.
+          if (at < now) continue
+          out.click(clickBeat % beatsPerBar === 0, millis(at))
+        }
+      })
+      scheduledPassesRef.current += 1
+    }
+
+    // Grade every pass that has collected everything it is going to,
+    // lowest-first. The next pass is already in progress by the time this
+    // fires — the windows overlap by `windowMs` — which is by design; `phase`
+    // stays `'playing'` through every grade in a loop run.
+    //
+    // STALL SNAP (MAJOR 1): a pass discovered more than one whole `gradedMs`
+    // after it became gradeable was not merely reported on late — the
+    // learner never heard its click track either (see CLICK FLOOR above), so
+    // there is nothing honest to grade. It is dropped instead: its hits
+    // discarded, `gradedThroughRef` advanced past it, no `setResult`, no
+    // `onPassGraded`, no tally change. An ordinary bit of lateness (jitter on
+    // the order of tens or a couple hundred milliseconds, nowhere near a
+    // whole extra pass) stays well under that threshold and grades exactly
+    // as before.
+    for (;;) {
+      const nextToGrade = gradedThroughRef.current + 1
+      const gradeableAt = timing.gradedOrigin + passGradeableAt(runPlan, nextToGrade)
+      if (now < gradeableAt) break
+      if (now > gradeableAt + runPlan.gradedMs) {
+        hitsByPassRef.current.delete(nextToGrade)
+        gradedThroughRef.current = nextToGrade
+        continue
+      }
+      const hits = hitsByPassRef.current.get(nextToGrade) ?? []
+      hitsByPassRef.current.delete(nextToGrade)
+      gradedThroughRef.current = nextToGrade
+      const graded = gradeGrooveRun(runPlan, hits)
+      setResult({ result: graded, bpm: runPlan.bpm })
+      lastGradedRef.current = graded
+      onPassGradedRef.current?.(graded, nextToGrade + 1)
+      setPassesGraded((n) => n + 1)
+      if (graded.steady) setSteadyPasses((n) => n + 1)
+    }
+  }, [clock, finish, withAudio])
 
   useTransportLoop({
     active: phase === 'count-in' || phase === 'playing' || phase === 'preview',
@@ -306,6 +544,19 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
       const runPlan = planRef.current
       const now = clock.now()
       if (now < timing.gradedOrigin - runPlan.windowMs) return
+
+      // Loop mode has no upper bound on acceptance — a loop run only ends at
+      // Stop — and files the hit by which pass the CLOCK says it answers,
+      // never by which pass the screen happens to be showing.
+      if (loopingRef.current) {
+        const relative = now - timing.gradedOrigin
+        const passIndex = passOfHit(runPlan, relative)
+        const list = hitsByPassRef.current.get(passIndex) ?? []
+        list.push({ pad, ms: relative - passOrigin(runPlan, passIndex) })
+        hitsByPassRef.current.set(passIndex, list)
+        return
+      }
+
       if (now > timing.endAt + runPlan.windowMs) return
       hitsRef.current.push({ pad, ms: now - timing.gradedOrigin })
     },
@@ -325,12 +576,24 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
   const beatsPerBar = Math.max(1, Math.round(plan.barMs / plan.beatMs))
   const countInBeats = plan.countInBars * beatsPerBar
   const gradedBeat = beatIndex - countInBeats
+  // `bar` is the bar within whichever pass is CURRENTLY open, so it wraps at
+  // the pass boundary in a loop run rather than counting past `gradedBars`.
+  // A non-loop run's `gradedBeat` never reaches `beatsPerPass` while playing
+  // (the run finishes first), so the modulo is a no-op there — this is the
+  // same formula for both.
+  const beatsPerPass = Math.max(1, beatsPerBar * plan.gradedBars)
+  const gradedBeatInPass = ((gradedBeat % beatsPerPass) + beatsPerPass) % beatsPerPass
   return {
     phase,
     beatIndex,
-    countInBeat:
-      phase === 'count-in' ? Math.min(countInBeats, Math.max(1, beatIndex + 1)) : 0,
-    bar: phase === 'playing' ? Math.min(plan.gradedBars, Math.floor(gradedBeat / beatsPerBar) + 1) : 0,
+    countInBeat: phase === 'count-in' ? Math.min(countInBeats, Math.max(1, beatIndex + 1)) : 0,
+    bar:
+      phase === 'playing'
+        ? Math.min(plan.gradedBars, Math.floor(gradedBeatInPass / beatsPerBar) + 1)
+        : 0,
+    pass: phase === 'playing' ? pass : 0,
+    passesGraded,
+    steadyPasses,
     result,
     flash,
     start,

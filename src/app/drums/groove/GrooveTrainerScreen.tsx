@@ -80,7 +80,13 @@ import type { GrooveRunResult } from '@core/drums/practice/grade.ts'
 import { MAX_BPM, MIN_BPM, planGrooveRun, type GrooveRunPlan } from '@core/drums/practice/plan.ts'
 import type { Clock, DrumAudioOutput } from '@core/ports/index.ts'
 import { GROOVE_PAD_KEY, GROOVE_PAD_LABEL, keyLabel, sortPadsForDisplay } from './padLabels.ts'
-import { diagnosisSentences, gradedAtText, lastRunText, padLineText, verdictText } from './resultLines.ts'
+import {
+  diagnosisSentences,
+  gradedAtText,
+  lastRunText,
+  padLineText,
+  verdictText,
+} from './resultLines.ts'
 import { useGrooveRun, type GrooveRunPhase, type PadFlash } from './useGrooveRun.ts'
 
 /** The persona's goal tempo for the Debut rock groove, and the tempo the screen opens on. */
@@ -124,10 +130,7 @@ export function GrooveTrainerScreen(props: GrooveTrainerScreenProps) {
   // same way keeps the drawn repeat and the graded window from drifting apart
   // the moment a multi-bar groove is added.
   const playCount = Math.max(1, Math.ceil(plan.gradedBars / groove.measures.length))
-  const layout = useMemo(
-    () => engraveGroove(groove, { playCount }),
-    [groove, playCount],
-  )
+  const layout = useMemo(() => engraveGroove(groove, { playCount }), [groove, playCount])
   // The spoken description carries the repeat for the same reason the drawn
   // staff does: the figure states one bar and the run grades `gradedBars`, so
   // a description that stopped at the bar line would understate the task by
@@ -141,6 +144,12 @@ export function GrooveTrainerScreen(props: GrooveTrainerScreenProps) {
   const addAttempt = useDrumsHistoryStore((state) => state.addAttempt)
   const lastRun = attempts[0]
 
+  // One history row per run, not per pass: in loop mode `useGrooveRun` calls
+  // this exactly once, from Stop, with the LAST graded pass's result (see its
+  // module comment and the `onFinished` JSDoc) — a loop run is one attempt.
+  // The screen has no use for the per-pass `onPassGraded` callback: the live
+  // tally it would feed is already read straight off `run.passesGraded` /
+  // `run.steadyPasses` below.
   const onFinished = useCallback(
     (result: GrooveRunResult): void => {
       addAttempt({
@@ -207,9 +216,17 @@ function Trainer({
   lastRunLine,
   ...seams
 }: TrainerProps) {
+  // Loop is local, transport-level state — not persisted, not part of the
+  // plan — the same reason the tempo stepper's own draft string lives here
+  // rather than in a store. It is disabled while `busy` (see below) for the
+  // same reason the groove picker and tempo field are: it must not change
+  // out from under audio already scheduled against the current run.
+  const [loop, setLoop] = useState(false)
+
   const run = useGrooveRun({
     plan,
     onFinished,
+    loop,
     ...(seams.clock === undefined ? {} : { clock: seams.clock }),
     ...(seams.audio === undefined ? {} : { audio: seams.audio }),
     ...(seams.frameDriver === undefined ? {} : { driver: seams.frameDriver }),
@@ -339,10 +356,29 @@ function Trainer({
             <Icon name={run.phase === 'preview' ? 'stop' : 'ear'} />
             {run.phase === 'preview' ? 'Stop listening' : 'Listen'}
           </button>
+
+          {/* With loop on, the single count-in's graded window repeats
+              back-to-back with no gap and no further count-in — see
+              `useGrooveRun`'s module comment (roadmap DR-09 "loop"). Disabled
+              while busy for the same reason the groove picker and tempo field
+              are: it must not flip out from under a run or preview already
+              scheduled against the current setting. */}
+          <button
+            type="button"
+            role="switch"
+            aria-checked={loop}
+            aria-label="Loop"
+            className="groove-loop-toggle"
+            disabled={busy}
+            onClick={() => setLoop((value) => !value)}
+          >
+            <Icon name="rhythm" />
+            Loop
+          </button>
         </div>
 
         <p role="status" aria-label="Run state" className="groove-run-state">
-          {runStateText(run.phase, run.countInBeat, run.bar, plan.gradedBars)}
+          {runStateText(run.phase, run.countInBeat, run.bar, plan.gradedBars, loop, run.pass)}
         </p>
       </div>
 
@@ -362,6 +398,16 @@ function Trainer({
 
       {run.result !== undefined && (
         <section className="card groove-result" aria-label="Result">
+          {/* Loop mode grades a pass at a time, and only Stop ends it — this
+              is the running tally across every pass graded so far this run,
+              not just the one the panel below is currently showing. Hidden
+              outside a loop run: `passesGraded` never leaves 0 there. */}
+          {run.passesGraded > 0 && (
+            <p className="groove-pass-tally">
+              {run.steadyPasses} of {run.passesGraded} {run.passesGraded === 1 ? 'pass' : 'passes'}{' '}
+              steady
+            </p>
+          )}
           <p className="groove-verdict" data-steady={run.result.result.steady ? 'true' : 'false'}>
             {verdictText(run.result.result)}
           </p>
@@ -395,6 +441,8 @@ function runStateText(
   countInBeat: number,
   bar: number,
   gradedBars: number,
+  loop: boolean,
+  pass: number,
 ): string {
   switch (phase) {
     case 'idle':
@@ -407,9 +455,13 @@ function runStateText(
       return `Counting in — ${countInBeat}`
     // The e2e pad driver takes the graded window's opening from this text
     // starting with "Playing" (see `e2e/drum-pads.ts`); no other phase's
-    // wording may start with that word — including this one below.
+    // wording may start with that word — including this one below. Looping
+    // appends the pass number, since with no further count-in the bar count
+    // alone no longer says which time around the learner is on.
     case 'playing':
-      return `Playing — bar ${bar} of ${gradedBars}`
+      return loop
+        ? `Playing — bar ${bar} of ${gradedBars}, pass ${pass}`
+        : `Playing — bar ${bar} of ${gradedBars}`
     case 'graded':
       return 'Run finished'
     case 'preview':
