@@ -167,7 +167,11 @@ item lands inside a slice that drives something (specs state their proof surface
       (`core/drums/practice/loop.ts` files a boundary hit to the pass whose expected instant
       is nearer), a pass tally in the result card, one history attempt per loop run (the
       last graded pass), and a stalled frame drops the passes it slept through instead of
-      replaying their clicks. Still open: per-hit live feedback, per-limb mute, wait mode.
+      replaying their clicks. Per-hit live feedback landed 2026-09-18 (`21ac269`): every
+      accepted hit reads on time / early / late / extra with its signed ms, as a status
+      line and as a colour on the struck pad (`core/drums/practice/liveHit.ts`, nearest
+      unclaimed instant on that pad, provisional — `grade.ts` stays the marking; one
+      verdict per pad so unison strokes keep both). Still open: per-limb mute, wait mode.
 - [~] DR-10 ‖ Rudiment trainer — the 40 in Wooton tiers, tempo ladder, evenness, PRs
       → [spec](features/DR-10-rudiment-trainer.md). Core landed 2026-09-17 (`17e4b4f`):
       `content/drums/rudiments*.ts` (40 PAS), `core/drums/rudiment/` score conversion +
@@ -204,8 +208,13 @@ item lands inside a slice that drives something (specs state their proof surface
       count-in aware; MIDI-out.
 - [ ] DR-13 ‖ Beat builder — GrooveScribe-style grid ⇄ live notation, library, share-URL;
       the content-authoring tool → [spec](features/DR-13-beat-builder.md)
-- [ ] DR-15 Coordination trainer — limb layering, kick permutations, hh foot/openings,
-      jazz intro → [spec](features/DR-15-coordination-trainer.md)
+- [~] DR-15 Coordination trainer — limb layering, kick permutations, hh foot/openings,
+      jazz intro → [spec](features/DR-15-coordination-trainer.md). `/drums/coordination`
+      landed 2026-09-18 (`a3eacab`): layer build (cymbals → + feet → + snare family, each
+      layer a real score subset on the staff, a steady pass unlocks the next) and the 16
+      single-kick permutations ordered by syncopation weight, both graded by `useGrooveRun`
+      and recorded to history. Still open: two-kick drills on screen (`twoKickPermutations`
+      exists in core), hi-hat foot and openings, the jazz ride introduction.
 
 ## Phase D2 — The learning system: curriculum, planning, memory
 
@@ -220,8 +229,12 @@ item lands inside a slice that drives something (specs state their proof surface
       rep scheduling → [spec](features/DR-21-srs-drums.md)
 - [ ] DR-22 Session planner — researched 30-min template, budgets, weakness-aware
       candidates → [spec](features/DR-22-session-planner.md)
-- [ ] DR-23 Drums dashboard — PRs, tightness trends, per-limb bias, coverage, milestones;
-      every panel seeded-e2e from birth → [spec](features/DR-23-drums-dashboard.md)
+- [~] DR-23 Drums dashboard — PRs, tightness trends, per-limb bias, coverage, milestones;
+      every panel seeded-e2e from birth → [spec](features/DR-23-drums-dashboard.md). MVP at
+      `/drums/progress` landed 2026-09-18 (`04e5918`): rudiment tiers at target / started,
+      best steady tempo per groove, matched-weighted limb bias over the last ten runs,
+      reading level with the last three accuracies — four panels, each seeded-e2e with an
+      exclusion trap. Still open: tightness trends over time, coverage, milestones.
 
 ## Phase D3 — Musicianship and the intermediate package
 
@@ -367,3 +380,26 @@ unverified stickings, MIDI-out channel, the duplicated epoch-anchor filter. New 
   frame of the window, or any stroke while the tab is hidden, is graded but not scored.
 - `tempoLadder.ts` does not export its default pass/fail counts; `ladderText` still
   hard-codes 2 and 3.
+
+### 2026-09-18 — orchestrated drum session, wave 5
+
+Three slices (`21ac269`, `04e5918`, `a3eacab`): per-hit live feedback, the progress
+screen, the coordination trainer. Prep refactor `ece3963` moved the pad, tempo stepper
+and pad hooks out of the groove screen so both new screens reuse them. Still open from
+above: `everyNBars` count-in awareness, the six unverified stickings, MIDI-out channel,
+`ladderText`'s hard-coded counts. New notes:
+
+- The live verdict is arrival-order and provisional by design: `judgeLiveHit` commits
+  the instant a stick lands, `grade.ts` pairs the whole pass later, and the two can
+  disagree on a hit that arrives out of notated order. The result panel is the marking.
+- The live line carries `aria-live="off"`: at sixteenths it updates six times a second
+  and would bury the run-state announcements a screen reader queues politely.
+- `twoKickPermutations` shipped with a `while (b === a)` redraw; under a degenerate rng
+  (a scripted fake cycling an all-equal list) it never returns, and the builder's own
+  property test hung the whole coordination suite. Any "redraw until distinct" loop in
+  core needs a bound or a loop-free draw — the Rng port promises nothing about variety.
+- The coordination screen offers single-kick drills only; `twoKickPermutations` has no
+  screen yet. Changing tempo resets step progress to layer 1 (contract choice, revisit).
+- The reading store is newest-first; the progress screen reverses the last three runs so
+  an improving learner reads the climb left to right. Builder C filed this as an
+  ambiguity; it was a defect.

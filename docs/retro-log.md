@@ -16,19 +16,20 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
-## 2026-09-17/18 — the drum session: twelve slices in four waves, five Opus reviews, and a review fix that needed reviewing
+## 2026-09-17/18 — the drum session: fifteen slices in five waves, six Opus reviews, and a review fix that needed reviewing
 
 - **user-reported defects since last session:** 0.
-- **slices proven / started:** 12 / 12. `T.30`–`T.34` closed (`1ff79e7`, `98c0a9b`, `0cf90ed`,
+- **slices proven / started:** 15 / 15. `T.30`–`T.34` closed (`1ff79e7`, `98c0a9b`, `0cf90ed`,
   `3960a5c`), DR-05 done, DR-06/07/09 advanced, DR-10/11/12 landed as core-only slices
   (`17e4b4f`) in wave 2 and got their screens in wave 3 (`897c05f` sticking row,
   `4084575` rudiments, `1a68f51` reading + wiring, `8687e4c` metronome); wave 4 added the
   Drums Today hub (`57bb514`), rudiment evenness (`6966868`) and groove loop mode
-  (`e8e3ee7`). Each driven in the running app, e2e-covered and visual-passed in both themes
-  at both widths. Orchestrated: main thread integrated and committed only; ~23 Sonnet
-  builders/fixers, 5 Opus adversarial reviews (synth, grader, reading hook, metronome
-  scheduler, loop mode).
-- **gate catches before commit:** 9.
+  (`e8e3ee7`); wave 5 added per-hit live feedback (`21ac269`), the progress screen
+  (`04e5918`) and the coordination trainer (`a3eacab`). Each driven in the running app,
+  e2e-covered and visual-passed in both themes at both widths. Orchestrated: main thread
+  integrated and committed only; ~27 Sonnet builders/fixers, 6 Opus adversarial reviews
+  (synth, grader, reading hook, metronome scheduler, loop mode, live hit).
+- **gate catches before commit:** 12.
   1. **The e2e gate refused the T.33 slice, and that refusal is the gate's review-by clause
      satisfied.** `improve-DR-09-heldout.spec.ts` was a baseline capture asserting the wrong
      behaviour (`Open hi-hat — 0 of 2, 2 missed, 2 extra`); unit tests were green. The gate
@@ -74,6 +75,23 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
      attempt, ten in one frame. Same class as the piano and drum metronome stalls, fixed
      with the same rule (drop what the learner could not have heard, resume at now) and a
      per-pass callback so a loop run is one attempt, not one per pass.
+  10. **A builder returned an empty report, and its tree hung the suite.** The coordination
+      builder stopped after 120 tool calls with "still empty — will wait"; its
+      `twoKickPermutations` redrew in `while (b === a)` and its own property test fed a
+      scripted rng that cycles an all-equal list, so the scoped run never ended. Found by
+      running its tests with a cap and bisecting per file; fixed with a loop-free draw.
+      Six more of its tests failed on a test helper that walked pads one at a time and
+      asked the FakeClock to go backwards — the hook was right. A builder that returns
+      nothing has shipped nothing: treat its files as untested and run them capped.
+  11. **The live-hit review found the default groove's unison strokes erasing each other.**
+      Opus: `lastHit` was one slot, so hat+kick on the same instant — every instant of
+      Quarter-Note Rock — cleared the first pad's colour within a frame. Plus a loop-mode
+      claim set with zero coverage (a shared-set mutant survived 170 tests). Both fixed
+      and pinned before commit; the judge itself had no defect.
+  12. **The progress screen showed the reading climb backwards.** The reading store is
+      newest-first; builder C rendered the last three runs as stored, so an improving
+      learner read 100%, 90%, 80%, and filed it as "order unspecified". Its core also
+      imported types from `@content`. Both fixed on the main thread from the e2e seed.
 - **docs budget:** no warnings.
 - **cost note:** integration, not building. Five agents' work landed on one tree, then one
   full `verify`, one visual pass, and a commit chain that failed once on shell quoting
@@ -85,7 +103,9 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
   Wave 4 added a corollary: a builder's report is also worth reading as a defect list —
   the one real learner-facing bug of the wave was in a note filed as a testing obstacle.
   And the stalled-frame class has now cost three reviews; it belongs in the builder brief
-  for any per-frame scheduler, not in the reviewer's checklist.
+  for any per-frame scheduler, not in the reviewer's checklist. Wave 5's addition: a
+  scoped run with no timeout is not a gate — one unbounded loop in one builder's core
+  hung a 3 s suite indefinitely, and only a capped, per-file bisect found it.
 - **change:** one. Review-driven fixes to timing, grading or adaptation code are read on
   the main thread before commit, diff against the data shape they touch, not just their
   own tests. Recorded in `docs/PROCESS.md`'s review step.
