@@ -267,3 +267,70 @@
   color: var(--text-3);
   line-height: var(--leading-normal);
 }
+
+/* ---------- Per-hit live feedback (roadmap DR-09 "per-hit live feedback") ----------
+   Every ACCEPTED hit gets an instant verdict — on time, early, late, or extra
+   (a stick landed where nothing was written) — read out in `.groove-live-hit`
+   and echoed as a colour on the pad that was actually struck.
+
+   Tokens: `--fb-correct` / `--fb-early` / `--fb-late` / `--fb-extra`, the SAME
+   four the app already uses for this exact vocabulary in
+   `feature-rhythm.css`'s `.rhythm-tap-pad-flash--*` (see `colors.css`'s own
+   comments on them) — not the neutral grey the roadmap item's own wording
+   ("extra = muted") suggested, since this app already has a purpose-built
+   token for "a tap with nothing to answer" and a second, duller one would
+   just be two names for the same idea. `tokens.css` (the path the task
+   pointed at) does not exist in this tree; the real file is
+   `src/design-system/tokens/colors.css`.
+
+   `data-verdict` is set on the pad most recently struck ONLY — it is replaced
+   the next time that pad, or any other, is struck, and never on its own; a
+   pad a learner has not touched yet, or has not touched since, carries none. */
+.drum-pad[data-verdict] {
+  transition:
+    background var(--dur-2) var(--ease-out),
+    color var(--dur-2) var(--ease-out),
+    border-color var(--dur-2) var(--ease-out);
+}
+.drum-pad[data-verdict='on-time'] {
+  background: var(--fb-correct-dim);
+  border-color: var(--fb-correct);
+  color: var(--fb-correct-ink);
+}
+.drum-pad[data-verdict='early'] {
+  background: var(--fb-early-dim);
+  border-color: var(--fb-early);
+  color: var(--fb-early-ink);
+}
+.drum-pad[data-verdict='late'] {
+  background: var(--fb-late-dim);
+  border-color: var(--fb-late);
+  color: var(--fb-late-ink);
+}
+.drum-pad[data-verdict='extra'] {
+  background: var(--fb-extra-dim);
+  border-color: var(--fb-extra);
+  color: var(--fb-extra-ink);
+}
+
+/* The status line beside the run state. Quiet by default, like
+   `.groove-run-state`; once a hit has landed it takes the same ink as the pad
+   it just coloured, so the sentence and the pad read as one signal. */
+.groove-live-hit {
+  min-height: 1.5em;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.groove-live-hit[data-kind='on-time'] {
+  color: var(--fb-correct-ink);
+}
+.groove-live-hit[data-kind='early'] {
+  color: var(--fb-early-ink);
+}
+.groove-live-hit[data-kind='late'] {
+  color: var(--fb-late-ink);
+}
+.groove-live-hit[data-kind='extra'] {
+  color: var(--fb-extra-ink);
+}

@@ -13,6 +13,7 @@
  */
 import { useEffect, useId, useRef, useState } from 'react'
 import { Icon } from '@app/ui/Icon.tsx'
+import type { LiveHitKind } from '@core/drums/practice/liveHit.ts'
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import { MAX_BPM, MIN_BPM } from '@core/drums/practice/plan.ts'
 import { GROOVE_PAD_KEY, GROOVE_PAD_LABEL, keyLabel } from './padLabels.ts'
@@ -24,6 +25,15 @@ export type PadProps = {
   readonly pad: MappedDrumPad
   readonly lit: boolean
   readonly onHit: (pad: MappedDrumPad) => void
+  /**
+   * The live verdict (roadmap DR-09 "per-hit live feedback") for the hit that
+   * most recently struck THIS pad, rendered as `data-verdict` for
+   * `feature-drums-groove.css` to colour. Optional — undefined until this pad
+   * has been struck at all, and the screen only ever passes it for the pad
+   * `useGrooveRun.lastHit` names, so an old verdict never lingers on a pad
+   * that was not the one just hit.
+   */
+  readonly verdict?: LiveHitKind
 }
 
 /**
@@ -31,7 +41,7 @@ export type PadProps = {
  * A mouse press fires both, so the ref swallows the click that follows its own
  * pointerdown rather than counting the stroke twice.
  */
-export function Pad({ pad, lit, onHit }: PadProps) {
+export function Pad({ pad, lit, onHit, verdict }: PadProps) {
   const fromPointer = useRef(false)
   const key = GROOVE_PAD_KEY[pad]
   return (
@@ -40,6 +50,7 @@ export function Pad({ pad, lit, onHit }: PadProps) {
       className="drum-pad"
       aria-label={GROOVE_PAD_LABEL[pad]}
       data-lit={lit ? 'true' : undefined}
+      data-verdict={verdict}
       onPointerDown={() => {
         fromPointer.current = true
         onHit(pad)

@@ -83,6 +83,7 @@ import { planGrooveRun, type GrooveRunPlan } from '@core/drums/practice/plan.ts'
 import type { Clock, DrumAudioOutput } from '@core/ports/index.ts'
 import { Pad, TempoField } from './GrooveControls.tsx'
 import { useFlash, useKeyboardPads } from './groovePadHooks.ts'
+import { liveHitText } from './liveHitText.ts'
 import { GROOVE_PAD_KEY, GROOVE_PAD_LABEL, keyLabel, sortPadsForDisplay } from './padLabels.ts'
 import {
   diagnosisSentences,
@@ -381,12 +382,48 @@ function Trainer({
         <p role="status" aria-label="Run state" className="groove-run-state">
           {runStateText(run.phase, run.countInBeat, run.bar, plan.gradedBars, loop, run.pass)}
         </p>
+
+        {/* Per-hit live feedback (roadmap DR-09): every accepted hit gets an
+            instant verdict, read here and echoed as a colour on the pad
+            itself below — one sentence and one colour per stick, not just a
+            score at the end. Empty until the first hit lands; never cleared
+            by anything except a fresh start()/preview() (see `useGrooveRun`'s
+            module comment on `lastHit`), so it still reads correctly if the
+            learner glances down after the run has already stopped.
+            `aria-live="off"` overrides `role="status"`'s own implicit
+            "polite": this line updates at stroke rate (6+/s on sixteenths),
+            which would otherwise bury the "Run state" line's announcements
+            under a torrent of "Kick on time" — sighted learners still get it
+            from the text and the pad colour below. */}
+        <p
+          role="status"
+          aria-label="Last hit"
+          aria-live="off"
+          className="groove-live-hit"
+          data-kind={run.lastHit?.kind}
+        >
+          {run.lastHit === undefined ? '' : liveHitText(run.lastHit)}
+        </p>
       </div>
 
       <div className="groove-pads">
-        {pads.map((pad) => (
-          <Pad key={pad} pad={pad} lit={lit === pad} onHit={run.hit} />
-        ))}
+        {pads.map((pad) => {
+          // Driven by `hitByPad`, not `lastHit`: a unison instant (hat and
+          // kick together — every instant of the default Quarter-Note Rock)
+          // would otherwise have the second accepted hit's single `lastHit`
+          // slot overwrite the first pad's verdict within the same frame.
+          // `hitByPad` keeps one verdict per pad so both survive.
+          const verdict = run.hitByPad.get(pad)?.kind
+          return (
+            <Pad
+              key={pad}
+              pad={pad}
+              lit={lit === pad}
+              onHit={run.hit}
+              {...(verdict === undefined ? {} : { verdict })}
+            />
+          )
+        })}
       </div>
 
       {/* The summary of the PREVIOUS session, for a learner arriving fresh. Once this

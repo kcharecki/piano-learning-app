@@ -251,6 +251,246 @@ describe('useGrooveRun', () => {
     expect(kick?.matched).toBe(1)
   })
 
+  /**
+   * Per-hit live feedback (roadmap DR-09 "per-hit live feedback"): every
+   * ACCEPTED hit gets an instant, provisional verdict from `judgeLiveHit`,
+   * published as `lastHit`. The grading itself is `liveHit.test.ts`'s job;
+   * what belongs here is the wiring — when it updates, when it does not, and
+   * that its own claimed-instant bookkeeping does not leak.
+   */
+  describe('live hit feedback', () => {
+    it('has no lastHit before anything is struck', () => {
+      const h = harness()
+      expect(h.result.current.lastHit).toBeUndefined()
+    })
+
+    it('judges an accepted hit live, with a fresh seq each time, and reads a second hit far from every remaining instant as extra rather than falsely claiming one', () => {
+      const h = harness()
+      act(() => h.result.current.start())
+
+      act(() => {
+        h.clock.setTime(h.plan.barMs)
+        h.result.current.hit('kick')
+      })
+      expect(h.result.current.lastHit).toMatchObject({
+        pad: 'kick',
+        kind: 'on-time',
+        offsetMs: 0,
+        instantIndex: 0,
+        seq: 1,
+      })
+
+      // Instant #0 is now claimed. Kick's next instant is 1500ms into the
+      // pass, so a kick only 40ms after the first is 1460ms from it — well
+      // outside the 100ms window — and must read extra, not fall back to
+      // instant #0 (claimed) or reach instant #1.
+      act(() => {
+        h.clock.setTime(h.plan.barMs + 40)
+        h.result.current.hit('kick')
+      })
+      expect(h.result.current.lastHit?.kind).toBe('extra')
+      expect(h.result.current.lastHit?.instantIndex).toBeUndefined()
+      expect(h.result.current.lastHit?.seq).toBe(2)
+    })
+
+    it('claims the next instant, not extra, when the second kick actually lands inside its window', () => {
+      const h = harness()
+      act(() => h.result.current.start())
+
+      act(() => {
+        h.clock.setTime(h.plan.barMs)
+        h.result.current.hit('kick')
+      })
+      expect(h.result.current.lastHit?.instantIndex).toBe(0)
+
+      // Kick's instant #1 is at 1500ms into the pass; landing 40ms past it
+      // is inside the 100ms window but past the 25ms on-time threshold, so
+      // this reads late against instant #1 rather than extra.
+      act(() => {
+        h.clock.setTime(h.plan.barMs + 1540)
+        h.result.current.hit('kick')
+      })
+      expect(h.result.current.lastHit).toMatchObject({
+        kind: 'late',
+        instantIndex: 1,
+        offsetMs: 40,
+      })
+    })
+
+    /**
+     * MAJOR finding 1: `lastHit` is a single slot, so a unison instant — hat
+     * and kick struck together, which is EVERY instant of the default
+     * Quarter-Note Rock — has the second accepted hit overwrite the first
+     * within the same frame, and the first pad's own verdict vanishes.
+     * `hitByPad` keeps one entry per pad so both survive.
+     */
+    it('keeps a separate verdict per pad, so a unison hit does not erase the other pad’s', () => {
+      const h = harness()
+      act(() => h.result.current.start())
+
+      // Money Beat's kick and hi-hat both have an instant at ms=0 of the pass.
+      act(() => {
+        h.clock.setTime(h.plan.barMs)
+        h.result.current.hit('kick')
+        h.result.current.hit('hhClosed')
+      })
+
+      expect(h.result.current.hitByPad.get('kick')).toMatchObject({
+        pad: 'kick',
+        kind: 'on-time',
+        instantIndex: 0,
+      })
+      expect(h.result.current.hitByPad.get('hhClosed')).toMatchObject({
+        pad: 'hhClosed',
+        kind: 'on-time',
+        instantIndex: 0,
+      })
+      // `lastHit` still names whichever of the two landed last — the sentence
+      // is unaffected by hitByPad's addition.
+      expect(h.result.current.lastHit?.pad).toBe('hhClosed')
+    })
+
+    it('starts with an empty hitByPad, and clears it on start()/preview() but not stop()', () => {
+      const h = harness()
+      expect(h.result.current.hitByPad.size).toBe(0)
+
+      act(() => h.result.current.start())
+      act(() => {
+        h.clock.setTime(h.plan.barMs)
+        h.result.current.hit('kick')
+      })
+      expect(h.result.current.hitByPad.get('kick')).toBeDefined()
+
+      act(() => h.result.current.stop())
+      expect(h.result.current.hitByPad.get('kick')).toBeDefined()
+
+      act(() => h.result.current.start())
+      expect(h.result.current.hitByPad.size).toBe(0)
+
+      act(() => {
+        h.clock.setTime(h.plan.barMs)
+        h.result.current.hit('kick')
+      })
+      act(() => h.result.current.stop())
+      act(() => h.result.current.preview())
+      expect(h.result.current.hitByPad.size).toBe(0)
+    })
+
+    it('does not touch lastHit for a hit the run rejects', () => {
+      const h = harness()
+      act(() => h.result.current.start())
+      act(() => {
+        h.clock.setTime(h.plan.barMs)
+        h.result.current.hit('kick')
+      })
+      const afterAccepted = h.result.current.lastHit
+
+      // Well past the run's own acceptance window — rejected outright, so
+      // this must not touch what the learner is currently reading.
+      act(() => {
+        h.clock.setTime(h.plan.barMs + h.plan.gradedMs + h.plan.windowMs + 1000)
+        h.result.current.hit('snare')
+      })
+      expect(h.result.current.lastHit).toBe(afterAccepted)
+    })
+
+    it('resets on start(), but survives stop() and the run finishing', () => {
+      const h = harness()
+      act(() => h.result.current.start())
+      act(() => {
+        h.clock.setTime(h.plan.barMs)
+        h.result.current.hit('kick')
+      })
+      expect(h.result.current.lastHit).toBeDefined()
+
+      // A finished run does not clear it — the learner reads it after the
+      // stick has already landed.
+      frameAt(h, h.plan.barMs + h.plan.gradedMs)
+      expect(h.result.current.phase).toBe('graded')
+      expect(h.result.current.lastHit).toBeDefined()
+
+      // Nor does stop().
+      act(() => h.result.current.stop())
+      expect(h.result.current.lastHit).toBeDefined()
+
+      // A fresh start clears it, the same way `result` is cleared.
+      act(() => h.result.current.start())
+      expect(h.result.current.lastHit).toBeUndefined()
+    })
+
+    it('preview() clears lastHit too', () => {
+      const h = harness()
+      act(() => h.result.current.start())
+      act(() => {
+        h.clock.setTime(h.plan.barMs)
+        h.result.current.hit('kick')
+      })
+      act(() => h.result.current.stop())
+      expect(h.result.current.lastHit).toBeDefined()
+
+      act(() => h.result.current.preview())
+      expect(h.result.current.lastHit).toBeUndefined()
+    })
+
+    /**
+     * MAJOR finding 2 (claim coverage): this `describe` block otherwise only
+     * ever drives the non-loop harness, so it never exercises
+     * `claimedByPassRef` — the per-pass claimed-instant set loop mode keeps
+     * instead of non-loop's one shared `claimedRef` (see `useGrooveRun`'s
+     * module comment). If claims were ever shared across passes instead,
+     * kick's instant #0 would stay claimed after pass 0 and this would fail
+     * the moment pass 1's own downbeat kick is judged.
+     */
+    it('per-pass claims: pass 1 re-opens instant 0', () => {
+      const h = harness(moneyBeatPlan(), true)
+      act(() => h.result.current.start())
+
+      frameAt(h, h.plan.barMs)
+      expect(h.result.current.phase).toBe('playing')
+
+      // Pass 0's own downbeat kick.
+      act(() => {
+        h.clock.setTime(h.plan.barMs)
+        h.result.current.hit('kick')
+      })
+      expect(h.result.current.lastHit).toMatchObject({ kind: 'on-time', instantIndex: 0 })
+
+      // Pass 1's own downbeat kick, struck the instant pass 1 opens — BEFORE
+      // pass 0 is graded (the windows overlap by windowMs, same as the
+      // "boundary hit" loop-mode test above) — must answer instant #0 in a
+      // FRESH claim set, not read as already claimed by pass 0's hit above.
+      // The FakeClock this harness uses cannot go backwards, so this has to
+      // happen before the frame below advances past it.
+      act(() => {
+        h.clock.setTime(h.plan.barMs + h.plan.gradedMs)
+        h.result.current.hit('kick')
+      })
+      expect(h.result.current.lastHit).toMatchObject({ kind: 'on-time', instantIndex: 0 })
+
+      // Grade pass 0 — its own claim set is discarded alongside it.
+      frameAt(h, h.plan.barMs + h.plan.gradedMs + h.plan.windowMs)
+      expect(h.result.current.passesGraded).toBe(1)
+
+      // Pass 2's own downbeat kick, same story, once pass 0 has graded.
+      act(() => {
+        h.clock.setTime(h.plan.barMs + 2 * h.plan.gradedMs)
+        h.result.current.hit('kick')
+      })
+      expect(h.result.current.lastHit).toMatchObject({ kind: 'on-time', instantIndex: 0 })
+
+      // Grade pass 1, then repeat once more for pass 3 — the same claim must
+      // re-open every pass, not just the first repeat.
+      frameAt(h, h.plan.barMs + 2 * h.plan.gradedMs + h.plan.windowMs)
+      expect(h.result.current.passesGraded).toBe(2)
+
+      act(() => {
+        h.clock.setTime(h.plan.barMs + 3 * h.plan.gradedMs)
+        h.result.current.hit('kick')
+      })
+      expect(h.result.current.lastHit).toMatchObject({ kind: 'on-time', instantIndex: 0 })
+    })
+  })
+
   it('strikes the pressed pad once, at the trainer’s own hit velocity', () => {
     const h = harness()
     act(() => h.result.current.hit('snare'))

@@ -108,6 +108,40 @@
  *    hundred milliseconds) still grades normally: the threshold is a whole
  *    extra `gradedMs`, far more than any frame is ever late by outside of a
  *    hidden tab or a debugger pause.
+ *
+ * ## Per-hit live feedback (roadmap DR-09 "per-hit live feedback")
+ *
+ * Every hit `hit()` ACCEPTS — the phase/clock acceptance rule above is
+ * unchanged — is also judged live, against `@core/drums/practice/
+ * liveHit.ts`'s `judgeLiveHit`, and the result is published as `lastHit`.
+ * This is deliberately a SEPARATE, provisional read of the same hit stream
+ * `grade.ts` grades at the end of the pass: `judgeLiveHit` commits to a
+ * verdict the instant a hit lands, with no lookahead, while `grade.ts`'s
+ * `pair` sees the whole pass at once. The two can disagree on a hit that
+ * arrives out of the order its instants are notated — see `liveHit.ts`'s own
+ * module comment — so `lastHit` is a coach, not the marking.
+ *
+ * A claimed-instant set tracks which of a pad's expected instants live
+ * feedback has already spent, so a second hit near an instant already
+ * claimed by an earlier one reads against what is actually still open
+ * rather than re-claiming the same instant twice. Non-loop keeps ONE such
+ * set for the run. Loop mode keeps one PER PASS (`claimedByPassRef`, keyed
+ * exactly like `hitsByPassRef`), because passes grade independently and a
+ * pass's own claims must not bleed into the next one's; an entry is dropped
+ * the moment that pass is graded or discarded as stale, alongside its
+ * `hitsByPassRef` entry.
+ *
+ * `lastHit` resets to `undefined` in `start()` and in `preview()` — a fresh
+ * run or a demonstration has nothing yet to report — but NOT in `stop()` and
+ * NOT when a pass or a non-loop run finishes: the learner reads the last
+ * line after the stick has already landed, and the whole point of `stop()`
+ * leaving history intact (see above) applies here too. A rejected hit never
+ * touches it. `lastHit` is a single slot, though, and a unison instant —
+ * hat and kick together, which is EVERY instant of the default Quarter-Note
+ * Rock — has a second accepted hit overwrite the first within the same
+ * frame, so `hitByPad` exists alongside it to keep one pad's verdict from
+ * erasing another's; it follows the exact same reset/survive rules as
+ * `lastHit` above, just keyed by pad instead of holding one slot.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createBrowserClock } from '@app/practice/clock.ts'
@@ -115,6 +149,7 @@ import { createDrumAudioOutput } from '@adapters/audio/drumAudio.ts'
 import { useTransportLoop, type FrameDriver } from '@app/practice/useTransportLoop.ts'
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import { gradeGrooveRun, type GrooveHit, type GrooveRunResult } from '@core/drums/practice/grade.ts'
+import { claimKey, judgeLiveHit, type LiveHitVerdict } from '@core/drums/practice/liveHit.ts'
 import { passGradeableAt, passOfHit, passOrigin } from '@core/drums/practice/loop.ts'
 import type { GrooveRunPlan } from '@core/drums/practice/plan.ts'
 import type { Clock, DrumAudioOutput } from '@core/ports/index.ts'
@@ -127,6 +162,9 @@ export type PadFlash = {
   readonly pad: MappedDrumPad
   readonly seq: number
 }
+
+/** One accepted hit's live verdict, with a sequence number so two equal verdicts in a row still re-render. */
+export type LiveHit = LiveHitVerdict & { readonly seq: number }
 
 /**
  * A graded verdict, paired with the tempo it was actually graded at. The
@@ -189,6 +227,14 @@ export type GrooveRunApi = {
   readonly steadyPasses: number
   readonly result: GradedRun | undefined
   readonly flash: PadFlash | undefined
+  /** The most recent ACCEPTED hit's live verdict. See the module comment. */
+  readonly lastHit: LiveHit | undefined
+  /**
+   * Each pad's own most recent accepted verdict — see the module comment on
+   * `lastHit` for why this exists alongside it (a unison instant would
+   * otherwise cost one of its pads its own colour).
+   */
+  readonly hitByPad: ReadonlyMap<MappedDrumPad, LiveHit>
   start: () => void
   stop: () => void
   hit: (pad: MappedDrumPad) => void
@@ -230,6 +276,9 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
   const [steadyPasses, setSteadyPasses] = useState(0)
   const [result, setResult] = useState<GradedRun | undefined>(undefined)
   const [flash, setFlash] = useState<PadFlash | undefined>(undefined)
+  const [lastHit, setLastHit] = useState<LiveHit | undefined>(undefined)
+  /** One entry per pad ever struck this run — see the module comment on `lastHit`. */
+  const [hitByPad, setHitByPad] = useState<ReadonlyMap<MappedDrumPad, LiveHit>>(new Map())
 
   // Retiring the result on a groove change is done HERE, during render, not
   // in an effect: comparing the plan's own identity against what was seen
@@ -250,6 +299,11 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
   const previewRef = useRef<PreviewTiming | undefined>(undefined)
   const hitsRef = useRef<GrooveHit[]>([])
   const seqRef = useRef(0)
+  const liveHitSeqRef = useRef(0)
+  /** Non-loop run's own claimed-instant set — see the module comment. */
+  const claimedRef = useRef<Set<string>>(new Set())
+  /** Loop mode's claimed-instant set, one per pass, keyed exactly like `hitsByPassRef`. */
+  const claimedByPassRef = useRef<Map<number, Set<string>>>(new Map())
   const planRef = useRef(plan)
   planRef.current = plan
   const onFinishedRef = useRef(options.onFinished)
@@ -304,6 +358,8 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
     previewRef.current = undefined
     hitsRef.current = []
     hitsByPassRef.current = new Map()
+    claimedRef.current = new Set()
+    claimedByPassRef.current = new Map()
     gradedThroughRef.current = -1
     scheduledPassesRef.current = 0
     loopingRef.current = false
@@ -313,6 +369,9 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
     setPhase('idle')
     setBeatIndex(-1)
     setPass(0)
+    // `lastHit` is deliberately left alone too, for the same reason — see the
+    // module comment: the learner reads it after the stick has landed, and
+    // Stop does not un-happen that.
     // `passesGraded`/`steadyPasses` are deliberately left alone: the screen
     // still shows the tally for whatever passes DID get graded before Stop —
     // see the module comment. `start()` is the only place that resets them.
@@ -336,6 +395,8 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
     previewRef.current = undefined
     hitsRef.current = []
     hitsByPassRef.current = new Map()
+    claimedRef.current = new Set()
+    claimedByPassRef.current = new Map()
     gradedThroughRef.current = -1
     lastGradedRef.current = undefined
     // Pass 0's clicks are scheduled below, unconditionally; `1` means "pass 0
@@ -349,6 +410,8 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
     setPass(0)
     setPassesGraded(0)
     setSteadyPasses(0)
+    setLastHit(undefined)
+    setHitByPad(new Map())
     setPhase('count-in')
 
     // The whole click track, scheduled once against absolute instants on the
@@ -381,6 +444,8 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
 
     phaseRef.current = 'preview'
     setPhase('preview')
+    setLastHit(undefined)
+    setHitByPad(new Map())
     previewRef.current = { endAt: startedAt + spanMs }
 
     // One pass of the drawn music, plus a click track under it — both
@@ -512,11 +577,13 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
       if (now < gradeableAt) break
       if (now > gradeableAt + runPlan.gradedMs) {
         hitsByPassRef.current.delete(nextToGrade)
+        claimedByPassRef.current.delete(nextToGrade)
         gradedThroughRef.current = nextToGrade
         continue
       }
       const hits = hitsByPassRef.current.get(nextToGrade) ?? []
       hitsByPassRef.current.delete(nextToGrade)
+      claimedByPassRef.current.delete(nextToGrade)
       gradedThroughRef.current = nextToGrade
       const graded = gradeGrooveRun(runPlan, hits)
       setResult({ result: graded, bpm: runPlan.bpm })
@@ -532,6 +599,18 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
     onFrame,
     ...(driver === undefined ? {} : { driver }),
   })
+
+  /** Publishes an accepted hit's verdict to both `lastHit` and `hitByPad` — see the module comment. */
+  const publishLiveHit = useCallback((pad: MappedDrumPad, verdict: LiveHitVerdict): void => {
+    liveHitSeqRef.current += 1
+    const liveHit: LiveHit = { ...verdict, seq: liveHitSeqRef.current }
+    setLastHit(liveHit)
+    setHitByPad((prev) => {
+      const next = new Map(prev)
+      next.set(pad, liveHit)
+      return next
+    })
+  }, [])
 
   const hit = useCallback(
     (pad: MappedDrumPad): void => {
@@ -552,15 +631,28 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
         const relative = now - timing.gradedOrigin
         const passIndex = passOfHit(runPlan, relative)
         const list = hitsByPassRef.current.get(passIndex) ?? []
-        list.push({ pad, ms: relative - passOrigin(runPlan, passIndex) })
+        const passMs = relative - passOrigin(runPlan, passIndex)
+        list.push({ pad, ms: passMs })
         hitsByPassRef.current.set(passIndex, list)
+
+        const claimed = claimedByPassRef.current.get(passIndex) ?? new Set<string>()
+        const verdict = judgeLiveHit(runPlan, pad, passMs, claimed)
+        if (verdict.instantIndex !== undefined) claimed.add(claimKey(pad, verdict.instantIndex))
+        claimedByPassRef.current.set(passIndex, claimed)
+        publishLiveHit(pad, verdict)
         return
       }
 
       if (now > timing.endAt + runPlan.windowMs) return
-      hitsRef.current.push({ pad, ms: now - timing.gradedOrigin })
+      const ms = now - timing.gradedOrigin
+      hitsRef.current.push({ pad, ms })
+
+      const verdict = judgeLiveHit(runPlan, pad, ms, claimedRef.current)
+      if (verdict.instantIndex !== undefined)
+        claimedRef.current.add(claimKey(pad, verdict.instantIndex))
+      publishLiveHit(pad, verdict)
     },
-    [clock, sound],
+    [clock, sound, publishLiveHit],
   )
 
   // A run cannot outlive the screen: a pump that keeps ticking after unmount
@@ -596,6 +688,8 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
     steadyPasses,
     result,
     flash,
+    lastHit,
+    hitByPad,
     start,
     stop,
     hit,

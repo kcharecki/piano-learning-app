@@ -65,6 +65,10 @@ function runState(): string {
   return screen.getByRole('status', { name: 'Run state' }).textContent ?? ''
 }
 
+function lastHitText(): string {
+  return screen.getByRole('status', { name: 'Last hit' }).textContent ?? ''
+}
+
 beforeEach(() => {
   useDrumsHistoryStore.setState({ attempts: [] })
 })
@@ -338,6 +342,73 @@ describe('GrooveTrainerScreen', () => {
    * two passes off one count-in, boundary hit assignment, click scheduling —
    * is `useGrooveRun.test.ts`'s job; this is wiring and accessible names.
    */
+  /**
+   * Per-hit live feedback (roadmap DR-09): a status line and a colour on the
+   * pad for every ACCEPTED hit, not just a verdict at the end. The grading
+   * itself (`judgeLiveHit`) is proven in `liveHit.test.ts`; this is wiring —
+   * that `useGrooveRun.lastHit` reaches both the status line and the right
+   * pad's `data-verdict`.
+   */
+  describe('live hit feedback', () => {
+    it('shows nothing for Last hit before any hit lands', () => {
+      setup()
+      expect(lastHitText()).toBe('')
+    })
+
+    it('gives the struck pad a live verdict, in the status line and as a colour on the pad itself', async () => {
+      const { user, frameAt } = setup()
+      await user.click(screen.getByRole('button', { name: 'Start' }))
+      frameAt(BAR_MS)
+
+      await user.keyboard(' ')
+      expect(lastHitText()).toBe('Kick on time, +0 ms')
+      expect(screen.getByRole('button', { name: 'Kick' })).toHaveAttribute(
+        'data-verdict',
+        'on-time',
+      )
+      // Only the struck pad carries the colour — not every pad on screen.
+      expect(screen.getByRole('button', { name: 'Hi-hat' })).not.toHaveAttribute('data-verdict')
+    })
+
+    /**
+     * MAJOR finding 1: Quarter-Note Rock's kick and hi-hat share an instant
+     * at the very start of every bar, so a learner striking both at once
+     * must not have the second pointerdown's `lastHit` overwrite the first
+     * pad's own `data-verdict` — each pad is driven by `hitByPad` now.
+     */
+    it('keeps a live verdict on each pad when two hits land at the same instant (unison)', async () => {
+      const { user, frameAt } = setup()
+      await user.click(screen.getByRole('button', { name: 'Start' }))
+      frameAt(BAR_MS)
+
+      await user.keyboard(' ') // kick, instant 0
+      await user.keyboard('j') // hi-hat, also instant 0
+
+      expect(screen.getByRole('button', { name: 'Kick' })).toHaveAttribute(
+        'data-verdict',
+        'on-time',
+      )
+      expect(screen.getByRole('button', { name: 'Hi-hat' })).toHaveAttribute(
+        'data-verdict',
+        'on-time',
+      )
+    })
+
+    it('reads a hit with nothing expected at that instant as extra, both in text and as the pad’s colour', async () => {
+      const { user, frameAt } = setup()
+      await user.click(screen.getByRole('button', { name: 'Start' }))
+      frameAt(BAR_MS)
+      // Quarter-Note Rock's snare falls on 750/2250/3750/5250ms into the
+      // graded window; 2000ms in is 250ms from the nearest of those — well
+      // outside the 100ms window this groove grades at.
+      frameAt(BAR_MS + 2000)
+
+      await user.keyboard('f')
+      expect(lastHitText()).toBe('Snare — nothing written there')
+      expect(screen.getByRole('button', { name: 'Snare' })).toHaveAttribute('data-verdict', 'extra')
+    })
+  })
+
   describe('Loop', () => {
     it('is off by default, toggles on click, and is disabled while a run is on', async () => {
       const { user } = setup()
