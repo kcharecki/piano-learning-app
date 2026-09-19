@@ -16,6 +16,55 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
+## 2026-09-19 — drum session, wave 14: three slices, ten reds, nine of them the architect's sentences
+- **user-reported defects since last session:** 0.
+- **slices proven / started:** 3 / 3. `288f31b` feat(drums/practice) — grade ghost
+  notes and accents from hit velocity, the first library groove ("Ghost Funk Bar")
+  that notates dynamics, and a coverage note whenever notated dynamics go unassessed,
+  closing DR-07/DR-03's velocity-classes item. `17ddd86` feat(drums/reading) — a slip
+  sentence on the reading trainer's result card that names its own grid units, closing
+  the DR-08/reading backlog note from wave 12. `b01e281` fix(adapters/audio) — a MIDI
+  output port switch panics the old port on the drum channel and on all channels
+  before rebinding, and `drumAudio.ts` rebuilds the voice on a selected-id change,
+  closing DR-06's port-switch note from wave 13. Each driven in the running app,
+  e2e-covered and visual-passed in both themes at both widths.
+- **gate catches before commit:** 10 red across the three reviews + 5 amber taken on
+  the velocity-dynamics review. Velocity review: 3 red round 1 (dynamics graded at the
+  step-0 pairing so a slipped run with perfect dynamics read 8 wrong; the feature was
+  inert because no library groove notated dynamics; on-screen pads could never satisfy
+  the coverage sentence), 1 red round 2 (a mouse-only ghost-funk run reported an
+  unqualified "Steady run" with all twenty notated dynamics silently unassessed), GREEN
+  round 3. Reading-slip review: 3 red round 1 (the shared `stepName` floored every grid
+  coarser than a beat to "beat"; "Every onset was on the grid" overclaimed at the
+  grader's own 0.75 coverage; the tail hard-coded "one" under a two-step head), 2 red
+  round 2 (triplet and dotted grids fell into the same three buckets; the property test
+  was tautological on the unit word), GREEN round 3. Port-switch review: 1 red round 1
+  (the architect's own contract claimed an old-port panic was impossible; it was
+  necessary, plus two surviving mutants given killing tests), GREEN round 2. The gate
+  also went red once on a stale e2e string (`e2e/drums-progress.spec.ts` still expected
+  three grooves after the ghost-funk groove became the fourth) — fixed and re-verified
+  green before commit.
+- **docs budget:** no warnings.
+- **cost note:** the wave-13 docs commit could not land while a builder had a mid-edit
+  type error under `src/`, because the pre-commit hook typechecks the whole tree — it
+  sat staged until the integrator committed it first this wave. The docs agent now
+  commits before any builder of the next wave starts.
+- **hypothesis:** a diagnosis sentence's wording is itself an untested claim until
+  someone enumerates the regimes it will be asked to cover — nine of this wave's ten
+  reds were architect-written sentence specs (grid vocabulary, a coverage claim, a
+  hard-coded "one", a "cannot happen" claim) that builders implemented faithfully; only
+  one red was a builder's own choice (the step-0 pairing).
+- **change:** one. A contract for a diagnosis sentence enumerates the generator's whole
+  input space — every grid, level and regime the sentence will be asked to name — and
+  demands one hard-coded expected string per regime; a property over the template is
+  not a test of the sentence. Nine of this wave's ten reds were architect-written
+  sentence specs (grid vocabulary, coverage claims, a hard-coded "one", a "cannot
+  happen" claim) that builders implemented faithfully. Recorded in
+  `docs/drums/NEXT-SESSION.md`'s "Watch out for" list.
+- **experiment verdicts due:** none carried over from wave 13.
+
+---
+
 ## 2026-09-19 — drum session, wave 13: three slices, two of three reds were the architect's
 
 - **user-reported defects since last session:** 0.

@@ -148,8 +148,10 @@ item lands inside a slice that drives something (specs state their proof surface
       spec's "persisted per-device kit maps" is not yet per-device — the chosen
       preset/learned map persists once, globally, not keyed by e-kit device id the way
       the latency offset is → [spec](features/DR-02-edrum-midi-input.md)
-- [ ] DR-03 ‖ Fallback inputs — keyboard map with dynamics modifiers, on-screen pads,
+- [~] DR-03 ‖ Fallback inputs — keyboard map with dynamics modifiers, on-screen pads,
       capability banner → [spec](features/DR-03-fallback-inputs.md)
+      - Keyboard dynamics landed 2026-09-19 (`288f31b`): Shift = accent (110), Alt =
+        ghost (40), plain = 96; macOS Alt+letter note (backlog 2).
 - [x] DR-05 Notation rendering — own SVG groove renderer (trainer surfaces) + OSMD
       strategy for charts → [spec](features/DR-05-drum-notation-rendering.md). Landed
       2026-09-17 (`98c0a9b`, root T.30): `core/drums/engrave/` + `app/drums/notation/`,
@@ -168,7 +170,7 @@ item lands inside a slice that drives something (specs state their proof surface
       and `pickTarget` falls back to the synth per hit whenever the selected id is
       not listed — Settings says "That MIDI output is unplugged — using the built-in
       synth." Sample-kit audio behind this port is tracked separately as DR-B5, not
-      part of this item. Review nits landed 2026-09-19 (`6aa0983`): a re-plug proof test, `listDevices()` cached on `WebMidiOutputAdapter` and invalidated on statechange/refresh/detach, and the MIDI hat voice's pending open hat reset both on the synth-fallback branch and on any device-list event that drops the selected output (gated so an unrelated plug event, e.g. the learner's piano, never resets a genuinely ringing hat). New note: switching the MIDI output port in Settings mid-session reuses the voice bound to the old port (`ensureMidiTarget`'s rebuild guard is instance-only), so a ringing open hat's note-off goes to the new port while the old one keeps ringing — fix: cache `selectedDeviceId` next to the instance, `allNotesOff()` the old port and rebuild on change. Pre-existing, found by the wave-13 Opus review; DR-06 stays `[x]` because the shipped port-picker/hot-plug/fallback behaviour still works as spec'd and this is a new corner case (a rebuild mid-session), not a regression of what shipped.
+      part of this item. Review nits landed 2026-09-19 (`6aa0983`): a re-plug proof test, `listDevices()` cached on `WebMidiOutputAdapter` and invalidated on statechange/refresh/detach, and the MIDI hat voice's pending open hat reset both on the synth-fallback branch and on any device-list event that drops the selected output (gated so an unrelated plug event, e.g. the learner's piano, never resets a genuinely ringing hat). New note: switching the MIDI output port in Settings mid-session reuses the voice bound to the old port (`ensureMidiTarget`'s rebuild guard is instance-only), so a ringing open hat's note-off goes to the new port while the old one keeps ringing — fix: cache `selectedDeviceId` next to the instance, `allNotesOff()` the old port and rebuild on change. Pre-existing, found by the wave-13 Opus review; DR-06 stays `[x]` because the shipped port-picker/hot-plug/fallback behaviour still works as spec'd and this is a new corner case (a rebuild mid-session), not a regression of what shipped. Fixed 2026-09-19 (`b01e281`): `selectMidiOutputPort` panics the old port on the drum channel and on all channels before `selectDevice`; re-picking the same port sends nothing; `drumAudio.ts` caches `midiSelectedId` and rebuilds the voice on change. New note: `WebMidiOutputAdapter` still invalidates its device cache twice per statechange (`webmidi.ts:69`, then `:319` via `refresh()`) — idempotent, cosmetic, one line to drop.
 - [~] DR-07 Hit timing scorer — matcher, windows, velocity classes, per-limb stats;
       **Opus adversarial review required** → [spec](features/DR-07-hit-timing-scorer.md).
       `core/drums/practice/grade.ts` is the matcher today (greedy pairing, inclusive window,
@@ -176,8 +178,8 @@ item lands inside a slice that drives something (specs state their proof surface
       detection landed 2026-09-19 (`422dcd6`): `runSlipSteps` shifts by the NOMINAL
       finest grid, never the swung gap, and re-swings before comparing. Velocity
       classes and per-level windows still open.
-      Per-pad displacement landed 2026-09-19 (`9f2bb6a`), one clause on the rule: `padDisplacementSteps` (`padDisplacement.ts`) finds each pad's own grid step (strict-max count over ±MAX_SLIP_STEPS, `SLIP_COVERAGE` 0.75 coverage of the pad's own instants with a floor of two matches), exposed as `GroovePadResult.displacementSteps`; the diagnosis sentence ("Snare sat 1 eighth behind the other limbs, which sit on the grid. Move Snare to meet them.") fires only when `slipSteps` is undefined, at least two pads with expected strokes were played, exactly one is displaced and the rest sit at step 0. Velocity classes and per-level windows still open, so this item keeps `[~]`.
-- [~] DR-08 Latency calibration + input monitor → [spec](features/DR-08-latency-calibration.md).
+      Per-pad displacement landed 2026-09-19 (`9f2bb6a`), one clause on the rule: `padDisplacementSteps` (`padDisplacement.ts`) finds each pad's own grid step (strict-max count over ±MAX_SLIP_STEPS, `SLIP_COVERAGE` 0.75 coverage of the pad's own instants with a floor of two matches), exposed as `GroovePadResult.displacementSteps`; the diagnosis sentence ("Snare sat 1 eighth behind the other limbs, which sit on the grid. Move Snare to meet them.") fires only when `slipSteps` is undefined, at least two pads with expected strokes were played, exactly one is displaced and the rest sit at step 0. Velocity classes landed 2026-09-19 (`288f31b`), one clause: absent velocity is unassessed and named on the result card, never counted as normal. Per-level windows still open, so this item keeps `[~]`.
+- [~] DR-08 Latency calibration + input monitor → [spec](features/DR-08-latency-calibration.md). Reading-trainer slip sentence landed 2026-09-19 (`17ddd86`): `readingSlipQuantity()` names the slip from the exercise's own grid rather than the groove trainer's `stepName`. Open: a learner one quarter late on a grid coarser than an eighth (e.g. a half-note grid) lands between two grid positions and gets no diagnosis; the detail counts sit at step 0 next to the slip line; the ms readout disappears whenever the slip line fires.
       Calibration landed 2026-09-18 (`ce06836`): `/drums/latency` plays a one-bar count-in
       then a click at 80 bpm; the learner hits any pad on 16 clicks, each judged against its
       nearest click (`core/drums/scoring/latency.ts`), and the median deviation with a
@@ -236,7 +238,7 @@ item lands inside a slice that drives something (specs state their proof surface
       (`4f01c60`) against the PAS chart; the stroke record reads the engine's phase through a
       render-mirrored ref, so a stroke in the first frame of the window (or any stroke
       while the tab is hidden and frames are paused) is graded but not scored for
-      evenness. Fixed 2026-09-19 (`bbac15b`): `useGrooveRun.hit()` now returns the ms it recorded (or undefined) and the evenness record takes that value directly instead of mirroring `run.phase` into a lagging ref (`phaseRef` deleted); the record clears at run start. Accent/velocity grading for accented rudiments still waits on DR-07/DR-25's velocity classes, so DR-10 keeps `[~]`.
+      evenness. Fixed 2026-09-19 (`bbac15b`): `useGrooveRun.hit()` now returns the ms it recorded (or undefined) and the evenness record takes that value directly instead of mirroring `run.phase` into a lagging ref (`phaseRef` deleted); the record clears at run start. Accent/velocity grading for accented rudiments still waits on DR-07/DR-25's velocity classes, so DR-10 keeps `[~]`. Velocity classes exist as of `288f31b`; the rudiment trainer does not yet read them.
 - [x] DR-11 ‖ Rhythm reading trainer — Reed-ordered generator, one-line staff, tap-graded
       → [spec](features/DR-11-rhythm-reading-trainer.md). Core landed 2026-09-17
       (`17e4b4f`): `core/drums/reading/` cells, 7 levels, generator, accuracy-gated
@@ -259,7 +261,7 @@ item lands inside a slice that drives something (specs state their proof surface
       that note is moot until one does.)
 - [ ] DR-13 ‖ Beat builder — GrooveScribe-style grid ⇄ live notation, library, share-URL;
       the content-authoring tool → [spec](features/DR-13-beat-builder.md)
-- [~] DR-15 Coordination trainer — limb layering, kick permutations, hh foot/openings,
+- [x] DR-15 Coordination trainer — limb layering, kick permutations, hh foot/openings,
       jazz intro → [spec](features/DR-15-coordination-trainer.md). `/drums/coordination`
       landed 2026-09-18 (`a3eacab`): layer build (cymbals → + feet → + snare family, each
       layer a real score subset on the staff, a steady pass unlocks the next) and the 16
@@ -284,7 +286,7 @@ item lands inside a slice that drives something (specs state their proof surface
       every even beat, then on every & (`core/drums/coordination/openings.ts`); the
       grader's open/closed sibling rule turns a missed opening into "played closed
       instead of open", and a groove with no hat on an "&" shows a status line instead
-      of steps with Start disabled. Still open: the jazz ride introduction.
+      of steps with Start disabled. The jazz ride introduction landed 2026-09-18 (`33cbe48`): a sixth mode, `jazzRideDrills()`, builds ride alone → + hi-hat foot → + snare comp figures at 67% swing. Nothing in the spec's ladder is left open.
 
 ## Phase D2 — The learning system: curriculum, planning, memory
 
@@ -763,3 +765,94 @@ New notes:
   yields no sentence; a "between grid positions" sentence is a candidate.
 - The reading trainer still has no slip/displacement sentence (the DR-08 note
   from wave 12 stands).
+
+### 2026-09-19 — orchestrated drum session, wave 14
+
+Three commits: (a) `288f31b` feat(drums/practice) — grade ghost notes and accents from
+hit velocity (DR-07, DR-03): `GroovePadPlan.expectedDynamics` runs parallel to
+`expectedNominalTicks`; `GrooveHit.velocity?` is optional (absent means unclassified,
+excluded from dynamics grading but still counted for timing); `padDynamics()`
+(`dynamics.ts`) returns `{ graded, unclassified, wrong, softWanted, loudWanted,
+ghostInstants, accentInstants }`, grading only the notated accent/ghost instants from the
+pairing at the pad's own effective shift (`slipSteps` ?? `displacementSteps` ?? 0);
+`grooveTrainerLibrary()` gains "Ghost Funk Bar" (id `ghost-funk-bar`, 16 ghosts + 4
+accents on the snare over its two graded bars) as the first library groove that notates
+dynamics; the result diagnosis names the pad with the most wrong strokes ("Snare: 16 of
+16 ghost notes came out full. Play them under the hi-hat." / "Snare: 4 of 4 accents did
+not land. Lean into them.") and the result card carries a coverage note whenever notated
+dynamics went unassessed ("Dynamics were not graded: on-screen pads carry no velocity.
+Use Shift and Alt on the keyboard, or an e-kit." / "Dynamics graded on 10 of 16 strokes;
+on-screen pad hits carry no velocity."); keyboard pads always carry velocity (Shift 110
+accent, Alt 40 ghost, plain 96 normal — Alt no longer bails, and its browser default is
+suppressed only while a run plays), MIDI hits pass `raw.velocity` from both trainer
+screens, on-screen pads pass none, and a "Shift = accent · Alt = ghost" legend shows
+under the pads only when the plan notates dynamics. (b) `17ddd86` feat(drums/reading) —
+name the slip on the reading trainer's result card (DR-08): `readingResultLines(result,
+accuracy, plan)` gains an optional slip line ("You sat 1 eighth behind the click. Most of
+your onsets were on the grid, 1 eighth late."); `readingSlipQuantity(steps, beatMs,
+nominalSubdivisionMs)` names the slip from the exercise's own grid — beats for grids of a
+beat or coarser ("2 beats", "1.5 beats"), sub-beat grids by ratio (eighth, sixteenth,
+triplet eighth, dotted eighth, thirty-second, triplet sixteenth), an unknown ratio falling
+back to beats at two decimals; the detail line drops "late by N ms on average" whenever
+the slip line fires, and the screen renders it between detail and level-change — closes
+the DR-08/reading backlog note from wave 12. (c) `b01e281` fix(adapters/audio) — panic
+the old port and reset the drum voice on a MIDI port switch (DR-06):
+`selectMidiOutputPort` sends `allNotesOff(DRUM_MIDI_CHANNEL)` then `allNotesOff()` to the
+OLD port before `selectDevice(id)`; re-picking the already-selected port only persists
+the preference and sends nothing; `drumAudio.ts` caches `midiSelectedId` and rebuilds the
+voice when the selected id changes while a voice is live — closes the port-switch note
+from wave 13.
+
+Opus review of (a) (velocity dynamics) round 1: 3 red — dynamics graded at the step-0
+pairing so a slipped run with perfect dynamics read 8 wrong; the feature was inert
+because no library groove notated dynamics; on-screen pads could never satisfy the
+coverage sentence. Round 2: 1 red — a mouse-only run on the ghost-funk groove reported an
+unqualified "Steady run" with all twenty notated dynamics silently unassessed. Round 3:
+GREEN, +5 amber taken (matched-vs-graded docs, a `displacementSteps`-arm example, a
+`shiftedExpectedMs` order property, one literal-string fixture per sentence template, a
+coverage-note doc). Opus review of (b) (reading slip) round 1: 3 red — the shared
+`stepName` floored every grid coarser than a beat to "beat", so a two-beat-early learner
+read "1 beat"; "Every onset was on the grid" overclaimed at the grader's own 0.75
+coverage; the tail hard-coded "one" under a two-step head. Round 2: 2 red — triplet and
+dotted grids fell into the same three buckets; the property test was tautological on the
+unit word. Round 3: GREEN. Opus review of (c) (port switch) round 1: 1 red — the
+architect's contract claimed an old-port panic was impossible; it was necessary, plus two
+surviving mutants given killing tests. Round 2: GREEN. Gate catches before commit this
+wave: 10 red, of which 9 were the architect's own sentence specs (grid vocabulary,
+coverage claims, a hard-coded "one", a "cannot happen" claim) and one a builder's
+(step-0 pairing).
+
+Spec decisions recorded this session: absent velocity means "not assessed", never
+"normal", and unassessed dynamics are named on the result card rather than counted;
+dynamics grade from the same shift the timing grader agreed on; the ghost-funk groove is
+the first library groove that grades dynamics; the reading trainer names slip units
+itself from its own grid and no longer depends on the groove trainer's `stepName`; "Most
+of your onsets" is the strongest claim a 0.75-coverage slip supports; a port switch
+panics the old port on both the drum channel and all channels before rebinding.
+
+Docs-ordering finding: the wave-13 docs commit could not land while a builder had a
+mid-edit type error under `src/` because the pre-commit hook typechecks the whole tree —
+it sat staged until the integrator committed it first this wave. Rule going forward: the
+docs agent commits before any builder of the next wave starts.
+
+New notes:
+
+- DR-07: the dynamics sentence's denominator is graded instants, not notated ones —
+  "Snare: 1 of 2 ghost notes came out full" on a 16-ghost groove when 18 strokes were
+  missed; the coverage note covers unclassified strokes only, never unmatched ones, and
+  stays silent when notated dynamics exist and nothing matched (judged acceptable: the
+  pad line owns that).
+- DR-03: on macOS, Alt+letter rewrites `event.key`, so the ghost modifier is dead there
+  while the coverage note still says "Use Shift and Alt" — `useKeyboardPads` should key
+  on `event.code` instead.
+- DR-03/DR-07: `DynamicsLegend` keys on the unmuted plan, so it still shows with the
+  snare muted on ghost funk (when grading has nothing to apply it to), and has no aria
+  link from the pad buttons.
+- DR-08/DR-11: a learner one quarter late on a level-1 reading exercise whose grid is a
+  half note is undiagnosable (between grid positions); the detail counts sit at step 0
+  next to the slip line; the ms readout disappears whenever the slip line fires.
+- DR-06: `WebMidiOutputAdapter` invalidates its device cache twice per statechange
+  (`webmidi.ts:69`, then `:319` via `refresh()`) — idempotent, cosmetic, one line to
+  drop. The piano-side MIDI-out voice (`src/adapters/audio/midiout.ts`) has no device-id
+  cache at all, because piano MIDI-out is not plumbed to any screen yet
+  (`src/adapters/audio/index.ts:36-42`) — nothing to fix until it is.
