@@ -26,6 +26,7 @@ import {
   type GrooveRunResult,
 } from '@core/drums/practice/grade.ts'
 import type { GrooveRunPlan } from '@core/drums/practice/plan.ts'
+import type { DynamicsClass } from '@core/drums/model/groove.ts'
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import { GROOVE_PAD_LABEL } from './padLabels.ts'
 
@@ -127,7 +128,7 @@ function stepName(beatMs: number, nominalSubdivisionMs: number): string {
   return 'beat'
 }
 
-function plural(count: number, noun: string): string {
+export function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? '' : 's'}`
 }
 
@@ -182,15 +183,118 @@ function worstArticulationSlip(result: GrooveRunResult): ArticulationSlip | unde
 }
 
 /**
- * Why the run was not steady, worst cause first — empty for a steady run,
- * because a learner who got it right does not need a list of things that were
- * nearly wrong.
+ * DR-07 tail / DR-03: the pad with the most wrong-velocity graded hits
+ * (accent/ghost instants played at the wrong dynamic), ties going to the
+ * first pad in `pads` order — `undefined` when every graded pad's dynamics
+ * came out clean. Dynamics never affect `steady`/timing (see the contract on
+ * `padDynamics`), so this is read independently of every timing branch below,
+ * including the early `result.steady` return.
+ */
+function worstDynamicsPad(pads: readonly GroovePadResult[]): GroovePadResult | undefined {
+  let worst: GroovePadResult | undefined
+  for (const row of pads) {
+    if (row.dynamics.wrong <= 0) continue
+    if (worst === undefined || row.dynamics.wrong > worst.dynamics.wrong) worst = row
+  }
+  return worst
+}
+
+/**
+ * One sentence for the pad `worstDynamicsPad` picked out. A pad can have both
+ * kinds of dynamics mistake at once (some ghost notes played full AND some
+ * accents played soft); the sentence budget is one, so only the larger kind
+ * is named — and BOTH the count and the denominator stay within that one
+ * kind: `softWanted` of `ghostInstants`, or `loudWanted` of `accentInstants`,
+ * never `graded` (both kinds combined). `graded` as a denominator would
+ * overstate the count — "16 of 20 ghost notes" on a pad with 16 ghosts and 4
+ * accents claims 20 ghost notes were even possible, when only 16 were.
+ */
+function dynamicsSentence(row: GroovePadResult): string {
+  const label = GROOVE_PAD_LABEL[row.pad]
+  const { softWanted, loudWanted, ghostInstants, accentInstants } = row.dynamics
+  if (softWanted >= loudWanted) {
+    return `${label}: ${softWanted} of ${plural(ghostInstants, 'ghost note')} came out full. Play them under the hi-hat.`
+  }
+  return `${label}: ${loudWanted} of ${plural(accentInstants, 'accent')} did not land. Lean into them.`
+}
+
+/**
+ * RED (review round 3): a mouse-only run on a dynamics-notated groove (e.g.
+ * Ghost-Funk Bar) used to grade `wrong: 0` everywhere and print nothing —
+ * every accent/ghost stroke came back UNCLASSIFIED (RED 3's own contract:
+ * an on-screen pad click carries no velocity), so the run read as a clean
+ * "Steady run" pass on the exact groove that exists to teach ghost notes.
+ * `wrong: 0` is technically true and also silently means nothing was ever
+ * assessed — this note is the difference between the two, read straight off
+ * `dynamics.graded`/`dynamics.unclassified` rather than the verdict.
+ *
+ * Deliberately takes the FIELDS a caller already has (the orphan-signals
+ * lint rule) — `pads` need only their own `dynamics`. The function does NOT
+ * pair the two arrays up by index; it sums each one independently —
+ * `notated` from every entry of `expectedDynamicsByPad`, `graded`/
+ * `unclassified` from every entry of `pads` — so the two lists need not even
+ * be the same length or share an order with each other. What each array DOES
+ * need is to be complete on its OWN side: `pads` covers every pad the run
+ * touched, and `expectedDynamicsByPad` covers every pad the plan notates,
+ * each entry holding that one pad's own fields. The screen passes both
+ * because it is the one place holding both a `GrooveRunResult` and the
+ * `GrooveRunPlan` it was graded against — not because this function needs
+ * them zipped together.
+ *
+ * `notated` (how many accent/ghost instants the groove even has) gates
+ * everything: a groove with none of its own (Money Beat) gets no note at
+ * all, whatever `graded`/`unclassified` come out to — there is nothing this
+ * note could be telling that learner. Then:
+ * - nothing graded, something unclassified: on-screen pads cannot express
+ *   dynamics at all — say so plainly, once, and name the fix (keyboard/e-kit).
+ * - some graded, some unclassified: a MIXED run (say, keyboard for one hand,
+ *   mouse for the other) — the verdict undercounts, so say exactly how much
+ *   of the picture it actually saw.
+ * - nothing unclassified: either every notated stroke was graded (nothing to
+ *   add), or nothing matched at all (the timing lines already cover that
+ *   case) — either way, no note.
+ */
+export function dynamicsCoverageNote(
+  pads: readonly Pick<GroovePadResult, 'dynamics'>[],
+  expectedDynamicsByPad: readonly (readonly DynamicsClass[])[],
+): string | undefined {
+  const notated = expectedDynamicsByPad.reduce(
+    (sum, expectedDynamics) => sum + expectedDynamics.filter((d) => d !== 'normal').length,
+    0,
+  )
+  if (notated === 0) return undefined
+
+  const graded = pads.reduce((sum, row) => sum + row.dynamics.graded, 0)
+  const unclassified = pads.reduce((sum, row) => sum + row.dynamics.unclassified, 0)
+
+  if (unclassified === 0) return undefined
+  if (graded === 0) {
+    return 'Dynamics were not graded: on-screen pads carry no velocity. Use Shift and Alt on the keyboard, or an e-kit.'
+  }
+  return `Dynamics graded on ${graded} of ${graded + unclassified} strokes; on-screen pad hits carry no velocity.`
+}
+
+/**
+ * Why the run was not steady, worst cause first. Empty for a steady run that
+ * also played its dynamics cleanly — a learner who got it right does not need
+ * a list of things that were nearly wrong — but NOT unconditionally empty for
+ * every steady run: dynamics wrongness never touches `steady` (timing-only,
+ * see `padDynamics`'s contract), so a perfectly steady run that ghosted or
+ * accented the wrong stroke still gets its one dynamics sentence below.
  */
 export function diagnosisSentences(
   result: GrooveRunResult,
   plan: GrooveRunPlan,
 ): readonly string[] {
-  if (result.steady) return []
+  // DR-07 tail / DR-03: dynamics wrongness never touches `steady` (that field
+  // stays purely about timing — see `padDynamics`'s contract), so a run that
+  // is perfectly steady but played every accent/ghost at the wrong volume
+  // must still surface its one dynamics sentence, even though every other
+  // branch below is timing-only and skipped for a steady run.
+  if (result.steady) {
+    const worstDyn = worstDynamicsPad(result.pads)
+    return worstDyn === undefined ? [] : [dynamicsSentence(worstDyn)]
+  }
 
   // Checked on hits, not on matches (T.17.8): a run where nothing registered
   // and a run where everything landed in the wrong place both have zero
@@ -287,6 +391,11 @@ export function diagnosisSentences(
       }
     }
   }
+
+  // DR-07 tail / DR-03: dynamics named after per-pad displacement, before the
+  // unison/flam block, per the contract's ordering.
+  const worstDyn = worstDynamicsPad(result.pads)
+  if (worstDyn !== undefined) sentences.push(dynamicsSentence(worstDyn))
 
   const flam = worstUnisonGap(result)
   if (flam !== undefined) {

@@ -8,10 +8,17 @@ import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import type { ArticulationSlip, GroovePadResult, GrooveRunResult } from '@core/drums/practice/grade.ts'
 import { gradeGrooveRun, type GrooveHit } from '@core/drums/practice/grade.ts'
-import { moneyBeat, moneyBeatOpenHat, quarterNoteRock, referenceGrooves } from '@core/drums/model/referenceGrooves.ts'
+import {
+  ghostFunkBar,
+  moneyBeat,
+  moneyBeatOpenHat,
+  quarterNoteRock,
+  referenceGrooves,
+} from '@core/drums/model/referenceGrooves.ts'
 import { jazzRideDrills } from '@core/drums/coordination/jazzRide.ts'
 import { makeGrooveScore } from '@core/drums/model/groove.ts'
 import { swungTick } from '@core/drums/model/swing.ts'
+import { defaultVelocityForClass, velocityClassOf } from '@core/drums/model/velocity.ts'
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import { ticks } from '@core/shared/units.ts'
 import { planGrooveRun, type GrooveRunPlan } from '@core/drums/practice/plan.ts'
@@ -19,9 +26,11 @@ import { GROOVE_PAD_LABEL } from './padLabels.ts'
 import {
   articulationSentence,
   diagnosisSentences,
+  dynamicsCoverageNote,
   gradedAtText,
   lastRunText,
   padLineText,
+  plural,
   verdictText,
 } from './resultLines.ts'
 
@@ -48,6 +57,11 @@ function row(overrides: Partial<GroovePadResult>): GroovePadResult {
     // exercise the per-pad displacement sentence build real results through
     // `gradeGrooveRun` instead of this literal (see below).
     displacementSteps: 0,
+    // DR-07 tail / DR-03: also required, also unread by `padLineText`. Tests
+    // that exercise the dynamics sentence build real results through
+    // `gradeGrooveRun` instead of this literal (see below), same discipline
+    // as `displacementSteps` above.
+    dynamics: { graded: 0, wrong: 0, softWanted: 0, loudWanted: 0, ghostInstants: 0, accentInstants: 0, unclassified: 0 },
     ...overrides,
   }
 }
@@ -663,5 +677,335 @@ describe('diagnosisSentences: per-pad displacement sentence (DR-07 tail)', () =>
         },
       ),
     )
+  })
+})
+
+/**
+ * DR-07 tail / DR-03: dynamics wrongness never affects `steady` — see
+ * `padDynamics`'s contract — so the dynamics sentence has to be reachable
+ * both from the normal (`steady === false`) branch of `diagnosisSentences`
+ * and from its own special case for a run that is otherwise perfectly steady.
+ * `ghostFunkBar()` (`referenceGrooves.ts`) is the only reference groove that
+ * notates both `'accent'` and `'ghost'` (snare, `dynamics.ts`'s own
+ * `padDynamics` grades only those two classes, never `'normal'`).
+ */
+describe('diagnosisSentences: dynamics sentence (DR-07 tail / DR-03)', () => {
+  it('names the pad with the most wrong dynamics even when timing is perfectly steady — ghost-funk, every hit exactly on time at one flat velocity', () => {
+    // The velocity every hit below is struck at classifies as neither
+    // accent nor ghost, so every graded (accent/ghost-notated) snare instant
+    // comes out wrong — pinned here, not assumed, since the sentence text
+    // below is built entirely from the graded result's own numbers.
+    expect(velocityClassOf(96)).toBe('normal')
+    const runPlan = planGrooveRun(ghostFunkBar(), 100)
+    const hits: GrooveHit[] = runPlan.pads.flatMap((padPlan) =>
+      padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms, velocity: 96 })),
+    )
+    const result = gradeGrooveRun(runPlan, hits)
+    expect(result.steady).toBe(true)
+
+    const snareRow = result.pads.find((r) => r.pad === 'snare')
+    expect(snareRow).toBeDefined()
+    if (snareRow === undefined) return
+    expect(snareRow.dynamics.wrong).toBeGreaterThan(0)
+    expect(snareRow.dynamics.softWanted).toBeGreaterThanOrEqual(snareRow.dynamics.loudWanted)
+    // Pinned independently of the sentence-building expression below (Opus
+    // round 3): ghost-funk's snare, over the default two graded bars, is 16
+    // ghost + 4 accent instants, every one of them notated (no plain
+    // 'normal' snare hits) — so a flat velocity 96 makes all 16 ghost
+    // instants come out wrong. If a miscount ever moved these numbers, this
+    // assertion catches it before it could move the literal sentence below
+    // in lockstep and hide the bug.
+    expect(snareRow.dynamics.ghostInstants).toBe(16)
+    expect(snareRow.dynamics.softWanted).toBe(16)
+
+    expect(diagnosisSentences(result, runPlan)).toEqual(['Snare: 16 of 16 ghost notes came out full. Play them under the hi-hat.'])
+  })
+
+  it('names the accent side when a pad has more wrong accents than wrong ghost notes', () => {
+    // Every ghost-notated snare instant struck at its own correct (ghost)
+    // velocity; every accent-notated one struck at the WRONG (ghost)
+    // velocity instead — the opposite imbalance from the test above, so the
+    // accents-not-landing branch, not the ghost-notes branch, has to fire.
+    const runPlan = planGrooveRun(ghostFunkBar(), 100)
+    const hits: GrooveHit[] = runPlan.pads.flatMap((padPlan) =>
+      padPlan.expectedMs.map((ms, i) => {
+        const expected = padPlan.expectedDynamics[i] ?? 'normal'
+        const velocity =
+          padPlan.pad === 'snare' && expected === 'accent'
+            ? defaultVelocityForClass('ghost')
+            : defaultVelocityForClass(expected)
+        return { pad: padPlan.pad, ms, velocity }
+      }),
+    )
+    const result = gradeGrooveRun(runPlan, hits)
+    const snareRow = result.pads.find((r) => r.pad === 'snare')
+    expect(snareRow).toBeDefined()
+    if (snareRow === undefined) return
+    expect(snareRow.dynamics.loudWanted).toBeGreaterThan(snareRow.dynamics.softWanted)
+    expect(snareRow.dynamics.softWanted).toBe(0)
+
+    expect(diagnosisSentences(result, runPlan)).toEqual([
+      `${GROOVE_PAD_LABEL.snare}: ${snareRow.dynamics.loudWanted} of ${plural(snareRow.dynamics.accentInstants, 'accent')} did not land. Lean into them.`,
+    ])
+  })
+
+  it('gives no dynamics sentence when every graded hit is struck at its own correctly-classed velocity', () => {
+    const runPlan = planGrooveRun(ghostFunkBar(), 100)
+    const hits: GrooveHit[] = runPlan.pads.flatMap((padPlan) =>
+      padPlan.expectedMs.map((ms, i) => ({
+        pad: padPlan.pad,
+        ms,
+        velocity: defaultVelocityForClass(padPlan.expectedDynamics[i] ?? 'normal'),
+      })),
+    )
+    const result = gradeGrooveRun(runPlan, hits)
+    const snareRow = result.pads.find((r) => r.pad === 'snare')
+    expect(snareRow).toBeDefined()
+    expect(snareRow?.dynamics.wrong).toBe(0)
+
+    const sentences = diagnosisSentences(result, runPlan)
+    expect(sentences.every((s) => !s.includes('ghost note') && !s.includes('accent'))).toBe(true)
+  })
+
+  it('the dynamics sentence sits after the per-pad displacement sentence and before the flam sentence, within the two-sentence cap', () => {
+    // Money beat has no notated dynamics of its own (every note is
+    // 'normal'), so splice ghost-funk's snare dynamics notation onto it via
+    // makeGrooveScore, then displace the kick by a clean nominal step AND
+    // misplay every graded snare instant, so both a per-pad-displacement and
+    // a dynamics sentence are live at once and their relative order can be
+    // checked directly against the array `diagnosisSentences` returns.
+    const base = moneyBeat()
+    const dynamicNotes = base.notes.map((note) =>
+      note.pad === 'snare' ? { ...note, dynamics: 'accent' as const } : note,
+    )
+    const scoreWithDynamics = makeGrooveScore({
+      id: base.id,
+      title: base.title,
+      measureCount: base.measures.length,
+      notes: dynamicNotes,
+    })
+    const runPlan = planGrooveRun(scoreWithDynamics, 80)
+    const hits: GrooveHit[] = runPlan.pads.flatMap((padPlan) => {
+      if (padPlan.pad === 'kick') {
+        return padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms: ms - runPlan.nominalSubdivisionMs }))
+      }
+      if (padPlan.pad === 'snare') {
+        return padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms, velocity: defaultVelocityForClass('ghost') }))
+      }
+      return padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms }))
+    })
+    const result = gradeGrooveRun(runPlan, hits)
+    expect(result.slipSteps).toBeUndefined()
+    const kickRow = result.pads.find((r) => r.pad === 'kick')
+    expect(kickRow?.displacementSteps).not.toBe(0)
+    const snareRow = result.pads.find((r) => r.pad === 'snare')
+    expect(snareRow?.dynamics.wrong).toBeGreaterThan(0)
+
+    const sentences = diagnosisSentences(result, runPlan)
+    const displacementIndex = sentences.findIndex((s) => s.includes('the other limbs'))
+    const dynamicsIndex = sentences.findIndex((s) => s.includes('accents did not land'))
+    expect(displacementIndex).toBeGreaterThanOrEqual(0)
+    expect(dynamicsIndex).toBeGreaterThanOrEqual(0)
+    expect(dynamicsIndex).toBeGreaterThan(displacementIndex)
+    expect(sentences.length).toBeLessThanOrEqual(2)
+  })
+})
+
+/**
+ * Amber, review round 3: `worstDynamicsPad`'s own selection rules — cross-pad
+ * max and its first-in-order tie-break — and the `softWanted === loudWanted`
+ * tie in `dynamicsSentence` itself, pinned directly rather than only through
+ * whatever shape a real grade happens to produce. `worstDynamicsPad` and
+ * `dynamicsSentence` are private, so these go through `diagnosisSentences`'s
+ * `result.steady` branch — the shortest path to them, and one that touches
+ * nothing else (see that branch's own doc).
+ */
+describe('diagnosisSentences: dynamics pad selection (amber, review round 3)', () => {
+  const steadyPlan = moneyBeatPlan()
+
+  it('picks the pad with the most wrong dynamics hits across the whole run, not just the first one with any', () => {
+    const quiet = row({
+      pad: 'kick',
+      dynamics: { graded: 2, wrong: 1, softWanted: 1, loudWanted: 0, ghostInstants: 2, accentInstants: 0, unclassified: 0 },
+    })
+    const loud = row({
+      pad: 'snare',
+      dynamics: { graded: 5, wrong: 3, softWanted: 0, loudWanted: 3, ghostInstants: 0, accentInstants: 5, unclassified: 0 },
+    })
+    const result = { steady: true, pads: [quiet, loud] } as unknown as GrooveRunResult
+    expect(diagnosisSentences(result, steadyPlan)).toEqual([
+      `${GROOVE_PAD_LABEL.snare}: 3 of ${plural(5, 'accent')} did not land. Lean into them.`,
+    ])
+  })
+
+  it('ties on wrong count go to whichever pad comes first in `pads` order', () => {
+    const first = row({
+      pad: 'kick',
+      dynamics: { graded: 4, wrong: 2, softWanted: 2, loudWanted: 0, ghostInstants: 4, accentInstants: 0, unclassified: 0 },
+    })
+    const second = row({
+      pad: 'snare',
+      dynamics: { graded: 4, wrong: 2, softWanted: 0, loudWanted: 2, ghostInstants: 0, accentInstants: 4, unclassified: 0 },
+    })
+    const tiedEitherOrder = { steady: true, pads: [first, second] } as unknown as GrooveRunResult
+    expect(diagnosisSentences(tiedEitherOrder, steadyPlan)).toEqual([
+      `${GROOVE_PAD_LABEL.kick}: 2 of ${plural(4, 'ghost note')} came out full. Play them under the hi-hat.`,
+    ])
+
+    // Reversing the array order flips which pad wins — confirms the tie
+    // genuinely goes to array position, not to something incidental about
+    // `kick` or `snare` themselves.
+    const reversed = { steady: true, pads: [second, first] } as unknown as GrooveRunResult
+    expect(diagnosisSentences(reversed, steadyPlan)).toEqual([
+      `${GROOVE_PAD_LABEL.snare}: 2 of ${plural(4, 'accent')} did not land. Lean into them.`,
+    ])
+  })
+
+  it('a pad tied between softWanted and loudWanted reports the ghost branch, not the accent one', () => {
+    const tiedWithinPad = row({
+      pad: 'snare',
+      dynamics: { graded: 8, wrong: 4, softWanted: 2, loudWanted: 2, ghostInstants: 4, accentInstants: 4, unclassified: 0 },
+    })
+    const result = { steady: true, pads: [tiedWithinPad] } as unknown as GrooveRunResult
+    expect(diagnosisSentences(result, steadyPlan)).toEqual([
+      `${GROOVE_PAD_LABEL.snare}: 2 of ${plural(4, 'ghost note')} came out full. Play them under the hi-hat.`,
+    ])
+  })
+})
+
+/**
+ * RED, review round 3: a mouse-only run on ghost-funk used to grade
+ * `wrong: 0` on every pad and print nothing — every accent/ghost stroke came
+ * back UNCLASSIFIED (no velocity from an on-screen pad click), so the run
+ * read as a clean "Steady run" pass on the one groove that exists to teach
+ * ghost notes. `dynamicsCoverageNote` is the sentence that closes that gap;
+ * these pin its three branches with exact strings, matching `GrooveTrainerScreen.tsx`'s
+ * own call site: look each result row's own `pad` up in `plan.pads` for its
+ * `expectedDynamics`, rather than zipping the two arrays positionally (a
+ * muted pad can drop out of `result.pads` while staying in `plan.pads`).
+ */
+describe('dynamicsCoverageNote (RED, review round 3)', () => {
+  function expectedDynamicsFor(plan: GrooveRunPlan, pads: readonly GroovePadResult[]) {
+    return pads.map((padRow) => plan.pads.find((padPlan) => padPlan.pad === padRow.pad)?.expectedDynamics ?? [])
+  }
+
+  it('a fully mouse-played run (no velocity anywhere) says dynamics were not graded at all', () => {
+    const runPlan = planGrooveRun(ghostFunkBar(), 100)
+    const hits: GrooveHit[] = runPlan.pads.flatMap((padPlan) => padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms })))
+    const result = gradeGrooveRun(runPlan, hits)
+    expect(result.steady).toBe(true)
+    // Confirms this run is the RED scenario itself: nothing graded anywhere,
+    // something unclassified on the pad that carries the notation.
+    expect(result.pads.reduce((sum, r) => sum + r.dynamics.graded, 0)).toBe(0)
+    expect(result.pads.reduce((sum, r) => sum + r.dynamics.unclassified, 0)).toBeGreaterThan(0)
+
+    expect(dynamicsCoverageNote(result.pads, expectedDynamicsFor(runPlan, result.pads))).toBe(
+      'Dynamics were not graded: on-screen pads carry no velocity. Use Shift and Alt on the keyboard, or an e-kit.',
+    )
+  })
+
+  it('a mixed keyboard/mouse run says exactly how many of the notated strokes were graded', () => {
+    const runPlan = planGrooveRun(ghostFunkBar(), 100)
+    // Every OTHER expected hit (by overall input order, across all pads)
+    // carries a velocity, as a plain keyboard tap would; the rest carry
+    // none, as a mouse click would — a run nobody would call purely one
+    // input device or the other.
+    let i = 0
+    const hits: GrooveHit[] = runPlan.pads.flatMap((padPlan) =>
+      padPlan.expectedMs.map((ms, padIndex) => {
+        const index = i++
+        const expected = padPlan.expectedDynamics[padIndex] ?? 'normal'
+        return index % 2 === 0 ? { pad: padPlan.pad, ms, velocity: defaultVelocityForClass(expected) } : { pad: padPlan.pad, ms }
+      }),
+    )
+    const result = gradeGrooveRun(runPlan, hits)
+    expect(result.steady).toBe(true)
+
+    const graded = result.pads.reduce((sum, r) => sum + r.dynamics.graded, 0)
+    const unclassified = result.pads.reduce((sum, r) => sum + r.dynamics.unclassified, 0)
+    // Both branches must actually be exercised, or this test would not be
+    // distinguishing itself from the fully-mouse or fully-graded cases below.
+    expect(graded).toBeGreaterThan(0)
+    expect(unclassified).toBeGreaterThan(0)
+
+    expect(dynamicsCoverageNote(result.pads, expectedDynamicsFor(runPlan, result.pads))).toBe(
+      `Dynamics graded on ${graded} of ${graded + unclassified} strokes; on-screen pad hits carry no velocity.`,
+    )
+  })
+
+  /**
+   * Opus round 3: the test above reads its expected G/U off the SAME result
+   * it asserts against, so a miscount in `dynamicsCoverageNote` (or in
+   * `padDynamics` underneath it) could move the expectation and the actual
+   * value together and never fail. This fixture pins a literal string
+   * instead: ghost-funk's snare has exactly 20 notated instants (16 ghost + 4
+   * accent — see the pinned counts above); of those, the first 10 are played
+   * at their own notated velocity (graded, all correct), the next 6 are
+   * played with no velocity at all (a mouse click — unclassified), and the
+   * last 4 are never played at all (missed — neither graded nor
+   * unclassified, since `padDynamics` only ever looks at MATCHED strokes).
+   * Kick and hi-hat stay on their own grid throughout; ghost-funk never
+   * notates dynamics on either, so they can never contribute to either
+   * count. 10 graded + 6 unclassified out of 20 notated is exactly "10 of
+   * 16" — not "10 of 20" — because the 4 unplayed instants never entered
+   * grading at all.
+   */
+  it('a fixed ghost-funk snare fixture (10 graded, 6 unclassified, 4 unplayed) says the exact literal string', () => {
+    const runPlan = planGrooveRun(ghostFunkBar(), 100)
+    const snarePlan = runPlan.pads.find((p) => p.pad === 'snare')
+    expect(snarePlan).toBeDefined()
+    if (snarePlan === undefined) return
+    expect(snarePlan.expectedMs).toHaveLength(20)
+
+    const hits: GrooveHit[] = runPlan.pads.flatMap((padPlan) => {
+      if (padPlan.pad !== 'snare') {
+        return padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms, velocity: defaultVelocityForClass('normal') }))
+      }
+      return padPlan.expectedMs
+        .map((ms, i) => ({ ms, i }))
+        .filter(({ i }) => i < 16) // drop the last 4 entirely — never played
+        .map(({ ms, i }) => {
+          const expected = padPlan.expectedDynamics[i] ?? 'normal'
+          // First 10: correct notated velocity (graded). Next 6: no velocity
+          // at all (a mouse click — unclassified).
+          return i < 10 ? { pad: padPlan.pad, ms, velocity: defaultVelocityForClass(expected) } : { pad: padPlan.pad, ms }
+        })
+    })
+    const result = gradeGrooveRun(runPlan, hits)
+
+    const snareRow = result.pads.find((r) => r.pad === 'snare')
+    expect(snareRow).toBeDefined()
+    if (snareRow === undefined) return
+    // Pinned directly, independently of the note string below.
+    expect(snareRow.dynamics.graded).toBe(10)
+    expect(snareRow.dynamics.wrong).toBe(0)
+    expect(snareRow.dynamics.unclassified).toBe(6)
+
+    expect(dynamicsCoverageNote(result.pads, expectedDynamicsFor(runPlan, result.pads))).toBe(
+      'Dynamics graded on 10 of 16 strokes; on-screen pad hits carry no velocity.',
+    )
+  })
+
+  it('money beat has no notated dynamics at all, so the note is undefined whatever the run looks like', () => {
+    const runPlan = moneyBeatPlan()
+    const hits: GrooveHit[] = runPlan.pads.flatMap((padPlan) => padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms })))
+    const result = gradeGrooveRun(runPlan, hits)
+    expect(dynamicsCoverageNote(result.pads, expectedDynamicsFor(runPlan, result.pads))).toBeUndefined()
+  })
+
+  it('a fully keyboard-played ghost-funk run, every stroke graded, leaves nothing for the note to add', () => {
+    const runPlan = planGrooveRun(ghostFunkBar(), 100)
+    const hits: GrooveHit[] = runPlan.pads.flatMap((padPlan) =>
+      padPlan.expectedMs.map((ms, i) => ({
+        pad: padPlan.pad,
+        ms,
+        velocity: defaultVelocityForClass(padPlan.expectedDynamics[i] ?? 'normal'),
+      })),
+    )
+    const result = gradeGrooveRun(runPlan, hits)
+    expect(result.pads.reduce((sum, r) => sum + r.dynamics.unclassified, 0)).toBe(0)
+    expect(result.pads.reduce((sum, r) => sum + r.dynamics.graded, 0)).toBeGreaterThan(0)
+
+    expect(dynamicsCoverageNote(result.pads, expectedDynamicsFor(runPlan, result.pads))).toBeUndefined()
   })
 })

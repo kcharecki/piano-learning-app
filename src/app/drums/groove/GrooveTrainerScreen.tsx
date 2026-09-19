@@ -84,12 +84,13 @@ import type { GrooveRunResult } from '@core/drums/practice/grade.ts'
 import { planGrooveRun, type GrooveRunPlan } from '@core/drums/practice/plan.ts'
 import type { Clock, DrumAudioOutput, MidiInput } from '@core/ports/index.ts'
 import { useDrumMidiInput } from '@app/drums/input/useDrumMidiInput.ts'
-import { Pad, TempoField } from './GrooveControls.tsx'
+import { DynamicsLegend, Pad, TempoField } from './GrooveControls.tsx'
 import { useFlash, useKeyboardPads } from './groovePadHooks.ts'
 import { liveHitText } from './liveHitText.ts'
 import { GROOVE_PAD_KEY, GROOVE_PAD_LABEL, keyLabel, sortPadsForDisplay } from './padLabels.ts'
 import {
   diagnosisSentences,
+  dynamicsCoverageNote,
   gradedAtText,
   lastRunText,
   padLineText,
@@ -261,9 +262,11 @@ function Trainer({
   // for the pads and keys. Neither run's `hit` exists yet at this point, so
   // the kit lands on a ref the effect below keeps pointed at the live one —
   // the same one-render-late discipline the hook itself uses for `onHit`.
-  const hitRef = useRef<(pad: MappedDrumPad) => void>(() => {})
+  // DR-07 tail / DR-03: forwards the e-kit's own MIDI velocity so a real
+  // stroke's dynamics are graded exactly like a keyboard-modifier tap's.
+  const hitRef = useRef<(pad: MappedDrumPad, velocity?: number) => void>(() => {})
   const ekit = useDrumMidiInput({
-    onHit: (pad) => hitRef.current(pad),
+    onHit: (pad, raw) => hitRef.current(pad, raw.velocity),
     ...(seams.midiInput === undefined ? {} : { midiInput: seams.midiInput }),
   })
   const inputId = ekit.deviceId ?? LOCAL_INPUT_ID
@@ -317,6 +320,20 @@ function Trainer({
     [run.result],
   )
   const diagnosis = run.result === undefined ? [] : diagnosisSentences(run.result.result, plan)
+  // RED (review round 3): built from `result.pads`' own order, not
+  // `plan.pads`' — muting drops a pad from `result.pads` entirely
+  // (`useGrooveRun`'s per-limb mute), so zipping against `plan.pads`
+  // positionally could pair a result row with the WRONG pad's notated
+  // dynamics the moment any pad is muted. Looking each row's `expectedDynamics`
+  // up by its own `pad` keeps the two arrays `dynamicsCoverageNote` receives
+  // aligned by index regardless of what got muted.
+  const dynamicsNote =
+    run.result === undefined
+      ? undefined
+      : dynamicsCoverageNote(
+          run.result.result.pads,
+          run.result.result.pads.map((row) => plan.pads.find((padPlan) => padPlan.pad === row.pad)?.expectedDynamics ?? []),
+        )
 
   const beatsPerBar = Math.max(1, Math.round(plan.barMs / plan.beatMs))
   // Beat progress is a graded-run reading only — a wait run has no clock, so
@@ -574,6 +591,13 @@ function Trainer({
         })}
       </div>
 
+      {/* Review round 3, RED 3: on-screen pads carry no velocity, so a mouse
+          learner on a dynamics-notated groove needs to be told the keyboard
+          fallback exists at all — see `DynamicsLegend`'s own comment.
+          `DynamicsLegend` hides itself for a plan with no ghost/accent notes
+          (Money Beat, Quarter-Note Rock), so this renders nothing there. */}
+      <DynamicsLegend plan={plan} />
+
       {/* The summary of the PREVIOUS session, for a learner arriving fresh. Once this
           run has its own result panel the line is stale by definition, and printing
           both put two verdicts on screen at once — the visual pass caught it saying
@@ -612,6 +636,14 @@ function Trainer({
               {sentence}
             </p>
           ))}
+          {/* RED (review round 3): NOT one of `MAX_DIAGNOSIS_SENTENCES` — it
+              qualifies the verdict above ("Steady run" stays "Steady run";
+              this says how much of it was actually assessed), not a timing
+              diagnosis, so it is not subject to that cap and not mixed into
+              `diagnosis`'s own list. Same `groove-diagnosis` class as the
+              sentences just above: it reads as one more line in that voice,
+              not as ambient chrome like `.groove-latency-note` below it. */}
+          {dynamicsNote !== undefined && <p className="groove-diagnosis">{dynamicsNote}</p>}
           <p className="groove-latency-note">
             Every figure here includes your keyboard and speakers, not just your hands. What it
             judges is how evenly you played, never how close to zero you got.

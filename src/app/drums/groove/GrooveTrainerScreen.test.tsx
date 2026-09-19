@@ -17,6 +17,9 @@ import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { useDrumsHistoryStore } from '@app/state/drumsHistoryStore.ts'
 import { LOCAL_INPUT_ID, useDrumsLatencyStore } from '@app/state/drumsLatencyStore.ts'
 import type { DrumAudioOutput } from '@core/ports/index.ts'
+import { ghostFunkBar } from '@core/drums/model/referenceGrooves.ts'
+import { planGrooveRun } from '@core/drums/practice/plan.ts'
+import { GROOVE_PAD_LABEL } from './padLabels.ts'
 import { GrooveTrainerScreen } from './GrooveTrainerScreen.tsx'
 
 /** The money beat's shape at 80 bpm — one bar of count-in, two graded. */
@@ -791,6 +794,51 @@ describe('GrooveTrainerScreen', () => {
       })
       expect(lastHitText()).toContain('Snare')
       expect(screen.getByRole('button', { name: 'Snare' })).toHaveAttribute('data-verdict', 'on-time')
+    })
+  })
+
+  /**
+   * RED, review round 3: a mouse-only Ghost Funk Bar run at exact timing used
+   * to grade `wrong: 0` everywhere, printing "Steady run" with no diagnosis
+   * sentences and every dynamics count sitting at zero — a false pass on the
+   * one groove that exists to teach ghost notes, since a mouse click has no
+   * velocity to grade at all. `dynamicsCoverageNote` (`resultLines.ts`) closes
+   * that gap; this proves the screen actually renders it, not just that the
+   * pure function returns the right string.
+   */
+  describe('dynamics coverage note (RED, review round 3)', () => {
+    it('a mouse-only Ghost Funk Bar run at exact timing still says "Steady run", but adds that dynamics were never graded', async () => {
+      const { user, frameAt } = setup()
+      // Ghost Funk Bar is last in `grooveTrainerLibrary()`'s order — three
+      // steps on from Quarter-Note Rock, the screen's opening groove.
+      await user.click(screen.getByRole('button', { name: 'Next groove' }))
+      await user.click(screen.getByRole('button', { name: 'Next groove' }))
+      await user.click(screen.getByRole('button', { name: 'Next groove' }))
+      expect(screen.getByText('Ghost Funk Bar')).toBeInTheDocument()
+
+      // The screen plans at its own DEFAULT_BPM (80, confirmed by `BAR_MS`/
+      // `GRADED_MS` above already assuming it) with no `gradedBars` override,
+      // so this mirrors the plan the screen itself builds.
+      const plan = planGrooveRun(ghostFunkBar(), 80)
+      const everyExpectedHit = plan.pads
+        .flatMap((padPlan) => padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms })))
+        .toSorted((a, b) => a.ms - b.ms)
+
+      await user.click(screen.getByRole('button', { name: 'Start' }))
+      for (const { pad, ms } of everyExpectedHit) {
+        frameAt(plan.countInBars * plan.barMs + ms)
+        // A mouse click on the on-screen pad — `Pad`'s `onPointerDown`/
+        // `onClick` guard calls `onHit(pad)` with no velocity argument at
+        // all, exactly like a real mouse learner with no e-kit.
+        await user.click(screen.getByRole('button', { name: GROOVE_PAD_LABEL[pad] }))
+      }
+      frameAt(plan.countInBars * plan.barMs + plan.gradedMs)
+
+      const result = screen.getByRole('region', { name: 'Result' })
+      expect(result).toHaveTextContent('Steady run')
+      expect(result).toHaveTextContent(
+        'Dynamics were not graded: on-screen pads carry no velocity. Use Shift and Alt on the keyboard, or an e-kit.',
+      )
     })
   })
 })

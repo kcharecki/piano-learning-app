@@ -43,6 +43,9 @@ function makePlan(
       expectedMs,
       expectedNominalMs: expectedMs,
       expectedNominalTicks: expectedMs,
+      // DR-07 tail added this required field to `GroovePadPlan`; judgeLiveHit
+      // never reads dynamics, so this fixture never notates one.
+      expectedDynamics: expectedMs.map(() => 'normal' as const),
     })),
     unisonPairs: [],
     swingPercent: 50,

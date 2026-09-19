@@ -151,6 +151,17 @@
   gap: var(--space-3);
   margin-top: var(--space-4);
 }
+/* Review round 3, RED 3: `--text-3` reused directly, the same pattern
+   `.groove-latency-note`/`.groove-graded-at` already use below — this design
+   system has no shared `.muted` primitive (see `feature-drums-progress.css`'s
+   module comment). Hidden entirely (component returns null) for a plan with
+   no dynamics notated at all, so this rule only ever paints for a groove like
+   Ghost-Funk Bar. */
+.groove-dynamics-legend {
+  font-size: var(--text-sm);
+  color: var(--text-3);
+  margin-top: var(--space-2);
+}
 .drum-pad {
   display: flex;
   flex-direction: column;

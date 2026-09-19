@@ -180,7 +180,7 @@ test('the drums progress screen reads rudiment tiers, groove bests, limb bias an
   const coverage = page.getByRole('region', { name: 'Coverage' })
   const grooveCoverageText = await coverage.getByLabel('Groove coverage').innerText()
   expect(grooveCoverageText).toBe(
-    'Grooves: 1 of 3 played, 1 steady. Not yet played: Quarter-Note Rock, Money Beat (Open Hat).',
+    'Grooves: 1 of 4 played, 1 steady. Not yet played: Quarter-Note Rock, Money Beat (Open Hat), Ghost Funk Bar.',
   )
   // Exclusion trap: `Money Beat` (played and steady) must not appear in the
   // "Not yet played" list — only as part of `Money Beat (Open Hat)`, which

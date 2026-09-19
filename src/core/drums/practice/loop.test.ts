@@ -50,6 +50,9 @@ function makePlan(
         expectedMs: sorted,
         expectedNominalMs: sorted,
         expectedNominalTicks: sorted,
+        // DR-07 tail added this required field to `GroovePadPlan`; loop.ts
+        // never reads dynamics, so this fixture never notates one.
+        expectedDynamics: sorted.map(() => 'normal' as const),
       },
     ],
     unisonPairs: [],
@@ -96,6 +99,9 @@ function makePlanWithPads(
         expectedMs: sorted,
         expectedNominalMs: sorted,
         expectedNominalTicks: sorted,
+        // DR-07 tail added this required field to `GroovePadPlan`; loop.ts
+        // never reads dynamics, so this fixture never notates one.
+        expectedDynamics: sorted.map(() => 'normal' as const),
       }
     }),
     unisonPairs: [],

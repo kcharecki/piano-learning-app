@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { jazzRideDrills } from '@core/drums/coordination/jazzRide.ts'
 import { ghostFunkBar, moneyBeat, moneyBeatOpenHat, referenceGrooves } from '@core/drums/model/referenceGrooves.ts'
 import { swungTick } from '@core/drums/model/swing.ts'
+import { defaultVelocityForClass, velocityClassOf } from '@core/drums/model/velocity.ts'
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import { EIGHTH, ticks } from '@core/shared/units.ts'
 import { gradeGrooveRun, MAX_SLIP_STEPS, worstUnisonGap, type GrooveHit } from './grade.ts'
@@ -831,6 +832,77 @@ describe('runSlipSteps on a swung plan (DR-07 properties)', () => {
 })
 
 /**
+ * Amber, review round 3: `effectiveStep`'s non-zero branch (`grade.ts`) feeds
+ * `shiftedExpectedMs`'s OUTPUT straight into `pair()`, then reads
+ * `expectedDynamicsByPad` — built from the pad's ORIGINAL, unshifted
+ * `expectedNominalTicks`, in that array's own order — off the `expectedIndex`
+ * `pair()` hands back. That is only correct if `shiftedExpectedMs`'s output
+ * stays index-for-index with its INPUT order despite the `.sort()` inside it
+ * (`slipShift.ts`): shift every input tick by the same step and re-swing it,
+ * and the result must still line up one-to-one with the input it came from,
+ * or `pair()`'s `expectedIndex` would silently point at the wrong pad
+ * instant's notated dynamics class. `slipShift.test.ts` is not mine to add
+ * to this round, so this pins the same guarantee from `grade.ts`'s own side:
+ * shifting must never need the trailing sort to do anything at all, on a
+ * real plan's own (already tick-ascending) `expectedNominalTicks`.
+ */
+describe('shiftedExpectedMs stays index-for-index with its input order (amber, review round 3)', () => {
+  it('property: shifting+re-swinging never reorders a real plan\'s own expectedNominalTicks, across grooves, drills and steps', () => {
+    const scores = [...referenceGrooves(), ...jazzRideDrills().map((drill) => drill.score)]
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...scores),
+        fc.integer({ min: MIN_BPM, max: MAX_BPM }),
+        fc.integer({ min: -6, max: 6 }),
+        (score, bpm, step) => {
+          const runPlan = planGrooveRun(score, bpm)
+          for (const padPlan of runPlan.pads) {
+            if (padPlan.expectedNominalTicks.length === 0) continue
+            // `expectedNominalTicks` comes straight off the score in
+            // ascending-tick order (`plan.ts`) — confirmed here rather than
+            // assumed, since the property below is meaningless on an input
+            // that was not already ordered.
+            for (let i = 1; i < padPlan.expectedNominalTicks.length; i++) {
+              expect(padPlan.expectedNominalTicks[i]).toBeGreaterThan(
+                padPlan.expectedNominalTicks[i - 1] as number,
+              )
+            }
+
+            // The independent oracle: shift and re-swing each tick in place,
+            // in the INPUT's own order, with no sort at all.
+            const unsorted = padPlan.expectedNominalTicks.map(
+              (nominalTick) =>
+                (swungTick(
+                  ticks(nominalTick + step * runPlan.nominalSubdivisionTicks),
+                  runPlan.swing.percent,
+                  runPlan.swing.unit,
+                  runPlan.swing.measureTicks,
+                  runPlan.swing.beats,
+                  runPlan.swing.beatType,
+                ) as number) * runPlan.msPerTick,
+            )
+
+            const shifted = shiftedExpectedMs(
+              padPlan.expectedNominalTicks,
+              step,
+              runPlan.nominalSubdivisionTicks,
+              runPlan.swing,
+              runPlan.msPerTick,
+            )
+            // If this ever fails, `shiftedExpectedMs`'s trailing sort moved
+            // at least one element relative to the input it came from — the
+            // exact failure mode `effectiveStep`'s dynamics pairing above
+            // depends on never happening.
+            expect(shifted).toEqual(unsorted)
+          }
+        },
+      ),
+      { seed: 20260919, numRuns: 200 },
+    )
+  })
+})
+
+/**
  * DR-07 tail: `GroovePadResult.displacementSteps` was added and
  * `gradeGrooveRun` now fills it for every pad, but `runSlipSteps` itself is
  * untouched — this describe block is the proof that `slipSteps` really is
@@ -1017,5 +1089,283 @@ describe('gradeGrooveRun: slipSteps unchanged by adding pads[].displacementSteps
       if (padRow.hits === 0) continue
       expect(padRow.displacementSteps).toBe(k)
     }
+  })
+})
+
+/**
+ * Roadmap DR-07 tail / DR-03: `GrooveHit.velocity` and `GroovePadResult.dynamics`.
+ * The one property that matters most is negative: dynamics grading must never
+ * leak into any OTHER field this module has produced since T.17 — a learner's
+ * touch should never change whether a run is called steady, matched, or
+ * displaced.
+ */
+describe('gradeGrooveRun: dynamics grading (DR-07 tail / DR-03)', () => {
+  it('property: every field except pads[].dynamics is unaffected by hit velocity, for any hit set', () => {
+    const grooveArb = fc.constantFrom(...referenceGrooves())
+    const hitArb = fc.record({
+      pad: fc.constantFrom<MappedDrumPad>('kick', 'snare', 'hhClosed', 'hhOpen', 'tomHigh'),
+      ms: fc.integer({ min: -200, max: 6500 }),
+      velocity: fc.option(fc.integer({ min: 1, max: 127 }), { nil: undefined }),
+    })
+    fc.assert(
+      fc.property(grooveArb, fc.array(hitArb, { maxLength: 30 }), (score, rawHits) => {
+        const runPlan = planGrooveRun(score, 80)
+        // `exactOptionalPropertyTypes`: `GrooveHit.velocity` must be OMITTED
+        // when absent, never present-with-value-`undefined` — `fc.option`'s
+        // `nil: undefined` produces the latter, so build the hit literal
+        // conditionally rather than spreading the raw record.
+        const withVelocity: GrooveHit[] = rawHits.map(({ pad, ms, velocity }) =>
+          velocity === undefined ? { pad, ms } : { pad, ms, velocity },
+        )
+        const withVelocityResult = gradeGrooveRun(runPlan, withVelocity)
+        const withoutVelocity = gradeGrooveRun(
+          runPlan,
+          rawHits.map(({ pad, ms }) => ({ pad, ms })),
+        )
+        const strip = (result: ReturnType<typeof gradeGrooveRun>) => ({
+          ...result,
+          pads: result.pads.map(({ dynamics: _dynamics, ...rest }) => rest),
+        })
+        expect(strip(withVelocityResult)).toEqual(strip(withoutVelocity))
+      }),
+    )
+  })
+
+  /**
+   * Ghost Funk's snare is the fixture this whole feature exists for: 2 accent
+   * + 8 ghost notes per bar (`referenceGrooves.ts`), doubled over the default
+   * two graded bars. Every hit struck at 96 — a plain, unmodified velocity
+   * (`velocityClassOf(96) === 'normal'`, confirmed below rather than assumed)
+   * — so every accent/ghost-expected instant classifies 'normal' and is
+   * wrong, while the surrounding all-'normal' hi-hat/kick rows grade nothing.
+   * Timing is exact throughout, so `steady` is true: dynamics never move it
+   * (see `GroovePadResult.dynamics`'s own doc on `grade.ts`).
+   */
+  it('ghost-funk at exact timing, every hit velocity 96: snare dynamics reproduce the expected counts, all else steady', () => {
+    expect(velocityClassOf(96)).toBe('normal')
+    const funkPlan = planGrooveRun(ghostFunkBar(), 80)
+    const hits: GrooveHit[] = funkPlan.pads.flatMap((padPlan) =>
+      padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms, velocity: 96 })),
+    )
+    const result = gradeGrooveRun(funkPlan, hits)
+    expect(result.steady).toBe(true)
+
+    const snarePlan = funkPlan.pads.find((p) => p.pad === 'snare')
+    expect(snarePlan).toBeDefined()
+    if (snarePlan === undefined) return
+    const expectedGhosts = snarePlan.expectedDynamics.filter((d) => d === 'ghost').length
+    const expectedAccents = snarePlan.expectedDynamics.filter((d) => d === 'accent').length
+    expect(expectedGhosts).toBeGreaterThan(0)
+    expect(expectedAccents).toBeGreaterThan(0)
+
+    expect(row(result, 'snare')?.dynamics).toEqual({
+      graded: expectedGhosts + expectedAccents,
+      wrong: expectedGhosts + expectedAccents,
+      softWanted: expectedGhosts,
+      loudWanted: expectedAccents,
+      ghostInstants: expectedGhosts,
+      accentInstants: expectedAccents,
+      unclassified: 0,
+    })
+
+    // Ghost Funk never notates accent/ghost on the hi-hat or kick: nothing to grade there.
+    for (const pad of ['hhClosed', 'kick'] as const) {
+      expect(row(result, pad)?.dynamics).toEqual({
+        graded: 0,
+        wrong: 0,
+        softWanted: 0,
+        loudWanted: 0,
+        ghostInstants: 0,
+        accentInstants: 0,
+        unclassified: 0,
+      })
+    }
+  })
+
+  it('every stroke played at the velocity its own notated dynamics implies: wrong is 0 on every pad', () => {
+    const funkPlan = planGrooveRun(ghostFunkBar(), 80)
+    const hits: GrooveHit[] = funkPlan.pads.flatMap((padPlan) =>
+      padPlan.expectedMs.map((ms, i) => ({
+        pad: padPlan.pad,
+        ms,
+        velocity: defaultVelocityForClass(padPlan.expectedDynamics[i] ?? 'normal'),
+      })),
+    )
+    const result = gradeGrooveRun(funkPlan, hits)
+    for (const padRow of result.pads) {
+      expect(padRow.dynamics.wrong).toBe(0)
+    }
+  })
+
+  /**
+   * SPEC CHANGE, review round 3 (RED 3): an absent velocity used to classify
+   * as 'normal' (wrong against every notated ghost/accent, as this test used
+   * to assert). It is now UNCLASSIFIED instead — excluded from
+   * graded/ghostInstants/accentInstants/wrong entirely, not merely "wrong" —
+   * because the on-screen mouse pad (`hit(pad)`, `useGrooveRun.ts`) gives no
+   * velocity at all, and a mouse learner on ghost-funk must not be told their
+   * dynamics are wrong when the input device cannot express dynamics in the
+   * first place. See `dynamics.ts`'s `padDynamics` doc for the full rule.
+   */
+  it('an absent velocity is unclassified, not normal — excluded from ghost-funk snare dynamics entirely', () => {
+    const funkPlan = planGrooveRun(ghostFunkBar(), 80)
+    const hits: GrooveHit[] = funkPlan.pads.flatMap((padPlan) => padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms })))
+    const result = gradeGrooveRun(funkPlan, hits)
+    const snarePlan = funkPlan.pads.find((p) => p.pad === 'snare')
+    expect(snarePlan).toBeDefined()
+    if (snarePlan === undefined) return
+    const expectedGhosts = snarePlan.expectedDynamics.filter((d) => d === 'ghost').length
+    const expectedAccents = snarePlan.expectedDynamics.filter((d) => d === 'accent').length
+    expect(row(result, 'snare')?.dynamics).toEqual({
+      graded: 0,
+      wrong: 0,
+      softWanted: 0,
+      loudWanted: 0,
+      ghostInstants: 0,
+      accentInstants: 0,
+      // Every notated ghost/accent instant matched, none classified —
+      // see the SPEC CHANGE note above `it`.
+      unclassified: expectedGhosts + expectedAccents,
+    })
+  })
+
+  /**
+   * Review round 3, RED 1: the reviewer's exact case. `pair()` at step 0
+   * (unshifted) pairs late ghost strokes with neighbouring accent instants
+   * once the whole pattern is displaced by whole grid steps — every hit
+   * played at its own notated dynamics' default velocity, but +2 steps late,
+   * used to come out with a false dynamics complaint on top of the true
+   * "pattern sat 2 sixteenths behind" one. `grade.ts` now grades dynamics at
+   * each pad's EFFECTIVE shift (`slipSteps` when defined, else that pad's own
+   * `displacementSteps`, else 0) rather than always at step 0, so a perfectly
+   * (if lately) played pattern must show `wrong: 0` on every pad, and the
+   * whole-pattern shift must actually be detected as +2 — asserted directly,
+   * not assumed, per the review's own requirement.
+   */
+  it('example: reviewer\'s case — ghost-funk, every hit at its own notated dynamics, whole pattern +2 steps late: wrong 0 everywhere, slipSteps 2', () => {
+    const funkPlan = planGrooveRun(ghostFunkBar(), 80)
+    const hits: GrooveHit[] = funkPlan.pads.flatMap((padPlan) =>
+      padPlan.expectedMs.map((ms, i) => ({
+        pad: padPlan.pad,
+        ms: ms + 2 * funkPlan.nominalSubdivisionMs,
+        velocity: defaultVelocityForClass(padPlan.expectedDynamics[i] ?? 'normal'),
+      })),
+    )
+    const result = gradeGrooveRun(funkPlan, hits)
+    expect(result.slipSteps).toBe(2)
+    for (const padRow of result.pads) {
+      expect(padRow.dynamics.wrong).toBe(0)
+    }
+  })
+
+  /**
+   * Amber, review round 3: the `?? displacementSteps` arm of `effectiveStep`
+   * (`grade.ts`: `slipSteps ?? displacementSteps ?? 0`), exercised on its
+   * own. Only the snare is displaced, by a whole +2 grid steps, played at its
+   * own correct notated dynamics; kick and hi-hat stay exactly on the
+   * nominal grid. One pad alone disagreeing with the rest is exactly what
+   * denies `runSlipSteps` a whole-pattern vote, so `slipSteps` stays
+   * `undefined` — snare's dynamics pairing has nothing to inherit from the
+   * run-wide shift and must fall through to its OWN `displacementSteps`
+   * instead, which is what actually lets its dynamics grade correctly here.
+   */
+  it('example: only the snare is shifted +2 (others on grid) — slipSteps undefined, snare displacementSteps 2, its dynamics grade at that shift', () => {
+    const funkPlan = planGrooveRun(ghostFunkBar(), 80)
+    const snarePlan = funkPlan.pads.find((p) => p.pad === 'snare')
+    expect(snarePlan).toBeDefined()
+    if (snarePlan === undefined) return
+    const expectedGraded = snarePlan.expectedDynamics.filter((d) => d !== 'normal').length
+    expect(expectedGraded).toBeGreaterThan(0)
+
+    const hits: GrooveHit[] = funkPlan.pads.flatMap((padPlan) => {
+      if (padPlan.pad !== 'snare') return padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms }))
+      return padPlan.expectedMs.map((ms, i) => ({
+        pad: padPlan.pad,
+        ms: ms + 2 * funkPlan.nominalSubdivisionMs,
+        velocity: defaultVelocityForClass(padPlan.expectedDynamics[i] ?? 'normal'),
+      }))
+    })
+    const result = gradeGrooveRun(funkPlan, hits)
+    expect(result.slipSteps).toBeUndefined()
+    const snareRow = row(result, 'snare')
+    expect(snareRow?.displacementSteps).toBe(2)
+    expect(snareRow?.dynamics.wrong).toBe(0)
+    expect(snareRow?.dynamics.graded).toBe(expectedGraded)
+  })
+
+  /**
+   * Review round 3, RED 1: the same +2-steps-late displacement, but every hit
+   * struck at a flat 96 (a plain, unmodified "normal" velocity) instead of
+   * each instant's own notated dynamics — the companion case to the
+   * unshifted version above (`'ghost-funk at exact timing, every hit velocity
+   * 96'`). `softWanted` (ghosts played too loud) must come out identical to
+   * that unshifted case: the +2 shift only moves WHEN the grader looks for
+   * each hit, never WHAT it expected there, since `shiftedExpectedMs` shifts
+   * and re-swings the tick grid but never reorders it relative to
+   * `expectedDynamics` (`slipShift.ts`).
+   */
+  it('example: ghost-funk, every hit velocity 96, whole pattern +2 steps late — snare softWanted matches the unshifted all-96 case', () => {
+    const funkPlan = planGrooveRun(ghostFunkBar(), 80)
+    const unshiftedHits: GrooveHit[] = funkPlan.pads.flatMap((padPlan) =>
+      padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms, velocity: 96 })),
+    )
+    const unshiftedResult = gradeGrooveRun(funkPlan, unshiftedHits)
+    const unshiftedSoftWanted = row(unshiftedResult, 'snare')?.dynamics.softWanted
+    expect(unshiftedSoftWanted).toBeGreaterThan(0)
+
+    const shiftedHits: GrooveHit[] = funkPlan.pads.flatMap((padPlan) =>
+      padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms: ms + 2 * funkPlan.nominalSubdivisionMs, velocity: 96 })),
+    )
+    const shiftedResult = gradeGrooveRun(funkPlan, shiftedHits)
+    expect(shiftedResult.slipSteps).toBe(2)
+    expect(row(shiftedResult, 'snare')?.dynamics.softWanted).toBe(unshiftedSoftWanted)
+  })
+
+  /**
+   * Review round 3, RED 1: the general property behind both example tests
+   * above. For every reference groove and jazz drill, a run played at each
+   * instant's own notated-dynamics default velocity, shifted by a whole
+   * number of grid steps `k` (still inside the acceptance window — no drop,
+   * no jitter, so `slipSteps` is forced to resolve to exactly `k`, never
+   * `undefined` or some other step, on every pad that has any hits at all),
+   * must grade `wrong: 0` on every pad, whatever `k` turns out to be —
+   * computed per run via `result.slipSteps`, never assumed to be `k` outright
+   * (a groove with too few pads/instants to clear `SLIP_COVERAGE` could in
+   * principle vote for a different step or land on `undefined`; the
+   * conditional guards exactly that).
+   */
+  it('property: a perfectly-played (if displaced) run grades wrong 0 on every pad whenever slipSteps resolves to the shift it was built with', () => {
+    const scores = [...referenceGrooves(), ...jazzRideDrills().map((drill) => drill.score)]
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...scores),
+        fc.integer({ min: MIN_BPM, max: MAX_BPM }),
+        fc.integer({ min: -MAX_SLIP_STEPS, max: MAX_SLIP_STEPS }),
+        (score, bpm, k) => {
+          const runPlan = planGrooveRun(score, bpm)
+          const hits: GrooveHit[] = runPlan.pads.flatMap((padPlan) => {
+            const shifted = shiftedExpectedMs(
+              padPlan.expectedNominalTicks,
+              k,
+              runPlan.nominalSubdivisionTicks,
+              runPlan.swing,
+              runPlan.msPerTick,
+            )
+            return shifted.map((ms, i) => ({
+              pad: padPlan.pad,
+              ms,
+              velocity: defaultVelocityForClass(padPlan.expectedDynamics[i] ?? 'normal'),
+            }))
+          })
+          const result = gradeGrooveRun(runPlan, hits)
+          if (result.slipSteps !== k) return // not this run's business — see doc above
+          for (const padRow of result.pads) {
+            if (padRow.hits === 0) continue
+            expect(padRow.dynamics.wrong).toBe(0)
+          }
+        },
+      ),
+      { seed: 20260919, numRuns: 200 },
+    )
   })
 })

@@ -15,7 +15,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { Icon } from '@app/ui/Icon.tsx'
 import type { LiveHitKind } from '@core/drums/practice/liveHit.ts'
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
-import { MAX_BPM, MIN_BPM } from '@core/drums/practice/plan.ts'
+import { MAX_BPM, MIN_BPM, type GrooveRunPlan } from '@core/drums/practice/plan.ts'
 import { GROOVE_PAD_KEY, GROOVE_PAD_LABEL, keyLabel } from './padLabels.ts'
 
 /** How long a struck pad stays lit. Long enough to see at sixteenths, short enough not to smear. */
@@ -89,6 +89,34 @@ export function Pad({ pad, lit, onHit, verdict, muted, required }: PadProps) {
       )}
     </button>
   )
+}
+
+export type DynamicsLegendProps = {
+  readonly plan: GrooveRunPlan
+}
+
+/**
+ * "Shift = accent · Alt = ghost" (review round 3, RED 3): the on-screen pads
+ * (`Pad`, above) carry no velocity of their own — a mouse click on `hit(pad)`
+ * records none at all (see `dynamics.ts`'s unclassified-not-normal rule) — so
+ * a mouse learner on a dynamics-notated groove (Ghost-Funk Bar) has no way to
+ * discover the keyboard fallback exists (`groovePadHooks.ts`'s
+ * `KEYBOARD_ACCENT_VELOCITY`/`KEYBOARD_GHOST_VELOCITY`) and is left reading
+ * "16 of 16 ghost notes came out full" with no way to fix it.
+ *
+ * Hidden for a plan with no non-'normal' `expectedDynamics` at all (e.g.
+ * Money Beat, Quarter-Note Rock) — printing a dynamics hint there would be
+ * pointing at a control that changes nothing.
+ *
+ * `--text-3` reused directly under a new class, the same pattern
+ * `.groove-latency-note`/`.groove-graded-at` already use in
+ * `feature-drums-groove.css` — this design system has no shared `.muted`
+ * primitive (see `feature-drums-progress.css`'s module comment).
+ */
+export function DynamicsLegend({ plan }: DynamicsLegendProps) {
+  const hasDynamics = plan.pads.some((pad) => pad.expectedDynamics.some((dynamics) => dynamics !== 'normal'))
+  if (!hasDynamics) return null
+  return <p className="groove-dynamics-legend">Shift = accent · Alt = ghost</p>
 }
 
 export type TempoFieldProps = {

@@ -36,6 +36,9 @@ function padRow(overrides: Partial<GroovePadResult> = {}): GroovePadResult {
     driftMs: 0,
     // DR-07 tail added this required field to `GroovePadResult`; unread here.
     displacementSteps: 0,
+    // DR-07 tail / DR-03 added this required field to `GroovePadResult`;
+    // also unread here — this trainer has no dynamics-aware sentence.
+    dynamics: { graded: 0, wrong: 0, softWanted: 0, loudWanted: 0, ghostInstants: 0, accentInstants: 0, unclassified: 0 },
     ...overrides,
   }
 }

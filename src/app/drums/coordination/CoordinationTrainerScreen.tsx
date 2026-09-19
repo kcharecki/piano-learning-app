@@ -82,9 +82,11 @@ export function CoordinationTrainerScreen(props: CoordinationTrainerScreenProps)
   // does not exist yet at this point, so the kit lands on a ref the effect
   // below keeps current — the same one-render-late discipline the hook
   // itself uses for `onHit`.
-  const hitRef = useRef<(pad: MappedDrumPad) => void>(() => {})
+  // DR-07 tail / DR-03: forwards the e-kit's own MIDI velocity so a real
+  // stroke's dynamics are graded exactly like a keyboard-modifier tap's.
+  const hitRef = useRef<(pad: MappedDrumPad, velocity?: number) => void>(() => {})
   const ekit = useDrumMidiInput({
-    onHit: (pad) => hitRef.current(pad),
+    onHit: (pad, raw) => hitRef.current(pad, raw.velocity),
     ...(props.midiInput === undefined ? {} : { midiInput: props.midiInput }),
   })
   const inputId = ekit.deviceId ?? LOCAL_INPUT_ID

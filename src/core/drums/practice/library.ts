@@ -7,17 +7,20 @@
  * is the Rockschool Debut content this feature exists to teach, is one step
  * along; the open-hat variant is two.
  *
- * **`ghostFunkBar` is deliberately absent.** It is a real reference groove and
- * it round-trips through MusicXML like the others, but half of what makes it
- * that groove is dynamics — eight ghosted snare strokes against two accents.
- * The trainer grades onsets. It has no velocity to read from a pad press or a
- * key, so offering it would advertise a skill the app cannot sense and then
- * grade the learner as though it had; that was a panel BLOCKER on the first
- * attempt at this feature, and the fix is to not offer it, not to grade it
- * loosely. It comes back when a pad press carries a velocity (DR-02's e-kit
- * path, or a pressure-sensitive input), and not before.
+ * **`ghostFunkBar` is last, on purpose.** It is a real reference groove — half
+ * of what makes it that groove is dynamics, eight ghosted snare strokes
+ * against two accents — and it stayed OFF this list while the trainer only
+ * graded onsets: offering it would have advertised a skill the app could not
+ * sense, and graded the learner as though it had (a panel BLOCKER on the
+ * first attempt at this feature). It comes back now that a pad press carries
+ * a velocity (review round 3, RED 2 — keyboard Shift/Alt modifiers and MIDI
+ * velocity both reach `padDynamics`; a mouse click is UNCLASSIFIED and
+ * excluded from dynamics grading rather than silently marked wrong, see
+ * `dynamics.ts`), placed last because it is the hardest entry: the finest
+ * grid (sixteenths) AND the only one graded on touch, not just onset.
  */
 import {
+  ghostFunkBar,
   moneyBeat,
   moneyBeatOpenHat,
   quarterNoteRock,
@@ -31,5 +34,5 @@ import type { GrooveScore } from '@core/drums/model/groove.ts'
  * which is a build failure, not a state a screen can render its way out of.
  */
 export function grooveTrainerLibrary(): readonly [GrooveScore, ...GrooveScore[]] {
-  return [quarterNoteRock(), moneyBeat(), moneyBeatOpenHat()]
+  return [quarterNoteRock(), moneyBeat(), moneyBeatOpenHat(), ghostFunkBar()]
 }

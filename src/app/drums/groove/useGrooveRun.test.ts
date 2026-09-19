@@ -10,13 +10,16 @@ import { FakeClock } from '@test/fakes.ts'
 import { describe, expect, it, vi } from 'vitest'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
-import { moneyBeat, moneyBeatOpenHat } from '@core/drums/model/referenceGrooves.ts'
+import { makeGrooveScore } from '@core/drums/model/groove.ts'
+import { ghostFunkBar, moneyBeat, moneyBeatOpenHat } from '@core/drums/model/referenceGrooves.ts'
+import { defaultVelocityForClass, velocityClassOf } from '@core/drums/model/velocity.ts'
 import { planGrooveRun, type GrooveRunPlan } from '@core/drums/practice/plan.ts'
 import type { GrooveRunResult } from '@core/drums/practice/grade.ts'
 import type { Clock, DrumAudioOutput } from '@core/ports/index.ts'
 import type { Millis } from '@core/shared/units.ts'
+import { diagnosisSentences, dynamicsCoverageNote } from './resultLines.ts'
 import { VOICED_VELOCITY } from './mutedVoices.ts'
-import { useGrooveRun, type UseGrooveRunOptions } from './useGrooveRun.ts'
+import { HIT_VELOCITY, useGrooveRun, type UseGrooveRunOptions } from './useGrooveRun.ts'
 
 function manualDriver(): { driver: FrameDriver; pump: () => void } {
   let callback: (() => void) | undefined
@@ -1516,5 +1519,248 @@ describe('useGrooveRun', () => {
       act(() => h.result.current.preview())
       expect(h.audio.strikes.some((s) => s.pad === 'kick')).toBe(true)
     })
+  })
+})
+
+/**
+ * Roadmap DR-07 tail / DR-03: `hit()`'s new optional `velocity` argument.
+ * `moneyBeat` never notates accent/ghost (confirmed in `plan.test.ts`), so a
+ * one-note score that DOES is built here — the smallest fixture that can
+ * actually distinguish "velocity reached the grader" from "it didn't".
+ */
+describe('useGrooveRun: velocity plumbing (DR-07 tail / DR-03)', () => {
+  /** One graded bar, one kick, notated 'accent' — plenty to prove velocity reaches `padDynamics`. */
+  function accentKickPlan(): GrooveRunPlan {
+    const score = makeGrooveScore({
+      id: 'dr07-velocity-plumbing',
+      measureCount: 1,
+      notes: [{ pad: 'kick', tick: 0, durationTicks: 480, dynamics: 'accent' }],
+    })
+    return planGrooveRun(score, 80, { gradedBars: 1 })
+  }
+
+  it("HIT_VELOCITY (a plain, unmodified stroke) classifies as 'normal' — pinned against the exported constant, not assumed", () => {
+    expect(velocityClassOf(HIT_VELOCITY)).toBe('normal')
+  })
+
+  /**
+   * Review round 3, RED 3: an unmodified hit — no velocity given, exactly
+   * what a mouse click on an on-screen pad produces — still STRIKES at
+   * `HIT_VELOCITY` (the audio assertion below is unchanged), but the
+   * `GrooveHit` recorded for grading now carries NO velocity at all, so
+   * `dynamics.ts`'s `padDynamics` excludes it entirely rather than grading it
+   * 'normal' against a notated accent. Before this fix, a mouse learner on a
+   * dynamics-notated groove was told every such stroke was WRONG with no way
+   * to have played it right — this pins the fix at the hook boundary, not
+   * just inside `dynamics.ts` itself.
+   */
+  it('an unmodified hit (no velocity argument) strikes at HIT_VELOCITY but records no velocity — unclassified, not wrong, against a notated accent', () => {
+    const h = harness(accentKickPlan(), false)
+    act(() => h.result.current.start())
+    act(() => {
+      h.clock.setTime(h.plan.barMs)
+      h.result.current.hit('kick')
+    })
+    expect(h.audio.strikes).toEqual([{ pad: 'kick', velocity: HIT_VELOCITY, atMs: h.plan.barMs }])
+
+    frameAt(h, h.plan.barMs + h.plan.gradedMs)
+    expect(h.finished).toHaveLength(1)
+    const kickRow = h.finished[0]?.pads.find((p) => p.pad === 'kick')
+    expect(kickRow?.dynamics).toEqual({
+      graded: 0,
+      wrong: 0,
+      softWanted: 0,
+      loudWanted: 0,
+      ghostInstants: 0,
+      accentInstants: 0,
+      // RED (review round 3): the matched stroke landed on a notated accent
+      // with no velocity to grade it by — counted here, not silently dropped.
+      unclassified: 1,
+    })
+  })
+
+  it('a given velocity reaches both the audio strike and the graded dynamics verdict (non-loop path)', () => {
+    const ghostVelocity = defaultVelocityForClass('ghost')
+    const h = harness(accentKickPlan(), false)
+    act(() => h.result.current.start())
+    act(() => {
+      h.clock.setTime(h.plan.barMs)
+      h.result.current.hit('kick', ghostVelocity)
+    })
+    expect(h.audio.strikes).toEqual([{ pad: 'kick', velocity: ghostVelocity, atMs: h.plan.barMs }])
+
+    frameAt(h, h.plan.barMs + h.plan.gradedMs)
+    const kickRow = h.finished[0]?.pads.find((p) => p.pad === 'kick')
+    // Ghost-loud against an accent-expected note: too soft.
+    expect(kickRow?.dynamics).toEqual({
+      graded: 1,
+      wrong: 1,
+      softWanted: 0,
+      loudWanted: 1,
+      ghostInstants: 0,
+      accentInstants: 1,
+      unclassified: 0,
+    })
+  })
+
+  it('the correct velocity for the notated class grades wrong: 0 (non-loop path)', () => {
+    const accentVelocity = defaultVelocityForClass('accent')
+    const h = harness(accentKickPlan(), false)
+    act(() => h.result.current.start())
+    act(() => {
+      h.clock.setTime(h.plan.barMs)
+      h.result.current.hit('kick', accentVelocity)
+    })
+    frameAt(h, h.plan.barMs + h.plan.gradedMs)
+    const kickRow = h.finished[0]?.pads.find((p) => p.pad === 'kick')
+    expect(kickRow?.dynamics).toEqual({
+      graded: 1,
+      wrong: 0,
+      softWanted: 0,
+      loudWanted: 0,
+      ghostInstants: 0,
+      accentInstants: 1,
+      unclassified: 0,
+    })
+  })
+
+  it('a given velocity reaches the graded dynamics verdict in loop mode too', () => {
+    const ghostVelocity = defaultVelocityForClass('ghost')
+    const h = harness(accentKickPlan(), true)
+    act(() => h.result.current.start())
+    act(() => {
+      h.clock.setTime(h.plan.barMs)
+      h.result.current.hit('kick', ghostVelocity)
+    })
+    frameAt(h, h.plan.barMs + h.plan.gradedMs + h.plan.windowMs)
+    expect(h.passesGraded).toHaveLength(1)
+    const kickRow = h.passesGraded[0]?.result.pads.find((p) => p.pad === 'kick')
+    expect(kickRow?.dynamics).toEqual({
+      graded: 1,
+      wrong: 1,
+      softWanted: 0,
+      loudWanted: 1,
+      ghostInstants: 0,
+      accentInstants: 1,
+      unclassified: 0,
+    })
+  })
+})
+
+/**
+ * Review round 3, RED 3, consequence tests: a MOUSE learner (an on-screen pad
+ * has no velocity to give) versus a KEYBOARD learner (a plain tap always
+ * supplies `HIT_VELOCITY`, explicitly, via `groovePadHooks.ts`'s
+ * `KEYBOARD_NORMAL_VELOCITY`) playing the SAME dynamics-notated groove
+ * (`ghostFunkBar`), at the SAME perfect timing, end up graded differently —
+ * the whole point of excluding an unclassified stroke rather than assuming it
+ * is 'normal'.
+ */
+describe('useGrooveRun: mouse vs keyboard dynamics on a dynamics-notated groove (review round 3, RED 3)', () => {
+  function ghostFunkPlan(): GrooveRunPlan {
+    return planGrooveRun(ghostFunkBar(), 80, { gradedBars: 1 })
+  }
+
+  /**
+   * Every (pad, ms) the plan expects, sorted ascending by `ms` — `hit()`
+   * itself does not care about order, but the fake clock does: `setTime`
+   * rejects going backwards (`src/test/fakes.ts`), and a unison instant
+   * (kick and closed hat both on beat 1, ghost-funk's own downbeat) means the
+   * per-pad lists interleave rather than each running ahead of the last.
+   */
+  function everyExpectedHit(plan: GrooveRunPlan): { readonly pad: MappedDrumPad; readonly ms: number }[] {
+    return plan.pads
+      .flatMap((padPlan) => padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms })))
+      .toSorted((a, b) => a.ms - b.ms)
+  }
+
+  it('a mouse-only run (no velocity ever given) grades dynamics all zero on every pad and prints no dynamics sentence, though the run is still steady', () => {
+    const plan = ghostFunkPlan()
+    const h = harness(plan, false)
+    act(() => h.result.current.start())
+    for (const { pad, ms } of everyExpectedHit(plan)) {
+      act(() => {
+        h.clock.setTime(plan.countInBars * plan.barMs + ms)
+        h.result.current.hit(pad) // no velocity argument at all — a mouse click
+      })
+    }
+    frameAt(h, plan.countInBars * plan.barMs + plan.gradedMs)
+    expect(h.finished).toHaveLength(1)
+    const result = h.finished[0]
+    if (result === undefined) throw new Error('expected a graded result')
+    expect(result.steady).toBe(true)
+    // Nothing is ever `graded`/`wrong` here — no velocity ever arrived — but
+    // `unclassified` is pad-specific: it is `plan`'s own notated ghost+accent
+    // count for that pad (0 for kick/hhClosed, which ghost-funk notates only
+    // 'normal' on; non-zero for snare), read off the plan rather than hand-typed,
+    // since a mouse click still MATCHES the expected instant, it just cannot
+    // classify it.
+    for (const row of result.pads) {
+      const padPlan = plan.pads.find((p) => p.pad === row.pad)
+      if (padPlan === undefined) throw new Error(`plan has no pad entry for ${row.pad}`)
+      const expectedUnclassified = padPlan.expectedDynamics.filter((d) => d !== 'normal').length
+      expect(row.dynamics).toEqual({
+        graded: 0,
+        wrong: 0,
+        softWanted: 0,
+        loudWanted: 0,
+        ghostInstants: 0,
+        accentInstants: 0,
+        unclassified: expectedUnclassified,
+      })
+    }
+    expect(diagnosisSentences(result, plan)).toEqual([])
+
+    // This is exactly the scenario RED 3 (review round 3) says was a silent
+    // false pass: `dynamicsCoverageNote` must say dynamics were never graded.
+    const note = dynamicsCoverageNote(
+      result.pads,
+      result.pads.map((row) => plan.pads.find((p) => p.pad === row.pad)?.expectedDynamics ?? []),
+    )
+    expect(note).toBe('Dynamics were not graded: on-screen pads carry no velocity. Use Shift and Alt on the keyboard, or an e-kit.')
+  })
+
+  it('a keyboard-plain run (every tap carries HIT_VELOCITY explicitly) is steady the same way, but its dynamics sentence fires', () => {
+    const plan = ghostFunkPlan()
+    const h = harness(plan, false)
+    act(() => h.result.current.start())
+    for (const { pad, ms } of everyExpectedHit(plan)) {
+      act(() => {
+        h.clock.setTime(plan.countInBars * plan.barMs + ms)
+        // Exactly what `groovePadHooks.ts`'s plain-key branch passes: HIT_VELOCITY, explicitly.
+        h.result.current.hit(pad, HIT_VELOCITY)
+      })
+    }
+    frameAt(h, plan.countInBars * plan.barMs + plan.gradedMs)
+    const result = h.finished[0]
+    if (result === undefined) throw new Error('expected a graded result')
+    // Dynamics never touches `steady` — see `padDynamics`'s contract — so
+    // both runs land on the identical timing verdict despite disagreeing on
+    // dynamics.
+    expect(result.steady).toBe(true)
+
+    const snareRow = result.pads.find((row) => row.pad === 'snare')
+    if (snareRow === undefined) throw new Error('ghost-funk always has a snare row')
+    // `HIT_VELOCITY` classifies 'normal' (pinned above), which matches
+    // neither the ghost nor the accent instants ghost-funk notates on snare —
+    // every graded snare instant comes out wrong.
+    expect(snareRow.dynamics.graded).toBeGreaterThan(0)
+    expect(snareRow.dynamics.wrong).toBe(snareRow.dynamics.graded)
+    // Every tap carried HIT_VELOCITY — nothing is ever unclassified here,
+    // unlike the mouse-only run above.
+    for (const row of result.pads) {
+      expect(row.dynamics.unclassified).toBe(0)
+    }
+
+    const sentences = diagnosisSentences(result, plan)
+    expect(sentences.some((s) => s.includes('ghost note') || s.includes('accent'))).toBe(true)
+
+    // Fully graded (nothing unclassified) — `dynamicsCoverageNote` has
+    // nothing to add on top of the diagnosis sentences above.
+    const note = dynamicsCoverageNote(
+      result.pads,
+      result.pads.map((row) => plan.pads.find((p) => p.pad === row.pad)?.expectedDynamics ?? []),
+    )
+    expect(note).toBeUndefined()
   })
 })

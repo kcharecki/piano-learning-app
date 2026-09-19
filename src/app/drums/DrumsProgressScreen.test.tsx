@@ -159,7 +159,7 @@ describe('DrumsProgressScreen', () => {
     expect(
       within(panel).getByLabelText('Groove coverage'),
     ).toHaveTextContent(
-      'Grooves: 0 of 3 played, 0 steady. Not yet played: Quarter-Note Rock, Money Beat, Money Beat (Open Hat).',
+      'Grooves: 0 of 4 played, 0 steady. Not yet played: Quarter-Note Rock, Money Beat, Money Beat (Open Hat), Ghost Funk Bar.',
     )
     expect(within(panel).getByLabelText('Rudiment coverage')).toHaveTextContent(/^Rudiments: 0 of \d+ started\. Next up: /)
   })
@@ -180,7 +180,7 @@ describe('DrumsProgressScreen', () => {
     render(<DrumsProgressScreen />)
     const panel = screen.getByRole('region', { name: 'Coverage' })
     expect(within(panel).getByLabelText('Groove coverage')).toHaveTextContent(
-      'Grooves: 1 of 3 played, 1 steady. Not yet played: Quarter-Note Rock, Money Beat (Open Hat).',
+      'Grooves: 1 of 4 played, 1 steady. Not yet played: Quarter-Note Rock, Money Beat (Open Hat), Ghost Funk Bar.',
     )
     expect(within(panel).getByLabelText('Rudiment coverage')).toHaveTextContent(
       /^Rudiments: 2 of \d+ started\. Next up: /,

@@ -9,6 +9,7 @@ describe('grooveTrainerLibrary', () => {
       'quarter-note-rock',
       'money-beat',
       'money-beat-open-hat',
+      'ghost-funk-bar',
     ])
   })
 
@@ -22,15 +23,18 @@ describe('grooveTrainerLibrary', () => {
   })
 
   /**
-   * Half of what makes Ghost Funk that groove is eight ghosted snare strokes
-   * against two accents, and a pad press carries no velocity. Offering it
-   * would advertise a skill the trainer cannot sense. See the module comment.
+   * Review round 3, RED 2: `ghostFunkBar` withheld dynamics-graded content
+   * while the trainer only sensed onsets. A pad press carries a velocity now
+   * (keyboard Shift/Alt, MIDI velocity — see `dynamics.ts`), so the groove
+   * belongs in the library, and at least one library entry has to actually
+   * notate a ghost/accent for DR-03's dynamics grading to have anything to
+   * exercise on real content.
    */
-  it('leaves out the groove whose content the trainer cannot sense', () => {
-    expect(grooveTrainerLibrary().map((groove) => groove.id)).not.toContain('ghost-funk-bar')
-    for (const groove of grooveTrainerLibrary()) {
-      expect(groove.notes.every((note) => note.dynamics === 'normal')).toBe(true)
-    }
+  it('includes the groove whose content needs dynamics grading, now that a pad press carries velocity', () => {
+    const library = grooveTrainerLibrary()
+    expect(library.map((groove) => groove.id)).toContain('ghost-funk-bar')
+    expect(library.some((groove) => groove.notes.some((note) => note.dynamics === 'ghost'))).toBe(true)
+    expect(library.some((groove) => groove.notes.some((note) => note.dynamics === 'accent'))).toBe(true)
   })
 
   it('offers only valid, distinctly-titled scores', () => {

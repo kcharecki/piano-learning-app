@@ -158,6 +158,54 @@ describe('planGrooveRun', () => {
     )
   })
 
+  /** Roadmap DR-07 tail / DR-03: notated dynamics reach the run plan. */
+  describe('expectedDynamics', () => {
+    it('is the same length as expectedNominalTicks/expectedMs, for every pad of every reference groove', () => {
+      fc.assert(
+        fc.property(
+          fc.integer({ min: 0, max: referenceGrooves().length - 1 }),
+          fc.integer({ min: MIN_BPM, max: MAX_BPM }),
+          fc.integer({ min: 1, max: 4 }),
+          (index, bpm, gradedBars) => {
+            const score = referenceGrooves()[index]
+            if (score === undefined) return
+            const plan = planGrooveRun(score, bpm, { gradedBars })
+            for (const pad of plan.pads) {
+              expect(pad.expectedDynamics.length).toBe(pad.expectedNominalTicks.length)
+              expect(pad.expectedDynamics.length).toBe(pad.expectedMs.length)
+            }
+          },
+        ),
+      )
+    })
+
+    it("ghost-funk's snare carries both 'accent' and 'ghost' — the groove this feature exists for", () => {
+      const snare = padPlan(ghostFunkBar(), 80, 'snare')
+      expect(snare).toBeDefined()
+      // Computed from the score's own notes, not hand-typed: the plan's
+      // per-instant dynamics must reproduce exactly what the score notated.
+      const notatedAccents = ghostFunkBar().notes.filter((n) => n.pad === 'snare' && n.dynamics === 'accent').length
+      const notatedGhosts = ghostFunkBar().notes.filter((n) => n.pad === 'snare' && n.dynamics === 'ghost').length
+      expect(notatedAccents).toBeGreaterThan(0)
+      expect(notatedGhosts).toBeGreaterThan(0)
+      const loops = Math.ceil((snare?.expectedMs.length ?? 0) / (notatedAccents + notatedGhosts))
+      expect(snare?.expectedDynamics.filter((d) => d === 'accent').length).toBe(notatedAccents * loops)
+      expect(snare?.expectedDynamics.filter((d) => d === 'ghost').length).toBe(notatedGhosts * loops)
+    })
+
+    it('every pad is all-normal on a groove that never notates accent/ghost (the money beat)', () => {
+      // `referenceGrooves.ts`'s money beat never sets a note's `dynamics`, so
+      // `makeGrooveScore`'s own default applies to every note — confirmed
+      // here from the score itself, never assumed.
+      const allNormal = moneyBeat().notes.every((n) => n.dynamics === 'normal')
+      expect(allNormal).toBe(true)
+      const plan = planGrooveRun(moneyBeat(), 80)
+      for (const pad of plan.pads) {
+        expect(pad.expectedDynamics.every((d) => d === 'normal')).toBe(true)
+      }
+    })
+  })
+
   it('keeps every expected instant inside the graded window', () => {
     fc.assert(
       fc.property(

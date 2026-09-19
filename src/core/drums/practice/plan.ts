@@ -33,7 +33,7 @@
 import { measureDurationTicks } from '@core/notation/score.ts'
 import { TICKS_PER_QUARTER } from '@core/shared/units.ts'
 import { invariant } from '@core/shared/invariant.ts'
-import type { GrooveScore, SwingUnit } from '@core/drums/model/groove.ts'
+import type { DynamicsClass, GrooveScore, SwingUnit } from '@core/drums/model/groove.ts'
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import { swungTick } from '@core/drums/model/swing.ts'
 
@@ -80,6 +80,15 @@ export type GroovePadPlan = {
    * constant millisecond amount, which is only valid on a straight grid.
    */
   readonly expectedNominalTicks: readonly number[]
+  /**
+   * `expectedMs`/`expectedNominalMs`/`expectedNominalTicks`'s own notated
+   * dynamics class (roadmap DR-07 tail / DR-03) — same length, same order,
+   * index-for-index with all three. Read from `GrooveNote.dynamics` at each
+   * instant's NOMINAL tick (the note the score actually wrote, before
+   * swing), same tick space `dynamicsByPad` below is keyed on. A pad this
+   * groove never asks for a dynamics distinction on is all `'normal'`.
+   */
+  readonly expectedDynamics: readonly DynamicsClass[]
 }
 
 /** Two pads the score puts on the same notated instant — the only pairs a flam sentence may name. */
@@ -304,6 +313,10 @@ export function planGrooveRun(
   // tick right here is what makes the run, the preview and the grading all
   // swing together.
   const byPad = new Map<MappedDrumPad, Array<{ readonly swung: number; readonly nominal: number }>>()
+  // Per pad, the notated dynamics class at each NOMINAL tick — read once here
+  // alongside `byPad` (same source loop, same nominal-tick keying) and looked
+  // up per instant below when `expectedDynamics` is built.
+  const dynamicsByPad = new Map<MappedDrumPad, Map<number, DynamicsClass>>()
   for (const note of score.notes) {
     const nominal = note.tick as number
     const swung = swungTick(
@@ -317,6 +330,9 @@ export function planGrooveRun(
     const list = byPad.get(note.pad) ?? []
     list.push({ swung, nominal })
     byPad.set(note.pad, list)
+    const dynamicsForPad = dynamicsByPad.get(note.pad) ?? new Map<number, DynamicsClass>()
+    dynamicsForPad.set(nominal, note.dynamics)
+    dynamicsByPad.set(note.pad, dynamicsForPad)
   }
 
   const loops = Math.ceil(gradedTicks / loopTicks)
@@ -345,6 +361,8 @@ export function planGrooveRun(
     const expectedMs: number[] = []
     const expectedNominalMs: number[] = []
     const expectedNominalTicks: number[] = []
+    const expectedDynamics: DynamicsClass[] = []
+    const dynamicsForPad = dynamicsByPad.get(pad)
     for (let loop = 0; loop < loops; loop++) {
       for (let i = 0; i < loopTicksSorted.length; i++) {
         const tick = loopTicksSorted[i]
@@ -356,9 +374,10 @@ export function planGrooveRun(
         expectedMs.push(absolute * msPerTick)
         expectedNominalMs.push(absoluteNominalTick * msPerTick)
         expectedNominalTicks.push(absoluteNominalTick)
+        expectedDynamics.push(dynamicsForPad?.get(nominalTick) ?? 'normal')
       }
     }
-    pads.push({ pad, loopTicks: loopTicksSorted, expectedMs, expectedNominalMs, expectedNominalTicks })
+    pads.push({ pad, loopTicks: loopTicksSorted, expectedMs, expectedNominalMs, expectedNominalTicks, expectedDynamics })
   }
 
   const subdivisionTicksValue = subdivisionTicks(score)

@@ -42,11 +42,20 @@ import { MAX_SLIP_STEPS, matchCountAt, pair, SLIP_COVERAGE, type OffsetSample } 
 import type { GroovePadPlan, GrooveRunPlan, SwingContext, UnisonPair } from './plan.ts'
 import { padDisplacementSteps } from './padDisplacement.ts'
 import { shiftedExpectedMs } from './slipShift.ts'
+import { padDynamics, type PadDynamicsResult } from './dynamics.ts'
 
 /** One pad press, in ms from the moment the graded window opened. */
 export type GrooveHit = {
   readonly pad: MappedDrumPad
   readonly ms: number
+  /**
+   * MIDI velocity, 1..127. Absent means UNCLASSIFIED, not "normal" — an
+   * on-screen pad press carries no velocity at all, and `dynamics.ts`'s
+   * `padDynamics` excludes an unclassified stroke from grading entirely
+   * (review round 3, RED 3): it is not counted toward `graded`, `wrong`, nor
+   * either instant-count, on either side of the ghost/accent split.
+   */
+  readonly velocity?: number
 }
 
 /**
@@ -82,6 +91,15 @@ export type GroovePadResult = {
    * played pads included, once slips have been resolved.
    */
   readonly hits: number
+  /**
+   * Always the STEP-0 pairing (`pair()` run at the plan's own nominal grid,
+   * never re-paired at a displaced pad's effective shift). `dynamics.graded`
+   * (below) counts matched strokes too, but at a DIFFERENT pairing — the
+   * pad's effective shift (review round 3, RED 1) — so on a run displaced by
+   * whole grid steps the two numbers answer different questions and can
+   * disagree; neither is a bug, and callers must not substitute one for the
+   * other.
+   */
   readonly matched: number
   /** Invariant on every row: `expected === matched + missed + slipped`. */
   readonly missed: number
@@ -103,6 +121,26 @@ export type GroovePadResult = {
    * grid position over the others (see `padDisplacement.ts`).
    */
   readonly displacementSteps: number | undefined
+  /**
+   * Velocity-vs-notated-dynamics grading for this pad's own matched strokes
+   * (roadmap DR-07 tail / DR-03) — see `dynamics.ts`. Always PRE-
+   * articulation-slip (never the slip-adjusted pairing: the slip pass's own
+   * internal `pair()` call re-indexes against a leftover sub-array, so its
+   * offsets' `expectedIndex`/`hitIndex` are not positions in this pad's own
+   * `expectedDynamics`/hit list) — but, since review round 3 (RED 1), paired
+   * at this pad's EFFECTIVE grid shift, not always step 0: `slipSteps` when
+   * the whole run agrees on one, else this pad's own `displacementSteps`,
+   * else 0. At step 0 this is exactly `originalOffsetsByPad`. See
+   * `gradeGrooveRun`'s `effectiveStep`/`dynamicsOffsets` for why step 0 alone
+   * is wrong for a pattern displaced by whole grid steps: at that step, a hit
+   * intended for instant N but arriving `step` grid-steps late falls inside a
+   * DIFFERENT instant's (N + step's) window, so it gets paired against, and
+   * graded on, the wrong notated dynamics class entirely — a learner who
+   * played perfect dynamics but landed the whole pattern late was told BOTH
+   * "the pattern sat behind the click" (correctly) and a false dynamics
+   * complaint (incorrectly).
+   */
+  readonly dynamics: PadDynamicsResult
 }
 
 /** Two pads the SCORE puts on one instant, and how far apart they actually landed. */
@@ -324,12 +362,22 @@ function applyArticulationSlips(
 /** Grade `hits` against `plan`. Pure and total: no clock, no ordering assumptions on `hits`. */
 export function gradeGrooveRun(plan: GrooveRunPlan, hits: readonly GrooveHit[]): GrooveRunResult {
   const hitsByPad = new Map<MappedDrumPad, number[]>()
+  // DR-07 tail: each pad's velocities, index-for-index with `hitsByPad`'s ms
+  // list — the ms/velocity pair for one hit is sorted as a UNIT (below), so
+  // `OffsetSample.hitIndex` (an index into `hitsByPad.get(pad)`) always finds
+  // the right velocity, never one that has drifted out of alignment with it.
+  const velocitiesByPad = new Map<MappedDrumPad, (number | undefined)[]>()
+  const rawHitsByPad = new Map<MappedDrumPad, { readonly ms: number; readonly velocity: number | undefined }[]>()
   for (const hit of hits) {
-    const list = hitsByPad.get(hit.pad) ?? []
-    list.push(hit.ms)
-    hitsByPad.set(hit.pad, list)
+    const list = rawHitsByPad.get(hit.pad) ?? []
+    list.push({ ms: hit.ms, velocity: hit.velocity })
+    rawHitsByPad.set(hit.pad, list)
   }
-  for (const list of hitsByPad.values()) list.sort((a, b) => a - b)
+  for (const [pad, list] of rawHitsByPad) {
+    const sorted = [...list].sort((a, b) => a.ms - b.ms)
+    hitsByPad.set(pad, sorted.map((h) => h.ms))
+    velocitiesByPad.set(pad, sorted.map((h) => h.velocity))
+  }
 
   // A press on a pad this groove never asks for is not silently dropped: it
   // gets its own row with nothing expected, so it counts against the verdict
@@ -348,6 +396,8 @@ export function gradeGrooveRun(plan: GrooveRunPlan, hits: readonly GrooveHit[]):
   // `padDisplacementSteps` reports `undefined` for an empty expected list the
   // same way it does for a pad with no hits: no grid position to speak of.
   const expectedNominalTicksByPad = new Map(plan.pads.map((padPlan) => [padPlan.pad, padPlan.expectedNominalTicks]))
+  // Feeds `dynamics` below, same fallback reasoning as `expectedNominalTicksByPad`.
+  const expectedDynamicsByPad = new Map(plan.pads.map((padPlan) => [padPlan.pad, padPlan.expectedDynamics]))
   // Snapshot of each pad's OWN matched offsets, before the slip pass can add
   // any borrowed from elsewhere — unison gaps compare limbs on their own
   // timing only, never inflated by a sibling's slipped-in offsets.
@@ -372,6 +422,21 @@ export function gradeGrooveRun(plan: GrooveRunPlan, hits: readonly GrooveHit[]):
 
   const articulation = applyArticulationSlips(states, plan.windowMs)
 
+  // DR-07 tail (review round 3, RED 1): computed here, BEFORE `pads`, so each
+  // pad's dynamics can be graded against the pairing at its EFFECTIVE grid
+  // shift below, instead of always at step 0. Hoisting changes nothing about
+  // what `runSlipSteps` computes — it only reads `plan.pads`, scalar plan
+  // fields, and `hitsByPad`, none of which depend on the `pads` array being
+  // built — only when it runs.
+  const slipSteps = runSlipSteps(
+    plan.pads,
+    plan.windowMs,
+    plan.nominalSubdivisionTicks,
+    plan.swing,
+    plan.msPerTick,
+    hitsByPad,
+  )
+
   const pads: GroovePadResult[] = padOrder.map((pad) => {
     const state = states.get(pad)
     invariant(state !== undefined, `pad state missing for ${pad}`)
@@ -383,6 +448,39 @@ export function gradeGrooveRun(plan: GrooveRunPlan, hits: readonly GrooveHit[]):
     // is order-sensitive; mean/spread do not care, but doing it once here
     // keeps every stat reading the same, correctly-ordered list.
     const sortedOffsets = [...state.offsets].sort((a, b) => a.instant - b.instant).map((o) => o.offset)
+    // This pad's own hits against its own grid — see
+    // `GroovePadResult.displacementSteps`'s own doc for why this is asked per
+    // pad rather than only of the whole pattern. Computed here (not inline
+    // below) because `effectiveStep` needs it too.
+    const displacementSteps = padDisplacementSteps(
+      expectedNominalTicksByPad.get(pad) ?? [],
+      hitsByPad.get(pad) ?? [],
+      plan.windowMs,
+      plan.nominalSubdivisionTicks,
+      plan.swing,
+      plan.msPerTick,
+      MAX_SLIP_STEPS,
+    )
+    // DR-07 tail (review round 3, RED 1): grade dynamics against the pairing
+    // at this pad's EFFECTIVE shift — the whole-run `slipSteps` when the run
+    // agrees on one, else this pad's own `displacementSteps`, else 0 (the
+    // original step-0 pairing already sitting in `originalOffsetsByPad`). See
+    // `GroovePadResult.dynamics`'s own doc for the bug this fixes.
+    const effectiveStep = slipSteps ?? displacementSteps ?? 0
+    const dynamicsOffsets =
+      effectiveStep === 0
+        ? (originalOffsetsByPad.get(pad) ?? [])
+        : pair(
+            shiftedExpectedMs(
+              expectedNominalTicksByPad.get(pad) ?? [],
+              effectiveStep,
+              plan.nominalSubdivisionTicks,
+              plan.swing,
+              plan.msPerTick,
+            ),
+            hitsByPad.get(pad) ?? [],
+            plan.windowMs,
+          ).offsets
     return {
       pad: state.pad,
       expected: state.expected,
@@ -397,14 +495,15 @@ export function gradeGrooveRun(plan: GrooveRunPlan, hits: readonly GrooveHit[]):
       // This pad's own hits (not the slip-adjusted `state`) against its own
       // grid — see `GroovePadResult.displacementSteps`'s own doc for why this
       // is asked per pad rather than only of the whole pattern.
-      displacementSteps: padDisplacementSteps(
-        expectedNominalTicksByPad.get(pad) ?? [],
-        hitsByPad.get(pad) ?? [],
-        plan.windowMs,
-        plan.nominalSubdivisionTicks,
-        plan.swing,
-        plan.msPerTick,
-        MAX_SLIP_STEPS,
+      displacementSteps,
+      // PRE-slip pairing, at this pad's EFFECTIVE shift — see this field's
+      // own doc on `GroovePadResult` and the comment on `effectiveStep` above.
+      dynamics: padDynamics(
+        dynamicsOffsets.map((o) => ({
+          expectedIndex: o.expectedIndex,
+          velocity: (velocitiesByPad.get(pad) ?? [])[o.hitIndex],
+        })),
+        expectedDynamicsByPad.get(pad) ?? [],
       ),
     }
   })
@@ -445,14 +544,8 @@ export function gradeGrooveRun(plan: GrooveRunPlan, hits: readonly GrooveHit[]):
     pads,
     unison,
     articulation,
-    slipSteps: runSlipSteps(
-      plan.pads,
-      plan.windowMs,
-      plan.nominalSubdivisionTicks,
-      plan.swing,
-      plan.msPerTick,
-      hitsByPad,
-    ),
+    // Hoisted above `pads` now (review round 3, RED 1) — same value, computed once.
+    slipSteps,
     limits,
   }
 }

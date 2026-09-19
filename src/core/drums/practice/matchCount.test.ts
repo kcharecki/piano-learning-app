@@ -13,7 +13,7 @@ describe('pair', () => {
   it('matches a hit to its own instant when inside the window', () => {
     const result = pair([100], [104], 10)
     expect(result.matched).toBe(1)
-    expect(result.offsets).toEqual([{ instant: 100, offset: 4 }])
+    expect(result.offsets).toEqual([{ instant: 100, offset: 4, expectedIndex: 0, hitIndex: 0 }])
     expect(result.unmatchedExpected).toEqual([])
     expect(result.unmatchedHits).toEqual([])
   })
@@ -28,7 +28,7 @@ describe('pair', () => {
   it('matches exactly at the window boundary (<=, not <)', () => {
     const result = pair([100], [110], 10)
     expect(result.matched).toBe(1)
-    expect(result.offsets).toEqual([{ instant: 100, offset: 10 }])
+    expect(result.offsets).toEqual([{ instant: 100, offset: 10, expectedIndex: 0, hitIndex: 0 }])
   })
 
   it('does not match one step past the window boundary', () => {
@@ -39,7 +39,7 @@ describe('pair', () => {
   /** Ties broken toward the earlier instant — see `pair`'s own doc comment. */
   it('gives an equidistant hit to the earlier of two adjacent instants', () => {
     const result = pair([100, 120], [110], 15)
-    expect(result.offsets).toEqual([{ instant: 100, offset: 10 }])
+    expect(result.offsets).toEqual([{ instant: 100, offset: 10, expectedIndex: 0, hitIndex: 0 }])
     expect(result.unmatchedExpected).toEqual([120])
   })
 
@@ -54,6 +54,22 @@ describe('pair', () => {
     expect(result.matched).toBe(1)
     expect(result.unmatchedExpected).toEqual([500])
     expect(result.unmatchedHits).toEqual([900])
+  })
+
+  /**
+   * DR-07 tail: `expectedIndex`/`hitIndex` are positions in the CALLER's own
+   * `expected`/`hits` arrays, not in some filtered/matched-only view — this
+   * is what lets `grade.ts` look a matched hit's velocity back up by exact
+   * index. Here the match order (instant 500 claims the earlier-indexed hit)
+   * differs from array order, so a wrong implementation (e.g. reusing a
+   * running counter instead of the real index) would be caught.
+   */
+  it('gives expectedIndex/hitIndex as exact positions in the input arrays', () => {
+    const result = pair([0, 500], [490, 4], 15)
+    expect(result.offsets).toEqual([
+      { instant: 0, offset: 4, expectedIndex: 0, hitIndex: 1 },
+      { instant: 500, offset: -10, expectedIndex: 1, hitIndex: 0 },
+    ])
   })
 })
 

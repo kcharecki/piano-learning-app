@@ -267,9 +267,14 @@ export type GrooveRunApi = {
    * bound). The pad still flashes and sounds either way. The base the ms is
    * measured from differs by mode: the graded origin in non-loop mode, the
    * answering pass's own origin in loop mode — never accumulated across
-   * passes.
+   * passes. `velocity` (MIDI 1..127, DR-07 tail / DR-03) is used for the
+   * audio strike always: given or not, the pad sounds at `velocity ??
+   * HIT_VELOCITY`. It is recorded on the pushed `GrooveHit` only when GIVEN
+   * (review round 3, RED 3) — omitted entirely otherwise, so a mouse press
+   * (no velocity to give) is recorded as UNCLASSIFIED, not silently promoted
+   * to `HIT_VELOCITY`'s 'normal' class. See `GrooveHit.velocity`'s own doc.
    */
-  hit: (pad: MappedDrumPad) => number | undefined
+  hit: (pad: MappedDrumPad, velocity?: number) => number | undefined
   /** Play the graded music, plus a click track under it. Nothing is graded. */
   preview: () => void
 }
@@ -285,8 +290,16 @@ type PreviewTiming = {
   readonly endAt: number
 }
 
-/** The velocity a learner's own pad press sounds at — a stroke, not a demonstration. */
-const HIT_VELOCITY = 96
+/**
+ * The velocity a learner's own pad press sounds at when nothing more specific
+ * is given — a stroke, not a demonstration. Exported (review round 3, RED 3)
+ * as the ONE canonical "plain press" velocity: `groovePadHooks.ts`'s
+ * unmodified keyboard tap imports this directly (re-exported there as
+ * `KEYBOARD_NORMAL_VELOCITY`) rather than typing its own `96`, so the two can
+ * never drift apart. `velocityClassOf(HIT_VELOCITY) === 'normal'` is pinned
+ * by a test against this constant, not a hand-typed number.
+ */
+export const HIT_VELOCITY = 96
 
 /** The velocity `preview()` plays back at — slightly hotter, since it is the model to copy. */
 const PREVIEW_VELOCITY = 100
@@ -382,8 +395,8 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
   )
 
   const sound = useCallback(
-    (pad: MappedDrumPad): void => {
-      withAudio((out) => out.strike(pad, HIT_VELOCITY))
+    (pad: MappedDrumPad, velocity: number): void => {
+      withAudio((out) => out.strike(pad, velocity))
     },
     [withAudio],
   )
@@ -709,10 +722,25 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
   }, [])
 
   const hit = useCallback(
-    (pad: MappedDrumPad): number | undefined => {
+    (pad: MappedDrumPad, velocity?: number): number | undefined => {
       seqRef.current += 1
       setFlash({ pad, seq: seqRef.current })
-      sound(pad)
+      // DR-07 tail / DR-03: a caller that gives no velocity (a mouse-clicked
+      // on-screen pad has no velocity to give) still strikes and sounds at
+      // `HIT_VELOCITY` — the same plain velocity every hit used before this
+      // slice — never left unset. `velocityClassOf(HIT_VELOCITY) === 'normal'`
+      // is pinned by a test, not assumed here.
+      //
+      // Review round 3, RED 3: the AUDIO strike below always uses
+      // `strikeVelocity` (unchanged). What gets RECORDED on the `GrooveHit`
+      // pushed to `hitsRef`/`hitsByPassRef` is different — the ORIGINAL
+      // `velocity` parameter, possibly `undefined` — so a mouse press (no
+      // velocity given) is recorded as UNCLASSIFIED, not silently promoted to
+      // 'normal'. Only a keyboard press, which always supplies a velocity
+      // (`groovePadHooks.ts`), or a MIDI device that reports one, ever
+      // records a classified stroke. See `GrooveHit.velocity`'s own doc.
+      const strikeVelocity = velocity ?? HIT_VELOCITY
+      sound(pad, strikeVelocity)
       // A muted pad still flashes and sounds (above) — that is what tells the
       // learner their own tap on it still registers as a stroke — but it is
       // never recorded and never gets a live verdict, in or out of a run.
@@ -739,7 +767,10 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
         const passIndex = passOfHit(gradingPlan, relative)
         const list = hitsByPassRef.current.get(passIndex) ?? []
         const passMs = relative - passOrigin(gradingPlan, passIndex)
-        list.push({ pad, ms: passMs })
+        // `exactOptionalPropertyTypes`: omit `velocity` entirely rather than
+        // setting it to `undefined` — see the comment on `strikeVelocity`
+        // above for why this is the ORIGINAL parameter, not `strikeVelocity`.
+        list.push(velocity === undefined ? { pad, ms: passMs } : { pad, ms: passMs, velocity })
         hitsByPassRef.current.set(passIndex, list)
 
         const claimed = claimedByPassRef.current.get(passIndex) ?? new Set<string>()
@@ -752,7 +783,8 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
 
       if (now > timing.endAt + runPlan.windowMs) return undefined
       const ms = now - timing.gradedOrigin
-      hitsRef.current.push({ pad, ms })
+      // Same `exactOptionalPropertyTypes` reasoning as the loop-mode push above.
+      hitsRef.current.push(velocity === undefined ? { pad, ms } : { pad, ms, velocity })
 
       const verdict = judgeLiveHit(gradingPlan, pad, ms, claimedRef.current)
       if (verdict.instantIndex !== undefined)

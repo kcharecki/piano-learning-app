@@ -21,6 +21,19 @@
 export type OffsetSample = {
   readonly instant: number
   readonly offset: number
+  /**
+   * DR-07 tail: index of `instant` in the `expected` array `pair()` was
+   * called with. Lets a caller (e.g. `grade.ts`'s dynamics wiring) look a
+   * matched hit's own data (velocity, notated dynamics) back up by position,
+   * without re-pairing.
+   */
+  readonly expectedIndex: number
+  /**
+   * DR-07 tail: index of the matched hit in the `hits` array `pair()` was
+   * called with. Exact (integer) — deliberately not reconstructed from
+   * `instant + offset`, since float round-trip is not guaranteed bit-exact.
+   */
+  readonly hitIndex: number
 }
 
 /**
@@ -66,7 +79,9 @@ export function pair(expected: readonly number[], hits: readonly number[], windo
   const unmatchedExpected: number[] = []
   // `expected` is time-ordered, so a hit equidistant between two adjacent
   // instants is claimed by whichever instant is processed first: the earlier one.
-  for (const instant of expected) {
+  for (let expectedIndex = 0; expectedIndex < expected.length; expectedIndex++) {
+    const instant = expected[expectedIndex]
+    if (instant === undefined) continue
     let bestIndex = -1
     let bestDistance = Number.POSITIVE_INFINITY
     for (let i = 0; i < hits.length; i++) {
@@ -85,7 +100,7 @@ export function pair(expected: readonly number[], hits: readonly number[], windo
       continue
     }
     taken[bestIndex] = true
-    offsets.push({ instant, offset: (hits[bestIndex] ?? 0) - instant })
+    offsets.push({ instant, offset: (hits[bestIndex] ?? 0) - instant, expectedIndex, hitIndex: bestIndex })
   }
   const unmatchedHits = hits.filter((_, i) => taken[i] !== true)
   return { offsets, matched: offsets.length, unmatchedExpected, unmatchedHits }
