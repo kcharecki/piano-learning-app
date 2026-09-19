@@ -69,7 +69,7 @@ export function ReadingTrainerScreen(props: ReadingTrainerScreenProps) {
   const resultLines =
     graded === undefined || trainer.lastAccuracy === undefined
       ? undefined
-      : readingResultLines(graded.result, trainer.lastAccuracy)
+      : readingResultLines(graded.result, trainer.lastAccuracy, trainer.plan)
 
   const beatsPerBar = trainer.plan.countInBeats / trainer.plan.countInBars
   const activeBeat = running && run.beatIndex >= 0 ? run.beatIndex % beatsPerBar : -1
@@ -156,6 +156,7 @@ export function ReadingTrainerScreen(props: ReadingTrainerScreenProps) {
             {resultLines.verdict}
           </p>
           <p className="reading-detail">{resultLines.detail}</p>
+          {resultLines.slip !== undefined && <p className="reading-detail">{resultLines.slip}</p>}
           {trainer.levelChanged !== undefined && (
             <p className="reading-level-change" data-direction={trainer.levelChanged}>
               {trainer.levelChanged === 'up' ? 'Level up' : 'Level down'} — {describeReadingLevel(storeLevel)}
