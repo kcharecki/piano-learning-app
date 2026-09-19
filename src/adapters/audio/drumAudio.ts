@@ -38,7 +38,7 @@ import type { MidiOutput } from '@core/ports/midi.ts'
 import { millis, type Millis } from '@core/shared/units.ts'
 import { getConnectedMidiOutput } from './audioRoute.ts'
 import { getDrumAudioRoute, type DrumAudioRoute } from './drumAudioRoute.ts'
-import { createMidiDrumOutput } from './drumMidiOut.ts'
+import { createMidiDrumOutput, type MidiDrumOutput } from './drumMidiOut.ts'
 import { createDrumSynth, type DrumSynthOptions } from './drumSynth.ts'
 
 /** Injectable seam for tests — defaults to the real route preference and the real live MIDI connection. */
@@ -80,8 +80,10 @@ function createDrumAudioRouter(
 
   const synth = createDrumSynth({ context })
   let midiOutputInstance: MidiOutput | undefined
-  let midiDrumOutput: DrumAudioOutput | undefined
+  let midiDrumOutput: MidiDrumOutput | undefined
   let lastVolume = 1
+  /** Unsubscribes the current voice's `onDevicesChanged` listener below — re-armed on every device swap. */
+  let unsubscribeDeviceChange: (() => void) | undefined
 
   /**
    * Lazily builds (once per distinct `MidiOutput` instance) the MIDI drum
@@ -90,13 +92,37 @@ function createDrumAudioRouter(
    * reassignment (review A4) — otherwise a note scheduled on the previous
    * device has no `allNotesOff` left in this router that can ever reach it
    * again, since `midiDrumOutput` is about to stop pointing at it.
+   *
+   * Also subscribes to `output.onDevicesChanged` (review amber 5, then RED
+   * round 2): the per-hit `reset()` in `pickTarget` only runs when a
+   * strike/click actually lands DURING an outage — an unplug immediately
+   * followed by a re-plug with no hit in between never calls `pickTarget`
+   * while the device is unlisted, so that per-hit reset alone would leave a
+   * stale `openHat` set and the FIRST hi-hat after the re-plug would still
+   * send a stray `noteOff`. But `MidiAccess.onstatechange` (`webmidi.ts`)
+   * fires for EVERY port on the system, input or output — plugging in the
+   * learner's piano while the drum module never moved must not reset a
+   * legitimately still-ringing open hat and drop its real note-off. So the
+   * handler checks the emitted `devices` payload itself: a device-list event
+   * that DROPS the selected output makes its hat state unknown and is what
+   * resets it, not any device-list event. The old subscription is torn down
+   * before a new one is added on a device swap; there is no router-level
+   * `dispose()` to also unsubscribe from (`DrumAudioOutput` has none, and
+   * this router's own return value below adds none) — this module-level
+   * singleton is assumed to live for the app's lifetime, same as `synth`.
    */
-  function ensureMidiTarget(output: MidiOutput): DrumAudioOutput {
+  function ensureMidiTarget(output: MidiOutput): MidiDrumOutput {
     if (midiDrumOutput === undefined || output !== midiOutputInstance) {
       midiDrumOutput?.allNotesOff()
+      unsubscribeDeviceChange?.()
       midiOutputInstance = output
       midiDrumOutput = createMidiDrumOutput({ output, now: () => millis(performance.now()) })
       midiDrumOutput.setVolume(lastVolume)
+      unsubscribeDeviceChange = output.onDevicesChanged((devices) => {
+        if (!devices.some((d) => d.id === output.selectedDeviceId)) {
+          midiDrumOutput?.reset()
+        }
+      })
     }
     return midiDrumOutput
   }
@@ -110,12 +136,28 @@ function createDrumAudioRouter(
    * unplugged selection still passes `output !== undefined` while every
    * `send()` on it is silently swallowed. Checking the selection is still
    * among `listDevices()` here is what actually falls back to the synth.
+   * The listed-or-not answer is deliberately never cached here — every call
+   * re-checks `listDevices()` (cheap: `WebMidiOutputAdapter` caches ITS side,
+   * see that adapter's own comment) so a re-plug resumes MIDI on the very
+   * next call, with no Settings visit needed to "notice".
+   *
+   * A fallback while a `midiDrumOutput` voice is already cached (DR-06
+   * review nit) resets it: the device stopping being listed does not rebuild
+   * the voice on a later re-plug (`ensureMidiTarget` only rebuilds on a
+   * DIFFERENT `MidiOutput` instance, and a re-plug of the same device is the
+   * same instance) — so any `hhOpen` it still remembers as ringing must be
+   * forgotten now, or the first hi-hat event after the re-plug would send a
+   * stray `noteOff` for a note the device never asked to have released (see
+   * `drumMidiOut.ts`'s `reset()`).
    */
   function pickTarget(): DrumAudioOutput {
     if (route() === 'midi') {
       const output = getMidi()
-      if (output !== undefined && output.listDevices().some((d) => d.id === output.selectedDeviceId)) {
-        return ensureMidiTarget(output)
+      if (output !== undefined) {
+        if (output.listDevices().some((d) => d.id === output.selectedDeviceId)) {
+          return ensureMidiTarget(output)
+        }
+        midiDrumOutput?.reset()
       }
     }
     return synth

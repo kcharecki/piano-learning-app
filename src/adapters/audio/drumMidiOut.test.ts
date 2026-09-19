@@ -241,4 +241,68 @@ describe('createMidiDrumOutput', () => {
       { kind: 'noteOff', note: 46, at: 1500, channel: DRUM_MIDI_CHANNEL },
     ])
   })
+
+  // DR-06 review nit — `reset()` exists so `drumAudio.ts`'s router can forget
+  // a pending open hat on this cached voice when a strike falls back to the
+  // synth (the device stopped being listed), without pretending the device
+  // actually got a note-off it may never have asked for.
+  describe('reset()', () => {
+    it('forgets a pending open hat without sending a note-off, so the next hi-hat plays clean', () => {
+      const { midiOut, out } = outputAt(1000)
+
+      out.strike('hhOpen', 100)
+      out.reset()
+      midiOut.sent.length = 0
+      out.strike('hhClosed', 100, millis(1500))
+
+      // no noteOff for note 46 (the forgotten open hat) anywhere — just the
+      // new hi-hat's own gated pair.
+      expect(midiOut.sent).toEqual([
+        { kind: 'noteOn', note: 42, at: 1500, channel: DRUM_MIDI_CHANNEL },
+        { kind: 'noteOff', note: 42, at: 1500 + STRIKE_GATE_MS, channel: DRUM_MIDI_CHANNEL },
+      ])
+    })
+
+    it('sends nothing itself', () => {
+      const { midiOut, out } = outputAt(1000)
+
+      out.strike('hhOpen', 100)
+      midiOut.sent.length = 0
+      out.reset()
+
+      expect(midiOut.sent).toEqual([])
+    })
+
+    it('is a no-op when there is no pending open hat', () => {
+      const { midiOut, out } = outputAt(1000)
+
+      out.reset()
+
+      expect(midiOut.sent).toEqual([])
+    })
+
+    // A fresh hhOpen struck AFTER reset() must re-arm exactly like any other
+    // hhOpen — noteOn only, no stray noteOff for the forgotten one, and the
+    // hat is still live: the next hi-hat event releases THIS one normally.
+    it('a fresh hhOpen after reset() re-arms normally — noteOn only, then released by the next hi-hat', () => {
+      const { midiOut, out } = outputAt(1000)
+
+      out.strike('hhOpen', 100) // openHat set on note 46 at 1000
+      out.reset() // forgotten — no noteOff sent
+      out.strike('hhOpen', 100, millis(1500)) // re-armed
+
+      expect(midiOut.sent).toEqual([
+        { kind: 'noteOn', note: 46, at: 1000, channel: DRUM_MIDI_CHANNEL },
+        { kind: 'noteOn', note: 46, at: 1500, channel: DRUM_MIDI_CHANNEL },
+      ])
+
+      out.strike('hhClosed', 100, millis(2000))
+
+      expect(midiOut.sent.slice(2)).toEqual([
+        { kind: 'noteOff', note: 46, at: 2000, channel: DRUM_MIDI_CHANNEL },
+        { kind: 'noteOn', note: 42, at: 2000, channel: DRUM_MIDI_CHANNEL },
+        { kind: 'noteOff', note: 42, at: 2000 + STRIKE_GATE_MS, channel: DRUM_MIDI_CHANNEL },
+      ])
+    })
+  })
 })

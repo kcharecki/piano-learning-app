@@ -50,6 +50,31 @@
  * `allNotesOff` forgets the ringing note too — the underlying
  * `output.allNotesOff` (CC 123, channel 10) is what actually silences it at
  * the device.
+ *
+ * ## `reset()` (DR-06 review nit — the stray note-off after a re-plug)
+ *
+ * `drumAudio.ts`'s router keeps this voice alive across a MIDI dropout: when
+ * the selected device stops being listed, the router falls back to the synth
+ * but does not rebuild the voice, because `ensureMidiTarget` only rebuilds on
+ * a DIFFERENT `MidiOutput` instance — a re-plug of the same device is the
+ * same instance. Without `reset()`, an `hhOpen` that rang right before the
+ * unplug would leave `openHat` set on this now-dormant voice; the moment the
+ * device reappears, the next hi-hat event would send a `noteOff` for that
+ * stale note — a stray message for a note-on the device may never have
+ * received at all (or forgot across a power cycle). `reset()` just forgets
+ * `openHat`, sending nothing itself; the router calls it when a strike falls
+ * back to the synth, not when the device is actually still ringing (that
+ * case still gets `allNotesOff`, the real panic).
+ *
+ * The trade cuts both ways: if the unlist is only transient and the module
+ * is genuinely still sounding note 46 when `reset()` runs, this voice loses
+ * its own record of that and never sends the matching `noteOff` for it — the
+ * note is left to ring until something else silences it. Two things bound
+ * how bad that is in practice: `allNotesOff` (CC 123, channel 10) still
+ * reaches the device on any panic and does not depend on this voice's own
+ * bookkeeping; and on GM channel 10 most percussion modules do not sustain
+ * on note-on at all (each hit is typically a fixed-length one-shot sample),
+ * so most real devices would have nothing left ringing to silence anyway.
  */
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import { gmNoteOf } from '@core/drums/model/pad.ts'
@@ -80,8 +105,18 @@ function isHiHatEvent(pad: MappedDrumPad): boolean {
   return pad === 'hhClosed' || pad === 'hhPedal' || pad === 'hhOpen'
 }
 
-/** Build a `DrumAudioOutput` that plays through `opts.output` on MIDI channel 10. */
-export function createMidiDrumOutput(opts: MidiDrumOutputOptions): DrumAudioOutput {
+/**
+ * The MIDI drum voice's own shape — `DrumAudioOutput` plus `reset()` (module
+ * comment), which is not part of the domain port and exists only for
+ * `drumAudio.ts`'s router to call on this concrete voice.
+ */
+export type MidiDrumOutput = DrumAudioOutput & {
+  /** Forget any pending open hat WITHOUT sending a note-off — see the module comment. */
+  reset(): void
+}
+
+/** Build a `DrumAudioOutput` (plus `reset()`) that plays through `opts.output` on MIDI channel 10. */
+export function createMidiDrumOutput(opts: MidiDrumOutputOptions): MidiDrumOutput {
   const { output, now } = opts
   let volume = 1
   /** The still-ringing `hhOpen`'s GM note and the `at` it started ringing at, or `undefined` — see the module comment. */
@@ -136,5 +171,10 @@ export function createMidiDrumOutput(opts: MidiDrumOutputOptions): DrumAudioOutp
     volume = Math.max(0, Math.min(1, v))
   }
 
-  return { strike, click, allNotesOff, setVolume, now }
+  /** See the module comment's `reset()` section. Sends nothing; a no-op with no pending open hat. */
+  function reset(): void {
+    openHat = undefined
+  }
+
+  return { strike, click, allNotesOff, setVolume, now, reset }
 }

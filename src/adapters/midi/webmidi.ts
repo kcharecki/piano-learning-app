@@ -61,6 +61,12 @@ export async function createWebMidi(opts?: { sysex?: boolean }): Promise<Result<
   const output = new WebMidiOutputAdapter(access)
   input.attachAll()
   access.onstatechange = () => {
+    // Invalidate the OUTPUT cache first, before either `refresh()` runs: an
+    // input-side `onDevicesChanged` subscriber that synchronously calls
+    // `output.listDevices()` from inside `input.refresh()` must never see a
+    // stale pre-plug list — `output.refresh()` on its own would invalidate
+    // too late for that same-tick caller (review amber 2).
+    output.invalidate()
     input.refresh()
     output.refresh()
   }
@@ -252,6 +258,23 @@ class WebMidiInputAdapter implements MidiInput {
 class WebMidiOutputAdapter implements MidiOutput {
   private readonly access: MidiAccessHandle
   private readonly deviceHandlers = new Set<(devices: readonly MidiDevice[]) => void>()
+  /**
+   * Memoized `connectedDevices(this.access.outputs)`: `listDevices()` returns
+   * the same frozen array reference between device-list events, instead of
+   * allocating a fresh one on every call. Populated ONLY inside
+   * `listDevices()`, lazily; `undefined` means "stale, recompute next call".
+   * Invalidated (never repopulated
+   * directly) by `invalidate()` — called by `refresh()`, by `detachAll()`
+   * (so a `MidiOutput` held past `dispose()` cannot serve a frozen list
+   * forever once `onstatechange` is detached), and up front in
+   * `createWebMidi`'s `onstatechange` handler before `input.refresh()` runs
+   * (review amber 2). This is only as correct as that wiring: while this
+   * adapter's `refresh()`/`invalidate()` stay wired to
+   * `MIDIAccess.onstatechange` — which Chrome fires for every plug/unplug —
+   * the real port set cannot change without the cache being cleared for it;
+   * if that wiring were ever removed, the cache would go stale silently.
+   */
+  private cachedDevices: readonly MidiDevice[] | undefined
   selectedDeviceId: string | null = null
 
   constructor(access: MidiAccessHandle) {
@@ -259,7 +282,10 @@ class WebMidiOutputAdapter implements MidiOutput {
   }
 
   listDevices(): readonly MidiDevice[] {
-    return connectedDevices(this.access.outputs)
+    if (this.cachedDevices === undefined) {
+      this.cachedDevices = Object.freeze(connectedDevices(this.access.outputs))
+    }
+    return this.cachedDevices
   }
 
   onDevicesChanged(handler: (devices: readonly MidiDevice[]) => void): Unsubscribe {
@@ -271,8 +297,26 @@ class WebMidiOutputAdapter implements MidiOutput {
     this.selectedDeviceId = deviceId
   }
 
-  /** Re-emit the current device list to every subscriber — called on MIDIAccess `statechange`. */
+  /**
+   * Clears the cached device list without emitting anything — not part of
+   * `MidiOutput`; this file's own `createWebMidi` calls it directly (module
+   * comment, review amber 2) up front in its `onstatechange` handler, ahead
+   * of `input.refresh()`, so a same-tick input-side subscriber that calls
+   * `output.listDevices()` never observes a stale pre-plug cache.
+   */
+  invalidate(): void {
+    this.cachedDevices = undefined
+  }
+
+  /**
+   * Re-emit the current device list to every subscriber — called on
+   * MIDIAccess `statechange`. Invalidates the cache first (idempotent with
+   * the up-front `invalidate()` in `createWebMidi`'s handler) so the
+   * re-emitted list, and every `listDevices()` call after it, reflects the
+   * port set that just changed, not a stale array from before this plug/unplug.
+   */
   refresh(): void {
+    this.invalidate()
     const devices = this.listDevices()
     for (const handler of this.deviceHandlers) handler(devices)
   }
@@ -283,9 +327,16 @@ class WebMidiOutputAdapter implements MidiOutput {
    * learner's remembered port survives a momentary unplug rather than being
    * silently swapped for whatever now enumerates first. `audioRoute.ts`'s
    * `connectMidiOutputRoute`/`selectMidiOutputPort` own that re-pick policy.
+   *
+   * Also invalidates the cache (review amber 1): `dispose()` nulls
+   * `access.onstatechange`, which is the only other invalidation path, so a
+   * `MidiOutput` reference kept alive past `dispose()` would otherwise serve
+   * a frozen list forever instead of recomputing from whatever `access.outputs`
+   * still reports.
    */
   detachAll(): void {
     this.deviceHandlers.clear()
+    this.invalidate()
   }
 
   noteOn(note: Midi, velocity: number, atMs?: Millis, channel = 0): void {

@@ -528,6 +528,146 @@ describe('WebMidi output — hot-plug', () => {
     // and it's a silent no-op to send to the now-vanished port, not a throw
     expect(() => output.noteOn(midi(60), 100)).not.toThrow()
   })
+
+  // DR-06 review nit — `listDevices()` is on the drum router's per-hit hot
+  // path (`drumAudio.ts`'s `pickTarget`, called on every strike/click), so a
+  // fresh array on every call was needless churn. The adapter caches it.
+  it('listDevices() returns the same array reference across calls', async () => {
+    const access = new FakeMidiAccess()
+    const p1 = new FakeMidiOutputPort('out-1')
+    access.outputs.set(p1.id, p1)
+    stubMidiAccess(access)
+    const result = await createWebMidi()
+    if (!result.ok) throw new Error('expected Ok')
+    const { output } = result.value
+
+    const first = output.listDevices()
+    const second = output.listDevices()
+
+    expect(second).toBe(first)
+  })
+
+  it('a statechange invalidates the cache — the next listDevices() is a new reference reflecting the new port set', async () => {
+    const access = new FakeMidiAccess()
+    const p1 = new FakeMidiOutputPort('out-1')
+    access.outputs.set(p1.id, p1)
+    stubMidiAccess(access)
+    const result = await createWebMidi()
+    if (!result.ok) throw new Error('expected Ok')
+    const { output } = result.value
+    const before = output.listDevices()
+
+    const p2 = new FakeMidiOutputPort('out-2')
+    access.outputs.set(p2.id, p2)
+    access.onstatechange?.()
+    const after = output.listDevices()
+
+    expect(after).not.toBe(before)
+    expect(after.map((d) => d.id)).toEqual(['out-1', 'out-2'])
+  })
+
+  // Review amber 4 — pins the WIRING (the cache is invalidated before either
+  // `refresh()` runs at all — `createWebMidi`'s up-front `output.invalidate()`,
+  // review amber 2) rather than the order of statements INSIDE `refresh()`
+  // itself: with that up-front call in place, a mutant that reorders
+  // `refresh()`'s own internal invalidate-then-emit would still be masked
+  // here (the cache is already clear by the time `refresh()` runs), so this
+  // is not a claim about `refresh()`'s own statement order. What it does pin:
+  // warms the cache, subscribes a collector BEFORE the statechange, then
+  // asserts the EMITTED payload itself already reflects the new port set —
+  // not just what a `listDevices()` call made afterward would return.
+  it('a statechange emits the new port set to onDevicesChanged subscribers, not a stale cached one', async () => {
+    const access = new FakeMidiAccess()
+    const p1 = new FakeMidiOutputPort('out-1')
+    access.outputs.set(p1.id, p1)
+    stubMidiAccess(access)
+    const result = await createWebMidi()
+    if (!result.ok) throw new Error('expected Ok')
+    const { output } = result.value
+    output.listDevices() // warms the cache with just out-1
+
+    const p2 = new FakeMidiOutputPort('out-2')
+    access.outputs.set(p2.id, p2)
+    const { handler, values: deviceLists } = collect<readonly MidiDevice[]>()
+    output.onDevicesChanged(handler) // subscribed BEFORE the statechange
+    access.onstatechange?.()
+
+    expect(deviceLists.at(-1)?.map((d) => d.id)).toEqual(['out-1', 'out-2'])
+  })
+
+  // Review amber 2 — an input-side `onDevicesChanged` subscriber that
+  // synchronously calls `output.listDevices()` (a plausible pattern: some UI
+  // wiring reacts to "MIDI topology changed" by re-reading both lists) must
+  // never see the OUTPUT cache from before this same statechange, even
+  // though `input.refresh()` runs before `output.refresh()` in
+  // `createWebMidi`'s handler. Kills a mutant that drops the up-front
+  // `output.invalidate()` and relies solely on `output.refresh()`'s own
+  // (too-late, for this caller) invalidation.
+  it('an input-side devicesChanged subscriber sees the fresh output list during the same statechange', async () => {
+    const access = new FakeMidiAccess()
+    const p1 = new FakeMidiOutputPort('out-1')
+    access.outputs.set(p1.id, p1)
+    stubMidiAccess(access)
+    const result = await createWebMidi()
+    if (!result.ok) throw new Error('expected Ok')
+    const { input, output } = result.value
+    output.listDevices() // warms the output cache with just out-1
+
+    const p2 = new FakeMidiOutputPort('out-2')
+    access.outputs.set(p2.id, p2)
+    let seenFromInputCallback: readonly MidiDevice[] | undefined
+    input.onDevicesChanged(() => {
+      seenFromInputCallback = output.listDevices()
+    })
+
+    access.onstatechange?.()
+
+    expect(seenFromInputCallback?.map((d) => d.id)).toEqual(['out-1', 'out-2'])
+  })
+
+  // Kills a mutant that caches forever (never invalidates, or invalidates
+  // but never actually recomputes from the live port map): a port removed
+  // from `access.outputs` must be gone from the very next `listDevices()`
+  // once a statechange has fired, not still served from a stale array.
+  it('a device removed from access.outputs is gone from the next listDevices() after statechange', async () => {
+    const access = new FakeMidiAccess()
+    const p1 = new FakeMidiOutputPort('out-1')
+    const p2 = new FakeMidiOutputPort('out-2')
+    access.outputs.set(p1.id, p1)
+    access.outputs.set(p2.id, p2)
+    stubMidiAccess(access)
+    const result = await createWebMidi()
+    if (!result.ok) throw new Error('expected Ok')
+    const { output } = result.value
+    expect(output.listDevices().map((d) => d.id)).toEqual(['out-1', 'out-2'])
+
+    access.outputs.delete('out-2')
+    access.onstatechange?.()
+
+    expect(output.listDevices().map((d) => d.id)).toEqual(['out-1'])
+  })
+
+  // Review amber 1 — `dispose()` nulls `access.onstatechange`, the only
+  // other invalidation path, so a `MidiOutput` reference kept alive past
+  // `dispose()` must still recompute rather than serve a frozen cached list
+  // forever. `detachAll()` is what `dispose()` calls on the output side.
+  it('detachAll() clears the cache too, so a reference kept past dispose() does not serve a frozen list forever', async () => {
+    const access = new FakeMidiAccess()
+    const p1 = new FakeMidiOutputPort('out-1')
+    access.outputs.set(p1.id, p1)
+    stubMidiAccess(access)
+    const result = await createWebMidi()
+    if (!result.ok) throw new Error('expected Ok')
+    const { output, dispose } = result.value
+    expect(output.listDevices().map((d) => d.id)).toEqual(['out-1'])
+
+    dispose() // nulls access.onstatechange — no more automatic invalidation
+    access.outputs.delete('out-1')
+    const p2 = new FakeMidiOutputPort('out-2')
+    access.outputs.set(p2.id, p2)
+
+    expect(output.listDevices().map((d) => d.id)).toEqual(['out-2'])
+  })
 })
 
 describe('dispose', () => {
