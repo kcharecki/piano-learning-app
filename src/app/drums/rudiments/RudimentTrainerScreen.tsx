@@ -16,9 +16,11 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { GrooveStaff } from '@app/drums/notation/GrooveStaff.tsx'
+import { KEYBOARD_ACCENT_VELOCITY, KEYBOARD_NORMAL_VELOCITY } from '@app/drums/groove/groovePadHooks.ts'
 import { GROOVE_PAD_LABEL } from '@app/drums/groove/padLabels.ts'
 import { gradedAtText, padLineText } from '@app/drums/groove/resultLines.ts'
 import type { GrooveRunPhase, PadFlash } from '@app/drums/groove/useGrooveRun.ts'
+import { useDrumMidiInput } from '@app/drums/input/useDrumMidiInput.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
 import { useDrumsRudimentStore, type RudimentRecord } from '@app/state/drumsRudimentStore.ts'
 import { Icon } from '@app/ui/Icon.tsx'
@@ -27,10 +29,10 @@ import { describeGroove } from '@core/drums/engrave/describe.ts'
 import { engraveGroove } from '@core/drums/engrave/staff.ts'
 import type { LadderMode, Rudiment } from '@core/drums/rudiment/index.ts'
 import { isEvenEnough } from '@core/drums/rudiment/index.ts'
-import type { Clock, DrumAudioOutput } from '@core/ports/index.ts'
+import type { Clock, DrumAudioOutput, MidiInput } from '@core/ports/index.ts'
 import { at } from '@core/shared/invariant.ts'
 import { RudimentLibrary } from './RudimentLibrary.tsx'
-import { evennessText, ladderText, measuresOnly } from './rudimentRun.ts'
+import { accentLine, evennessText, ladderText, measuresOnly } from './rudimentRun.ts'
 import { useRudimentTrainer } from './useRudimentTrainer.ts'
 
 /** The rudiment the trainer opens on — the first thing a learner meets in tier 1. */
@@ -44,6 +46,8 @@ export type RudimentTrainerScreenProps = {
   readonly audio?: () => DrumAudioOutput
   readonly frameDriver?: FrameDriver
   readonly now?: () => number
+  /** A ready-made e-kit MIDI input (roadmap DR-02); defaults to Web MIDI through `useMidiConnection`. */
+  readonly midiInput?: MidiInput
 }
 
 export function RudimentTrainerScreen(props: RudimentTrainerScreenProps) {
@@ -60,6 +64,7 @@ export function RudimentTrainerScreen(props: RudimentTrainerScreenProps) {
       {...(props.audio === undefined ? {} : { audio: props.audio })}
       {...(props.frameDriver === undefined ? {} : { frameDriver: props.frameDriver })}
       {...(props.now === undefined ? {} : { now: props.now })}
+      {...(props.midiInput === undefined ? {} : { midiInput: props.midiInput })}
     />
   )
 }
@@ -72,6 +77,7 @@ type TrainerProps = {
   readonly audio?: () => DrumAudioOutput
   readonly frameDriver?: FrameDriver
   readonly now?: () => number
+  readonly midiInput?: MidiInput
 }
 
 function Trainer({ rudiment, records, onSelect, ...seams }: TrainerProps) {
@@ -90,10 +96,31 @@ function Trainer({ rudiment, records, onSelect, ...seams }: TrainerProps) {
   const busy = running || previewing
 
   useKeyboardTap(trainer.tap, running)
+
+  // DR-02 / DR-10 accents: a rudiment is one surface (every stroke is the
+  // snare), so — unlike the groove trainer's per-pad kit map — ANY mapped
+  // pad the e-kit reports counts as this trainer's one stroke. A learner
+  // practising rudiments on a pad mapped to some other drum (say, their
+  // practice pad is learned as 'kick') still gets graded, rather than having
+  // to relearn a snare-specific mapping just to use this screen. Spec
+  // decision, flagged for review.
+  const tapRef = useRef(trainer.tap)
+  useEffect(() => {
+    tapRef.current = trainer.tap
+  }, [trainer.tap])
+  const ekit = useDrumMidiInput({
+    onHit: (_pad, raw) => tapRef.current(raw.velocity),
+    ...(seams.midiInput === undefined ? {} : { midiInput: seams.midiInput }),
+  })
+
   const lit = useLit(trainer.run.flash)
 
   const layout = engraveGroove(trainer.score)
   const staffLabel = describeGroove(trainer.score, (pad) => GROOVE_PAD_LABEL[pad])
+  const hasAccentInstants = trainer.plan.pads.some(
+    (pad) => pad.pad === 'snare' && pad.expectedDynamics.includes('accent'),
+  )
+  const accentText = trainer.lastAccents === undefined ? undefined : accentLine(trainer.lastAccents)
 
   return (
     <div className="page page--focus rudiment-screen">
@@ -188,10 +215,12 @@ function Trainer({ rudiment, records, onSelect, ...seams }: TrainerProps) {
           className="rudiment-tap-pad"
           aria-label="Tap"
           data-lit={lit ? 'true' : undefined}
-          onPointerDown={trainer.tap}
+          onPointerDown={() => trainer.tap()}
         >
           Tap
         </button>
+
+        {hasAccentInstants && <p className="rudiment-accent-legend">Shift = accent</p>}
 
         <p role="status" aria-label="Run state" className="rudiment-run-state">
           {runStateText(
@@ -200,6 +229,10 @@ function Trainer({ rudiment, records, onSelect, ...seams }: TrainerProps) {
             trainer.run.bar,
             trainer.plan.gradedBars,
           )}
+        </p>
+
+        <p role="status" aria-label="E-kit" className="groove-ekit">
+          {ekit.statusText}
         </p>
 
         {trainer.run.result !== undefined && trainer.lastClean !== undefined && (
@@ -219,6 +252,7 @@ function Trainer({ rudiment, records, onSelect, ...seams }: TrainerProps) {
                 {evennessText(trainer.lastEvenness)}
               </p>
             )}
+            {accentText !== undefined && <p className="rudiment-accents">{accentText}</p>}
             <ul className="rudiment-pad-lines">
               {trainer.run.result.result.pads.map((row) => (
                 <li key={row.pad}>{padLineText(row)}</li>
@@ -294,8 +328,20 @@ const TAP_EXCLUDED_KEYS = new Set([
  * run's first stroke. "Any key" in the DR-10 brief is read as "any key that
  * is not already spoken for by this screen's own controls" — flagged as a
  * judgment call in the delivery notes.
+ *
+ * DR-10 accents: Shift simulates the accent velocity
+ * (`KEYBOARD_ACCENT_VELOCITY`), a plain key the normal one
+ * (`KEYBOARD_NORMAL_VELOCITY`) — same two constants
+ * `groovePadHooks.ts`'s `useKeyboardPads` uses for its own Shift modifier.
+ * Shift held alone is still excluded above (`TAP_EXCLUDED_KEYS`), so this
+ * only ever reads `event.shiftKey` on the OTHER key of a Shift+key combo,
+ * e.g. Shift+F, whose `event.key` comes through as `'F'`. That never needs a
+ * case-insensitive comparison here — unlike `useKeyboardPads`'s per-pad key
+ * map, this handler never matches `event.key` against a specific letter, and
+ * every entry in `TAP_EXCLUDED_KEYS` is a non-letter key name.
  */
-function useKeyboardTap(tap: () => void, running: boolean): void {
+// eslint-disable-next-line react-refresh/only-export-components -- a hook, not a component; exported for direct unit test (mirrors `useKeyboardPads` in groovePadHooks.ts)
+export function useKeyboardTap(tap: (velocity?: number) => void, running: boolean): void {
   const tapRef = useRef(tap)
   tapRef.current = tap
   const runningRef = useRef(running)
@@ -315,7 +361,7 @@ function useKeyboardTap(tap: () => void, running: boolean): void {
       if (TAP_EXCLUDED_KEYS.has(event.key)) return
       if (event.key === ' ' && !runningRef.current) return
       event.preventDefault()
-      tapRef.current()
+      tapRef.current(event.shiftKey ? KEYBOARD_ACCENT_VELOCITY : KEYBOARD_NORMAL_VELOCITY)
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)

@@ -8,14 +8,17 @@
 import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
+import { KEYBOARD_ACCENT_VELOCITY, KEYBOARD_NORMAL_VELOCITY } from '@app/drums/groove/groovePadHooks.ts'
 import { useDrumsRudimentStore } from '@app/state/drumsRudimentStore.ts'
 import { FakeClock } from '@test/fakes.ts'
 import { rudimentById } from '@content/drums/rudiments.ts'
+import type { DynamicsClass } from '@core/drums/model/groove.ts'
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import type { Rudiment } from '@core/drums/rudiment/index.ts'
 import { RUDIMENT_CLEAN_EVENNESS, rudimentEvenness } from '@core/drums/rudiment/index.ts'
 import type { Clock, DrumAudioOutput } from '@core/ports/index.ts'
 import type { Millis } from '@core/shared/units.ts'
+import { accentLine } from './rudimentRun.ts'
 import { useRudimentTrainer, type UseRudimentTrainerOptions } from './useRudimentTrainer.ts'
 
 function manualDriver(): { driver: FrameDriver; pump: () => void } {
@@ -124,6 +127,84 @@ function driveRun(h: Harness, clean: boolean): void {
   }
 
   frameAt(h, gradedOrigin + plan.gradedMs)
+}
+
+/**
+ * Drives one full graded run, tapping every expected snare instant exactly
+ * on time with a velocity chosen by `velocityFor` off that instant's OWN
+ * notated dynamics class (DR-10 accents) — `undefined` reproduces an
+ * on-screen pad press (unclassified), a fixed number reproduces a keyboard
+ * or e-kit stroke. `expectedMs`/`expectedDynamics` are index-for-index on
+ * the same `GroovePadPlan` (see `plan.ts`'s own doc on `expectedNominalMs`),
+ * so `velocityFor` reads the class this run's own plan notated at each
+ * instant rather than a guessed position.
+ */
+function driveRunWithVelocities(
+  h: Harness,
+  velocityFor: (dynamicsClass: DynamicsClass) => number | undefined,
+): void {
+  const startedAt = h.clock.now()
+  act(() => h.view.result.current.run.start())
+  const plan = h.view.result.current.plan
+  const gradedOrigin = startedAt + plan.countInBars * plan.barMs
+  frameAt(h, gradedOrigin)
+
+  for (const padPlan of plan.pads) {
+    padPlan.expectedMs.forEach((ms, index) => {
+      const dynamicsClass = padPlan.expectedDynamics[index] ?? 'normal'
+      const velocity = velocityFor(dynamicsClass)
+      act(() => {
+        h.clock.setTime(gradedOrigin + ms)
+        h.view.result.current.tap(velocity)
+      })
+    })
+  }
+
+  frameAt(h, gradedOrigin + plan.gradedMs)
+}
+
+/**
+ * Drives one full graded run like `driveRunWithVelocities`, except every
+ * instant notated 'accent' is never tapped AT ALL — not even an unclassified
+ * on-screen press — so it lands as a genuinely missed accent (RED-B's own
+ * round-3 scenario: an over-accented run where nothing about the accents was
+ * even attempted). Every other instant is tapped on time at `plainVelocity`.
+ */
+function driveRunSkippingAccents(h: Harness, plainVelocity: number): void {
+  const startedAt = h.clock.now()
+  act(() => h.view.result.current.run.start())
+  const plan = h.view.result.current.plan
+  const gradedOrigin = startedAt + plan.countInBars * plan.barMs
+  frameAt(h, gradedOrigin)
+
+  for (const padPlan of plan.pads) {
+    padPlan.expectedMs.forEach((ms, index) => {
+      const dynamicsClass = padPlan.expectedDynamics[index] ?? 'normal'
+      if (dynamicsClass === 'accent') return
+      act(() => {
+        h.clock.setTime(gradedOrigin + ms)
+        h.view.result.current.tap(plainVelocity)
+      })
+    })
+  }
+
+  frameAt(h, gradedOrigin + plan.gradedMs)
+}
+
+/** Total 'accent' instants the CURRENT view's own plan notates on the snare row — computed from the live plan, never typed by hand. */
+function notatedAccents(h: Harness): number {
+  return h.view.result.current.plan.pads.reduce(
+    (sum, padPlan) => sum + padPlan.expectedDynamics.filter((dynamicsClass) => dynamicsClass === 'accent').length,
+    0,
+  )
+}
+
+/** Total 'normal' instants the CURRENT view's own plan notates on the snare row — same reasoning as `notatedAccents`. */
+function notatedNormals(h: Harness): number {
+  return h.view.result.current.plan.pads.reduce(
+    (sum, padPlan) => sum + padPlan.expectedDynamics.filter((dynamicsClass) => dynamicsClass === 'normal').length,
+    0,
+  )
 }
 
 /**
@@ -472,5 +553,177 @@ describe('useRudimentTrainer — evenness (roadmap DR-10)', () => {
     )
     expect(h.view.result.current.lastEvenness).toBeCloseTo(rudimentEvenness(secondRunTaps), 9)
     expect(h.view.result.current.lastClean).toBe(true)
+  })
+})
+
+describe('useRudimentTrainer — accents (roadmap DR-10)', () => {
+  it('grades a fully-accented run clean when every stroke lands at its notated velocity', () => {
+    const h = harness(singleParadiddle())
+    const notated = notatedAccents(h)
+    // Single paradiddle is a bundled fixture that DOES notate accents — this
+    // guards the assumption the rest of the test leans on, rather than
+    // hardcoding the count.
+    expect(notated).toBeGreaterThan(0)
+
+    driveRunWithVelocities(h, (dynamicsClass) =>
+      dynamicsClass === 'accent' ? KEYBOARD_ACCENT_VELOCITY : KEYBOARD_NORMAL_VELOCITY,
+    )
+
+    expect(h.view.result.current.lastClean).toBe(true)
+    expect(h.view.result.current.lastAccents).toEqual({
+      notated,
+      graded: notated,
+      unclassified: 0,
+      missedAccents: 0,
+      // Every plain stroke was played at KEYBOARD_NORMAL_VELOCITY (not
+      // accent-class), so every normal instant is counted but none over-accented.
+      normalInstants: notatedNormals(h),
+      loudNormals: 0,
+    })
+  })
+
+  it('fails a clean pass when an accented rudiment is played at uniform (normal) velocity', () => {
+    const h = harness(singleParadiddle())
+    const notated = notatedAccents(h)
+    expect(notated).toBeGreaterThan(0)
+
+    driveRunWithVelocities(h, () => KEYBOARD_NORMAL_VELOCITY)
+
+    expect(h.view.result.current.lastClean).toBe(false)
+    expect(h.view.result.current.lastAccents).toEqual({
+      notated,
+      graded: notated,
+      unclassified: 0,
+      missedAccents: notated,
+      // Every plain stroke also played at KEYBOARD_NORMAL_VELOCITY — counted, never over-accented.
+      normalInstants: notatedNormals(h),
+      loudNormals: 0,
+    })
+  })
+
+  it('leaves the clean verdict on timing/evenness alone when every stroke is unclassified (no velocity)', () => {
+    const h = harness(singleParadiddle())
+    const notated = notatedAccents(h)
+    expect(notated).toBeGreaterThan(0)
+
+    driveRunWithVelocities(h, () => undefined)
+
+    // Same verdict a plain `driveRun(h, true)` would have produced before
+    // this slice: an unclassified stroke never blocks a clean pass (see
+    // `isCleanPass`'s own doc in rudimentRun.ts).
+    expect(h.view.result.current.lastClean).toBe(true)
+    expect(h.view.result.current.lastAccents).toEqual({
+      notated,
+      graded: 0,
+      unclassified: notated,
+      missedAccents: 0,
+      // No velocity at all on ANY stroke — a normal instant with no velocity
+      // is excluded from normalInstants too (dynamics.ts's own doc).
+      normalInstants: 0,
+      loudNormals: 0,
+    })
+  })
+
+  /**
+   * RED-1 (over-accenting): the reviewer's exact scenario — Shift held on
+   * EVERY stroke, not just the notated accents. Every accent instant still
+   * lands correctly (110 classifies 'accent', same as the notated class), so
+   * `missedAccents` stays 0 — but every PLAIN stroke also comes out loud,
+   * which must fail the pass even though nothing was graded wrong.
+   */
+  it('over-accenting: tapping every stroke (accent AND plain) at an accent velocity fails the pass, with every plain stroke counted as over-accented and no accent missed', () => {
+    const h = harness(singleParadiddle())
+    const notated = notatedAccents(h)
+    expect(notated).toBeGreaterThan(0)
+
+    driveRunWithVelocities(h, () => KEYBOARD_ACCENT_VELOCITY)
+
+    const accents = h.view.result.current.lastAccents
+    expect(accents).toBeDefined()
+    if (accents === undefined) throw new Error('expected lastAccents to be defined')
+    expect(accents.normalInstants).toBeGreaterThan(0)
+    expect(accents.loudNormals).toBe(accents.normalInstants)
+    expect(accents.missedAccents).toBe(0)
+    expect(h.view.result.current.lastClean).toBe(false)
+  })
+
+  it('resets lastAccents on restart() and when the rudiment changes', () => {
+    const h = harness(singleParadiddle())
+    const velocityFor = (dynamicsClass: DynamicsClass): number | undefined =>
+      dynamicsClass === 'accent' ? KEYBOARD_ACCENT_VELOCITY : KEYBOARD_NORMAL_VELOCITY
+
+    driveRunWithVelocities(h, velocityFor)
+    expect(h.view.result.current.lastAccents).toBeDefined()
+
+    act(() => h.view.result.current.restart())
+    expect(h.view.result.current.lastAccents).toBeUndefined()
+
+    driveRunWithVelocities(h, velocityFor)
+    expect(h.view.result.current.lastAccents).toBeDefined()
+
+    act(() => h.view.rerender({ rudiment: singleStrokeRoll() }))
+    expect(h.view.result.current.lastAccents).toBeUndefined()
+  })
+
+  /**
+   * RED-A (round 3): Single Stroke Roll is the reviewer's own example of an
+   * unaccented rudiment — notates zero 'accent' instants, so the round-2
+   * over-accenting gate must not apply to it at all. Every stroke played
+   * loud used to read "Not clean" for no real mistake; it must now pass, and
+   * with nothing notated there is nothing for the accent line to say either.
+   */
+  it('RED-A: an unaccented rudiment (Single Stroke Roll) played with Shift on every stroke passes clean, notates 0 accents, and shows no accent line', () => {
+    const h = harness(singleStrokeRoll())
+    const notated = notatedAccents(h)
+    expect(notated).toBe(0) // guard: the reviewer's own "default rudiment, no accents" case
+
+    driveRunWithVelocities(h, () => KEYBOARD_ACCENT_VELOCITY)
+
+    const accents = h.view.result.current.lastAccents
+    expect(accents).toBeDefined()
+    if (accents === undefined) throw new Error('expected lastAccents to be defined')
+    expect(accents.notated).toBe(0)
+    expect(accents.loudNormals).toBeGreaterThan(0) // guard: this run really did over-accent every stroke
+    expect(accentLine(accents)).toBeUndefined()
+    expect(h.view.result.current.lastClean).toBe(true)
+  })
+
+  /**
+   * RED-B (round 3): with every accent instant skipped entirely (never
+   * tapped, not even unclassified) and every plain stroke played loud, the
+   * round-2 `graded === 0` early return in `accentLine` would have hidden
+   * the over-accenting behind either `undefined` or the bare not-graded
+   * literal. This is `accentLine` regime R18's own numbers, reproduced here
+   * by really driving the run rather than a hand-built fixture — confirms
+   * the fix reaches the trainer, not just the pure helper's own unit tests.
+   */
+  it('RED-B: single paradiddle with every accent instant skipped and every plain stroke played loud fails the pass and reports the over-accenting (regime R18)', () => {
+    const h = harness(singleParadiddle())
+    const notated = notatedAccents(h)
+    const normals = notatedNormals(h)
+    expect(notated).toBeGreaterThan(0)
+    expect(normals).toBeGreaterThan(0)
+
+    driveRunSkippingAccents(h, KEYBOARD_ACCENT_VELOCITY)
+
+    expect(h.view.result.current.lastClean).toBe(false)
+    const accents = h.view.result.current.lastAccents
+    expect(accents).toBeDefined()
+    if (accents === undefined) throw new Error('expected lastAccents to be defined')
+    expect(accents).toEqual({
+      notated,
+      graded: 0,
+      unclassified: 0,
+      missedAccents: 0,
+      normalInstants: normals,
+      loudNormals: normals,
+    })
+    // Single paradiddle's own bundled content happens to match R18's fixture
+    // numbers exactly (8 notated accents, 24 notated plain strokes) — guarded
+    // above rather than assumed, so this literal stays honest if the content
+    // ever changes.
+    expect(notated).toBe(8)
+    expect(normals).toBe(24)
+    expect(accentLine(accents)).toBe('Every plain stroke you hit came out as an accent. Keep them soft. 8 accents were missed.')
   })
 })

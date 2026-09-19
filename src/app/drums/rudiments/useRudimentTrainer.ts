@@ -43,7 +43,7 @@ import {
   type TempoLadderState,
 } from '@core/drums/rudiment/index.ts'
 import type { Clock, DrumAudioOutput } from '@core/ports/index.ts'
-import { barsOf, cyclesForBars, isCleanPass } from './rudimentRun.ts'
+import { barsOf, cyclesForBars, isCleanPass, rudimentAccents, type RudimentAccentResult } from './rudimentRun.ts'
 
 export type UseRudimentTrainerOptions = {
   readonly rudiment: Rudiment
@@ -70,8 +70,22 @@ export type RudimentTrainerApi = {
    * and for a run with fewer than `MIN_EVENNESS_STROKES` strokes.
    */
   readonly lastEvenness: number | undefined
+  /**
+   * DR-10 accents: the snare row's accent grading for the last finished run —
+   * `undefined` before any run finishes, and reset (not carried over) wherever
+   * `lastClean` resets, since both describe the same run. See
+   * `rudimentAccents` (`rudimentRun.ts`) for what each field means.
+   */
+  readonly lastAccents: RudimentAccentResult | undefined
   restart(): void
-  tap(): void
+  /**
+   * Forwards to `run.hit('snare', velocity)` — a rudiment is one voice, so
+   * every tap is a snare stroke. `velocity` absent (an on-screen pad press)
+   * records an unclassified stroke, same as the groove trainer's own pads;
+   * given, it is graded against the pattern's notated accents (DR-10
+   * accents) exactly like a keyboard/e-kit stroke on the groove trainer.
+   */
+  tap(velocity?: number): void
 }
 
 const DEFAULT_BARS = 2
@@ -110,6 +124,7 @@ export function useRudimentTrainer(options: UseRudimentTrainerOptions): Rudiment
   const [ladder, setLadder] = useState<TempoLadderState>(() => startLadder(config))
   const [lastClean, setLastClean] = useState<boolean | undefined>(undefined)
   const [lastEvenness, setLastEvenness] = useState<number | undefined>(undefined)
+  const [lastAccents, setLastAccents] = useState<RudimentAccentResult | undefined>(undefined)
 
   // The ladder resets when the RUDIMENT changes — not on a mode toggle, and
   // not on every render just because `config` is a fresh object each time.
@@ -122,6 +137,7 @@ export function useRudimentTrainer(options: UseRudimentTrainerOptions): Rudiment
     setLadder(startLadder(config))
     setLastClean(undefined)
     setLastEvenness(undefined)
+    setLastAccents(undefined)
   }
 
   const cycles = useMemo(() => cyclesForBars(rudiment, bars), [rudiment, bars])
@@ -148,11 +164,40 @@ export function useRudimentTrainer(options: UseRudimentTrainerOptions): Rudiment
     (result: GrooveRunResult): void => {
       const taps = tapsRef.current
       const evenness = rudimentEvenness(taps)
-      const clean = isCleanPass(result, evenness)
+
+      // DR-10 accents: the rudiment is one voice, so its own accent grading
+      // lives entirely on the snare row — `expectedDynamics` comes from the
+      // PLAN (what was notated), `dynamics` from the RESULT (what was
+      // actually graded). Falls back to an all-zero `PadDynamicsResult` if
+      // the snare row is somehow absent (never true today — `rudimentToScore`
+      // always writes every stroke to 'snare') rather than throwing, so a
+      // future multi-pad rudiment would read as "nothing graded" instead of
+      // crashing the run.
+      const expectedDynamics = plan.pads.find((pad) => pad.pad === 'snare')?.expectedDynamics ?? []
+      const snareDynamics = result.pads.find((pad) => pad.pad === 'snare')?.dynamics ?? {
+        graded: 0,
+        wrong: 0,
+        softWanted: 0,
+        loudWanted: 0,
+        ghostInstants: 0,
+        accentInstants: 0,
+        unclassified: 0,
+        normalInstants: 0,
+        loudNormals: 0,
+      }
+      const accents = rudimentAccents(expectedDynamics, snareDynamics)
+
+      // RED-A (round 3): the over-accenting gate only applies to a rudiment
+      // that notates an accent in the first place — `accents.notated` is
+      // this run's own true count, already derived from the plan above, so
+      // it is passed straight through rather than re-derived a second time.
+      const clean = isCleanPass(result, evenness, accents.notated)
       const gradedBpm = plan.bpm
+
       const next = recordPass(ladder, clean, config)
       setLadder(next)
       setLastClean(clean)
+      setLastAccents(accents)
       // Under MIN_EVENNESS_STROKES the score is 1 by definition, not by
       // playing — no line is more honest than "100% even" over silence.
       setLastEvenness(taps.length >= MIN_EVENNESS_STROKES ? evenness : undefined)
@@ -170,7 +215,7 @@ export function useRudimentTrainer(options: UseRudimentTrainerOptions): Rudiment
         })
       }
     },
-    [ladder, config, plan.bpm, recordRun, rudiment.id, nowFn],
+    [ladder, config, plan.bpm, plan.pads, recordRun, rudiment.id, nowFn],
   )
 
   const run = useGrooveRun({
@@ -204,12 +249,16 @@ export function useRudimentTrainer(options: UseRudimentTrainerOptions): Rudiment
     setLadder(startLadder(config))
     setLastClean(undefined)
     setLastEvenness(undefined)
+    setLastAccents(undefined)
   }, [config])
 
-  const tap = useCallback((): void => {
-    const ms = run.hit('snare')
-    if (ms !== undefined) tapsRef.current.push(ms)
-  }, [run])
+  const tap = useCallback(
+    (velocity?: number): void => {
+      const ms = run.hit('snare', velocity)
+      if (ms !== undefined) tapsRef.current.push(ms)
+    },
+    [run],
+  )
 
   return {
     score,
@@ -219,6 +268,7 @@ export function useRudimentTrainer(options: UseRudimentTrainerOptions): Rudiment
     run: { ...run, start: wrappedStart },
     lastClean,
     lastEvenness,
+    lastAccents,
     restart,
     tap,
   }

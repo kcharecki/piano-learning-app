@@ -116,6 +116,19 @@
   transition: none;
 }
 
+/* DR-10 accents: mirrors `.groove-dynamics-legend` in feature-drums-groove.css
+   — `--text-3` reused directly under a new class, same pattern that file's
+   own comment explains (this design system has no shared `.muted`
+   primitive). Shown only next to the Tap pad when the current rudiment
+   notates an accent at all — see `RudimentTrainerScreen.tsx`'s
+   `hasAccentInstants`. */
+.rudiment-accent-legend {
+  font-size: var(--text-sm);
+  color: var(--text-3);
+  margin-top: var(--space-2);
+  text-align: center;
+}
+
 /* ---------- Result ---------- */
 .rudiment-verdict {
   font-size: var(--text-xl);
@@ -147,6 +160,13 @@
 }
 .rudiment-evenness[data-even='false'] {
   color: var(--fb-wrong);
+}
+/* DR-10 accents: same muted treatment as `.rudiment-evenness` — a secondary
+   line alongside the pass/fail verdict, not a second verdict of its own. */
+.rudiment-accents {
+  font-size: var(--text-sm);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
 }
 .rudiment-pad-lines {
   display: flex;

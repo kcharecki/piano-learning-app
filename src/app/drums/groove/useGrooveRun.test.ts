@@ -1576,6 +1576,8 @@ describe('useGrooveRun: velocity plumbing (DR-07 tail / DR-03)', () => {
       // RED (review round 3): the matched stroke landed on a notated accent
       // with no velocity to grade it by — counted here, not silently dropped.
       unclassified: 1,
+      normalInstants: 0,
+      loudNormals: 0,
     })
   })
 
@@ -1600,6 +1602,8 @@ describe('useGrooveRun: velocity plumbing (DR-07 tail / DR-03)', () => {
       ghostInstants: 0,
       accentInstants: 1,
       unclassified: 0,
+      normalInstants: 0,
+      loudNormals: 0,
     })
   })
 
@@ -1621,6 +1625,8 @@ describe('useGrooveRun: velocity plumbing (DR-07 tail / DR-03)', () => {
       ghostInstants: 0,
       accentInstants: 1,
       unclassified: 0,
+      normalInstants: 0,
+      loudNormals: 0,
     })
   })
 
@@ -1643,6 +1649,8 @@ describe('useGrooveRun: velocity plumbing (DR-07 tail / DR-03)', () => {
       ghostInstants: 0,
       accentInstants: 1,
       unclassified: 0,
+      normalInstants: 0,
+      loudNormals: 0,
     })
   })
 })
@@ -1707,6 +1715,8 @@ describe('useGrooveRun: mouse vs keyboard dynamics on a dynamics-notated groove 
         ghostInstants: 0,
         accentInstants: 0,
         unclassified: expectedUnclassified,
+        normalInstants: 0,
+        loudNormals: 0,
       })
     }
     expect(diagnosisSentences(result, plan)).toEqual([])

@@ -51,6 +51,22 @@ export type PadDynamicsResult = {
    * a learner-facing sentence instead of a silent, falsely-clean zero.
    */
   readonly unclassified: number
+  /**
+   * Review round: over-accenting check (DR-10 accents, RED-1 — a Single
+   * Paradiddle played with Shift held on EVERY stroke must not read as
+   * "Clean pass"). Matched strokes on a 'normal'-expected instant that
+   * carried a velocity — counted for over-accenting ONLY, never merged into
+   * `graded`/`wrong`: a groove's own contract (DR-03) is that touch on a
+   * plain stroke is never a fault, so `wrong` must stay untouched by any
+   * velocity played on a normal instant. A normal instant played at the
+   * GHOST class is deliberately not counted anywhere — a soft plain stroke
+   * is not a fault either, only a loud one is (a rudiment IS the accent
+   * pattern; a stroke that should stay quiet and comes out loud defeats the
+   * exercise, but a stroke that comes out extra-soft does not).
+   */
+  readonly normalInstants: number
+  /** Of `normalInstants`, how many classified to the ACCENT velocity class — an over-accented plain stroke. */
+  readonly loudNormals: number
 }
 
 /**
@@ -98,9 +114,22 @@ export function padDynamics(
   let loudWanted = 0
   let ghostInstants = 0
   let accentInstants = 0
+  let normalInstants = 0
+  let loudNormals = 0
   for (const match of matches) {
     const expected = expectedDynamics[match.expectedIndex]
-    if (expected === undefined || expected === 'normal') continue
+    if (expected === undefined) continue
+    if (expected === 'normal') {
+      // Over-accenting check (DR-10 accents, RED-1): a normal instant is
+      // never graded/wrong, but a velocity-carrying stroke on it is still
+      // counted here so a caller can tell "every plain stroke was played
+      // loud" from "the run was clean" — see the doc on `normalInstants`.
+      if (match.velocity !== undefined) {
+        normalInstants += 1
+        if (velocityClassOf(match.velocity, thresholds) === 'accent') loudNormals += 1
+      }
+      continue
+    }
     if (match.velocity === undefined) {
       unclassified += 1 // would have been graded had it carried a velocity
       continue
@@ -113,5 +142,15 @@ export function padDynamics(
     if (expected === 'ghost') softWanted += 1
     else loudWanted += 1
   }
-  return { graded, wrong: softWanted + loudWanted, softWanted, loudWanted, ghostInstants, accentInstants, unclassified }
+  return {
+    graded,
+    wrong: softWanted + loudWanted,
+    softWanted,
+    loudWanted,
+    ghostInstants,
+    accentInstants,
+    unclassified,
+    normalInstants,
+    loudNormals,
+  }
 }
