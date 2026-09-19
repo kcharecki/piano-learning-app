@@ -25,10 +25,12 @@ import { planGrooveRun, type GrooveRunPlan } from '@core/drums/practice/plan.ts'
 import { GROOVE_PAD_LABEL } from './padLabels.ts'
 import {
   articulationSentence,
+  betweenGridSentence,
   diagnosisSentences,
   dynamicsCoverageNote,
   gradedAtText,
   lastRunText,
+  MAX_DIAGNOSIS_SENTENCES,
   padLineText,
   plural,
   verdictText,
@@ -61,7 +63,7 @@ function row(overrides: Partial<GroovePadResult>): GroovePadResult {
     // that exercise the dynamics sentence build real results through
     // `gradeGrooveRun` instead of this literal (see below), same discipline
     // as `displacementSteps` above.
-    dynamics: { graded: 0, wrong: 0, softWanted: 0, loudWanted: 0, ghostInstants: 0, accentInstants: 0, unclassified: 0 },
+    dynamics: { graded: 0, wrong: 0, softWanted: 0, loudWanted: 0, ghostInstants: 0, accentInstants: 0, unclassified: 0, normalInstants: 0, loudNormals: 0 },
     ...overrides,
   }
 }
@@ -681,6 +683,525 @@ describe('diagnosisSentences: per-pad displacement sentence (DR-07 tail)', () =>
 })
 
 /**
+ * Pure unit tests of `betweenGridSentence` itself, on hand-built `pads`
+ * arrays — the four shapes (empty, whole-kit, per-limb, undefined) rather
+ * than a live-graded run. `diagnosisSentences: between-grid sentence` below
+ * covers the same function wired into a real `gradeGrooveRun` result.
+ */
+function looseRow(
+  pad: GroovePadResult['pad'],
+  looseOffsetMs: number | undefined,
+  overrides: Partial<Pick<GroovePadResult, 'expected' | 'displacementSteps' | 'hits'>> = {},
+): Pick<GroovePadResult, 'pad' | 'expected' | 'displacementSteps' | 'looseOffsetMs' | 'hits'> {
+  return {
+    pad,
+    expected: 4,
+    hits: 4,
+    displacementSteps: undefined,
+    ...(looseOffsetMs === undefined ? {} : { looseOffsetMs }),
+    ...overrides,
+  }
+}
+
+describe('betweenGridSentence', () => {
+  const plan = { windowMs: 100, beatMs: 600, nominalSubdivisionMs: 300 }
+
+  it('is undefined when no pad has a between-grid band at all', () => {
+    expect(
+      betweenGridSentence(
+        [looseRow('kick', undefined, { displacementSteps: 0 }), looseRow('snare', undefined, { displacementSteps: 0 })],
+        plan,
+      ),
+    ).toBeUndefined()
+  })
+
+  it('RED-2 whole-kit: every played pad in the band, same sign, blames the click and says "pull everything back"', () => {
+    expect(
+      betweenGridSentence(
+        [looseRow('kick', 130), looseRow('hhClosed', 120, { expected: 8 }), looseRow('snare', 140)],
+        plan,
+      ),
+    ).toBe(
+      'Every limb landed about 130 ms behind the click on most strokes — outside the 100 ms window, short of 1 eighth. The pattern is there; pull everything back to meet the click.',
+    )
+  })
+
+  it('RED-2 whole-kit: the ahead/push variant', () => {
+    expect(
+      betweenGridSentence(
+        [looseRow('kick', -130), looseRow('hhClosed', -120, { expected: 8 }), looseRow('snare', -140)],
+        plan,
+      ),
+    ).toBe(
+      'Every limb landed about 130 ms ahead of the click on most strokes — outside the 100 ms window, short of 1 eighth. The pattern is there; push everything forward to meet the click.',
+    )
+  })
+
+  it('per-limb: one loose pad, every other played pad confirmed on-grid, names "the other limbs"', () => {
+    expect(
+      betweenGridSentence(
+        [looseRow('snare', 130), looseRow('kick', undefined, { displacementSteps: 0 })],
+        plan,
+      ),
+    ).toBe(
+      'Snare landed about 130 ms behind the click on most strokes — outside the 100 ms window, short of 1 eighth, while the other limbs sit on the grid. Pull it back to meet them.',
+    )
+  })
+
+  it('per-limb: names on-grid pads explicitly, plural form, when a THIRD played pad is neither loose nor on-grid', () => {
+    expect(
+      betweenGridSentence(
+        [
+          looseRow('hhClosed', 130, { expected: 8 }),
+          looseRow('kick', undefined, { displacementSteps: 0 }),
+          looseRow('snare', undefined, { displacementSteps: 0 }),
+          looseRow('hhOpen', undefined, { expected: 1, displacementSteps: 1 }), // neither loose nor on-grid
+        ],
+        plan,
+      ),
+    ).toBe(
+      'Hi-hat landed about 130 ms behind the click on most strokes — outside the 100 ms window, short of 1 eighth, while Kick and Snare sit on the grid. Pull it back to meet them.',
+    )
+  })
+
+  it('per-limb: singular "sits"/"it" when only one played pad is on-grid and it is not every other played pad', () => {
+    expect(
+      betweenGridSentence(
+        [
+          looseRow('hhClosed', 130, { expected: 8 }),
+          looseRow('snare', undefined, { displacementSteps: 0 }),
+          looseRow('kick', undefined, { expected: 2, displacementSteps: undefined }), // neither loose nor on-grid
+        ],
+        plan,
+      ),
+    ).toBe(
+      'Hi-hat landed about 130 ms behind the click on most strokes — outside the 100 ms window, short of 1 eighth, while Snare sits on the grid. Pull it back to meet it.',
+    )
+  })
+
+  it('per-limb: ties on |looseOffsetMs| go to the first loose pad in `pads` order', () => {
+    // Mixed signs (not whole-kit): kick and snare tie at 130 ms, kick comes
+    // first in the array so kick is named. Snare is also loose (it is just
+    // not the worst), so it is NOT on the grid either — only hi-hat is —
+    // and the "all others on grid" phrasing requires every OTHER played pad
+    // (not just every other LOOSE pad) to be on-grid. With snare still off
+    // the grid, the sentence must name hi-hat specifically, not say "the
+    // other limbs".
+    expect(
+      betweenGridSentence(
+        [looseRow('kick', 130), looseRow('snare', -130), looseRow('hhClosed', undefined, { expected: 8, displacementSteps: 0 })],
+        plan,
+      ),
+    ).toBe(
+      'Kick landed about 130 ms behind the click on most strokes — outside the 100 ms window, short of 1 eighth, while Hi-hat sits on the grid. Pull it back to meet it.',
+    )
+  })
+
+  it('is undefined when pads are loose but not all of them, and no played pad is confirmed on-grid', () => {
+    expect(
+      betweenGridSentence(
+        [looseRow('kick', 130), looseRow('snare', undefined, { displacementSteps: undefined })],
+        plan,
+      ),
+    ).toBeUndefined()
+  })
+
+  it('rounds the offset to the nearest 10 ms (whole-kit branch)', () => {
+    expect(
+      betweenGridSentence([looseRow('kick', 114), looseRow('snare', 114)], plan),
+    ).toContain('about 110 ms')
+  })
+
+  // AMBER (review): a pad the learner never struck at all (`expected > 0`
+  // but `hits === 0`) used to still count as "played" and so broke the
+  // whole-kit shape below (3 of 4 "played" pads loose, not all of them) even
+  // though every pad that WAS struck is uniformly loose the same way. Fixed
+  // by requiring `hits > 0` too.
+  it('a silent pad (expected > 0, hits 0) is excluded from "played", so the whole-kit sentence still fires for the pads that were actually struck', () => {
+    expect(
+      betweenGridSentence(
+        [
+          looseRow('kick', 130),
+          looseRow('hhClosed', 130, { expected: 8 }),
+          looseRow('hhOpen', 130, { expected: 2 }),
+          looseRow('snare', undefined, { hits: 0 }),
+        ],
+        plan,
+      ),
+    ).toBe(
+      'Every limb landed about 130 ms behind the click on most strokes — outside the 100 ms window, short of 1 eighth. The pattern is there; pull everything back to meet the click.',
+    )
+  })
+})
+
+/**
+ * DR-07 between-grid (DR-08/DR-11): the diagnosis for a pad sitting
+ * consistently in the band between the strict window and the next grid step
+ * — see `betweenGridSentence`'s own doc and `GroovePadResult.looseOffsetMs`.
+ * Money Beat at 100 bpm is the fixture throughout: `windowMs === 100`,
+ * `nominalSubdivisionMs === 300` (an eighth-note grid), so the band an
+ * offset has to land in to be "between" is `(100, 150)` ms either side.
+ */
+describe('diagnosisSentences: between-grid sentence (DR-07 between-grid)', () => {
+  it('names the snare sitting behind the click, money beat 100 bpm, every snare stroke +130 ms', () => {
+    const runPlan = planGrooveRun(moneyBeat(), 100)
+    expect(runPlan.windowMs).toBe(100)
+    expect(runPlan.nominalSubdivisionMs).toBe(300)
+    const hits: GrooveHit[] = runPlan.pads.flatMap((padPlan) =>
+      padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms: padPlan.pad === 'snare' ? ms + 130 : ms })),
+    )
+    const result = gradeGrooveRun(runPlan, hits)
+    const snareRow = result.pads.find((r) => r.pad === 'snare')
+    expect(snareRow?.looseOffsetMs).toBe(130)
+    expect(snareRow?.displacementSteps).toBeUndefined()
+    expect(result.slipSteps).toBeUndefined()
+
+    // RED-2 (review round 2): only the snare is loose here — kick and
+    // hi-hat play exactly on time — so `betweenGridSentence` takes the
+    // per-limb branch and says explicitly that the other limbs are on the
+    // grid, rather than the old single-pad wording that never said so.
+    expect(diagnosisSentences(result, runPlan)).toEqual([
+      'Snare landed about 130 ms behind the click on most strokes — outside the 100 ms window, short of 1 eighth, while the other limbs sit on the grid. Pull it back to meet them.',
+    ])
+  })
+
+  it('says "ahead of" and "push it forward" for a snare sitting early, money beat 100 bpm, every snare stroke -130 ms', () => {
+    const runPlan = planGrooveRun(moneyBeat(), 100)
+    const hits: GrooveHit[] = runPlan.pads.flatMap((padPlan) =>
+      padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms: padPlan.pad === 'snare' ? ms - 130 : ms })),
+    )
+    const result = gradeGrooveRun(runPlan, hits)
+    const snareRow = result.pads.find((r) => r.pad === 'snare')
+    expect(snareRow?.looseOffsetMs).toBe(-130)
+
+    // RED-2: same per-limb branch as the "behind" case above, ahead/push variant.
+    expect(diagnosisSentences(result, runPlan)).toEqual([
+      'Snare landed about 130 ms ahead of the click on most strokes — outside the 100 ms window, short of 1 eighth, while the other limbs sit on the grid. Push it forward to meet them.',
+    ])
+  })
+
+  /**
+   * A uniform shift on a periodic grid almost always lands SOME hit within
+   * `cellMs / 2` of its nearest instant — on a fixed spacing, no offset can
+   * put every hit further than half a period from every instant, so most
+   * uniform offsets end up naming a between-grid band rather than defeating
+   * it. This reuses the R1 fixture above (jazz-ride drill 3, 120 bpm, every
+   * pad shifted by one swung quarter) precisely because it is already known
+   * (from the R1 test) to leave every pad `matched === 0` while still
+   * reaching the generic sentence — confirmed below to also leave every
+   * `looseOffsetMs` undefined, i.e. this drill's own subdivision is narrow
+   * enough that `cellMs / 2` never clears `windowMs` in the first place.
+   */
+  it('still gives the generic "every stroke outside its window" sentence when no pad has a between-grid band of its own', () => {
+    const jazzStep3 = jazzRideDrills()[2]
+    expect(jazzStep3).toBeDefined()
+    if (jazzStep3 === undefined) return
+    const jazzPlan = planGrooveRun(jazzStep3.score, 120)
+    const msPerTick = 60_000 / 120 / 480
+    const offsetMs = 240 * msPerTick
+
+    const hits: GrooveHit[] = jazzPlan.pads.flatMap((padPlan) =>
+      padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms: ms + offsetMs })),
+    )
+    const result = gradeGrooveRun(jazzPlan, hits)
+    expect(result.pads.every((r) => r.matched === 0)).toBe(true)
+    expect(result.pads.every((r) => r.looseOffsetMs === undefined)).toBe(true)
+    expect(result.slipSteps).toBeUndefined()
+
+    expect(diagnosisSentences(result, jazzPlan)).toEqual([
+      'Every stroke landed outside its window — the pattern is there, where you came in is not. Restart on the count-in.',
+    ])
+  })
+
+  /**
+   * RED-2 (review round 2): pre-fix, every pad landing +130 ms — a whole-kit
+   * lag, not one limb out of time with the others — still named a single
+   * limb ("Kick landed about 130 ms behind...") and told the learner to
+   * "pull it back", advice that would have broken a groove that was
+   * internally correct. `betweenGridSentence` now recognises "every played
+   * pad, same sign" as a whole-kit shape and blames the click instead.
+   */
+  it('gives the whole-kit between-grid sentence, not a single-limb one, when every pad sits in the band (+130 ms on every pad) — RED-2', () => {
+    const runPlan = planGrooveRun(moneyBeat(), 100)
+    const hits: GrooveHit[] = runPlan.pads.flatMap((padPlan) => padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms: ms + 130 })))
+    const result = gradeGrooveRun(runPlan, hits)
+    expect(result.pads.every((r) => r.matched === 0)).toBe(true)
+    expect(result.pads.every((r) => r.looseOffsetMs === 130)).toBe(true)
+    expect(result.slipSteps).toBeUndefined()
+
+    expect(diagnosisSentences(result, runPlan)).toEqual([
+      'Every limb landed about 130 ms behind the click on most strokes — outside the 100 ms window, short of 1 eighth. The pattern is there; pull everything back to meet the click.',
+    ])
+  })
+
+  it('gives the whole-kit between-grid sentence on money-beat-open-hat (4 pads) at 100 bpm, every pad +130 ms — RED-2 coordinator fixture', () => {
+    const runPlan = planGrooveRun(moneyBeatOpenHat(), 100)
+    expect(runPlan.windowMs).toBe(100)
+    // stepName(beatMs, nominalSubdivisionMs) names this 'eighth': perBeat = 600/300 = 2, which is >= 1.5 and < 3.5.
+    expect(runPlan.beatMs).toBe(600)
+    expect(runPlan.nominalSubdivisionMs).toBe(300)
+    const hits: GrooveHit[] = runPlan.pads.flatMap((padPlan) => padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms: ms + 130 })))
+    const result = gradeGrooveRun(runPlan, hits)
+    expect(result.pads.every((r) => r.looseOffsetMs === 130)).toBe(true)
+    expect(result.slipSteps).toBeUndefined()
+
+    const sentences = diagnosisSentences(result, runPlan)
+    expect(sentences.every((s) => !s.includes('Every stroke landed outside'))).toBe(true)
+    expect(sentences).toEqual([
+      'Every limb landed about 130 ms behind the click on most strokes — outside the 100 ms window, short of 1 eighth. The pattern is there; pull everything back to meet the click.',
+    ])
+  })
+
+  it('money-beat-open-hat, every pad -130 ms: the ahead/push variant', () => {
+    const runPlan = planGrooveRun(moneyBeatOpenHat(), 100)
+    const hits: GrooveHit[] = runPlan.pads.flatMap((padPlan) => padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms: ms - 130 })))
+    const result = gradeGrooveRun(runPlan, hits)
+    expect(result.pads.every((r) => r.looseOffsetMs === -130)).toBe(true)
+
+    expect(diagnosisSentences(result, runPlan)).toEqual([
+      'Every limb landed about 130 ms ahead of the click on most strokes — outside the 100 ms window, short of 1 eighth. The pattern is there; push everything forward to meet the click.',
+    ])
+  })
+
+  /**
+   * AMBER (review): the snare never plays at all here (`expected > 0`,
+   * `hits === 0`) while kick/hi-hat/open-hat are all uniformly +130 ms — a
+   * kit that IS internally correct, just missing a limb. Pre-fix, the
+   * silent snare still counted as "played" (`expected > 0` alone), so
+   * `loose.length (3) === played.length (4)` was false, the whole-kit
+   * branch never fired, `onGrid.length === 0` too (nothing to compare a
+   * single limb against), `betweenGridSentence` returned `undefined`, and
+   * the run fell through to the generic "every stroke landed outside its
+   * window ... Restart on the count-in." sentence — wrong, since the three
+   * limbs that did play are all correct relative to each other and to the
+   * click. Fixed by requiring `hits > 0` for "played" too.
+   */
+  it('money-beat-open-hat 100 bpm, snare silent, kick/hi-hat/open-hat all +130 ms: still gives the whole-kit sentence, not the generic one', () => {
+    const runPlan = planGrooveRun(moneyBeatOpenHat(), 100)
+    const hits: GrooveHit[] = runPlan.pads
+      .filter((padPlan) => padPlan.pad !== 'snare')
+      .flatMap((padPlan) => padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms: ms + 130 })))
+    const result = gradeGrooveRun(runPlan, hits)
+    const snareRow = result.pads.find((r) => r.pad === 'snare')
+    expect(snareRow?.hits).toBe(0)
+    expect(snareRow?.expected).toBeGreaterThan(0)
+
+    expect(diagnosisSentences(result, runPlan)).toEqual([
+      'Every limb landed about 130 ms behind the click on most strokes — outside the 100 ms window, short of 1 eighth. The pattern is there; pull everything back to meet the click.',
+    ])
+  })
+
+  it('money beat 100 bpm, snare +101 ms: AMBER-b/AMBER-c number now comes from displayOffsetMs', () => {
+    const runPlan = planGrooveRun(moneyBeat(), 100)
+    const hits: GrooveHit[] = runPlan.pads.flatMap((padPlan) =>
+      padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms: padPlan.pad === 'snare' ? ms + 101 : ms })),
+    )
+    const result = gradeGrooveRun(runPlan, hits)
+    const snareRow = result.pads.find((r) => r.pad === 'snare')
+    expect(snareRow?.looseOffsetMs).toBe(101)
+
+    expect(diagnosisSentences(result, runPlan)).toEqual([
+      'Snare landed about 110 ms behind the click on most strokes — outside the 100 ms window, short of 1 eighth, while the other limbs sit on the grid. Pull it back to meet them.',
+    ])
+  })
+
+  it('money beat 100 bpm, every pad +170 ms: past half the cell — RED-1, end-anchored to undefined on every pad — falls back to the generic "Every stroke" sentence', () => {
+    const runPlan = planGrooveRun(moneyBeat(), 100)
+    const hits: GrooveHit[] = runPlan.pads.flatMap((padPlan) => padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms: ms + 170 })))
+    const result = gradeGrooveRun(runPlan, hits)
+    expect(result.pads.every((r) => r.looseOffsetMs === undefined)).toBe(true)
+    expect(result.pads.every((r) => r.matched === 0)).toBe(true)
+    expect(result.slipSteps).toBeUndefined()
+
+    expect(diagnosisSentences(result, runPlan)).toEqual([
+      'Every stroke landed outside its window — the pattern is there, where you came in is not. Restart on the count-in.',
+    ])
+  })
+
+  /**
+   * Reviewer's fixture A1: hi-hat loose, kick displaced a whole step, snare
+   * exact. Kick's `displacementSteps` is `1`, not `0`, so it is neither
+   * "loose" nor "on-grid" — only the snare is on-grid, and it is the only
+   * OTHER played pad, so `betweenGridSentence` names it explicitly (not
+   * "the other limbs", since kick is excluded from that count).
+   */
+  it('money beat 100 bpm, hi-hat +130 ms, kick +1 whole step, snare exact — reviewer\'s A1', () => {
+    const runPlan = planGrooveRun(moneyBeat(), 100)
+    const hits: GrooveHit[] = runPlan.pads.flatMap((padPlan) => {
+      if (padPlan.pad === 'hhClosed') return padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms: ms + 130 }))
+      if (padPlan.pad === 'kick') return padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms: ms + runPlan.nominalSubdivisionMs }))
+      return padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms }))
+    })
+    const result = gradeGrooveRun(runPlan, hits)
+    expect(result.slipSteps).toBeUndefined()
+    const hhRow = result.pads.find((r) => r.pad === 'hhClosed')
+    expect(hhRow?.looseOffsetMs).toBe(130)
+    const kickRow = result.pads.find((r) => r.pad === 'kick')
+    expect(kickRow?.displacementSteps).toBe(1)
+    const snareRow = result.pads.find((r) => r.pad === 'snare')
+    expect(snareRow?.displacementSteps).toBe(0)
+
+    expect(diagnosisSentences(result, runPlan)).toEqual([
+      'Hi-hat landed about 130 ms behind the click on most strokes — outside the 100 ms window, short of 1 eighth, while Snare sits on the grid. Pull it back to meet it.',
+    ])
+  })
+
+  /**
+   * Mixed signs, not all loose, snare on grid: hi-hat +130 and kick -130
+   * are BOTH loose but disagree in sign, so this can never be the whole-kit
+   * shape (RED-2's `signs.size === 1` gate) — it falls to the per-limb
+   * branch instead. Hi-hat and kick tie on `|looseOffsetMs|` (130 each);
+   * hi-hat comes first in `pads` order (`kick, hhClosed, snare` — see the
+   * probe this brief was written from), so kick actually comes FIRST, not
+   * hi-hat: the sentence names Kick.
+   */
+  it('money beat 100 bpm, hi-hat +130 ms, kick -130 ms, snare exact — mixed signs, tie goes to the first pad in `pads` order', () => {
+    const runPlan = planGrooveRun(moneyBeat(), 100)
+    const hits: GrooveHit[] = runPlan.pads.flatMap((padPlan) => {
+      if (padPlan.pad === 'hhClosed') return padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms: ms + 130 }))
+      if (padPlan.pad === 'kick') return padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms: ms - 130 }))
+      return padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms }))
+    })
+    const result = gradeGrooveRun(runPlan, hits)
+    expect(result.slipSteps).toBeUndefined()
+    expect(result.pads.map((r) => r.pad)).toEqual(['kick', 'hhClosed', 'snare'])
+    const kickRow = result.pads.find((r) => r.pad === 'kick')
+    expect(kickRow?.looseOffsetMs).toBe(-130)
+    const hhRow = result.pads.find((r) => r.pad === 'hhClosed')
+    expect(hhRow?.looseOffsetMs).toBe(130)
+    const snareRow = result.pads.find((r) => r.pad === 'snare')
+    expect(snareRow?.displacementSteps).toBe(0)
+
+    expect(diagnosisSentences(result, runPlan)).toEqual([
+      'Kick landed about 130 ms ahead of the click on most strokes — outside the 100 ms window, short of 1 eighth, while Snare sits on the grid. Push it forward to meet it.',
+    ])
+  })
+
+  /**
+   * hi-hat loose, kick and snare BOTH displaced a whole step (in the same
+   * direction the whole-pattern vote should have agreed on — but see below,
+   * it does not): every played pad other than hi-hat has `displacementSteps
+   * !== 0`, so `onGrid` is empty and `betweenGridSentence` returns
+   * `undefined` (case d) — this is not a guess-a-limb shape. `slipSteps`
+   * stays `undefined` too (the hi-hat's own hits never agree with kick and
+   * snare's shift), so the fixture actually reaches `diagnosisSentences`'s
+   * per-pad displacement branch: two displaced pads (kick and snare, not
+   * one), so THAT sentence also declines. Whatever is left is asserted
+   * as-is below, hard-coded from the real output, not assumed.
+   */
+  it('money beat 100 bpm, hi-hat +130 ms, kick +1 whole step, snare +1 whole step — asserts whatever the code actually prints', () => {
+    const runPlan = planGrooveRun(moneyBeat(), 100)
+    const hits: GrooveHit[] = runPlan.pads.flatMap((padPlan) => {
+      if (padPlan.pad === 'hhClosed') return padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms: ms + 130 }))
+      return padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms: ms + runPlan.nominalSubdivisionMs }))
+    })
+    const result = gradeGrooveRun(runPlan, hits)
+    expect(result.slipSteps).toBeUndefined()
+    // Hi-hat's own `looseOffsetMs` is computed only from hi-hat's own hits
+    // against hi-hat's own expected instants — it does not care what kick
+    // and snare did, so it still comes out 130 here (confirmed against the
+    // real computation; not the `undefined` this test originally assumed).
+    const hhRow = result.pads.find((r) => r.pad === 'hhClosed')
+    expect(hhRow?.looseOffsetMs).toBe(130)
+    const kickRow = result.pads.find((r) => r.pad === 'kick')
+    expect(kickRow?.displacementSteps).toBe(1)
+    const snareRow = result.pads.find((r) => r.pad === 'snare')
+    expect(snareRow?.displacementSteps).toBe(1)
+
+    // Neither the per-pad displacement sentence (needs exactly ONE displaced
+    // pad) nor the between-grid sentence (needs at least one on-grid pad to
+    // compare against) can fire, so this falls through to the generic
+    // all-missed sentence.
+    expect(diagnosisSentences(result, runPlan)).toEqual([
+      'Every stroke landed outside its window — the pattern is there, where you came in is not. Restart on the count-in.',
+    ])
+  })
+
+  /**
+   * The per-pad displacement sentence's own gate (`off.length === 1 &&
+   * onGrid.length === played.length - 1`) requires every OTHER played pad to
+   * be cleanly on-grid (`displacementSteps === 0`). A between-grid pad is
+   * neither off (its own `displacementSteps` is `undefined`, not a nonzero
+   * step) nor on-grid — so it always breaks that count by one, and the two
+   * sentences can never appear together: whenever a between-grid pad exists
+   * alongside a whole-step-displaced one, the displacement sentence goes
+   * silent and only the between-grid sentence is left to fire. Confirmed
+   * here rather than assumed.
+   */
+  it('the per-pad displacement sentence goes silent when another pad has a between-grid band of its own', () => {
+    const runPlan = planGrooveRun(moneyBeat(), 100)
+    const hits: GrooveHit[] = runPlan.pads.flatMap((padPlan) => {
+      if (padPlan.pad === 'kick') {
+        return padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms: ms + runPlan.nominalSubdivisionMs }))
+      }
+      if (padPlan.pad === 'snare') {
+        return padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms: ms + 130 }))
+      }
+      return padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms }))
+    })
+    const result = gradeGrooveRun(runPlan, hits)
+    expect(result.slipSteps).toBeUndefined()
+    const kickRow = result.pads.find((r) => r.pad === 'kick')
+    expect(kickRow?.displacementSteps).toBe(1)
+    const snareRow = result.pads.find((r) => r.pad === 'snare')
+    expect(snareRow?.looseOffsetMs).toBe(130)
+    expect(snareRow?.displacementSteps).toBeUndefined()
+
+    const sentences = diagnosisSentences(result, runPlan)
+    expect(sentences.some((s) => s.includes('the other limbs'))).toBe(false)
+    expect(sentences.some((s) => s.includes('short of 1 eighth'))).toBe(true)
+  })
+
+  it('sits before the dynamics sentence, within the two-sentence cap — ghost-funk at 60 bpm, hi-hat between-grid band + snare dynamics wrong', () => {
+    // At 60 bpm ghost-funk's sixteenth-note hi-hat grid is 250 ms
+    // (nominalSubdivisionMs), wide enough that cellMs / 2 = 125 ms clears the
+    // 100 ms window and leaves a (100, 125) ms band — unlike the 100 bpm
+    // fixture used above, at ghost-funk's usual tempo that band does not
+    // exist (see `betweenGrid.test.ts`'s own boundary case).
+    const runPlan = planGrooveRun(ghostFunkBar(), 60)
+    expect(runPlan.windowMs).toBe(100)
+    expect(runPlan.nominalSubdivisionMs).toBeCloseTo(250, 9)
+    const hits: GrooveHit[] = runPlan.pads.flatMap((padPlan) => {
+      if (padPlan.pad === 'hhClosed') {
+        return padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms: ms + 115 }))
+      }
+      if (padPlan.pad === 'snare') {
+        return padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms, velocity: 96 }))
+      }
+      return padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms }))
+    })
+    const result = gradeGrooveRun(runPlan, hits)
+    expect(result.slipSteps).toBeUndefined()
+    const hhRow = result.pads.find((r) => r.pad === 'hhClosed')
+    expect(hhRow?.looseOffsetMs).toBeCloseTo(115, 9)
+    expect(hhRow?.displacementSteps).toBeUndefined()
+    const kickRow = result.pads.find((r) => r.pad === 'kick')
+    expect(kickRow?.displacementSteps).toBe(0)
+    const snareRow = result.pads.find((r) => r.pad === 'snare')
+    expect(snareRow?.dynamics.wrong).toBeGreaterThan(0)
+
+    const sentences = diagnosisSentences(result, runPlan)
+    const betweenGridIndex = sentences.findIndex((s) => s.includes('short of 1 sixteenth'))
+    const dynamicsIndex = sentences.findIndex((s) => s.includes('came out full'))
+    expect(betweenGridIndex).toBe(0)
+    expect(dynamicsIndex).toBe(1)
+    expect(sentences.length).toBeLessThanOrEqual(MAX_DIAGNOSIS_SENTENCES)
+    // Floating-point note: `looseOffsetMs` comes out `114.99999999999997`,
+    // not exactly `115` — plain `/10` rounding would floor that to 110.
+    // `displayOffsetMs`'s `+1e-6` tolerance (AMBER-c) rescues it back up to
+    // 120, matching the real 115 ms input instead of silently under-reporting
+    // it. Confirmed via the real computation, not assumed. Kick and snare
+    // both play exactly on time here (kick has no notated dynamics to get
+    // wrong; snare's timing is exact even though its dynamics are wrong), so
+    // every other played pad is on-grid and the per-limb sentence uses the
+    // generic "other limbs" phrasing, not a named list.
+    expect(sentences[0]).toBe(
+      'Hi-hat landed about 120 ms behind the click on most strokes — outside the 100 ms window, short of 1 sixteenth, while the other limbs sit on the grid. Pull it back to meet them.',
+    )
+  })
+})
+
+/**
  * DR-07 tail / DR-03: dynamics wrongness never affects `steady` — see
  * `padDynamics`'s contract — so the dynamics sentence has to be reachable
  * both from the normal (`steady === false`) branch of `diagnosisSentences`
@@ -718,7 +1239,7 @@ describe('diagnosisSentences: dynamics sentence (DR-07 tail / DR-03)', () => {
     expect(snareRow.dynamics.ghostInstants).toBe(16)
     expect(snareRow.dynamics.softWanted).toBe(16)
 
-    expect(diagnosisSentences(result, runPlan)).toEqual(['Snare: 16 of 16 ghost notes came out full. Play them under the hi-hat.'])
+    expect(diagnosisSentences(result, runPlan)).toEqual(['Snare: 16 of the 16 ghost notes you hit came out full. Play them under the hi-hat.'])
   })
 
   it('names the accent side when a pad has more wrong accents than wrong ghost notes', () => {
@@ -745,7 +1266,7 @@ describe('diagnosisSentences: dynamics sentence (DR-07 tail / DR-03)', () => {
     expect(snareRow.dynamics.softWanted).toBe(0)
 
     expect(diagnosisSentences(result, runPlan)).toEqual([
-      `${GROOVE_PAD_LABEL.snare}: ${snareRow.dynamics.loudWanted} of ${plural(snareRow.dynamics.accentInstants, 'accent')} did not land. Lean into them.`,
+      `${GROOVE_PAD_LABEL.snare}: ${snareRow.dynamics.loudWanted} of the ${plural(snareRow.dynamics.accentInstants, 'accent')} you hit came out soft. Lean into them.`,
     ])
   })
 
@@ -803,7 +1324,7 @@ describe('diagnosisSentences: dynamics sentence (DR-07 tail / DR-03)', () => {
 
     const sentences = diagnosisSentences(result, runPlan)
     const displacementIndex = sentences.findIndex((s) => s.includes('the other limbs'))
-    const dynamicsIndex = sentences.findIndex((s) => s.includes('accents did not land'))
+    const dynamicsIndex = sentences.findIndex((s) => s.includes('came out soft'))
     expect(displacementIndex).toBeGreaterThanOrEqual(0)
     expect(dynamicsIndex).toBeGreaterThanOrEqual(0)
     expect(dynamicsIndex).toBeGreaterThan(displacementIndex)
@@ -826,30 +1347,30 @@ describe('diagnosisSentences: dynamics pad selection (amber, review round 3)', (
   it('picks the pad with the most wrong dynamics hits across the whole run, not just the first one with any', () => {
     const quiet = row({
       pad: 'kick',
-      dynamics: { graded: 2, wrong: 1, softWanted: 1, loudWanted: 0, ghostInstants: 2, accentInstants: 0, unclassified: 0 },
+      dynamics: { graded: 2, wrong: 1, softWanted: 1, loudWanted: 0, ghostInstants: 2, accentInstants: 0, unclassified: 0, normalInstants: 0, loudNormals: 0 },
     })
     const loud = row({
       pad: 'snare',
-      dynamics: { graded: 5, wrong: 3, softWanted: 0, loudWanted: 3, ghostInstants: 0, accentInstants: 5, unclassified: 0 },
+      dynamics: { graded: 5, wrong: 3, softWanted: 0, loudWanted: 3, ghostInstants: 0, accentInstants: 5, unclassified: 0, normalInstants: 0, loudNormals: 0 },
     })
     const result = { steady: true, pads: [quiet, loud] } as unknown as GrooveRunResult
     expect(diagnosisSentences(result, steadyPlan)).toEqual([
-      `${GROOVE_PAD_LABEL.snare}: 3 of ${plural(5, 'accent')} did not land. Lean into them.`,
+      `${GROOVE_PAD_LABEL.snare}: 3 of the ${plural(5, 'accent')} you hit came out soft. Lean into them.`,
     ])
   })
 
   it('ties on wrong count go to whichever pad comes first in `pads` order', () => {
     const first = row({
       pad: 'kick',
-      dynamics: { graded: 4, wrong: 2, softWanted: 2, loudWanted: 0, ghostInstants: 4, accentInstants: 0, unclassified: 0 },
+      dynamics: { graded: 4, wrong: 2, softWanted: 2, loudWanted: 0, ghostInstants: 4, accentInstants: 0, unclassified: 0, normalInstants: 0, loudNormals: 0 },
     })
     const second = row({
       pad: 'snare',
-      dynamics: { graded: 4, wrong: 2, softWanted: 0, loudWanted: 2, ghostInstants: 0, accentInstants: 4, unclassified: 0 },
+      dynamics: { graded: 4, wrong: 2, softWanted: 0, loudWanted: 2, ghostInstants: 0, accentInstants: 4, unclassified: 0, normalInstants: 0, loudNormals: 0 },
     })
     const tiedEitherOrder = { steady: true, pads: [first, second] } as unknown as GrooveRunResult
     expect(diagnosisSentences(tiedEitherOrder, steadyPlan)).toEqual([
-      `${GROOVE_PAD_LABEL.kick}: 2 of ${plural(4, 'ghost note')} came out full. Play them under the hi-hat.`,
+      `${GROOVE_PAD_LABEL.kick}: 2 of the ${plural(4, 'ghost note')} you hit came out full. Play them under the hi-hat.`,
     ])
 
     // Reversing the array order flips which pad wins — confirms the tie
@@ -857,18 +1378,18 @@ describe('diagnosisSentences: dynamics pad selection (amber, review round 3)', (
     // `kick` or `snare` themselves.
     const reversed = { steady: true, pads: [second, first] } as unknown as GrooveRunResult
     expect(diagnosisSentences(reversed, steadyPlan)).toEqual([
-      `${GROOVE_PAD_LABEL.snare}: 2 of ${plural(4, 'accent')} did not land. Lean into them.`,
+      `${GROOVE_PAD_LABEL.snare}: 2 of the ${plural(4, 'accent')} you hit came out soft. Lean into them.`,
     ])
   })
 
   it('a pad tied between softWanted and loudWanted reports the ghost branch, not the accent one', () => {
     const tiedWithinPad = row({
       pad: 'snare',
-      dynamics: { graded: 8, wrong: 4, softWanted: 2, loudWanted: 2, ghostInstants: 4, accentInstants: 4, unclassified: 0 },
+      dynamics: { graded: 8, wrong: 4, softWanted: 2, loudWanted: 2, ghostInstants: 4, accentInstants: 4, unclassified: 0, normalInstants: 0, loudNormals: 0 },
     })
     const result = { steady: true, pads: [tiedWithinPad] } as unknown as GrooveRunResult
     expect(diagnosisSentences(result, steadyPlan)).toEqual([
-      `${GROOVE_PAD_LABEL.snare}: 2 of ${plural(4, 'ghost note')} came out full. Play them under the hi-hat.`,
+      `${GROOVE_PAD_LABEL.snare}: 2 of the ${plural(4, 'ghost note')} you hit came out full. Play them under the hi-hat.`,
     ])
   })
 })

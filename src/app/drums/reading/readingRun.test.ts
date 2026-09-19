@@ -17,7 +17,8 @@ import { accuracyOf, nextSeed, readingResultLines, readingSlipQuantity } from '.
  * reach it. The slip sentence itself gets its own `describe` block below,
  * built from a REAL plan via `planGrooveRun`.
  */
-const UNUSED_PLAN: Pick<GrooveRunPlan, 'beatMs' | 'nominalSubdivisionMs'> = {
+const UNUSED_PLAN: Pick<GrooveRunPlan, 'windowMs' | 'beatMs' | 'nominalSubdivisionMs'> = {
+  windowMs: 100,
   beatMs: 500,
   nominalSubdivisionMs: 250,
 }
@@ -38,7 +39,7 @@ function row(overrides: Partial<GroovePadResult> = {}): GroovePadResult {
     displacementSteps: 0,
     // Velocity-dynamics builder made `dynamics` required on `GroovePadResult`;
     // zeroed and unread here — this file never asserts on dynamics wording.
-    dynamics: { graded: 0, wrong: 0, softWanted: 0, loudWanted: 0, ghostInstants: 0, accentInstants: 0, unclassified: 0 },
+    dynamics: { graded: 0, wrong: 0, softWanted: 0, loudWanted: 0, ghostInstants: 0, accentInstants: 0, unclassified: 0, normalInstants: 0, loudNormals: 0 },
     ...overrides,
   }
 }
@@ -241,6 +242,78 @@ describe('readingResultLines slip sentence (DR-08, round 2 review)', () => {
 })
 
 /**
+ * DR-07 between-grid (DR-08/DR-11): `readingResultLines`'s own wording for
+ * `GroovePadResult.looseOffsetMs` — see `looseOffsetSentence`'s doc. Reuses
+ * the same two fixtures as the slip-sentence tests above: `PLAN` (level 2
+ * seed 1 bpm 80, an eighth-note grid) and a freshly generated level 1 seed 5
+ * bpm 80 exercise (a beat-or-coarser grid, guarded against fixture drift the
+ * same way the R1 slip test above does), so the two directions this feature
+ * covers — sub-beat and beat-or-coarser grids — both get a real, generated
+ * plan rather than a hand-built one.
+ */
+describe('readingResultLines between-grid sentence (DR-07 between-grid)', () => {
+  it('level 2 seed 1: every onset 130 ms late names the eighth-note band, not a missed-everything or slip reading', () => {
+    const hits = shiftedSnareHits(PLAN, 130)
+    const result = gradeGrooveRun(PLAN, hits)
+    expect(result.slipSteps === undefined || result.slipSteps === 0).toBe(true)
+    const snareRow = result.pads.find((r) => r.pad === 'snare')
+    expect(snareRow?.looseOffsetMs).toBe(130)
+
+    const lines = readingResultLines(result, accuracyOf(result), PLAN)
+    expect(lines.slip).toBe(
+      'You sat about 130 ms behind the click on most onsets — outside the 100 ms window, short of 1 eighth.',
+    )
+    expect(lines.detail).not.toContain('on average')
+  })
+
+  it('level 1 seed 5 bpm 80: every onset 200 ms behind names "2 beats", the same beat-or-coarser wording the slip sentence uses', () => {
+    const score = generateReadingExercise({ level: 1, measures: 2, id: 'r-between-grid-fixture' }, seededRng(5))
+    const plan = planGrooveRun(score, 80, { gradedBars: score.measures.length })
+    if (plan.beatMs !== 750 || plan.nominalSubdivisionMs !== 1500 || plan.windowMs !== 100) {
+      throw new Error(
+        'fixture drift: level 1 seed 5 bpm 80 no longer plans to beatMs 750 / nominalSubdivisionMs 1500 / ' +
+          `windowMs 100 (got ${plan.beatMs} / ${plan.nominalSubdivisionMs} / ${plan.windowMs}) — ` +
+          'recompute the hard-coded sentence in this test against the new plan',
+      )
+    }
+    const hits = shiftedSnareHits(plan, 200)
+    const result = gradeGrooveRun(plan, hits)
+    expect(result.slipSteps === undefined || result.slipSteps === 0).toBe(true)
+    const snareRow = result.pads.find((r) => r.pad === 'snare')
+    expect(snareRow?.looseOffsetMs).toBe(200)
+
+    const lines = readingResultLines(result, accuracyOf(result), plan)
+    expect(lines.slip).toBe(
+      'You sat about 200 ms behind the click on most onsets — outside the 100 ms window, short of 2 beats.',
+    )
+  })
+
+  it('has no slip key at all when every onset lands exactly on the grid (confirms this feature never fires alongside the clean case)', () => {
+    const result = gradeGrooveRun(PLAN, shiftedSnareHits(PLAN, 0))
+    const snareRow = result.pads.find((r) => r.pad === 'snare')
+    expect(snareRow?.looseOffsetMs).toBeUndefined()
+    const lines = readingResultLines(result, accuracyOf(result), PLAN)
+    expect('slip' in lines).toBe(false)
+  })
+
+  it('the whole-step slip sentence wins, never the between-grid one, when both could apply — confirmed impossible to construct: a whole nominal-step shift always leaves looseOffsetMs undefined', () => {
+    const result = gradeGrooveRun(PLAN, shiftedSnareHits(PLAN, PLAN.nominalSubdivisionMs))
+    expect(result.slipSteps).toBe(1)
+    const snareRow = result.pads.find((r) => r.pad === 'snare')
+    // `grade.ts`'s own gate: `looseOffsetMs` is computed only when the pad's
+    // `displacementSteps` AND the run's `slipSteps` are both `undefined` — a
+    // whole-step slip defines `slipSteps`, so `looseOffsetMs` can never be
+    // set here, by construction, not by coincidence.
+    expect(snareRow?.looseOffsetMs).toBeUndefined()
+
+    const lines = readingResultLines(result, accuracyOf(result), PLAN)
+    expect(lines.slip).toBe(
+      'You sat 1 eighth behind the click. Most of your onsets were on the grid, 1 eighth late.',
+    )
+  })
+})
+
+/**
  * Round-3 review RED-4: `stepName(beatMs, nominalSubdivisionMs)` only has
  * three buckets (>=3.5 sixteenth, >=1.5 eighth, else beat), so it silently
  * misnamed two of the ratios levels 5–7 actually produce — 160 ticks
@@ -368,6 +441,61 @@ describe('readingRun slip sentence, round-3 hard-coded triplet-eighth fixture', 
     expect(lines.slip).toBe(
       'You sat 1 triplet eighth behind the click. Most of your onsets were on the grid, 1 triplet eighth late.',
     )
+  })
+})
+
+describe('padLooseOffset review fixes wired through readingResultLines', () => {
+  it('AMBER-b: +101 ms (just over the window) prints "about 110 ms", never a self-contradicting "about 100 ms" next to "outside the 100 ms window"', () => {
+    const hits = shiftedSnareHits(PLAN, 101)
+    const result = gradeGrooveRun(PLAN, hits)
+    expect(result.slipSteps === undefined || result.slipSteps === 0).toBe(true)
+    const snareRow = result.pads.find((r) => r.pad === 'snare')
+    expect(snareRow?.looseOffsetMs).toBe(101)
+
+    const lines = readingResultLines(result, accuracyOf(result), PLAN)
+    expect(lines.slip).toBe(
+      'You sat about 110 ms behind the click on most onsets — outside the 100 ms window, short of 1 eighth.',
+    )
+  })
+
+  // Brief note (ambiguity — see STAGE 1 return): the brief describes this
+  // fixture as keeping "its ms-average clause", but at bpm 80 the strict
+  // match window is 100 ms and a uniform +377 ms shift is beyond it for
+  // EVERY onset, so nothing matches at all (`matched: 0`) and
+  // `readingResultLines` — correctly, per its own doc — omits the average
+  // clause entirely when there is nothing to average. The literal below is
+  // what the code actually produces for this fixture, not what the brief
+  // described.
+  it('RED-1: reviewer\'s fixture — level 1 seed 13 bpm 80, every onset +377 ms (beyond half the nominal cell) names neither a slip nor a between-grid band', () => {
+    const score = generateReadingExercise({ level: 1, measures: 2, id: 'red-1-fixture' }, seededRng(13))
+    const plan = planGrooveRun(score, 80, { gradedBars: score.measures.length })
+    // Guard against fixture drift the same way the other hard-coded-plan
+    // tests in this file do: 377 ms is only "beyond half the nominal cell"
+    // (375 ms) for the plan this exact (level, seed, bpm) combination
+    // produced when this test was written.
+    if (plan.beatMs !== 750 || plan.nominalSubdivisionMs !== 750 || plan.windowMs !== 100) {
+      throw new Error(
+        'fixture drift: level 1 seed 13 bpm 80 no longer plans to beatMs 750 / nominalSubdivisionMs 750 / ' +
+          `windowMs 100 (got ${plan.beatMs} / ${plan.nominalSubdivisionMs} / ${plan.windowMs}) — ` +
+          'pick a new shift beyond half its cell',
+      )
+    }
+    const hits = shiftedSnareHits(plan, 377)
+    const result = gradeGrooveRun(plan, hits)
+    expect(result.slipSteps === undefined || result.slipSteps === 0).toBe(true)
+    const snareRow = result.pads.find((r) => r.pad === 'snare')
+    // RED-1: pre-fix, `padLooseOffset` would have named this band with the
+    // WRONG sign (a late train reassigned to the next instant, reading as
+    // early) — post-fix, the first notated instant is left unmatched by the
+    // wider re-pairing and the function correctly refuses to name a band.
+    expect(snareRow?.looseOffsetMs).toBeUndefined()
+
+    const lines = readingResultLines(result, accuracyOf(result), plan)
+    expect('slip' in lines).toBe(false)
+    // Hard-coded literal — computed once from this exact fixture, never
+    // built in-test with the production formatting helpers. `matched: 0`
+    // here (see the note above `it`), so there is no average to report.
+    expect(lines.detail).toBe('0 of 7 onsets, 7 missed, 7 extra')
   })
 })
 

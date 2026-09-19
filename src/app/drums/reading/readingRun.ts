@@ -12,6 +12,7 @@
  */
 import type { GrooveRunResult } from '@core/drums/practice/grade.ts'
 import type { GrooveRunPlan } from '@core/drums/practice/plan.ts'
+import { displayOffsetMs } from '@core/drums/practice/betweenGrid.ts'
 import { plural } from '@app/drums/groove/resultLines.ts'
 
 /** The single pad every reading exercise puts its notes on. */
@@ -149,6 +150,41 @@ function slipSentence(slipSteps: number, plan: Pick<GrooveRunPlan, 'beatMs' | 'n
 }
 
 /**
+ * DR-07 between-grid (DR-08/DR-11): the reading trainer's own wording for
+ * `betweenGridSentence` (`@app/drums/groove/resultLines.ts`) — see that
+ * function's doc and `GroovePadResult.looseOffsetMs` for why this band gets
+ * its own sentence rather than folding into "missed". A reading run is
+ * always graded on the single `'snare'` row (see the module comment), so
+ * there is no per-pad choice to make here the way the groove trainer's
+ * `worstLooseOffsetPad` makes one — this is called with that row's own
+ * `looseOffsetMs` whenever it is defined.
+ *
+ * By construction this and `slipSentence` can never both apply to the same
+ * run: `GroovePadResult.looseOffsetMs` is only ever computed (`grade.ts`)
+ * when that pad's own `displacementSteps` is `undefined` AND the whole run's
+ * `slipSteps` is `undefined` — so `readingResultLines` below only ever
+ * reaches this branch after already handling (and returning out of) the
+ * `slipSteps !== undefined && slipSteps !== 0` case first.
+ */
+function looseOffsetSentence(
+  looseOffsetMs: number,
+  plan: Pick<GrooveRunPlan, 'windowMs' | 'beatMs' | 'nominalSubdivisionMs'>,
+): string {
+  // AMBER-b/AMBER-c (review): the number is `displayOffsetMs` now, not a
+  // local `roundTen` — it never rounds below "the window plus 10", so the
+  // sentence's own "outside the N ms window" clause can't contradict the
+  // number right next to it, and it tolerates the float noise
+  // `nominalSubdivisionMs` can carry at some tempos (see that function's doc).
+  const rounded = displayOffsetMs(looseOffsetMs, plan.windowMs)
+  const behind = looseOffsetMs > 0
+  const quantity = readingSlipQuantity(1, plan.beatMs, plan.nominalSubdivisionMs)
+  return (
+    `You sat about ${rounded} ms ${behind ? 'behind' : 'ahead of'} the click on most onsets — ` +
+    `outside the ${Math.round(plan.windowMs)} ms window, short of ${quantity}.`
+  )
+}
+
+/**
  * The verdict, the one detail line, and (DR-08) a third sentence naming a
  * whole-pattern slip, e.g. "7 of 8 onsets, 1 missed, 2 extra · early by 12 ms
  * on average". The offset clause is omitted entirely when nothing matched —
@@ -167,7 +203,7 @@ function slipSentence(slipSteps: number, plan: Pick<GrooveRunPlan, 'beatMs' | 'n
 export function readingResultLines(
   result: GrooveRunResult,
   accuracy: number,
-  plan: Pick<GrooveRunPlan, 'beatMs' | 'nominalSubdivisionMs'>,
+  plan: Pick<GrooveRunPlan, 'windowMs' | 'beatMs' | 'nominalSubdivisionMs'>,
 ): ReadingResultLines {
   const verdict =
     accuracy >= 0.9 && result.steady ? 'Clean' : accuracy >= 0.6 ? 'Getting there' : 'Not there yet'
@@ -184,6 +220,17 @@ export function readingResultLines(
 
   const slipSteps = result.slipSteps
   if (slipSteps === undefined || slipSteps === 0) {
+    // DR-07 between-grid: named only once the whole-pattern slip vote above
+    // has already been ruled out — see `looseOffsetSentence`'s own doc for
+    // why the two can never both apply. Same treatment as a whole-step slip:
+    // the offset clause is dropped from `detail`, because `looseOffsetMs` is
+    // itself the same kind of "beyond window, short of a grid step" figure
+    // the slip branch already argued a plain "· late by N ms" clause would
+    // contradict right next to.
+    if (row?.looseOffsetMs !== undefined) {
+      const detail = parts.join(', ')
+      return { verdict, detail, slip: looseOffsetSentence(row.looseOffsetMs, plan) }
+    }
     const detail =
       row?.meanOffsetMs === undefined
         ? parts.join(', ')

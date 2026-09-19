@@ -41,6 +41,7 @@ import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import { MAX_SLIP_STEPS, matchCountAt, pair, SLIP_COVERAGE, type OffsetSample } from './matchCount.ts'
 import type { GroovePadPlan, GrooveRunPlan, SwingContext, UnisonPair } from './plan.ts'
 import { padDisplacementSteps } from './padDisplacement.ts'
+import { padLooseOffset } from './betweenGrid.ts'
 import { shiftedExpectedMs } from './slipShift.ts'
 import { padDynamics, type PadDynamicsResult } from './dynamics.ts'
 
@@ -141,6 +142,17 @@ export type GroovePadResult = {
    * complaint (incorrectly).
    */
   readonly dynamics: PadDynamicsResult
+  /**
+   * DR-07 between-grid (DR-08/DR-11): beyond the window, short of a grid
+   * step, on most of this pad's strokes; a diagnosis, never a grade — no
+   * other field reads it. `padLooseOffset` run on this pad's own expected
+   * instants and hits, at the plan's `windowMs`/`nominalSubdivisionMs`, and
+   * only when nothing more specific already explains this pad's timing —
+   * this pad's own `displacementSteps` is `undefined` AND the whole run's
+   * `slipSteps` is `undefined`. Optional key, omitted (never `undefined`)
+   * when there is no band to name — see `exactOptionalPropertyTypes`.
+   */
+  readonly looseOffsetMs?: number
 }
 
 /** Two pads the SCORE puts on one instant, and how far apart they actually landed. */
@@ -461,6 +473,16 @@ export function gradeGrooveRun(plan: GrooveRunPlan, hits: readonly GrooveHit[]):
       plan.msPerTick,
       MAX_SLIP_STEPS,
     )
+    // DR-07 between-grid: named only when neither a more specific timing
+    // diagnosis already explains this pad (its own `displacementSteps`) nor
+    // the whole run's (`slipSteps`) — see `GroovePadResult.looseOffsetMs`'s
+    // own doc.
+    const looseOffsetMs =
+      displacementSteps === undefined && slipSteps === undefined
+        ? padLooseOffset(expectedMsByPad.get(pad) ?? [], hitsByPad.get(pad) ?? [], plan.windowMs, plan.nominalSubdivisionMs)
+            ?.meanOffsetMs
+        : undefined
+
     // DR-07 tail (review round 3, RED 1): grade dynamics against the pairing
     // at this pad's EFFECTIVE shift — the whole-run `slipSteps` when the run
     // agrees on one, else this pad's own `displacementSteps`, else 0 (the
@@ -496,6 +518,7 @@ export function gradeGrooveRun(plan: GrooveRunPlan, hits: readonly GrooveHit[]):
       // grid — see `GroovePadResult.displacementSteps`'s own doc for why this
       // is asked per pad rather than only of the whole pattern.
       displacementSteps,
+      ...(looseOffsetMs === undefined ? {} : { looseOffsetMs }),
       // PRE-slip pairing, at this pad's EFFECTIVE shift — see this field's
       // own doc on `GroovePadResult` and the comment on `effectiveStep` above.
       dynamics: padDynamics(

@@ -6,8 +6,13 @@ import { swungTick } from '@core/drums/model/swing.ts'
 import { defaultVelocityForClass, velocityClassOf } from '@core/drums/model/velocity.ts'
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import { EIGHTH, ticks } from '@core/shared/units.ts'
-import { gradeGrooveRun, MAX_SLIP_STEPS, worstUnisonGap, type GrooveHit } from './grade.ts'
-import { matchCountAt } from './matchCount.ts'
+import { generateReadingExercise } from '@core/drums/reading/index.ts'
+import { seededRng } from '@core/ports/rng.ts'
+import { padLooseOffset } from './betweenGrid.ts'
+import { padDynamics } from './dynamics.ts'
+import { gradeGrooveRun, MAX_SLIP_STEPS, worstUnisonGap, type GroovePadResult, type GrooveHit } from './grade.ts'
+import { matchCountAt, pair } from './matchCount.ts'
+import { padDisplacementSteps } from './padDisplacement.ts'
 import { MAX_BPM, MIN_BPM, planGrooveRun, type GroovePadPlan, type GrooveRunPlan, type SwingContext } from './plan.ts'
 import { shiftedExpectedMs } from './slipShift.ts'
 
@@ -1155,6 +1160,7 @@ describe('gradeGrooveRun: dynamics grading (DR-07 tail / DR-03)', () => {
     if (snarePlan === undefined) return
     const expectedGhosts = snarePlan.expectedDynamics.filter((d) => d === 'ghost').length
     const expectedAccents = snarePlan.expectedDynamics.filter((d) => d === 'accent').length
+    const expectedNormalsSnare = snarePlan.expectedDynamics.filter((d) => d === 'normal').length
     expect(expectedGhosts).toBeGreaterThan(0)
     expect(expectedAccents).toBeGreaterThan(0)
 
@@ -1166,10 +1172,29 @@ describe('gradeGrooveRun: dynamics grading (DR-07 tail / DR-03)', () => {
       ghostInstants: expectedGhosts,
       accentInstants: expectedAccents,
       unclassified: 0,
+      // Velocity 96 ('normal' class) landed on every matched instant,
+      // including any plain snare strokes this pattern notates — counted
+      // for over-accenting (RED-1) but never loud, since 96 is not the
+      // accent class.
+      normalInstants: expectedNormalsSnare,
+      loudNormals: 0,
     })
 
-    // Ghost Funk never notates accent/ghost on the hi-hat or kick: nothing to grade there.
+    // Ghost Funk never notates accent/ghost on the hi-hat or kick: nothing to
+    // grade there — but every one of their own instants IS notated 'normal'
+    // and was struck at velocity 96, so `normalInstants` counts all of them
+    // (RED-1's field exists precisely so a caller can tell "every plain
+    // stroke was played" from "every plain stroke was played LOUD" — see
+    // `loudNormals` staying 0 below).
     for (const pad of ['hhClosed', 'kick'] as const) {
+      const padPlan = funkPlan.pads.find((p) => p.pad === pad)
+      expect(padPlan).toBeDefined()
+      if (padPlan === undefined) continue
+      const expectedNormals = padPlan.expectedDynamics.filter((d) => d === 'normal').length
+      // Guard: this pad's plan really does notate only 'normal' — if a future
+      // content change ever added an accent/ghost here, this test's own
+      // assumption (nothing to grade on hhClosed/kick) would be silently stale.
+      expect(expectedNormals).toBe(padPlan.expectedDynamics.length)
       expect(row(result, pad)?.dynamics).toEqual({
         graded: 0,
         wrong: 0,
@@ -1178,6 +1203,8 @@ describe('gradeGrooveRun: dynamics grading (DR-07 tail / DR-03)', () => {
         ghostInstants: 0,
         accentInstants: 0,
         unclassified: 0,
+        normalInstants: expectedNormals,
+        loudNormals: 0,
       })
     }
   })
@@ -1226,6 +1253,9 @@ describe('gradeGrooveRun: dynamics grading (DR-07 tail / DR-03)', () => {
       // Every notated ghost/accent instant matched, none classified —
       // see the SPEC CHANGE note above `it`.
       unclassified: expectedGhosts + expectedAccents,
+      // No velocity anywhere -> nothing lands in the normal class either.
+      normalInstants: 0,
+      loudNormals: 0,
     })
   })
 
@@ -1367,5 +1397,260 @@ describe('gradeGrooveRun: dynamics grading (DR-07 tail / DR-03)', () => {
       ),
       { seed: 20260919, numRuns: 200 },
     )
+  })
+})
+
+/**
+ * DR-07 between-grid: `GroovePadResult.looseOffsetMs` (roadmap DR-08/DR-11).
+ * `padLooseOffset` itself is proven in `betweenGrid.test.ts`; this describe
+ * block is about the WIRING in `gradeGrooveRun` — that the field is
+ * populated from the right inputs, gated on the right condition, and
+ * (the load-bearing claim) that adding it changes nothing else.
+ */
+describe('gradeGrooveRun: pads[].looseOffsetMs (DR-07 between-grid)', () => {
+  /**
+   * `referencePadResult` reconstructs every OTHER field of one pad's
+   * `GroovePadResult` independently, using only the same pre-existing,
+   * exported building blocks `gradeGrooveRun` itself calls for those fields
+   * (`pair`, `padDisplacementSteps`, `shiftedExpectedMs`, `padDynamics`) —
+   * never by importing or re-running `gradeGrooveRun`'s own private code.
+   * Deliberately narrower than `gradeGrooveRun`'s full machinery: it has no
+   * articulation-slip pass, so it is only valid for hit sets that cannot
+   * trigger one. The property test below guarantees that by construction
+   * (see its own doc) rather than by asserting it here.
+   */
+  function referencePadResult(
+    padPlan: GroovePadPlan,
+    hits: readonly { readonly ms: number; readonly velocity?: number }[],
+    runPlan: GrooveRunPlan,
+    slipSteps: number | undefined,
+  ): Omit<GroovePadResult, 'looseOffsetMs' | 'slipped'> {
+    const sortedHits = [...hits].sort((a, b) => a.ms - b.ms)
+    const hitsMs = sortedHits.map((h) => h.ms)
+    const { offsets, matched, unmatchedExpected, unmatchedHits } = pair(padPlan.expectedMs, hitsMs, runPlan.windowMs)
+    const sortedOffsets = offsets.map((o) => o.offset) // pair()'s own offsets are already instant-ordered
+    const meanOf = (values: readonly number[]): number =>
+      values.length === 0 ? 0 : values.reduce((sum, v) => sum + v, 0) / values.length
+    const meanOffsetMs = sortedOffsets.length === 0 ? undefined : meanOf(sortedOffsets)
+    const spreadMs =
+      sortedOffsets.length === 0
+        ? undefined
+        : Math.sqrt(meanOf(sortedOffsets.map((v) => (v - meanOf(sortedOffsets)) ** 2)))
+    const driftMs =
+      sortedOffsets.length < 4
+        ? undefined
+        : (() => {
+            const half = Math.floor(sortedOffsets.length / 2)
+            return (
+              meanOf(sortedOffsets.slice(sortedOffsets.length - half)) - meanOf(sortedOffsets.slice(0, half))
+            )
+          })()
+    const displacementSteps = padDisplacementSteps(
+      padPlan.expectedNominalTicks,
+      hitsMs,
+      runPlan.windowMs,
+      runPlan.nominalSubdivisionTicks,
+      runPlan.swing,
+      runPlan.msPerTick,
+      MAX_SLIP_STEPS,
+    )
+    const effectiveStep = slipSteps ?? displacementSteps ?? 0
+    const dynamicsOffsets =
+      effectiveStep === 0
+        ? offsets
+        : pair(
+            shiftedExpectedMs(
+              padPlan.expectedNominalTicks,
+              effectiveStep,
+              runPlan.nominalSubdivisionTicks,
+              runPlan.swing,
+              runPlan.msPerTick,
+            ),
+            hitsMs,
+            runPlan.windowMs,
+          ).offsets
+    const dynamics = padDynamics(
+      dynamicsOffsets.map((o) => ({ expectedIndex: o.expectedIndex, velocity: sortedHits[o.hitIndex]?.velocity })),
+      padPlan.expectedDynamics,
+    )
+    return {
+      pad: padPlan.pad,
+      expected: padPlan.expectedMs.length,
+      hits: hitsMs.length,
+      matched,
+      missed: unmatchedExpected.length,
+      extra: unmatchedHits.length,
+      meanOffsetMs,
+      spreadMs,
+      driftMs,
+      displacementSteps,
+      dynamics,
+    }
+  }
+
+  /**
+   * The property the whole slice exists to prove: stripping `looseOffsetMs`
+   * off every pad of a real `gradeGrooveRun` result deep-equals the SAME
+   * fields built independently via `referencePadResult` above — i.e. every
+   * pre-existing field is exactly what the pre-existing public pieces alone
+   * would produce, with no trace of the new code.
+   *
+   * Generated hits never leave their own pad (no stray cross-pad extras),
+   * so the articulation-slip pass — which `referencePadResult` does not
+   * model — always finds `extraHits` empty on every pad and is a structural
+   * no-op (see `applyArticulationSlips`'s own guard clause); `slipped` is
+   * therefore always 0 and is asserted so directly rather than reconstructed.
+   *
+   * This is the STRONGER of the two proofs the contract allows: it does not
+   * depend on `git show HEAD`, so it stays valid after this slice is
+   * committed and the tree moves on — a HEAD-diff-based check would not.
+   */
+  it('property: every field but looseOffsetMs matches an independent reconstruction from pair/padDisplacementSteps/padDynamics, over reference grooves, jazz drills, and reading-generated plans (levels 1-7)', () => {
+    // `moneyBeatOpenHat` is the one reference groove that carries BOTH
+    // hi-hat articulation siblings (`hhOpen` and `hhClosed`) on the same
+    // interleaved eighth grid — shifting its hits by a whole nominal step
+    // (below) can land an `hhClosed` hit exactly on an `hhOpen` instant's
+    // own grid slot, which `applyArticulationSlips` correctly reassigns as
+    // a slip. That is real, desired behaviour (covered by its own describe
+    // block above), but `referencePadResult` does not model the slip pass,
+    // so this property excludes any score `referencePadResult` cannot
+    // stand in for — i.e. one where two sibling pads share a score.
+    const grooveScores = [...referenceGrooves(), ...jazzRideDrills().map((drill) => drill.score)].filter(
+      (score) => !(new Set(score.notes.map((n) => n.pad)).has('hhOpen') && new Set(score.notes.map((n) => n.pad)).has('hhClosed')),
+    )
+    const readingPlans = ([1, 2, 3, 4, 5, 6, 7] as const).flatMap((level) =>
+      [1, 2, 3].map((seed) => {
+        const score = generateReadingExercise({ level, measures: 2, id: `dr07-btwn-${level}-${seed}` }, seededRng(seed))
+        return { score, bpm: 80, gradedBars: score.measures.length }
+      }),
+    )
+    const DROP_PERCENT = 20
+    fc.assert(
+      fc.property(
+        fc.oneof(
+          fc.constantFrom(...grooveScores).map((score) => ({ score, bpm: undefined as number | undefined, gradedBars: undefined as number | undefined })),
+          fc.constantFrom(...readingPlans),
+        ),
+        fc.integer({ min: MIN_BPM, max: MAX_BPM }),
+        fc.integer({ min: -MAX_SLIP_STEPS, max: MAX_SLIP_STEPS }),
+        fc.array(fc.integer({ min: 0, max: 99 }), { minLength: 200, maxLength: 200 }),
+        fc.array(fc.integer({ min: -400, max: 400 }), { minLength: 200, maxLength: 200 }),
+        (spec, randomBpm, step, dropRolls, jitterRolls) => {
+          const bpm = spec.bpm ?? randomBpm
+          const runPlan =
+            spec.gradedBars === undefined
+              ? planGrooveRun(spec.score, bpm)
+              : planGrooveRun(spec.score, bpm, { gradedBars: spec.gradedBars })
+
+          let rollIndex = 0
+          const hitsByPad = new Map<MappedDrumPad, { readonly ms: number; readonly velocity?: number }[]>()
+          const hits: GrooveHit[] = []
+          for (const padPlan of runPlan.pads) {
+            const shifted = shiftedExpectedMs(
+              padPlan.expectedNominalTicks,
+              step,
+              runPlan.nominalSubdivisionTicks,
+              runPlan.swing,
+              runPlan.msPerTick,
+            )
+            const list = hitsByPad.get(padPlan.pad) ?? []
+            for (let i = 0; i < shifted.length; i++) {
+              const shiftedMs = shifted[i]
+              if (shiftedMs === undefined) continue
+              const dropRoll = dropRolls[rollIndex % dropRolls.length] ?? 0
+              const jitterRoll = jitterRolls[rollIndex % jitterRolls.length] ?? 0
+              rollIndex++
+              if (dropRoll < DROP_PERCENT) continue
+              const ms = shiftedMs + jitterRoll
+              // No `velocity` field at all — dynamics grading must treat it
+              // as unclassified, same as a mouse/touch stroke, so `dynamics`
+              // is exercised without needing a separate velocity model here.
+              list.push({ ms })
+              hits.push({ pad: padPlan.pad, ms })
+            }
+            hitsByPad.set(padPlan.pad, list)
+          }
+
+          const result = gradeGrooveRun(runPlan, hits)
+
+          for (const padRow of result.pads) {
+            expect(padRow.slipped).toBe(0) // no cross-pad extras were ever generated — see doc above
+            const { looseOffsetMs: _looseOffsetMs, slipped: _slipped, ...rest } = padRow
+            const padPlan = runPlan.pads.find((p) => p.pad === padRow.pad)
+            const reference = referencePadResult(
+              padPlan ?? { pad: padRow.pad, loopTicks: [], expectedMs: [], expectedNominalMs: [], expectedNominalTicks: [], expectedDynamics: [] },
+              hitsByPad.get(padRow.pad) ?? [],
+              runPlan,
+              result.slipSteps,
+            )
+            expect(rest).toEqual(reference)
+
+            // The gate itself: present only when nothing more specific
+            // already explains this pad, and only when the underlying
+            // `padLooseOffset` call itself agrees.
+            const expectedLoose =
+              padRow.displacementSteps === undefined && result.slipSteps === undefined
+                ? padLooseOffset(
+                    padPlan?.expectedMs ?? [],
+                    (hitsByPad.get(padRow.pad) ?? []).map((h) => h.ms),
+                    runPlan.windowMs,
+                    runPlan.nominalSubdivisionMs,
+                  )?.meanOffsetMs
+                : undefined
+            expect(padRow.looseOffsetMs).toBe(expectedLoose)
+            expect('looseOffsetMs' in padRow).toBe(expectedLoose !== undefined)
+          }
+        },
+      ),
+      { seed: 20260919, numRuns: 150 },
+    )
+  })
+
+  /**
+   * Example: money beat at 100 bpm — a bpm where the hi-hat's eighth cell
+   * (`nominalSubdivisionMs`) clears `nominalSubdivisionMs / 2 > windowMs`
+   * (asserted below, not assumed), so a between-grid band genuinely exists.
+   * Snare plays every one of its (quarter-note) strokes 130 ms late; kick
+   * and hi-hat play exactly on time.
+   */
+  it('example: money beat 100 bpm, snare uniformly +130 ms — snare gets looseOffsetMs, kick/hat do not', () => {
+    const runPlan = planGrooveRun(moneyBeat(), 100)
+    expect(runPlan.nominalSubdivisionMs / 2).toBeGreaterThan(runPlan.windowMs)
+
+    const hits: GrooveHit[] = runPlan.pads.flatMap((padPlan) =>
+      padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms: padPlan.pad === 'snare' ? ms + 130 : ms })),
+    )
+    const result = gradeGrooveRun(runPlan, hits)
+    expect(result.slipSteps).toBeUndefined()
+
+    const snareRow = result.pads.find((p) => p.pad === 'snare')
+    const kickRow = result.pads.find((p) => p.pad === 'kick')
+    const hatRow = result.pads.find((p) => p.pad === 'hhClosed')
+
+    expect(snareRow?.displacementSteps).toBeUndefined()
+    expect(snareRow?.looseOffsetMs).toBeCloseTo(130, 6)
+    expect(kickRow).toBeDefined()
+    expect(hatRow).toBeDefined()
+    if (kickRow !== undefined) expect('looseOffsetMs' in kickRow).toBe(false)
+    if (hatRow !== undefined) expect('looseOffsetMs' in hatRow).toBe(false)
+  })
+
+  it('example: the whole pattern shifted one nominal step — every pad gets slipSteps, not looseOffsetMs', () => {
+    const runPlan = planGrooveRun(moneyBeat(), 100)
+    const hits = runPlan.pads.flatMap((padPlan) =>
+      shiftedExpectedMs(
+        padPlan.expectedNominalTicks,
+        1,
+        runPlan.nominalSubdivisionTicks,
+        runPlan.swing,
+        runPlan.msPerTick,
+      ).map((ms) => ({ pad: padPlan.pad, ms })),
+    )
+    const result = gradeGrooveRun(runPlan, hits)
+    expect(result.slipSteps).toBe(1)
+    for (const padRow of result.pads) {
+      if (padRow.hits === 0) continue
+      expect('looseOffsetMs' in padRow).toBe(false)
+    }
   })
 })

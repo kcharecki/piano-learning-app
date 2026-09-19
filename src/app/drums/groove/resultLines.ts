@@ -26,6 +26,7 @@ import {
   type GrooveRunResult,
 } from '@core/drums/practice/grade.ts'
 import type { GrooveRunPlan } from '@core/drums/practice/plan.ts'
+import { displayOffsetMs } from '@core/drums/practice/betweenGrid.ts'
 import type { DynamicsClass } from '@core/drums/model/groove.ts'
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import { GROOVE_PAD_LABEL } from './padLabels.ts'
@@ -132,6 +133,116 @@ export function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? '' : 's'}`
 }
 
+/**
+ * DR-07 between-grid (DR-08/DR-11, review round 2 — RED-2): the sentence for
+ * the between-grid band — see `GroovePadResult.looseOffsetMs`'s own doc for
+ * why that band is neither a match nor a whole-step slip, and why it gets
+ * its own sentence rather than falling into "missed" (which is what the
+ * generic "every stroke landed outside its window" sentence used to say
+ * about exactly this shape of run — wrong, because the pattern and the
+ * entry ARE right; only the hands are late or early by less than a grid
+ * step).
+ *
+ * RED-2: the previous version took a SINGLE pad and always blamed it alone.
+ * A whole-kit run that is uniformly late (say, a learner who simply came in
+ * late on the count-in) has EVERY limb sitting in the band by the same
+ * amount and the same sign — naming one limb ("Kick landed about 130 ms
+ * behind...") is not just incomplete, it is advice that would break a
+ * groove that was internally correct ("pull the kick back" when the kick
+ * was never out of time with the other limbs). This now reads the whole
+ * kit and picks one of three shapes:
+ *
+ * - every played pad is in the band, all the same sign (whole-kit lag/rush)
+ *   → one sentence blaming the CLICK, not a limb: "pull/push EVERYTHING".
+ * - some pads are in the band and at least one other played pad is
+ *   confirmed on its own grid position → the usual one-limb sentence,
+ *   naming the limb with the largest `|looseOffsetMs|` (ties go to the
+ *   first pad in `pads` order), now saying explicitly what the other limbs
+ *   it should meet actually did.
+ * - anything else (mixed signs across a partial band, or no played pad
+ *   confirmed on-grid to compare against) → `undefined`: naming a single
+ *   limb here would be a guess, not a diagnosis.
+ *
+ * `displacementSteps === 0` is the same "on its own grid position" test the
+ * per-pad whole-step-displacement sentence above uses — reused here rather
+ * than re-derived, so the two sentences agree on what "on the grid" means.
+ */
+export function betweenGridSentence(
+  pads: readonly Pick<GroovePadResult, 'pad' | 'expected' | 'displacementSteps' | 'looseOffsetMs' | 'hits'>[],
+  plan: Pick<GrooveRunPlan, 'windowMs' | 'beatMs' | 'nominalSubdivisionMs'>,
+): string | undefined {
+  // AMBER (review): `expected > 0` alone let a pad the learner never struck
+  // at all (kick/hh/hhOpen all loose, snare silent — "0 of N, N missed" on
+  // its own row) count as "played". That pad is never loose (no hits to be
+  // loose) and never on-grid (no hits to confirm a grid position from)
+  // either, so it silently broke BOTH the whole-kit shape
+  // (`loose.length === played.length`) and the per-limb one
+  // (`onGrid.length === played.length - 1`) — the whole-kit sentence above
+  // could no longer fire, and the run fell through to the generic "every
+  // stroke landed outside its window" sentence instead, even though the
+  // kit that DID play was internally correct. Mirrors the same
+  // `expected > 0 && hits > 0` predicate `diagnosisSentences` already uses
+  // to build its own `played` list for the per-pad displacement sentence.
+  const played = pads.filter((row) => row.expected > 0 && row.hits > 0)
+  const loose = played.filter((row) => row.looseOffsetMs !== undefined)
+  if (loose.length === 0) return undefined
+
+  const onGrid = played.filter((row) => row.displacementSteps === 0)
+  const quantity = plural(1, stepName(plan.beatMs, plan.nominalSubdivisionMs))
+  const windowRounded = Math.round(plan.windowMs)
+
+  const signs = new Set(loose.map((row) => Math.sign(row.looseOffsetMs ?? 0)))
+  if (loose.length === played.length && signs.size === 1) {
+    const meanMs = loose.reduce((sum, row) => sum + (row.looseOffsetMs ?? 0), 0) / loose.length
+    const rounded = displayOffsetMs(meanMs, plan.windowMs)
+    const behind = meanMs > 0
+    return (
+      `Every limb landed about ${rounded} ms ${behind ? 'behind' : 'ahead of'} the click on most strokes — ` +
+      `outside the ${windowRounded} ms window, short of ${quantity}. The pattern is there; ` +
+      `${behind ? 'pull everything back' : 'push everything forward'} to meet the click.`
+    )
+  }
+
+  if (onGrid.length === 0) return undefined
+
+  let worst: (typeof loose)[number] | undefined
+  let worstAbs = -Infinity
+  for (const row of loose) {
+    const abs = Math.abs(row.looseOffsetMs ?? 0)
+    if (abs <= worstAbs) continue
+    worst = row
+    worstAbs = abs
+  }
+  // Unreachable (`loose.length > 0` above guarantees a `worst`), but keeps
+  // the type checker honest about `worst` without a non-null assertion.
+  if (worst === undefined) return undefined
+
+  const ms = worst.looseOffsetMs ?? 0
+  const rounded = displayOffsetMs(ms, plan.windowMs)
+  const behind = ms > 0
+  const label = GROOVE_PAD_LABEL[worst.pad]
+
+  // Denominator is every OTHER played pad (`played.length - 1`, excluding
+  // only the named `worst` pad) — not `played.length - loose.length`. With
+  // more than one loose pad (mixed signs, e.g.) the non-worst loose pads are
+  // still "other" pads that are not on the grid, so they must count against
+  // "all others on grid" too; using `loose.length` silently canceled them out.
+  const allOthersOnGrid = onGrid.length === played.length - 1
+  const others = allOthersOnGrid
+    ? { phrase: 'the other limbs sit', closing: 'them' }
+    : (() => {
+        const labels = onGrid.map((row) => GROOVE_PAD_LABEL[row.pad])
+        const single = labels.length === 1
+        return { phrase: `${labels.join(' and ')} ${single ? 'sits' : 'sit'}`, closing: single ? 'it' : 'them' }
+      })()
+
+  return (
+    `${label} landed about ${rounded} ms ${behind ? 'behind' : 'ahead of'} the click on most strokes — ` +
+    `outside the ${windowRounded} ms window, short of ${quantity}, while ${others.phrase} on the grid. ` +
+    `${behind ? 'Pull it back' : 'Push it forward'} to meet ${others.closing}.`
+  )
+}
+
 /** The pad furthest past `limit` on `metric`, or `undefined` when none is past it. */
 function worstOver(
   pads: readonly GroovePadResult[],
@@ -213,9 +324,9 @@ function dynamicsSentence(row: GroovePadResult): string {
   const label = GROOVE_PAD_LABEL[row.pad]
   const { softWanted, loudWanted, ghostInstants, accentInstants } = row.dynamics
   if (softWanted >= loudWanted) {
-    return `${label}: ${softWanted} of ${plural(ghostInstants, 'ghost note')} came out full. Play them under the hi-hat.`
+    return `${label}: ${softWanted} of the ${plural(ghostInstants, 'ghost note')} you hit came out full. Play them under the hi-hat.`
   }
-  return `${label}: ${loudWanted} of ${plural(accentInstants, 'accent')} did not land. Lean into them.`
+  return `${label}: ${loudWanted} of the ${plural(accentInstants, 'accent')} you hit came out soft. Lean into them.`
 }
 
 /**
@@ -318,10 +429,24 @@ export function diagnosisSentences(
   // names the fix precisely ("sat 1 beat behind the click"). Without this
   // gate, this branch would pre-empt that strictly more useful sentence with
   // the generic one below it.
+  // DR-07 between-grid (review round 2 — RED-2): a run that looks like
+  // "every stroke missed" can still have a between-grid sentence to print
+  // (see `betweenGridSentence`'s own doc) — that is a strictly more useful,
+  // more correct diagnosis than the generic sentence below ("the pattern is
+  // there, where you came in is not" reads as a rig/count-in problem, when
+  // really the hands are simply sitting a fraction of a grid step off — or,
+  // now, the whole kit uniformly is), so this falls through to the block
+  // chain instead of returning early. Gated on `betweenGridSentence` itself
+  // being DEFINED, not merely on some pad having a `looseOffsetMs` — a run
+  // can have loose pads and still resolve to `undefined` (case d in that
+  // function's own doc), and in that shape there is no more useful
+  // sentence to fall through to, so the generic one below has to fire.
+  const between = betweenGridSentence(result.pads, plan)
   if (
     result.slipSteps === undefined &&
     result.pads.length > 0 &&
-    result.pads.every((padRow) => padRow.matched === 0)
+    result.pads.every((padRow) => padRow.matched === 0) &&
+    between === undefined
   ) {
     return [
       'Every stroke landed outside its window — the pattern is there, where you came in is not. Restart on the count-in.',
@@ -391,6 +516,16 @@ export function diagnosisSentences(
       }
     }
   }
+
+  // DR-07 between-grid: named after per-pad displacement (a whole-step slip
+  // is always the more specific, more useful diagnosis when both could
+  // apply — and by construction they cannot both apply to the SAME pad,
+  // since `looseOffsetMs` is only ever computed when that pad's own
+  // `displacementSteps` is `undefined`), before dynamics. `between` was
+  // already computed above, for the early-return gate — reused here rather
+  // than recomputed, since `betweenGridSentence` is a pure function of the
+  // same `result.pads`/`plan` either way.
+  if (between !== undefined) sentences.push(between)
 
   // DR-07 tail / DR-03: dynamics named after per-pad displacement, before the
   // unison/flam block, per the contract's ordering.
