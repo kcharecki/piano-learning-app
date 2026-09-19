@@ -36,6 +36,7 @@
 import { createWebMidi } from '@adapters/midi/index.ts'
 import type { MidiOutput } from '@core/ports/midi.ts'
 import { err, ok, type Result } from '@core/shared/result.ts'
+import { DRUM_MIDI_CHANNEL } from './drumMidiOut.ts'
 
 export type AudioOutputRoute = 'webaudio' | 'midi'
 
@@ -138,12 +139,58 @@ export async function connectMidiOutputRoute(
  * be driven stale: nothing connected yet (the control only renders once
  * something is, but a caller could still race it), or the picked id no
  * longer among `listDevices()` (the device was unplugged between render and
- * click).
+ * click). Neither error path below touches the live output — a failed pick
+ * must not silence a port that is still legitimately in use.
+ *
+ * ## Panicking the OLD port before the switch (DR-06 wave 14, RED-SPEC round 2)
+ *
+ * `readyMidiOutput` is one `MidiOutput` instance for the session — picking a
+ * different port only ever calls `selectDevice(id)` on it, never swaps in a
+ * new instance (`drumAudio.ts`'s `ensureMidiTarget` has the consuming side
+ * of this). `WebMidiOutputAdapter.send()` (`webmidi.ts`) resolves the
+ * destination port fresh, at send time, from its own mutable
+ * `selectedDeviceId` — so the ONLY moment `allNotesOff` can still reach the
+ * outgoing port is right here, the instant before `selectDevice(id)`
+ * reassigns it below; one line later would already be too late (it would
+ * land on the new port instead, same as `ensureMidiTarget` found for a
+ * strike arriving after the switch). `WebMidiOutputAdapter.allNotesOff` also
+ * `clear()`s the port's own queued sends first (see that method's comment),
+ * so this additionally cancels anything already scheduled ahead on the old
+ * port, not just notes already sounding.
+ *
+ * Two calls, not one: `MidiOutput.allNotesOff(channel?)` silences one MIDI
+ * channel per call, not "every channel" — the drum voice lives on channel 10
+ * (`DRUM_MIDI_CHANNEL`, `drumMidiOut.ts`) and the piano voice
+ * (`midiout.ts`'s `createMidiAudioOutput`) on the default channel (0, the
+ * parameter omitted). Both may be ringing on the port being switched away
+ * from, since this router has no visibility into which one actually is.
+ *
+ * ## Re-picking the SAME port (Settings re-click) is not a switch
+ *
+ * `id === readyMidiOutput.selectedDeviceId` is not a port change at all —
+ * nothing is "outgoing", so there is nothing to panic, and `selectDevice(id)`
+ * would be a harmless same-value reassignment. Sending the two `allNotesOff`
+ * calls anyway would still be wrong: a note legitimately ringing on this
+ * still-selected port (this drum router's own `openHat`, or a genuinely held
+ * piano note) would be cut off for no reason — a re-click must be inert, not
+ * a panic button. So this returns early with exactly the same success value
+ * the normal path returns (`ok(undefined)`) and sends nothing at all;
+ * `ensureMidiTarget` (`drumAudio.ts`) has the matching same-id no-op on the
+ * consuming side. `setPreferredMidiOutputPortId(id)` is kept even on this
+ * early path — re-writing the same id is idempotent, and it keeps the
+ * persisted preference in step with the live selection either way, at
+ * negligible cost.
  */
 export function selectMidiOutputPort(id: string): Result<void, string> {
   if (readyMidiOutput === undefined) return err('No MIDI output is connected.')
   const stillListed = readyMidiOutput.listDevices().some((d) => d.id === id)
   if (!stillListed) return err('That MIDI output is no longer listed.')
+  if (id === readyMidiOutput.selectedDeviceId) {
+    setPreferredMidiOutputPortId(id)
+    return ok(undefined)
+  }
+  readyMidiOutput.allNotesOff(DRUM_MIDI_CHANNEL)
+  readyMidiOutput.allNotesOff()
   readyMidiOutput.selectDevice(id)
   setPreferredMidiOutputPortId(id)
   return ok(undefined)

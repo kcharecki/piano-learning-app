@@ -1,12 +1,82 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { RecordingMidiOutput } from '@test/fakes.ts'
-import { millis } from '@core/shared/units.ts'
-import type { MidiDevice, MidiOutput } from '@core/ports/midi.ts'
+import { millis, type Millis } from '@core/shared/units.ts'
+import type { MidiDevice, MidiOutput, Unsubscribe } from '@core/ports/midi.ts'
 import { DRUM_MIDI_CHANNEL } from '@adapters/audio/drumMidiOut.ts'
 
 // `createDrumAudioOutput`/`createDrumAudioOutputWith` memoize a
 // module-level singleton, so each test re-imports the module fresh (via
 // `vi.resetModules()`) rather than sharing one singleton across tests.
+
+/**
+ * `RecordingMidiOutput` (`@test/fakes.ts`) records `sent` WITHOUT which
+ * device id each message went to — it never modelled per-port routing, only
+ * "was something sent on this instance". The DR-06 port-switch tests below
+ * need to prove which port a `noteOff` actually reached, so this local fake
+ * stamps each entry with `this.selectedDeviceId` AT SEND TIME — mirroring
+ * `WebMidiOutputAdapter.send()`, which resolves the destination port from
+ * its own mutable `selectedDeviceId` fresh on every call (`webmidi.ts`
+ * `currentPort()`), not from whatever was selected when the note was
+ * scheduled.
+ */
+class DeviceTrackingMidiOutput implements MidiOutput {
+  readonly sent: {
+    kind: 'noteOn' | 'noteOff' | 'allNotesOff'
+    note?: number
+    at?: number
+    channel?: number
+    deviceId: string | null
+  }[] = []
+  private devices: MidiDevice[]
+  private readonly deviceHandlers = new Set<(devices: readonly MidiDevice[]) => void>()
+  selectedDeviceId: string | null
+
+  constructor(devices: MidiDevice[]) {
+    this.devices = devices
+    this.selectedDeviceId = devices[0]?.id ?? null
+  }
+
+  listDevices(): readonly MidiDevice[] {
+    return this.devices
+  }
+
+  onDevicesChanged(handler: (devices: readonly MidiDevice[]) => void): Unsubscribe {
+    this.deviceHandlers.add(handler)
+    return () => this.deviceHandlers.delete(handler)
+  }
+
+  selectDevice(deviceId: string | null): void {
+    this.selectedDeviceId = deviceId
+  }
+
+  noteOn(note: number, _velocity: number, atMs?: Millis, channel?: number): void {
+    this.sent.push({
+      kind: 'noteOn',
+      note,
+      ...(atMs === undefined ? {} : { at: atMs }),
+      ...(channel === undefined ? {} : { channel }),
+      deviceId: this.selectedDeviceId,
+    })
+  }
+
+  noteOff(note: number, atMs?: Millis, channel?: number): void {
+    this.sent.push({
+      kind: 'noteOff',
+      note,
+      ...(atMs === undefined ? {} : { at: atMs }),
+      ...(channel === undefined ? {} : { channel }),
+      deviceId: this.selectedDeviceId,
+    })
+  }
+
+  allNotesOff(channel?: number): void {
+    this.sent.push({
+      kind: 'allNotesOff',
+      ...(channel === undefined ? {} : { channel }),
+      deviceId: this.selectedDeviceId,
+    })
+  }
+}
 
 describe('createDrumAudioOutput', () => {
   afterEach(() => {
@@ -396,5 +466,160 @@ describe('createDrumAudioOutputWith — routing (DR-06)', () => {
       { kind: 'noteOff', note: 38, at: 70, channel: DRUM_MIDI_CHANNEL },
     ])
     expect(secondVelocities).toEqual([50])
+  })
+
+  // DR-06 wave 14 — port switch mid-session. `selectMidiOutputPort`
+  // (`audioRoute.ts`) calls `selectDevice(id)` on the SAME `MidiOutput`
+  // instance, so `ensureMidiTarget`'s `output !== midiOutputInstance` check
+  // cannot see it. Must fail against a stub that only rebuilds on a
+  // different instance: the old code would send `hhClosed`'s open-hat
+  // release (`noteOff` note 46) to port B, which never had it on.
+  it('selecting a different port on the SAME MidiOutput instance forgets the old ringing hat instead of misdirecting its note-off', async () => {
+    const { createDrumAudioOutputWith } = await import('@adapters/audio/drumAudio.ts')
+    const deviceA: MidiDevice = { id: 'a', name: 'A', manufacturer: 'Test' }
+    const deviceB: MidiDevice = { id: 'b', name: 'B', manufacturer: 'Test' }
+    const midiOut = new DeviceTrackingMidiOutput([deviceA, deviceB]) // starts selected on A
+
+    const out = createDrumAudioOutputWith(
+      () => {
+        throw new Error('never needed for this test')
+      },
+      { route: () => 'midi', midi: () => midiOut },
+    )
+
+    out.strike('hhOpen', 100, millis(0)) // open hat rings on A (selectedDeviceId 'a')
+    midiOut.selectDevice('b') // Settings port switch — same instance, no onDevicesChanged event
+    out.strike('hhClosed', 100, millis(100))
+
+    const onB = midiOut.sent.filter((m) => m.deviceId === 'b')
+    // no stray noteOff for note 46 (A's open hat) is sent to B at all —
+    // the switch forgets it rather than releasing it on the wrong port.
+    expect(onB.some((m) => m.kind === 'noteOff' && m.note === 46)).toBe(false)
+    expect(onB).toEqual([
+      { kind: 'noteOn', note: 42, at: 100, channel: DRUM_MIDI_CHANNEL, deviceId: 'b' },
+      { kind: 'noteOff', note: 42, at: 160, channel: DRUM_MIDI_CHANNEL, deviceId: 'b' },
+    ])
+    // What happened to A's ringing hat in THIS test: "forgotten here;
+    // silenced for real elsewhere." This test drives `midiOut.selectDevice`
+    // directly (isolating this router's own reset()-vs-rebuild bookkeeping)
+    // rather than through the real `selectMidiOutputPort` (`audioRoute.ts`),
+    // which is what actually panics the old port with CC 123 the instant
+    // BEFORE reassigning `selectedDeviceId` — see that function's own
+    // comment. By the time any strike reaches `ensureMidiTarget`, that
+    // reassignment (real or, as here, test-simulated) has already happened,
+    // so `WebMidiOutputAdapter.send()` would resolve an `allNotesOff()`
+    // issued from here to the NEW port, not the old one — this router only
+    // ever forgets its own `openHat` memory (`reset()`), never repeats the
+    // device-level panic.
+  })
+
+  // What this actually guards: NOT the port-switch detection itself (a
+  // version of `ensureMidiTarget` that never noticed a same-instance port
+  // switch at all would still pass this exact assertion — nothing was ever
+  // rung on B for a stray release to leak back onto A). What it does pin
+  // down is the reset()-vs-allNotesOff() choice on the switch-back branch:
+  // if that branch called `midiDrumOutput.allNotesOff()` instead of
+  // `reset()`, the resulting `{ kind: 'allNotesOff', channel:
+  // DRUM_MIDI_CHANNEL, deviceId: 'a' }` would show up in `onA` and break the
+  // exact-array equality below — `reset()` sends nothing, so it does not.
+  it('switching back to the first port sends only reset bookkeeping, never an extra allNotesOff, on the new voice', async () => {
+    const { createDrumAudioOutputWith } = await import('@adapters/audio/drumAudio.ts')
+    const deviceA: MidiDevice = { id: 'a', name: 'A', manufacturer: 'Test' }
+    const deviceB: MidiDevice = { id: 'b', name: 'B', manufacturer: 'Test' }
+    const midiOut = new DeviceTrackingMidiOutput([deviceA, deviceB])
+
+    const out = createDrumAudioOutputWith(
+      () => {
+        throw new Error('never needed for this test')
+      },
+      { route: () => 'midi', midi: () => midiOut },
+    )
+
+    out.strike('hhOpen', 100, millis(0)) // rings on A
+    midiOut.selectDevice('b')
+    out.strike('hhClosed', 100, millis(100)) // switch forgets A's hat; plain hit on B
+    midiOut.selectDevice('a') // switch back to A
+    out.strike('hhClosed', 100, millis(200))
+
+    const onA = midiOut.sent.filter((m) => m.deviceId === 'a')
+    expect(onA).toEqual([
+      { kind: 'noteOn', note: 46, at: 0, channel: DRUM_MIDI_CHANNEL, deviceId: 'a' },
+      { kind: 'noteOn', note: 42, at: 200, channel: DRUM_MIDI_CHANNEL, deviceId: 'a' },
+      { kind: 'noteOff', note: 42, at: 260, channel: DRUM_MIDI_CHANNEL, deviceId: 'a' },
+    ])
+  })
+
+  // Re-selecting the SAME id (Settings re-click on the already-active port)
+  // must not rebuild or reset the voice — a still-ringing open hat stays
+  // tracked and gets released normally on the next hi-hat hit.
+  it('reselecting the SAME port id does not rebuild or reset — an open hat stays tracked', async () => {
+    const { createDrumAudioOutputWith } = await import('@adapters/audio/drumAudio.ts')
+    const deviceA: MidiDevice = { id: 'a', name: 'A', manufacturer: 'Test' }
+    const midiOut = new DeviceTrackingMidiOutput([deviceA])
+
+    const out = createDrumAudioOutputWith(
+      () => {
+        throw new Error('never needed for this test')
+      },
+      { route: () => 'midi', midi: () => midiOut },
+    )
+
+    out.strike('hhOpen', 100, millis(0)) // open hat rings, tracked
+    midiOut.selectDevice('a') // Settings re-click on the same port — no-op switch
+    out.strike('hhClosed', 100, millis(200))
+
+    expect(midiOut.sent).toEqual([
+      { kind: 'noteOn', note: 46, at: 0, channel: DRUM_MIDI_CHANNEL, deviceId: 'a' },
+      { kind: 'noteOff', note: 46, at: 200, channel: DRUM_MIDI_CHANNEL, deviceId: 'a' }, // the still-tracked open hat, released first
+      { kind: 'noteOn', note: 42, at: 200, channel: DRUM_MIDI_CHANNEL, deviceId: 'a' },
+      { kind: 'noteOff', note: 42, at: 260, channel: DRUM_MIDI_CHANNEL, deviceId: 'a' },
+    ])
+  })
+
+  // Round 2 finding 2 (MEDIUM) — `midiSelectedId = output.selectedDeviceId`
+  // in the port-switch branch of `ensureMidiTarget` survives deletion of
+  // that one line alone: without it, `midiSelectedId` stays stuck on the
+  // FIRST switch's target id, so a SECOND switch (back, or to a third port)
+  // is never detected as a port change and the branch never fires again.
+  // Proven below by literally deleting that assignment and re-running — see
+  // this test's own trailing comment for the failing assertion it produced.
+  it('a second port switch is still detected — midiSelectedId is updated on the reset branch, not just read', async () => {
+    const { createDrumAudioOutputWith } = await import('@adapters/audio/drumAudio.ts')
+    const deviceA: MidiDevice = { id: 'a', name: 'A', manufacturer: 'Test' }
+    const deviceB: MidiDevice = { id: 'b', name: 'B', manufacturer: 'Test' }
+    const midiOut = new DeviceTrackingMidiOutput([deviceA, deviceB])
+
+    const out = createDrumAudioOutputWith(
+      () => {
+        throw new Error('never needed for this test')
+      },
+      { route: () => 'midi', midi: () => midiOut },
+    )
+
+    out.strike('hhOpen', 100, millis(0)) // rings on A
+    midiOut.selectDevice('b') // first switch, a -> b
+    out.strike('hhOpen', 100, millis(100)) // forgets A's hat (reset), rings 46 fresh on B
+    out.strike('hhClosed', 100, millis(200)) // no further switch — B's own hat, released normally
+
+    const onB = midiOut.sent.filter((m) => m.deviceId === 'b')
+    expect(onB).toEqual([
+      { kind: 'noteOn', note: 46, at: 100, channel: DRUM_MIDI_CHANNEL, deviceId: 'b' },
+      { kind: 'noteOff', note: 46, at: 200, channel: DRUM_MIDI_CHANNEL, deviceId: 'b' },
+      { kind: 'noteOn', note: 42, at: 200, channel: DRUM_MIDI_CHANNEL, deviceId: 'b' },
+      { kind: 'noteOff', note: 42, at: 260, channel: DRUM_MIDI_CHANNEL, deviceId: 'b' },
+    ])
+    // Mutant proof (actually run, not predicted): deleting `midiSelectedId =
+    // output.selectedDeviceId` from the reset branch in `ensureMidiTarget`
+    // (drumAudio.ts) and re-running this test fails with:
+    //   AssertionError: expected [ …(3) ] to deeply equal [ …(4) ]
+    //   - Expected  (4 items, incl. { kind: 'noteOff', note: 46, at: 200,
+    //     channel: 9, deviceId: 'b' })
+    //   + Received  (3 items — the noteOff-46 entry is missing entirely)
+    // `midiSelectedId` stuck on 'a' after the first switch makes the THIRD
+    // call above (`hhClosed` at millis(200)) see `output.selectedDeviceId`
+    // ('b') !== `midiSelectedId` ('a') as still true, so it wrongly
+    // re-enters the reset branch a second time and forgets the open hat this
+    // test just rang at millis(100) before it can be released. Source was
+    // restored immediately after confirming this failure.
   })
 })

@@ -80,6 +80,8 @@ function createDrumAudioRouter(
 
   const synth = createDrumSynth({ context })
   let midiOutputInstance: MidiOutput | undefined
+  /** The `output.selectedDeviceId` the current `midiDrumOutput` voice was built (or last reset) for — DR-06 port switch, see `ensureMidiTarget`. */
+  let midiSelectedId: string | null = null
   let midiDrumOutput: MidiDrumOutput | undefined
   let lastVolume = 1
   /** Unsubscribes the current voice's `onDevicesChanged` listener below — re-armed on every device swap. */
@@ -110,12 +112,49 @@ function createDrumAudioRouter(
    * `dispose()` to also unsubscribe from (`DrumAudioOutput` has none, and
    * this router's own return value below adds none) — this module-level
    * singleton is assumed to live for the app's lifetime, same as `synth`.
+   *
+   * ## Port switch on the SAME instance (DR-06 wave 14)
+   *
+   * `selectMidiOutputPort` (`audioRoute.ts`) picks a different device by
+   * calling `readyMidiOutput.selectDevice(id)` on the one live `MidiOutput`
+   * instance — it never swaps in a new instance, so the `output !==
+   * midiOutputInstance` check above cannot see a mid-session port change at
+   * all. Left alone, the cached voice keeps believing whatever `openHat`
+   * rang on the OLD port and would send that note's `noteOff` to the NEW
+   * port on the next hi-hat hit — a port that never had it on.
+   *
+   * A true panic of the OLD port cannot happen HERE, in this router:
+   * `WebMidiOutputAdapter` resolves the destination port at SEND time from
+   * its own mutable `selectedDeviceId`, not at `noteOn`/`noteOff`
+   * time-of-scheduling (`webmidi.ts`'s `currentPort()`/`send()`), and by the
+   * time a strike reaches `ensureMidiTarget`, Settings has already called
+   * `selectDevice(id)` on this very instance — so `output.selectedDeviceId`
+   * already reads the NEW id, and an `allNotesOff()` issued here would
+   * resolve to the NEW port, not silence the old one. The real panic already
+   * happened earlier and elsewhere: `selectMidiOutputPort` (`audioRoute.ts`)
+   * calls `readyMidiOutput.allNotesOff(...)` on the OLD selection the
+   * instant BEFORE reassigning it — see that function's own comment for why
+   * that timing makes the panic land correctly. What is left to do here is
+   * only this router's own bookkeeping: CC 123 silences the device but knows
+   * nothing about this module's `openHat` memory, so `reset()` still forgets
+   * it, separately, so the next hi-hat hit does not send a stray release for
+   * a note the new port never asked to have on.
    */
   function ensureMidiTarget(output: MidiOutput): MidiDrumOutput {
+    if (
+      midiDrumOutput !== undefined &&
+      output === midiOutputInstance &&
+      output.selectedDeviceId !== midiSelectedId
+    ) {
+      midiDrumOutput.reset()
+      midiSelectedId = output.selectedDeviceId
+      return midiDrumOutput
+    }
     if (midiDrumOutput === undefined || output !== midiOutputInstance) {
       midiDrumOutput?.allNotesOff()
       unsubscribeDeviceChange?.()
       midiOutputInstance = output
+      midiSelectedId = output.selectedDeviceId
       midiDrumOutput = createMidiDrumOutput({ output, now: () => millis(performance.now()) })
       midiDrumOutput.setVolume(lastVolume)
       unsubscribeDeviceChange = output.onDevicesChanged((devices) => {
