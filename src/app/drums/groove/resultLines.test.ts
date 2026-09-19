@@ -4,14 +4,18 @@
  * groove the learner played a pad that is not in it — and each of them is a
  * way the screen could quietly lie about what happened.
  */
+import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import type { ArticulationSlip, GroovePadResult, GrooveRunResult } from '@core/drums/practice/grade.ts'
 import { gradeGrooveRun, type GrooveHit } from '@core/drums/practice/grade.ts'
-import { moneyBeat, moneyBeatOpenHat, quarterNoteRock } from '@core/drums/model/referenceGrooves.ts'
+import { moneyBeat, moneyBeatOpenHat, quarterNoteRock, referenceGrooves } from '@core/drums/model/referenceGrooves.ts'
 import { jazzRideDrills } from '@core/drums/coordination/jazzRide.ts'
 import { makeGrooveScore } from '@core/drums/model/groove.ts'
+import { swungTick } from '@core/drums/model/swing.ts'
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
+import { ticks } from '@core/shared/units.ts'
 import { planGrooveRun, type GrooveRunPlan } from '@core/drums/practice/plan.ts'
+import { GROOVE_PAD_LABEL } from './padLabels.ts'
 import {
   articulationSentence,
   diagnosisSentences,
@@ -40,6 +44,10 @@ function row(overrides: Partial<GroovePadResult>): GroovePadResult {
     meanOffsetMs: 0,
     spreadMs: 0,
     driftMs: 0,
+    // DR-07 tail: also required, also unread by `padLineText`. Tests that
+    // exercise the per-pad displacement sentence build real results through
+    // `gradeGrooveRun` instead of this literal (see below).
+    displacementSteps: 0,
     ...overrides,
   }
 }
@@ -439,5 +447,221 @@ describe('diagnosisSentences prefers the slip sentence over all-missed when both
     expect(diagnosisSentences(result, plan)).toEqual([
       'The whole pattern sat 1 beat behind the click. The pattern is right; where you came in is not.',
     ])
+  })
+})
+
+/**
+ * DR-07 tail: `runSlipSteps` only speaks when every played pad agrees, so a
+ * run where exactly one limb is a grid step off and the rest are exact —
+ * `slipSteps === undefined`, `steady === false` — used to reach the learner
+ * as "Not there yet" with no reason at all. `diagnosisSentences` now names
+ * the one displaced limb in that specific shape, built here through the real
+ * grader on real drill content, never through a hand-built `GrooveRunResult`.
+ */
+describe('diagnosisSentences: per-pad displacement sentence (DR-07 tail)', () => {
+  it('names the one displaced limb when the whole-pattern vote cannot agree — jazz-ride drill 3, snare one eighth late', () => {
+    const jazzStep3 = jazzRideDrills()[2]
+    expect(jazzStep3).toBeDefined()
+    if (jazzStep3 === undefined) return
+    const jazzPlan = planGrooveRun(jazzStep3.score, 120)
+    expect(jazzPlan.swingPercent).toBe(67)
+    const swingArgs = [
+      jazzPlan.swing.percent,
+      jazzPlan.swing.unit,
+      jazzPlan.swing.measureTicks,
+      jazzPlan.swing.beats,
+      jazzPlan.swing.beatType,
+    ] as const
+
+    // Every snare instant struck one nominal eighth late (re-swung); ride and
+    // pedal exactly as written.
+    const hits: GrooveHit[] = jazzPlan.pads.flatMap((padPlan) =>
+      padPlan.pad === 'snare'
+        ? padPlan.expectedNominalTicks.map((nominalTick) => ({
+            pad: padPlan.pad,
+            ms:
+              (swungTick(ticks(nominalTick + jazzPlan.nominalSubdivisionTicks), ...swingArgs) as number) *
+              jazzPlan.msPerTick,
+          }))
+        : padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms })),
+    )
+    const result = gradeGrooveRun(jazzPlan, hits)
+    expect(result.slipSteps).toBeUndefined()
+    expect(result.steady).toBe(false)
+
+    expect(diagnosisSentences(result, jazzPlan)[0]).toBe(
+      `${GROOVE_PAD_LABEL.snare} sat 1 eighth behind the other limbs, which sit on the grid. Move ${GROOVE_PAD_LABEL.snare} to meet them.`,
+    )
+  })
+
+  it('says "ahead of" for a limb displaced early — money beat, kick one eighth early', () => {
+    const runPlan = planGrooveRun(moneyBeat(), 80)
+    const hits: GrooveHit[] = runPlan.pads.flatMap((padPlan) =>
+      padPlan.pad === 'kick'
+        ? padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms: ms - runPlan.nominalSubdivisionMs }))
+        : padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms })),
+    )
+    const result = gradeGrooveRun(runPlan, hits)
+    expect(result.slipSteps).toBeUndefined()
+    expect(result.steady).toBe(false)
+
+    expect(diagnosisSentences(result, runPlan)[0]).toBe(
+      `${GROOVE_PAD_LABEL.kick} sat 1 eighth ahead of the other limbs, which sit on the grid. Move ${GROOVE_PAD_LABEL.kick} to meet them.`,
+    )
+  })
+
+  it('example: all pads one eighth late gives only the whole-pattern sentence, never the per-pad one', () => {
+    const runPlan = planGrooveRun(moneyBeat(), 80)
+    const hits: GrooveHit[] = runPlan.pads.flatMap((padPlan) =>
+      padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms: ms + runPlan.nominalSubdivisionMs })),
+    )
+    const result = gradeGrooveRun(runPlan, hits)
+    expect(result.slipSteps).toBe(1)
+
+    const sentences = diagnosisSentences(result, runPlan)
+    expect(sentences[0]).toBe(
+      'The whole pattern sat 1 eighth behind the click. The pattern is right; where you came in is not.',
+    )
+    expect(sentences.some((sentence) => sentence.includes('the other limbs'))).toBe(false)
+  })
+
+  it('example: two pads displaced by different steps gets no per-pad sentence either', () => {
+    const runPlan = planGrooveRun(moneyBeat(), 80)
+    const hits: GrooveHit[] = runPlan.pads.flatMap((padPlan) => {
+      if (padPlan.pad === 'kick') {
+        return padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms: ms + runPlan.nominalSubdivisionMs }))
+      }
+      if (padPlan.pad === 'snare') {
+        return padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms: ms - runPlan.nominalSubdivisionMs }))
+      }
+      return padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms }))
+    })
+    const result = gradeGrooveRun(runPlan, hits)
+    expect(result.slipSteps).toBeUndefined()
+
+    const sentences = diagnosisSentences(result, runPlan)
+    expect(sentences.every((sentence) => !sentence.includes('the other limbs'))).toBe(true)
+  })
+
+  /**
+   * The per-pad sentence must never fire alongside (or instead of) the
+   * whole-pattern one: whenever `slipSteps` is defined, `diagnosisSentences`
+   * must not produce the "...the other limbs..." wording, for any reference
+   * groove, at any tempo, for any whole nominal-grid-step shift the vote
+   * happens to agree on.
+   */
+  /**
+   * Review round 2, RED #1: with only ONE pad played, the old guard
+   * (`onGrid.length === played.length - 1`, i.e. `0 === 0`) held trivially,
+   * so a learner who played only the hi-hat — kick and snare silent, each
+   * reading "0 of 4, 4 missed" on its own row — was told the hi-hat sat off
+   * "the other limbs", limbs that never played at all. `onGrid.length >= 1`
+   * now requires at least one OTHER pad to actually be on the grid before the
+   * per-pad sentence can point at anything.
+   */
+  it('gives no per-pad sentence when only one pad played, even though that pad is cleanly displaced', () => {
+    const runPlan = planGrooveRun(moneyBeat(), 80)
+    const hits: GrooveHit[] = runPlan.pads.flatMap((padPlan) =>
+      padPlan.pad === 'hhClosed'
+        ? padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms: ms + runPlan.nominalSubdivisionMs }))
+        : [],
+    )
+    const result = gradeGrooveRun(runPlan, hits)
+    expect(result.slipSteps).toBeUndefined()
+    expect(result.steady).toBe(false)
+    const hhRow = result.pads.find((r) => r.pad === 'hhClosed')
+    expect(hhRow?.displacementSteps).toBe(1)
+    const kickRow = result.pads.find((r) => r.pad === 'kick')
+    const snareRow = result.pads.find((r) => r.pad === 'snare')
+    expect(kickRow?.hits).toBe(0)
+    expect(snareRow?.hits).toBe(0)
+
+    const sentences = diagnosisSentences(result, runPlan)
+    expect(sentences.every((sentence) => !sentence.includes('the other limbs'))).toBe(true)
+  })
+
+  /**
+   * Review round 2, AMBER #4: a stray press on a pad the groove never asks
+   * for (`expected === 0`) used to count as a "played" row with neither an
+   * off nor an on-grid verdict, which could break the `off.length === 1 &&
+   * onGrid.length === played.length - 1` shape and silence an otherwise-valid
+   * diagnosis. `played` is now filtered to `expected > 0` too, so the stray
+   * tom hit here does not touch the accounting at all.
+   */
+  it('still names the displaced snare when a stray hit lands on a pad outside the groove', () => {
+    const runPlan = planGrooveRun(moneyBeat(), 80)
+    const hits: GrooveHit[] = runPlan.pads.flatMap((padPlan) =>
+      padPlan.pad === 'snare'
+        ? padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms: ms + runPlan.nominalSubdivisionMs }))
+        : padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms })),
+    )
+    // moneyBeat never writes a tom — this pad's row will have expected === 0.
+    hits.push({ pad: 'tomHigh', ms: 12 })
+    const result = gradeGrooveRun(runPlan, hits)
+    expect(result.slipSteps).toBeUndefined()
+    const tomRow = result.pads.find((r) => r.pad === 'tomHigh')
+    expect(tomRow?.expected).toBe(0)
+
+    expect(diagnosisSentences(result, runPlan)[0]).toBe(
+      `${GROOVE_PAD_LABEL.snare} sat 1 eighth behind the other limbs, which sit on the grid. Move ${GROOVE_PAD_LABEL.snare} to meet them.`,
+    )
+  })
+
+  /**
+   * Review round 2, AMBER #6i: one pad cleanly displaced is not enough on its
+   * own — every OTHER played pad must be confirmed on-grid
+   * (`displacementSteps === 0`), not merely "not the displaced one". Here the
+   * hi-hat's own hits are pushed far enough outside every candidate step's
+   * window (`windowMs` either side of every shifted grid position, and not a
+   * clean multiple of the grid step itself) that `padDisplacementSteps` finds
+   * a zero-count tie across every step and reports `undefined` for hi-hat —
+   * confirmed below, not assumed — so the snare's own displacement cannot be
+   * named as "the other limbs are right" when one of those limbs' own grid
+   * position is unknown.
+   */
+  it('gives no per-pad sentence when the other pad\'s own displacement cannot be pinned down either', () => {
+    const runPlan = planGrooveRun(moneyBeat(), 80)
+    const stray = runPlan.windowMs + 1
+    const hits: GrooveHit[] = runPlan.pads.flatMap((padPlan) => {
+      if (padPlan.pad === 'snare') {
+        return padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms: ms + runPlan.nominalSubdivisionMs }))
+      }
+      if (padPlan.pad === 'hhClosed') {
+        return padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms: ms + stray }))
+      }
+      return padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms }))
+    })
+    const result = gradeGrooveRun(runPlan, hits)
+    expect(result.slipSteps).toBeUndefined()
+    const hhRow = result.pads.find((r) => r.pad === 'hhClosed')
+    expect(hhRow?.hits).toBeGreaterThan(0)
+    expect(hhRow?.displacementSteps).toBeUndefined()
+    const snareRow = result.pads.find((r) => r.pad === 'snare')
+    expect(snareRow?.displacementSteps).toBe(1)
+
+    const sentences = diagnosisSentences(result, runPlan)
+    expect(sentences.every((sentence) => !sentence.includes('the other limbs'))).toBe(true)
+  })
+
+  it('property: the per-pad sentence never appears when the whole-pattern vote succeeds (slipSteps defined)', () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...referenceGrooves()),
+        fc.integer({ min: 40, max: 200 }),
+        fc.integer({ min: -4, max: 4 }).filter((step) => step !== 0),
+        (score, bpm, step) => {
+          const runPlan = planGrooveRun(score, bpm)
+          const hits: GrooveHit[] = runPlan.pads.flatMap((padPlan) =>
+            padPlan.expectedMs.map((ms) => ({ pad: padPlan.pad, ms: ms + step * runPlan.nominalSubdivisionMs })),
+          )
+          const result = gradeGrooveRun(runPlan, hits)
+          if (result.slipSteps === undefined) return
+          const sentences = diagnosisSentences(result, runPlan)
+          for (const sentence of sentences) {
+            expect(sentence).not.toContain('the other limbs')
+          }
+        },
+      ),
+    )
   })
 })

@@ -5,8 +5,9 @@ import { ghostFunkBar, moneyBeat, moneyBeatOpenHat, referenceGrooves } from '@co
 import { swungTick } from '@core/drums/model/swing.ts'
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import { EIGHTH, ticks } from '@core/shared/units.ts'
-import { gradeGrooveRun, worstUnisonGap, type GrooveHit } from './grade.ts'
-import { MAX_BPM, MIN_BPM, planGrooveRun, type GrooveRunPlan } from './plan.ts'
+import { gradeGrooveRun, MAX_SLIP_STEPS, worstUnisonGap, type GrooveHit } from './grade.ts'
+import { matchCountAt } from './matchCount.ts'
+import { MAX_BPM, MIN_BPM, planGrooveRun, type GroovePadPlan, type GrooveRunPlan, type SwingContext } from './plan.ts'
 import { shiftedExpectedMs } from './slipShift.ts'
 
 /**
@@ -826,5 +827,195 @@ describe('runSlipSteps on a swung plan (DR-07 properties)', () => {
         },
       ),
     )
+  })
+})
+
+/**
+ * DR-07 tail: `GroovePadResult.displacementSteps` was added and
+ * `gradeGrooveRun` now fills it for every pad, but `runSlipSteps` itself is
+ * untouched — this describe block is the proof that `slipSteps` really is
+ * still exactly what it was before this slice, and separately that the two
+ * passes (whole-pattern and per-pad) agree with each other in the one case
+ * where they trivially must: every played pad displaced by the identical
+ * step.
+ */
+describe('gradeGrooveRun: slipSteps unchanged by adding pads[].displacementSteps (DR-07 tail)', () => {
+  /**
+   * `runSlipSteps` (`grade.ts`) re-implemented independently here, the same
+   * way `oldConstantOffsetSlipSteps` above re-implements the PRE-DR-07
+   * formula — generalized with `shiftedExpectedMs` so it also covers swung
+   * scores, since `runSlipSteps` itself already is. `runSlipSteps` is not
+   * exported and this slice does not change it or export it; duplicating its
+   * body here (rather than trusting the production function unmodified by
+   * inspection) is what lets the property below be a real regression check
+   * instead of a tautology.
+   */
+  function referenceRunSlipSteps(
+    padPlans: readonly GroovePadPlan[],
+    windowMs: number,
+    nominalSubdivisionTicks: number,
+    swing: SwingContext,
+    msPerTick: number,
+    hitsByPad: ReadonlyMap<MappedDrumPad, readonly number[]>,
+  ): number | undefined {
+    const REFERENCE_SLIP_COVERAGE = 0.75
+    const steps = [...Array(MAX_SLIP_STEPS * 2 + 1).keys()].map((i) => i - MAX_SLIP_STEPS)
+    const totals = new Map<number, number>(steps.map((step) => [step, 0]))
+    let expectedTotal = 0
+    let agreed: number | undefined
+    let first = true
+    for (const padPlan of padPlans) {
+      const hits = hitsByPad.get(padPlan.pad) ?? []
+      expectedTotal += padPlan.expectedMs.length
+      const counts = steps.map((step) => ({
+        step,
+        count: matchCountAt(
+          shiftedExpectedMs(padPlan.expectedNominalTicks, step, nominalSubdivisionTicks, swing, msPerTick),
+          hits,
+          windowMs,
+        ),
+      }))
+      for (const { step, count } of counts) totals.set(step, (totals.get(step) ?? 0) + count)
+      if (hits.length === 0) continue
+      const best = counts.reduce((a, b) => (b.count > a.count ? b : a))
+      const tied = counts.filter((c) => c.count === best.count).length > 1
+      if (tied) return undefined
+      if (first) {
+        agreed = best.step
+        first = false
+      } else if (agreed !== best.step) {
+        return undefined
+      }
+    }
+    if (agreed === undefined || agreed === 0) return undefined
+    const atAgreed = totals.get(agreed) ?? 0
+    if (atAgreed <= (totals.get(0) ?? 0)) return undefined
+    if (atAgreed < expectedTotal * REFERENCE_SLIP_COVERAGE) return undefined
+    return agreed
+  }
+
+  /**
+   * Review round 2, AMBER #5: the previous version of this property drew hits
+   * from `fc.integer({ min: -500, max: 6500 })` — ms values with no relation
+   * to the plan's own grid at all — and a reviewer's probe found it never
+   * produced a DEFINED `slipSteps` in 2000 runs. An equivalence property
+   * whose generator only ever visits one side of the branch it is meant to
+   * check proves that side and nothing else.
+   *
+   * Hits are now built FROM the plan: every pad's own expected instants,
+   * shifted by one shared nominal `step` (`shiftedExpectedMs` — the same
+   * shift-then-reswing helper `runSlipSteps` itself uses) and re-swung, so
+   * the backbone of every generated run is a clean whole-pattern
+   * displacement. Realistic imperfection is layered on top: each shifted hit
+   * has roughly a 25% chance of being dropped entirely (missed strokes —
+   * `SLIP_COVERAGE` is 0.75, so this sits right at the coverage boundary and
+   * generates plenty of cases on both sides of it), a surviving hit is
+   * jittered by up to half the match window either way (still-on-time
+   * playing, never enough to fall out of its own window), and a handful of
+   * unrelated extra hits are thrown in (stray strokes, or noise that can tie
+   * a pad's own vote and push the whole run to `undefined`). `step === 0` and
+   * heavy drop/jitter luck both still reach `undefined` plenty of the time,
+   * so this generator exercises both branches, not just the defined one —
+   * confirmed below by the counter assertion, not by inspection.
+   */
+  it('property: slipSteps matches an independent re-implementation of runSlipSteps, on straight AND swung scores, for near-clean displaced hits at random tempos', () => {
+    const scores = [...referenceGrooves(), ...jazzRideDrills().map((drill) => drill.score)]
+    const DROP_PERCENT = 25
+    let definedCount = 0
+    let undefinedCount = 0
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...scores),
+        fc.integer({ min: MIN_BPM, max: MAX_BPM }),
+        fc.integer({ min: -MAX_SLIP_STEPS, max: MAX_SLIP_STEPS }),
+        // A pool of per-hit rolls, consumed in order as pads/instants are
+        // walked below — sized generously so no plan's hit count can exhaust it.
+        fc.array(fc.integer({ min: 0, max: 99 }), { minLength: 200, maxLength: 200 }),
+        fc.array(fc.integer({ min: -1000, max: 1000 }), { minLength: 200, maxLength: 200 }),
+        fc.array(fc.integer({ min: 0, max: 8000 }), { minLength: 5, maxLength: 5 }),
+        fc.integer({ min: 0, max: 5 }),
+        (score, bpm, step, dropRolls, jitterRolls, extraMsPool, extraCount) => {
+          const runPlan = planGrooveRun(score, bpm)
+          let rollIndex = 0
+          const hits: GrooveHit[] = []
+          for (const padPlan of runPlan.pads) {
+            const shifted = shiftedExpectedMs(
+              padPlan.expectedNominalTicks,
+              step,
+              runPlan.nominalSubdivisionTicks,
+              runPlan.swing,
+              runPlan.msPerTick,
+            )
+            for (const shiftedMs of shifted) {
+              const dropRoll = dropRolls[rollIndex % dropRolls.length] ?? 0
+              const jitterRoll = jitterRolls[rollIndex % jitterRolls.length] ?? 0
+              rollIndex++
+              if (dropRoll < DROP_PERCENT) continue
+              // Scaled into +/- half the match window, so a surviving hit
+              // never jitters out of the step it was built to land on.
+              const jitterMs = (jitterRoll / 1000) * (runPlan.windowMs / 2)
+              hits.push({ pad: padPlan.pad, ms: shiftedMs + jitterMs })
+            }
+          }
+          for (let e = 0; e < extraCount; e++) {
+            const extraPad = runPlan.pads[e % runPlan.pads.length]?.pad
+            if (extraPad === undefined) continue
+            hits.push({ pad: extraPad, ms: extraMsPool[e % extraMsPool.length] ?? 0 })
+          }
+
+          const result = gradeGrooveRun(runPlan, hits)
+
+          const hitsByPad = new Map<MappedDrumPad, number[]>()
+          for (const hit of hits) {
+            const list = hitsByPad.get(hit.pad) ?? []
+            list.push(hit.ms)
+            hitsByPad.set(hit.pad, list)
+          }
+          for (const list of hitsByPad.values()) list.sort((a, b) => a - b)
+
+          const expected = referenceRunSlipSteps(
+            runPlan.pads,
+            runPlan.windowMs,
+            runPlan.nominalSubdivisionTicks,
+            runPlan.swing,
+            runPlan.msPerTick,
+            hitsByPad,
+          )
+          if (expected === undefined) undefinedCount++
+          else definedCount++
+          expect(result.slipSteps).toBe(expected)
+        },
+        // Review round 3: `definedCount`/`undefinedCount` are counts over a
+        // RANDOM run, so without a fixed seed the two assertions below are
+        // themselves flaky (mean ~7.9 defined per 100 runs at the default
+        // unseeded run count, per review — rare but nonzero chance of 0).
+        // Seed and run count fixed so the counters are deterministic; the
+        // equivalence check itself (`expect(result.slipSteps).toBe(expected)`)
+        // is unchanged and still runs against whatever fast-check generates.
+      ),
+      { seed: 20260919, numRuns: 100 },
+    )
+    // The regression this property exists to catch (AMBER #5): a generator
+    // that only ever hits one branch of the equivalence it is checking.
+    expect(definedCount).toBeGreaterThan(0)
+    expect(undefinedCount).toBeGreaterThan(0)
+  })
+
+  /**
+   * Consistency between the two passes in the one case where they must
+   * agree: every played pad's own hits pick out the SAME whole-grid step, so
+   * the whole-pattern vote (`slipSteps`) and every played pad's own
+   * `displacementSteps` name that same step.
+   */
+  it('example: when every played pad shares one displacementSteps k, slipSteps equals k too', () => {
+    const runPlan = plan()
+    const k = 1
+    const hits = play(runPlan, () => k * runPlan.nominalSubdivisionMs)
+    const result = gradeGrooveRun(runPlan, hits)
+    expect(result.slipSteps).toBe(k)
+    for (const padRow of result.pads) {
+      if (padRow.hits === 0) continue
+      expect(padRow.displacementSteps).toBe(k)
+    }
   })
 })

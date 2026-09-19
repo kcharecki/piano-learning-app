@@ -241,6 +241,53 @@ export function diagnosisSentences(
     )
   }
 
+  // DR-07 tail: named only when the whole-pattern vote above could NOT agree
+  // (`result.slipSteps === undefined`) — when it did agree, the sentence
+  // above already explains the whole run, and this one would either repeat
+  // it or contradict it. Within that case, this fires ONLY for exactly one
+  // played pad off its own grid position while every OTHER played pad sits
+  // on its own grid (`displacementSteps === 0`) — a clean "this one limb is
+  // the problem" shape. Two or more displaced pads, or any played pad whose
+  // own grid position could not be pinned down at all
+  // (`displacementSteps === undefined`), gets no sentence here: naming one
+  // limb when the picture is actually ambiguous would be a guess dressed up
+  // as a diagnosis.
+  //
+  // Review round 2:
+  // RED #1 — `played` must require `onGrid.length >= 1`. With exactly ONE
+  // pad played, `onGrid.length === 0 === played.length - 1` held trivially,
+  // so a learner who played only the hi-hat (kick and snare silent, "0 of 4,
+  // 4 missed" on their own rows) was told the hi-hat sat off "the other
+  // limbs" — limbs that never played at all, and so proved nothing about
+  // where the hi-hat actually sat.
+  // AMBER #4 — `played` is filtered to `expected > 0` too. A stray press on a
+  // pad the groove never asks for (`expected === 0`, `displacementSteps`
+  // always `undefined` for it — see `padDisplacement.ts`) used to count as a
+  // "played" row with neither an off nor an on-grid verdict, which could
+  // silently break the `off.length === 1 && onGrid.length === played.length
+  // - 1` shape and swallow an otherwise-valid diagnosis.
+  if (result.slipSteps === undefined) {
+    const played = result.pads.filter((row) => row.expected > 0 && row.hits > 0)
+    const off = played.filter((row) => row.displacementSteps !== undefined && row.displacementSteps !== 0)
+    const onGrid = played.filter((row) => row.displacementSteps === 0)
+    if (off.length === 1 && onGrid.length >= 1 && onGrid.length === played.length - 1) {
+      const offRow = off[0]
+      const offSteps = offRow?.displacementSteps
+      if (offRow !== undefined && offSteps !== undefined) {
+        const steps = Math.abs(offSteps)
+        const direction = offSteps > 0 ? 'behind' : 'ahead of'
+        // AMBER #3: says explicitly that the OTHER limbs sit on the grid —
+        // the old "They are right" could read as contradicting a second
+        // sentence below about one of those same on-grid limbs being loose
+        // (`worstOver` on `spreadMs`/`driftMs` says nothing about grid
+        // position, only about consistency around its own mean).
+        sentences.push(
+          `${GROOVE_PAD_LABEL[offRow.pad]} sat ${plural(steps, stepName(plan.beatMs, plan.nominalSubdivisionMs))} ${direction} the other limbs, which sit on the grid. Move ${GROOVE_PAD_LABEL[offRow.pad]} to meet them.`,
+        )
+      }
+    }
+  }
+
   const flam = worstUnisonGap(result)
   if (flam !== undefined) {
     const [first, second] = flam.pads

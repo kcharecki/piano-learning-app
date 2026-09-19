@@ -38,7 +38,9 @@
  */
 import { invariant } from '@core/shared/invariant.ts'
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
+import { MAX_SLIP_STEPS, matchCountAt, pair, SLIP_COVERAGE, type OffsetSample } from './matchCount.ts'
 import type { GroovePadPlan, GrooveRunPlan, SwingContext, UnisonPair } from './plan.ts'
+import { padDisplacementSteps } from './padDisplacement.ts'
 import { shiftedExpectedMs } from './slipShift.ts'
 
 /** One pad press, in ms from the moment the graded window opened. */
@@ -62,11 +64,11 @@ export const STEADY_DRIFT_FRACTION = 0.5
 /** How far apart two limbs the score writes on one instant may land. */
 export const FLAM_FRACTION = 0.5
 
-/** How many subdivisions either side `slipSteps` will look for a displaced pattern. */
-export const MAX_SLIP_STEPS = 4
-
-/** A whole-pattern displacement is only claimed if it explains this much of the run. */
-const SLIP_COVERAGE = 0.75
+// `MAX_SLIP_STEPS`/`SLIP_COVERAGE` live in `matchCount.ts` (review round 3,
+// item 2) so `padDisplacement.ts` can import them without importing FROM this
+// module — re-exported here so every pre-existing `from './grade.ts'` import
+// of either name keeps working unchanged.
+export { MAX_SLIP_STEPS, SLIP_COVERAGE } from './matchCount.ts'
 
 export type GroovePadResult = {
   readonly pad: MappedDrumPad
@@ -92,6 +94,15 @@ export type GroovePadResult = {
   readonly spreadMs: number | undefined
   /** Second-half mean minus first-half mean. Positive means the limb is falling behind. */
   readonly driftMs: number | undefined
+  /**
+   * This ONE pad's own whole-nominal-grid-step displacement (roadmap DR-07
+   * tail) — `padDisplacementSteps` run on this pad's hits alone, so a limb
+   * can be named even when `runSlipSteps` finds no whole-pattern agreement.
+   * `0` means this pad's own hits sit on their own grid position; `undefined`
+   * means the pad has no hits, or its hits do not clearly favour any one
+   * grid position over the others (see `padDisplacement.ts`).
+   */
+  readonly displacementSteps: number | undefined
 }
 
 /** Two pads the SCORE puts on one instant, and how far apart they actually landed. */
@@ -150,70 +161,6 @@ export type GrooveRunResult = {
     readonly driftMs: number
     readonly flamMs: number
   }
-}
-
-/**
- * One matched (or slip-reassigned) stroke: the notated instant it answers,
- * and how far off the hit landed. Carrying `instant` alongside `offset` —
- * not just the bare number — is what lets a pad's offsets be put back into
- * instant order after the articulation-slip pass has appended some out of
- * order (see `applyArticulationSlips` and where `sortedOffsets` is built in
- * `gradeGrooveRun`).
- */
-type OffsetSample = {
-  readonly instant: number
-  readonly offset: number
-}
-
-type Pairing = {
-  readonly offsets: readonly OffsetSample[]
-  readonly matched: number
-  /** `expected` instants that found no hit within `windowMs`, in input order. */
-  readonly unmatchedExpected: readonly number[]
-  /** `hits` that were not claimed by any instant, in input order. */
-  readonly unmatchedHits: readonly number[]
-}
-
-/**
- * Nearest-first assignment of `hits` to `expected` inside `windowMs`. Optimal
- * because the windows do not overlap — see the module comment. Also reports
- * what was left over on each side, which the articulation-slip pass (below)
- * re-pairs across a sibling pad.
- */
-function pair(expected: readonly number[], hits: readonly number[], windowMs: number): Pairing {
-  const taken = new Array<boolean>(hits.length).fill(false)
-  const offsets: OffsetSample[] = []
-  const unmatchedExpected: number[] = []
-  // `expected` is time-ordered, so a hit equidistant between two adjacent
-  // instants is claimed by whichever instant is processed first: the earlier one.
-  for (const instant of expected) {
-    let bestIndex = -1
-    let bestDistance = Number.POSITIVE_INFINITY
-    for (let i = 0; i < hits.length; i++) {
-      if (taken[i] === true) continue
-      const hit = hits[i]
-      if (hit === undefined) continue
-      const distance = Math.abs(hit - instant)
-      if (distance > windowMs) continue
-      if (distance < bestDistance) {
-        bestDistance = distance
-        bestIndex = i
-      }
-    }
-    if (bestIndex < 0) {
-      unmatchedExpected.push(instant)
-      continue
-    }
-    taken[bestIndex] = true
-    offsets.push({ instant, offset: (hits[bestIndex] ?? 0) - instant })
-  }
-  const unmatchedHits = hits.filter((_, i) => taken[i] !== true)
-  return { offsets, matched: offsets.length, unmatchedExpected, unmatchedHits }
-}
-
-/** How many of (already-shifted) `expected` find a hit. Counting only — no assignment kept. */
-function matchCountAt(expected: readonly number[], hits: readonly number[], windowMs: number): number {
-  return pair(expected, hits, windowMs).matched
 }
 
 function mean(values: readonly number[]): number {
@@ -396,6 +343,11 @@ export function gradeGrooveRun(plan: GrooveRunPlan, hits: readonly GrooveHit[]):
   }
 
   const expectedMsByPad = new Map(plan.pads.map((padPlan) => [padPlan.pad, padPlan.expectedMs]))
+  // Feeds `displacementSteps` below — a pad this groove never asks for (a
+  // hit-only row) has no entry here, so it falls back to `[]`, and
+  // `padDisplacementSteps` reports `undefined` for an empty expected list the
+  // same way it does for a pad with no hits: no grid position to speak of.
+  const expectedNominalTicksByPad = new Map(plan.pads.map((padPlan) => [padPlan.pad, padPlan.expectedNominalTicks]))
   // Snapshot of each pad's OWN matched offsets, before the slip pass can add
   // any borrowed from elsewhere — unison gaps compare limbs on their own
   // timing only, never inflated by a sibling's slipped-in offsets.
@@ -442,6 +394,18 @@ export function gradeGrooveRun(plan: GrooveRunPlan, hits: readonly GrooveHit[]):
       meanOffsetMs: sortedOffsets.length === 0 ? undefined : mean(sortedOffsets),
       spreadMs: sortedOffsets.length === 0 ? undefined : standardDeviation(sortedOffsets),
       driftMs: drift(sortedOffsets),
+      // This pad's own hits (not the slip-adjusted `state`) against its own
+      // grid — see `GroovePadResult.displacementSteps`'s own doc for why this
+      // is asked per pad rather than only of the whole pattern.
+      displacementSteps: padDisplacementSteps(
+        expectedNominalTicksByPad.get(pad) ?? [],
+        hitsByPad.get(pad) ?? [],
+        plan.windowMs,
+        plan.nominalSubdivisionTicks,
+        plan.swing,
+        plan.msPerTick,
+        MAX_SLIP_STEPS,
+      ),
     }
   })
 

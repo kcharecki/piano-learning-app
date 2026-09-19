@@ -19,6 +19,8 @@ function row(overrides: Partial<GroovePadResult> = {}): GroovePadResult {
     meanOffsetMs: 0,
     spreadMs: 0,
     driftMs: 0,
+    // DR-07 tail added this required field to `GroovePadResult`; unread here.
+    displacementSteps: 0,
     ...overrides,
   }
 }
