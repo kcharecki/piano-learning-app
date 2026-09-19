@@ -168,7 +168,7 @@ item lands inside a slice that drives something (specs state their proof surface
       and `pickTarget` falls back to the synth per hit whenever the selected id is
       not listed — Settings says "That MIDI output is unplugged — using the built-in
       synth." Sample-kit audio behind this port is tracked separately as DR-B5, not
-      part of this item.
+      part of this item. Review nits landed 2026-09-19 (`6aa0983`): a re-plug proof test, `listDevices()` cached on `WebMidiOutputAdapter` and invalidated on statechange/refresh/detach, and the MIDI hat voice's pending open hat reset both on the synth-fallback branch and on any device-list event that drops the selected output (gated so an unrelated plug event, e.g. the learner's piano, never resets a genuinely ringing hat). New note: switching the MIDI output port in Settings mid-session reuses the voice bound to the old port (`ensureMidiTarget`'s rebuild guard is instance-only), so a ringing open hat's note-off goes to the new port while the old one keeps ringing — fix: cache `selectedDeviceId` next to the instance, `allNotesOff()` the old port and rebuild on change. Pre-existing, found by the wave-13 Opus review; DR-06 stays `[x]` because the shipped port-picker/hot-plug/fallback behaviour still works as spec'd and this is a new corner case (a rebuild mid-session), not a regression of what shipped.
 - [~] DR-07 Hit timing scorer — matcher, windows, velocity classes, per-limb stats;
       **Opus adversarial review required** → [spec](features/DR-07-hit-timing-scorer.md).
       `core/drums/practice/grade.ts` is the matcher today (greedy pairing, inclusive window,
@@ -176,11 +176,7 @@ item lands inside a slice that drives something (specs state their proof surface
       detection landed 2026-09-19 (`422dcd6`): `runSlipSteps` shifts by the NOMINAL
       finest grid, never the swung gap, and re-swings before comparing. Velocity
       classes and per-level windows still open.
-      New: a partial displacement (one pad slipped, the others fine — e.g. rideBow
-      7/12 with 5 extra, hhPedal 4/4, snare 2/2) has `steady === false`, `slipSteps`
-      undefined (pads disagree), and `diagnosisSentences()` returns `[]` → "Not
-      there yet" with no explanation. Pre-existing; needs a per-pad displacement
-      sentence.
+      Per-pad displacement landed 2026-09-19 (`9f2bb6a`), one clause on the rule: `padDisplacementSteps` (`padDisplacement.ts`) finds each pad's own grid step (strict-max count over ±MAX_SLIP_STEPS, `SLIP_COVERAGE` 0.75 coverage of the pad's own instants with a floor of two matches), exposed as `GroovePadResult.displacementSteps`; the diagnosis sentence ("Snare sat 1 eighth behind the other limbs, which sit on the grid. Move Snare to meet them.") fires only when `slipSteps` is undefined, at least two pads with expected strokes were played, exactly one is displaced and the rest sit at step 0. Velocity classes and per-level windows still open, so this item keeps `[~]`.
 - [~] DR-08 Latency calibration + input monitor → [spec](features/DR-08-latency-calibration.md).
       Calibration landed 2026-09-18 (`ce06836`): `/drums/latency` plays a one-bar count-in
       then a click at 80 bpm; the learner hits any pad on 16 clicks, each judged against its
@@ -240,7 +236,7 @@ item lands inside a slice that drives something (specs state their proof surface
       (`4f01c60`) against the PAS chart; the stroke record reads the engine's phase through a
       render-mirrored ref, so a stroke in the first frame of the window (or any stroke
       while the tab is hidden and frames are paused) is graded but not scored for
-      evenness.
+      evenness. Fixed 2026-09-19 (`bbac15b`): `useGrooveRun.hit()` now returns the ms it recorded (or undefined) and the evenness record takes that value directly instead of mirroring `run.phase` into a lagging ref (`phaseRef` deleted); the record clears at run start. Accent/velocity grading for accented rudiments still waits on DR-07/DR-25's velocity classes, so DR-10 keeps `[~]`.
 - [x] DR-11 ‖ Rhythm reading trainer — Reed-ordered generator, one-line staff, tap-graded
       → [spec](features/DR-11-rhythm-reading-trainer.md). Core landed 2026-09-17
       (`17e4b4f`): `core/drums/reading/` cells, 7 levels, generator, accuracy-gated
@@ -706,3 +702,64 @@ New notes:
   coordination/groove result lines (`resultLines.ts`); the reading trainer's
   `readingResultLines()` (`src/app/drums/reading/readingRun.ts:49`) reads only pads and
   steady, so a slipped reading run gets no slip sentence — a DR-08/reading backlog note.
+
+### 2026-09-19 — orchestrated drum session, wave 13
+
+Three commits: (a) `9f2bb6a` feat(drums/practice) — per-pad displacement:
+`padDisplacementSteps` (`padDisplacement.ts`) computes each pad's own grid step
+(strict-max count over ±MAX_SLIP_STEPS, `SLIP_COVERAGE` 0.75 coverage of the pad's
+own instants with a floor of two matches), surfaced as
+`GroovePadResult.displacementSteps`; `matchCountAt`/`pair`/`SLIP_COVERAGE`/
+`MAX_SLIP_STEPS` moved to `matchCount.ts` (`grade.ts` re-exports); the diagnosis
+sentence "Snare sat 1 eighth behind the other limbs, which sit on the grid. Move
+Snare to meet them." fires only when `slipSteps` is undefined, at least two pads
+with expected strokes were played, exactly one is displaced and the rest sit at
+step 0 — closes DR-07's partial-displacement note. (b) `bbac15b`
+fix(drums/rudiments) — the evenness record takes the engine's own hit instants:
+`useGrooveRun.hit()` returns the ms it recorded (or undefined), the rudiment
+trainer's evenness record takes that value instead of mirroring `run.phase` into a
+lagging ref (`phaseRef` deleted), and the record clears at run start — closes
+DR-10's first-frame bug. (c) `6aa0983` fix(adapters/audio) — MIDI drum route
+re-plug proof, cached port list, clean hat voice: a re-plug test, a frozen
+`listDevices()` cached on `WebMidiOutputAdapter` and invalidated on
+statechange/refresh/detach, and `reset()` on the MIDI hat voice called both on the
+synth-fallback branch and on any device-list event that drops the selected output
+— closes DR-06's three review nits.
+
+Opus review of (a) (per-pad displacement) round 1: 2 red, both from the
+architect's own contract rather than builder code — a half-coverage rule
+diagnosed a displaced limb from one late stroke on a two-stroke snare, and the
+guard let a learner who played only the hi-hat be told the silent limbs were
+"right" — round 2 GREEN (+4 nits fixed). Opus review of (b) (evenness) round 1:
+GREEN with 6 amber (the return value pinned against the grader's own
+`meanOffsetMs`; muted/too-late branches tested; a count-in-tail spec decision) →
+round 2 GREEN (+3 nits). Opus review of (c) (MIDI nits) round 1: GREEN with 8
+amber → round 2 RED (the architect's own suggested fix reset the hat on every
+`MIDIAccess` statechange, including the learner's piano being plugged in,
+dropping a genuinely ringing hat's note-off) → round 3 GREEN with the reset
+gated on the emitted device list. Gate catches before commit this wave: 3 red, 18
+amber.
+
+Spec decisions recorded this session: per-pad displacement uses the same
+coverage as the whole-pattern pass (`SLIP_COVERAGE` 0.75, floor 2) and needs at
+least one other played pad on the grid; a pad with no expected strokes never
+blocks the sentence; the evenness record follows the grader — an early-in-window
+stroke counts because the grader counts it; the MIDI hat voice forgets its
+pending open hat only when the selected output leaves the device list, never on
+an unrelated plug event.
+
+New notes:
+
+- DR-06: switching the MIDI output port in Settings mid-session reuses the voice
+  bound to the old port (`ensureMidiTarget`'s rebuild guard is instance-only), so
+  a ringing open hat gets its note-off sent to the new port and the old one
+  keeps ringing — fix: cache `selectedDeviceId` next to the instance,
+  `allNotesOff()` the old port and rebuild on change. Pre-existing, found by the
+  wave-13 Opus review.
+- Core suite wall time 3.55 s, over the ~3 s budget: `scripts/orphan-signals.test.mjs`
+  "the real scan" test alone takes ~2.7 s — move it out of `npm test` or cache
+  the scan.
+- DR-07: the band between grid steps (e.g. a snare 101–199 ms late at 100 bpm)
+  yields no sentence; a "between grid positions" sentence is a candidate.
+- The reading trainer still has no slip/displacement sentence (the DR-08 note
+  from wave 12 stands).

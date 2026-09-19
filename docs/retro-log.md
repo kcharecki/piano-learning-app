@@ -16,6 +16,49 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
+## 2026-09-19 — drum session, wave 13: three slices, two of three reds were the architect's
+
+- **user-reported defects since last session:** 0.
+- **slices proven / started:** 3 / 3. `9f2bb6a` feat(drums/practice) — a
+  per-pad displacement sentence for a partial slip (`padDisplacementSteps`),
+  closing DR-07's partial-displacement note. `bbac15b` fix(drums/rudiments) —
+  the evenness record takes the engine's own hit instants instead of a lagging
+  phase ref, closing DR-10's first-frame bug. `6aa0983` fix(adapters/audio) — a
+  MIDI re-plug proof, a cached port list, and a hat voice that forgets a
+  pending open hat only when its output actually leaves, closing DR-06's three
+  review nits. Each driven in the running app, e2e-covered and visual-passed in
+  both themes at both widths.
+- **gate catches before commit:** 3 red + 18 amber. Per-pad displacement
+  review: 2 red in round 1, both from the architect's own contract rather than
+  builder code — a half-coverage rule diagnosed a displaced limb from one late
+  stroke on a two-stroke snare, and the guard let a learner who played only
+  the hi-hat be told the silent limbs were "right" — GREEN in round 2 with 4
+  nits fixed. Evenness review: GREEN round 1 with 6 amber, GREEN round 2 with
+  3 more. MIDI-nits review: GREEN round 1 with 8 amber, RED in round 2 — the
+  architect's own suggested fix reset the hat voice on every MIDI
+  device-list event, including the learner's piano being plugged in, dropping
+  a genuinely ringing hat's note-off — GREEN in round 3 with the reset gated
+  on the emitted device list.
+- **docs budget:** no warnings.
+- **cost note:** the two architect-authored reds were the expensive part of
+  the wave — both rules read as correct in isolation and only failed against a
+  degenerate input (one pad played, a two-stroke pad, an unrelated plug event)
+  that the brief never named.
+- **hypothesis:** a brief that hands the builder a threshold or a guard
+  without pinning it to the code's own constant, or without naming the
+  degenerate inputs it must survive, gets built faithfully and still fails
+  review — this wave the architect wrote both rules that went red, not the
+  builders.
+- **change:** one. A contract that sets a threshold or a guard cites the
+  existing constant it must match (`SLIP_COVERAGE`, not a fresh fraction) and
+  names the degenerate inputs the guard must survive (one pad played, a
+  two-stroke pad, no expected strokes) — two of this wave's three reds were
+  architect-written rules that a builder implemented faithfully. Recorded in
+  `docs/drums/NEXT-SESSION.md`'s "Watch out for" list.
+- **experiment verdicts due:** none carried over from wave 12.
+
+---
+
 ## 2026-09-19 — drum session, wave 12: three slices, two reviews, a shift cell that was not a grid step
 
 - **user-reported defects since last session:** 0.
