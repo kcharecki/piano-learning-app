@@ -1,6 +1,6 @@
 # Drum session — hand-off for the next orchestration session
 
-Written 2026-09-19 after wave 11. Read this before `docs/drums/ROADMAP.md`. Keep it short;
+Written 2026-09-19 after wave 12. Read this before `docs/drums/ROADMAP.md`. Keep it short;
 rewrite it at the end of every session (it is a hand-off, not a log — the log is
 `docs/retro-log.md`).
 
@@ -18,7 +18,7 @@ Adjust the spec when a better version is obvious, and have the integrator say so
 commit body.
 
 Order of work:
-1. Check the tree is clean and `git log -1` is the wave-11 docs commit; then waves of
+1. Check the tree is clean and `git log -1` is the wave-12 docs commit; then waves of
    three slices, each with disjoint file ownership, each proven by the experience gate
    before commit. Candidates in "What is next" below.
 
@@ -26,7 +26,8 @@ Rules that bit us (full list in NEXT-SESSION.md "Watch out for"): never start on
 tree; never --no-verify; commit only on green verify; every builder brief says "pass a
 function the fields it reads, not the record they live on"; read what replaced a removed
 throw; compute brief example numbers from the code, never by hand; a review fix to
-timing/audio code is re-reviewed by the same Opus agent until it says green.
+timing/audio code is re-reviewed by the same Opus agent until it says green; when a
+brief's contract names the unit a pass shifts by, say which grid — nominal or swung.
 ```
 
 ## Roles (user direction 2026-09-18: the main session architects; workers do the rest)
@@ -46,63 +47,73 @@ timing slice while the others build → architect routes findings back to the ow
 verifier proves each commit (verify, visual passes, driven proof) → docs agent closes the
 wave. The architect never types code; if glue is needed, the integrator types it.
 
-## What is next (after wave 11)
+## What is next (after wave 12)
 
 | Item | Roadmap | Notes |
 |---|---|---|
-| Velocity classes in grading + keyboard dynamics | DR-07, DR-03 | timing/grading code → Opus review mandatory |
-| Swing marking engraved on the staff | DR-15 tail | the plan swings and the header badges it; the staff still shows straight eighths |
-| Real slip detection on swung plans | DR-07 | per-cell swung times — the wave-11 fix skips the slip-step pass on swung plans rather than get it wrong |
-| MIDI-out port picker | DR-06 | channel-10 routing landed 2026-09-19; picking which output device is still open |
-| Rudiment evenness first-frame reference bug | DR-10 | check the 2026-09-19 ROADMAP note before scoping |
+| Velocity classes in grading + keyboard dynamics | DR-07, DR-03 | timing/grading code → Opus review mandatory; `GrooveHit` has no velocity field, and `groovePadHooks.ts` ignores shift/alt |
+| Per-pad displacement sentence for a partial slip | DR-07 | when pads disagree (`steady === false`, `slipSteps` undefined), `resultLines.ts` / `diagnosisSentences()` returns `[]` → "Not there yet" with no explanation |
+| Rudiment evenness first-frame reference bug | DR-10 | `useRudimentTrainer.ts:144-209` — `phaseRef` lags the first frame; check the 2026-09-19 ROADMAP note before scoping |
+| Slip sentence for the reading trainer | DR-08/DR-11 | `readingResultLines()` (`src/app/drums/reading/readingRun.ts:49`) reads only pads and steady, so a slipped reading run gets no slip sentence — orphan-scan HIGH finding, wave 12 |
+| DR-06 nits from the port-picker review | DR-06 | no re-plug test; `listDevices()` allocates per hit on the MIDI route; a cached open-hat voice may send one stray note-off after re-plug |
 | Sampled kit behind the DR-06 port | DR-B5 | only if the synth grates |
 
-## Watch out for (findings from waves 1–11, newest first)
+## Watch out for (findings from waves 1–12, newest first)
 
-1. **A review fix to timing/audio code is re-reviewed by the same Opus agent until it
+1. **When a brief's contract names the unit a pass shifts by, the architect states which
+   grid it is — nominal vs swung — and the builder's first test proves a one-step
+   displacement reads as one step.** A wrong displacement number is the F1 bug class, and
+   it survived a green suite twice now: wave 11's slip-step pass measured swung gaps
+   against the nominal grid, and wave 12's fix itself first shifted by the smallest SWUNG
+   gap (158 ticks) instead of the nominal cell (240 ticks) before the root cause was
+   isolated.
+2. **The pre-commit hook's visual-pass receipt hashes `src/app/**/*.tsx` INCLUDING test
+   files** — a test-only edit under `src/app` after the passes makes the receipt stale.
+   Run the passes last.
+3. **A review fix to timing/audio code is re-reviewed by the same Opus agent until it
    says green.** The architect never accepts "all findings applied" as green. Wave 11's
    swing and MIDI-out reviews each needed a second and third round because a "fixed"
    round introduced its own new red (an all-missed sentence pre-empting a slip sentence;
    a Settings deadlock that survived one round because its test seeded state instead of
    clicking).
-2. **The orphan-signals scan is a gate on every slice.** A function that takes a core
+4. **The orphan-signals scan is a gate on every slice.** A function that takes a core
    record and reads one field adds a row that pushes a ground-truth row out of the capped
    table, and `npm run verify` goes red on a test about something else. Three builders were
    sent back for this. Every brief for `src/core/drums` says: pass the fields, not the record.
-3. **When a builder removes a throw, read what replaced it.** The openings builder swapped a
+5. **When a builder removes a throw, read what replaced it.** The openings builder swapped a
    throw for a fallback plan; the UI happily ran and graded the fallback under a "nothing to
    drill" line. Empty states must disable the control, not only show text.
-4. **Brief examples must come from the code.** The swing brief said 240→320; the code's
+6. **Brief examples must come from the code.** The swing brief said 240→320; the code's
    `subdivisionCellTick` rounds to 322. The builder followed the code (right), but a weaker
    builder would have followed the brief. Run the function before writing the number.
-5. **A field carried through the types but never rendered is dead data.** Milestone `how`
+7. **A field carried through the types but never rendered is dead data.** Milestone `how`
    text existed in core and reached nobody until the main-thread read caught it.
-6. **Visual-pass receipt hashes the whole working tree** (`src/app/**/*.tsx` +
+8. **Visual-pass receipt hashes the whole working tree** (`src/app/**/*.tsx` +
    `src/design-system/**/*.css`). Run the passes once per wave after every `.tsx` has
    settled, copy the last receipt, then commit. Any later `.tsx` edit invalidates it.
    `VISUAL_PASS_SKIP="<reason>"` is the sanctioned escape; `--no-verify` is not.
-7. **Per-spec e2e ports.** Builders run `E2E_PORT=5291|5292|5293 npx playwright test
+9. **Per-spec e2e ports.** Builders run `E2E_PORT=5291|5292|5293 npx playwright test
    e2e/<spec>` (one port per builder) so three parallel builders never share a server.
    `npm run verify`'s e2e gate picks its own random port.
-8. **Node ICU renders September as "Sept" in en-GB.** Tests compute expected dates through
-   the same formatter (`formatDay`) rather than hard-coding the string.
-9. **A killed builder leaves an empty output file.** Its report is lost; its edits stay in
-   the tree. Let a builder finish, or ask it (SendMessage) for a report before stopping it.
-10. **`npm run verify` takes about ten minutes.** Run it once per wave, in the background,
+10. **Node ICU renders September as "Sept" in en-GB.** Tests compute expected dates through
+    the same formatter (`formatDay`) rather than hard-coding the string.
+11. **A killed builder leaves an empty output file.** Its report is lost; its edits stay in
+    the tree. Let a builder finish, or ask it (SendMessage) for a report before stopping it.
+12. **`npm run verify` takes about ten minutes.** Run it once per wave, in the background,
     logged to the scratchpad; read the tail with `grep -E "passed|failed|error"`.
-11. **Context compaction happens.** Keep `next-steps-wave<N>.md` in the scratchpad and a
+13. **Context compaction happens.** Keep `next-steps-wave<N>.md` in the scratchpad and a
     memory pointer current at the end of every wave so a resume costs one file read.
-12. **Grader tolerance after swing.** The smallest subdivision gap on a swung groove is 158
+14. **Grader tolerance after swing.** The smallest subdivision gap on a swung groove is 158
     ticks (not 240); check the tolerance cap and wait-mode boundaries in the Opus review.
-13. **Run `visual-pass.mjs` with the default `--out` (`./visual-pass`), or copy the receipt
+15. **Run `visual-pass.mjs` with the default `--out` (`./visual-pass`), or copy the receipt
     there before committing.** The pre-commit hook reads only `./visual-pass/receipt.json`;
     wave 11's passes wrote receipts into scratchpad `--out` dirs, and the hook called the
     receipt stale until the newest one was copied to the default path.
-14. **A disabled control whose only enabler is the control itself is a deadlock.** The
+16. **A disabled control whose only enabler is the control itself is a deadlock.** The
     wave-11 Settings "MIDI out" option was disabled until connected, but only selecting it
     connected. The test must click through the UI, not seed the route programmatically —
     a seeded-state test passed while the real deadlock stood.
-15. **Out-of-order scheduling.** Trainers dispatch a pass up front with future `atMs` while
+17. **Out-of-order scheduling.** Trainers dispatch a pass up front with future `atMs` while
     live hits arrive at `now()`; any stateful voice (open hat) must tolerate a release that
     precedes its own onset.
 

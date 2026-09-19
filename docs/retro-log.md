@@ -16,6 +16,42 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
+## 2026-09-19 — drum session, wave 12: three slices, two reviews, a shift cell that was not a grid step
+
+- **user-reported defects since last session:** 0.
+- **slices proven / started:** 3 / 3. `ca1c9d2` feat(drums/engrave) — a "Swing NN%" mark
+  engraved on every swung staff, closing DR-15's tail (staff marking). `1563208`
+  feat(adapters/audio) — a remembered MIDI output port with hot-plug and an
+  unplug-to-synth fallback, closing DR-06's port-picker item. `422dcd6`
+  feat(drums/practice) — slip detection on swung plans shifting by the nominal grid,
+  closing DR-07's "real swung slip detection" item. Each driven in the running app,
+  e2e-covered and visual-passed in both themes at both widths.
+- **gate catches before commit:** 12. Port-picker review: 1 red + 2 amber in round 1
+  (unplug-mid-run silence; a stale select value; a false "your instrument" note text),
+  GREEN in round 2 with 3 nits left open. Swung-slip review: 4 red in round 1, one root
+  cause — the shift cell was the smallest swung gap (158 ticks), not a grid step — GREEN
+  in round 2 with 2 test-only ambers + 2 nits, all fixed. The swing-mark slice had no Opus
+  review (layout only) but broke `CoordinationTrainerScreen.test.tsx` because its query
+  also matched the new staff mark; fixed with a badge-specific query and an `aria-label`
+  assertion.
+- **docs budget:** no warnings.
+- **cost note:** the swung-slip review chain was the most expensive part of the wave — one
+  root cause took two rounds to isolate because the first fix attempt addressed a symptom
+  (the aliasing) rather than the cell the brief's contract should have named explicitly.
+- **hypothesis:** a brief that names "shift by the subdivision" without saying which
+  subdivision — nominal or swung — lets a builder pick the wrong one and still pass every
+  example in the brief, because the brief's own examples were computed against the same
+  wrong grid. This is the second wave running where a wrong-grid/wrong-cell bug survived a
+  green suite.
+- **change:** one. When a brief's contract names the unit a pass shifts by, the architect
+  states which grid it is (nominal vs swung) and the builder's first test proves a
+  one-step displacement reads as one step — a wrong displacement number is the F1 bug
+  class, and it survived a green suite twice now. Recorded in
+  `docs/drums/NEXT-SESSION.md`'s "Watch out for" list.
+- **experiment verdicts due:** none carried over from wave 11.
+
+---
+
 ## 2026-09-19 — drum session, waves 10–11: a recovered commit, four review rounds on the MIDI voice, thirty-four slices in eleven waves
 
 - **user-reported defects since last session:** 0.

@@ -155,18 +155,32 @@ item lands inside a slice that drives something (specs state their proof surface
       2026-09-17 (`98c0a9b`, root T.30): `core/drums/engrave/` + `app/drums/notation/`,
       drum key drawn by position and shape; `improve-DR-05.spec.ts` 4/4. OSMD chart
       strategy deferred to DR-28.
-- [~] DR-06 ‖ Drum audio — synthesized kit behind a `DrumAudioOutput` port, MIDI-out
+- [x] DR-06 ‖ Drum audio — synthesized kit behind a `DrumAudioOutput` port, MIDI-out
       route to the module → [spec](features/DR-06-drum-audio-output.md). Synth landed
       2026-09-17 (`0cf90ed`, root T.32): 16 voices, open hat choked by the next hat strike,
       Opus-reviewed. MIDI-out landed 2026-09-19 (`3f2dce5`): `MidiOutput` port gains a
       channel, `createMidiDrumOutput`, a router in `createDrumAudioOutput`, and a
       Settings "Drum voices" control (Built-in synth / MIDI out (channel 10), the
-      option never disabled). Kept `[~]`: a MIDI-out port picker is still open.
+      option never disabled). Port picker, hot-plug and the unplug-to-synth fallback
+      landed 2026-09-19 (`1563208`): a "MIDI output port" select in Settings
+      persists the chosen port under `piano-midi-output-port` (preferred port if
+      still listed, else first), `MidiOutput.onDevicesChanged` hot-plugs the list,
+      and `pickTarget` falls back to the synth per hit whenever the selected id is
+      not listed — Settings says "That MIDI output is unplugged — using the built-in
+      synth." Sample-kit audio behind this port is tracked separately as DR-B5, not
+      part of this item.
 - [~] DR-07 Hit timing scorer — matcher, windows, velocity classes, per-limb stats;
       **Opus adversarial review required** → [spec](features/DR-07-hit-timing-scorer.md).
       `core/drums/practice/grade.ts` is the matcher today (greedy pairing, inclusive window,
-      articulation slips — Opus-reviewed 2026-09-17, `1ff79e7`). Velocity classes and
-      per-level windows still open.
+      articulation slips — Opus-reviewed 2026-09-17, `1ff79e7`). Real swung slip
+      detection landed 2026-09-19 (`422dcd6`): `runSlipSteps` shifts by the NOMINAL
+      finest grid, never the swung gap, and re-swings before comparing. Velocity
+      classes and per-level windows still open.
+      New: a partial displacement (one pad slipped, the others fine — e.g. rideBow
+      7/12 with 5 extra, hhPedal 4/4, snare 2/2) has `steady === false`, `slipSteps`
+      undefined (pads disagree), and `diagnosisSentences()` returns `[]` → "Not
+      there yet" with no explanation. Pre-existing; needs a per-pad displacement
+      sentence.
 - [~] DR-08 Latency calibration + input monitor → [spec](features/DR-08-latency-calibration.md).
       Calibration landed 2026-09-18 (`ce06836`): `/drums/latency` plays a one-bar count-in
       then a click at 80 bpm; the learner hits any pad on 16 clicks, each judged against its
@@ -264,7 +278,10 @@ item lands inside a slice that drives something (specs state their proof surface
       2026-09-19): a jazz-ride groove's `swingPercent`/`swingUnit` grades, waits and
       reports on the nominal grid, and the coordination trainer's header shows a
       "Swing NN%" badge as the learner's cue for it — the staff still engraves
-      straight eighths, so the DR-15 tail (staff swing marking) stays open. Hi-hat
+      straight eighths, so the staff swing mark landed 2026-09-19 (`ca1c9d2`):
+      `StaffLayout.swingMark`/`swingMarkText` engrave a "Swing NN%" mark after the
+      time signature on every swung staff (raised one staff space when it would
+      collide with a "×N" repeat label), closing the DR-15 tail. Hi-hat
       openings landed 2026-09-18
       (`1467cc7`): a fifth mode keeps the chosen groove whole and re-articulates its
       hats in three cumulative steps — open on the & of the last beat, then on the & of
@@ -638,3 +655,54 @@ evenness first-frame reference bug (DR-10). New notes:
 - The stickings brief's cited URLs 404'd; the builder rendered the PAS PDF
   locally and cited page 2 instead.
 - `npm run verify` ran once per wave in the background (~10 min), as planned.
+
+### 2026-09-19 — orchestrated drum session, wave 12
+
+Three commits: (a) `ca1c9d2` feat(drums/engrave) — a "Swing NN%" mark engraved on every
+swung staff (`StaffLayout.swingMark`, `swingMarkText`), placed after the time signature
+at the repeat-label baseline and raised one staff space when it would collide with a
+"×N" repeat label; `GrooveStaff` renders it with aria-label "Swing NN percent" — closes
+DR-15's tail (staff marking); (b) `1563208` feat(adapters/audio) — a remembered MIDI
+output port: a "MIDI output port" select in Settings, persisted under
+`piano-midi-output-port` (preferred port if still listed, else first),
+`MidiOutput.onDevicesChanged` wired for hot-plug — closes DR-06's port-picker item; (c)
+`422dcd6` feat(drums/practice) — slip detection on swung plans: `runSlipSteps` shifts in
+nominal ticks and re-swings (`shiftedExpectedMs` in `slipShift.ts`) — closes DR-07's
+"real swung slip detection" item.
+
+Opus review of (b) (port picker) round 1: 1 red (unplugging the selected port mid-run
+was total silence) + 2 amber (a stale select value; a "your instrument" note text on
+unplug that was false for the piano case), round 2 GREEN with 3 nits left open (no
+re-plug test; `listDevices()` allocates per hit on the MIDI route; a cached open-hat
+voice may send one stray note-off after re-plug). Opus review of (c) (swung slip) round
+1: 4 red, one root cause — the shift cell was the smallest SWUNG gap (158 ticks on the
+jazz drills), not a grid step, which aliased a one-eighth-late run to "2 eighths
+behind", an early run to nothing, and a flat +250 ms offset to a slip; fixed with
+`GrooveRunPlan.nominalSubdivisionTicks`/`nominalSubdivisionMs` (240/250 ms on the jazz
+drills) as the shift cell while `subdivisionTicks` (swung) feeds only `windowMs`, round
+2 GREEN with 2 test-only ambers + 2 nits, all fixed. (a) (swing mark) had no Opus review
+(layout only); it broke `CoordinationTrainerScreen.test.tsx` ("Found multiple elements
+with the text: Swing 67%") because the badge query also matched the new staff mark —
+fixed with a badge-specific query plus a `getByRole('img', { name: 'Swing 67 percent'
+})` assertion. Gate catches before commit this wave: 3 + 8 + 1 = 12.
+
+Spec decisions recorded this session: the slip shift cell is the NOMINAL finest grid,
+never the swung gap; a flat millisecond offset on a swung score is not a grid
+displacement and yields no slip sentence; an unplugged selected MIDI port routes drums
+to the synth per hit, and re-plug resumes MIDI routing without a Settings visit; the
+swing mark is engraved for every swung score on every staff surface (coordination,
+reading, groove, rudiments), and the header badge stays alongside it.
+
+New notes:
+
+- DR-07: a partial displacement — one pad slipped, the others fine (rideBow 7/12 with 5
+  extra, hhPedal 4/4, snare 2/2) — has `steady === false`, `slipSteps` undefined (pads
+  disagree), and `diagnosisSentences()` returns `[]` → "Not there yet" with no
+  explanation. Pre-existing; needs a per-pad displacement sentence.
+- DR-06 nits from the port-picker review: no re-plug test; `listDevices()` allocates per
+  hit on the MIDI route; a cached open-hat voice may send one stray note-off after
+  re-plug.
+- Orphan scan HIGH: `GrooveRunResult.slipSteps` and `.limits` are consumed only by the
+  coordination/groove result lines (`resultLines.ts`); the reading trainer's
+  `readingResultLines()` (`src/app/drums/reading/readingRun.ts:49`) reads only pads and
+  steady, so a slipped reading run gets no slip sentence — a DR-08/reading backlog note.
