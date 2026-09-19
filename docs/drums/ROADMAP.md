@@ -20,6 +20,28 @@ against the GM spec, real e-kit behavior, MusicXML, and OSMD's actual GitHub sta
 market verified against 13 products. Feature specs cite the digest; the digest cites
 sources.
 
+## Triage — before any feature work
+
+- [ ] DR-T1 Rudiment trainer, learner-facing wrong verdict, pre-existing: the triple-stroke
+      roll can never grade clean. `seq('RRRLLL', SIXTEENTH)` lays out at 1440 ticks over a
+      2000 ms half-bar period, gaps `[250,250,250,250,250,750]`; `evennessOf(plan.expectedMs)`
+      = 0 < 0.8, so `isEvenEnough` (`rudimentRun.ts`) fails a perfect 24/24 run as "Not
+      clean" and the tempo ladder never leaves 60 bpm. Fix the score layout (or exclude the
+      wrap gap from evenness); add a test that every catalogue rudiment's own chart passes
+      `isEvenEnough`. Found by wave 15's accent-grading review (`02bcce9`); not fixed this
+      slice.
+- [ ] DR-T2 Replay the wave-15 driven proofs with the Browser pane VISIBLE (user must keep
+      it in front) before building further on DR-10/DR-07/DR-08/DR-11's wave-15 slices. This
+      session's hidden pane suspended both `requestAnimationFrame` and JS timers, so 0 of 32
+      timed strokes landed in any grading window across every attempt (rudiment runs 0–4,
+      groove between-grid runs 1–3, the reading slip run) — an environment limitation, not
+      evidence of a wave-15 defect, but the accent-grading, between-grid and reading-slip
+      result strings are still unconfirmed against the real, running app. Steps: this wave's
+      `brief-verify-wave15.md` step 5 a–c (scratchpad; re-derive the steps from
+      `verifier-wave15-summary.txt`/`driven-wave15.txt` if it is gone). If timers still
+      suspend with the pane visible, add a rAF-stall fallback to
+      `src/app/practice/useTransportLoop.ts`'s `rafFrameDriver` first, then drive through it.
+
 ## How to work this roadmap
 
 Same rules as the root [ROADMAP.md](../../ROADMAP.md): triage first, then learner impact;
@@ -147,7 +169,10 @@ item lands inside a slice that drives something (specs state their proof surface
       supports skip/undo/cancel; saved as "Learned kit" and persisted. Kept `[~]`: the
       spec's "persisted per-device kit maps" is not yet per-device — the chosen
       preset/learned map persists once, globally, not keyed by e-kit device id the way
-      the latency offset is → [spec](features/DR-02-edrum-midi-input.md)
+      the latency offset is → [spec](features/DR-02-edrum-midi-input.md). `useDrumMidiInput`
+      wired into the rudiment trainer for the first time 2026-09-19 (`02bcce9`): any e-kit
+      pad counts as the stroke and carries its raw velocity, with the same e-kit status
+      line the groove and coordination trainers show.
 - [~] DR-03 ‖ Fallback inputs — keyboard map with dynamics modifiers, on-screen pads,
       capability banner → [spec](features/DR-03-fallback-inputs.md)
       - Keyboard dynamics landed 2026-09-19 (`288f31b`): Shift = accent (110), Alt =
@@ -178,8 +203,8 @@ item lands inside a slice that drives something (specs state their proof surface
       detection landed 2026-09-19 (`422dcd6`): `runSlipSteps` shifts by the NOMINAL
       finest grid, never the swung gap, and re-swings before comparing. Velocity
       classes and per-level windows still open.
-      Per-pad displacement landed 2026-09-19 (`9f2bb6a`), one clause on the rule: `padDisplacementSteps` (`padDisplacement.ts`) finds each pad's own grid step (strict-max count over ±MAX_SLIP_STEPS, `SLIP_COVERAGE` 0.75 coverage of the pad's own instants with a floor of two matches), exposed as `GroovePadResult.displacementSteps`; the diagnosis sentence ("Snare sat 1 eighth behind the other limbs, which sit on the grid. Move Snare to meet them.") fires only when `slipSteps` is undefined, at least two pads with expected strokes were played, exactly one is displaced and the rest sit at step 0. Velocity classes landed 2026-09-19 (`288f31b`), one clause: absent velocity is unassessed and named on the result card, never counted as normal. Per-level windows still open, so this item keeps `[~]`.
-- [~] DR-08 Latency calibration + input monitor → [spec](features/DR-08-latency-calibration.md). Reading-trainer slip sentence landed 2026-09-19 (`17ddd86`): `readingSlipQuantity()` names the slip from the exercise's own grid rather than the groove trainer's `stepName`. Open: a learner one quarter late on a grid coarser than an eighth (e.g. a half-note grid) lands between two grid positions and gets no diagnosis; the detail counts sit at step 0 next to the slip line; the ms readout disappears whenever the slip line fires.
+      Per-pad displacement landed 2026-09-19 (`9f2bb6a`), one clause on the rule: `padDisplacementSteps` (`padDisplacement.ts`) finds each pad's own grid step (strict-max count over ±MAX_SLIP_STEPS, `SLIP_COVERAGE` 0.75 coverage of the pad's own instants with a floor of two matches), exposed as `GroovePadResult.displacementSteps`; the diagnosis sentence ("Snare sat 1 eighth behind the other limbs, which sit on the grid. Move Snare to meet them.") fires only when `slipSteps` is undefined, at least two pads with expected strokes were played, exactly one is displaced and the rest sit at step 0. Velocity classes landed 2026-09-19 (`288f31b`), one clause: absent velocity is unassessed and named on the result card, never counted as normal. Between-grid diagnosis landed 2026-09-19 (`2032db9`): `padLooseOffset` (`core/drums/practice/betweenGrid.ts`) names a stroke that missed the strict window but sits nearer this instant than the next ("Snare landed about 130 ms behind the click on most strokes — outside the 100 ms window, short of 1 eighth"), conservatively withheld whenever any notated instant is unmatched or a stroke overhangs the exercise's span (a one-step-off train necessarily produces one of those, so a stream with neither is honestly read as loose, not slipped). Dynamics sentences now name their own denominator ("3 of the 4 ghost notes you hit"), closing the wave-14 backlog note. Per-level windows still open, so this item keeps `[~]`.
+- [~] DR-08 Latency calibration + input monitor → [spec](features/DR-08-latency-calibration.md). Reading-trainer slip sentence landed 2026-09-19 (`17ddd86`): `readingSlipQuantity()` names the slip from the exercise's own grid rather than the groove trainer's `stepName`. Between-grid diagnosis landed 2026-09-19 (`2032db9`): a learner one quarter late on a grid coarser than an eighth is now named ("You sat about 130 ms behind the click on most onsets — outside the 100 ms window, short of 1 eighth"), closing the wave-14 gap — conservative same as the groove side, withheld on any unmatched instant or overhanging stroke, so one dropped stroke in an otherwise-late run still yields nothing (backlog). The ms readout still drops whenever a slip or between-grid line fires, by design.
       Calibration landed 2026-09-18 (`ce06836`): `/drums/latency` plays a one-bar count-in
       then a click at 80 bpm; the learner hits any pad on 16 clicks, each judged against its
       nearest click (`core/drums/scoring/latency.ts`), and the median deviation with a
@@ -223,7 +248,7 @@ item lands inside a slice that drives something (specs state their proof surface
       pads are ringed, extra strokes sound but do not advance, and the status line names
       what is still owed and where in the bar it sits. Nothing is graded or recorded — it is
       a learning mode, not a scoring mode. DR-09 UI is now feature-complete against its spec.
-- [~] DR-10 ‖ Rudiment trainer — the 40 in Wooton tiers, tempo ladder, evenness, PRs
+- [x] DR-10 ‖ Rudiment trainer — the 40 in Wooton tiers, tempo ladder, evenness, PRs
       → [spec](features/DR-10-rudiment-trainer.md). Core landed 2026-09-17 (`17e4b4f`):
       `content/drums/rudiments*.ts` (40 PAS), `core/drums/rudiment/` score conversion +
       tempo ladder. Screen landed 2026-09-18 (`4084575`, wired `1a68f51`): the 40 in four
@@ -238,7 +263,7 @@ item lands inside a slice that drives something (specs state their proof surface
       (`4f01c60`) against the PAS chart; the stroke record reads the engine's phase through a
       render-mirrored ref, so a stroke in the first frame of the window (or any stroke
       while the tab is hidden and frames are paused) is graded but not scored for
-      evenness. Fixed 2026-09-19 (`bbac15b`): `useGrooveRun.hit()` now returns the ms it recorded (or undefined) and the evenness record takes that value directly instead of mirroring `run.phase` into a lagging ref (`phaseRef` deleted); the record clears at run start. Accent/velocity grading for accented rudiments still waits on DR-07/DR-25's velocity classes, so DR-10 keeps `[~]`. Velocity classes exist as of `288f31b`; the rudiment trainer does not yet read them.
+      evenness. Fixed 2026-09-19 (`bbac15b`): `useGrooveRun.hit()` now returns the ms it recorded (or undefined) and the evenness record takes that value directly instead of mirroring `run.phase` into a lagging ref (`phaseRef` deleted); the record clears at run start. Accent grading landed 2026-09-19 (`02bcce9`): the trainer now forwards keyboard/e-kit velocity to the run (Shift = accent, plain = normal, on-screen taps stay unclassified), `rudimentAccents()` grades the 33-of-40 catalogue rudiments that notate an accent, and `isCleanPass` also requires no wrong-class strokes and, on an accented rudiment, no plain instant played loud — nothing in DR-10's spec ladder is left open, so this item flips to `[x]`. Known, not fixed this slice: the triple-stroke roll's own chart cannot pass `isEvenEnough` (tracked as DR-T1, Triage).
 - [x] DR-11 ‖ Rhythm reading trainer — Reed-ordered generator, one-line staff, tap-graded
       → [spec](features/DR-11-rhythm-reading-trainer.md). Core landed 2026-09-17
       (`17e4b4f`): `core/drums/reading/` cells, 7 levels, generator, accuracy-gated
@@ -856,3 +881,96 @@ New notes:
   drop. The piano-side MIDI-out voice (`src/adapters/audio/midiout.ts`) has no device-id
   cache at all, because piano MIDI-out is not plumbed to any screen yet
   (`src/adapters/audio/index.ts:36-42`) — nothing to fix until it is.
+
+### 2026-09-19 — orchestrated drum session, wave 15
+
+Three commits: (a) `02bcce9` feat(drums/rudiments) — grade accents and take e-kit input in
+the rudiment trainer (DR-10, DR-02): `padDynamics()` (core) gains `normalInstants`/
+`loudNormals`; `rudimentRun.ts`'s `rudimentAccents(expectedDynamics, dynamics)` grades the
+33-of-40 catalogue rudiments that notate an accent, and `isCleanPass` now also requires
+every pad's `dynamics.wrong === 0` and, on an accented rudiment, `loudNormals === 0`;
+`accentLine()` composes a head (soft / plain-as-accent / landed / not graded) with tails
+naming what the head does not cover; keyboard Shift/plain now forward velocity to
+`run.hit`, and `useDrumMidiInput` is wired into the trainer for the first time so any
+e-kit pad counts as the stroke. (b) `2032db9` feat(drums/practice) — name strokes that
+land beyond the window but short of a grid step (DR-07, DR-08, DR-11): new
+`core/drums/practice/betweenGrid.ts`'s `padLooseOffset` pairs loosely at half the nominal
+cell and reports the mean offset of strokes outside the strict window when the loose
+pairing is complete (no unmatched instant, no overhanging stroke) and covers most of what
+was played (0.75 coverage, floor two); wired into the groove result card (whole-kit and
+single-limb sentences), the reading result card, and the dynamics sentences (now name
+their own denominator). (c) `8591e12` chore(test) — move script tests out of the core
+suite; key the dynamics legend on the graded pads: a third vitest project (`scripts`)
+drops `scripts/orphan-signals.test.mjs`'s ~2.7s scan from `npm test` (137→129 files,
+3.76s→3.02s, back under the ~3s budget); `DynamicsLegend` now takes the expected dynamics
+of the pads that will actually be graded rather than the whole plan, so muting the snare
+on Ghost Funk Bar correctly hides it, and the pads wrapper carries `aria-describedby`
+only while it renders.
+
+Opus review of (a) (rudiment accents): 3 rounds + a copy fix, every red contract-level —
+round 1 an over-accent (loud plain strokes) passed as clean; round 2 the sentence hid its
+own denominator twice, once on the accent side and once on the plain side; round 3 the
+`loudNormals` gate applied unconditionally, failing unaccented rudiments for touch the
+spec says is never graded. Round 4: GREEN. Opus review of (b) (between-grid): 2 rounds +
+a guard fix — a direction-inversion bug hit twice, first on uniform trains (fixed by
+anchoring the pairing at the end instead of the start) and again on non-uniform trains
+(fixed by requiring a complete pairing, not just a majority); round 1 also caught a
+whole-kit lag sentence blaming one limb instead of naming all of them. Round 2: GREEN
+(`gate-b.txt`: "reviewer B round 3 GREEN, reviewer A round 4 GREEN. Tree frozen.").
+
+Spec decisions recorded this session: a plain stroke played at the accent velocity class
+is a wrong stroke on a rudiment (the groove trainer's rule that touch on a plain stroke is
+never graded stays as-is); on-screen taps stay unclassified everywhere, so a mouse learner
+is told, not failed; any e-kit pad is the stroke on the rudiment trainer, because
+rudiments are one-surface; a between-grid diagnosis is offered only when the loose pairing
+is complete (every notated instant matched within half a cell, no stroke overhangs the
+span) — conservative by design, so a dropped stroke in an otherwise-late train withholds
+the diagnosis rather than risk misreading it; dynamics and between-grid sentences now both
+name what they counted ("of the N you hit"), never the notated total.
+
+**Driven proofs not obtained.** The rudiment-run, groove-between-grid and reading-slip
+proofs (runs 0–4, 1–3, and the reading run) could not be driven end-to-end this session:
+this sandbox's hidden Browser pane suspends both `requestAnimationFrame` and ordinary JS
+timers, so 0 of 32 timed strokes landed inside any grading window across every attempt,
+and the app's run clock only advanced in bursts tied to CDP screenshot activity. This is
+an environment/tooling limitation, root-caused and documented (`driven-wave15.txt`), not
+evidence of a wave-15 defect — all STATIC driven checks (legend show/hide,
+`aria-describedby` wiring, e-kit status text, mute toggle, tap-key semantics) succeeded.
+The wave shipped on `npm run verify` green + unit/property tests + two Opus review chains
++ those static checks + visual passes in both themes at both widths, at the user's
+instruction to commit and finish for the day. Tracked as DR-T2 (Triage): replay the timed
+proofs with the pane visible before building further on these slices.
+
+New notes:
+
+- DR-07/DR-08/DR-11: between-grid diagnosis is all-or-nothing on one dropped stroke — a
+  single interior miss silences the diagnosis on every one of the 56 groove shapes and all
+  116 reading shapes checked; a cheaper rule (allow one unmatched instant when the
+  remaining offsets unanimously agree in sign and no hit overhangs) is a candidate.
+- DR-07: groove between-grid with two limbs loose in opposite signs names only the
+  pads-order winner, though `MAX_DIAGNOSIS_SENTENCES` has a free slot for the second.
+- DR-07: the generic "Every stroke landed outside its window — the pattern is there…"
+  sentence is wrong advice for a mixed-sign whole kit (limbs 260 ms apart in opposite
+  directions).
+- DR-07: jittered late play (mean +130 ms, ±40 ms spread) gets no diagnosis at all — the
+  between-grid band is all-or-nothing on 0.75 coverage; a mean-and-spread rule is a
+  candidate.
+- DR-10: the rudiment trainer's not-graded head ("the on-screen pad carries no velocity")
+  contradicts a loud-plain tail when devices are mixed mid-run.
+- DR-10: the singular-accent copy path (a rudiment with exactly one notated accent) is
+  fixture-only — no bundled rudiment notates exactly 1 accent (the catalogue's
+  distribution is 0/2/4/8/16).
+- Carried: the reading trainer's coarse-grid sentences should say "beats" alongside note
+  names for cells ≥ 1 beat; a swing note surfaced this wave is otherwise unrecorded; a
+  rAF-stall fallback for `src/app/practice/useTransportLoop.ts`'s `rafFrameDriver` (this
+  sandbox's Browser pane starves `requestAnimationFrame` unless repainted) is now a
+  prerequisite for DR-T2.
+- DR-03: on macOS, Alt+letter rewrites `event.key`, so the ghost modifier is dead there
+  while the coverage note still says "Use Shift and Alt" — `useKeyboardPads` should key
+  on `event.code` instead (carried, unaddressed this wave).
+- DR-06: `WebMidiOutputAdapter` still invalidates its device cache twice per statechange
+  (`webmidi.ts:69`, then `:319` via `refresh()`) — idempotent, cosmetic, one line to drop
+  (carried, unaddressed this wave).
+
+This closes four wave-14 notes: the dynamics-sentence denominator, `DynamicsLegend`'s
+scope/aria, the core-suite wall time, and reading's between-grid gap.

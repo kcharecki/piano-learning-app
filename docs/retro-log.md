@@ -16,6 +16,62 @@ Written by the session's RETRO step (`docs/PROCESS.md`). Template:
 
 ---
 
+## 2026-09-19 — drum session, wave 15: accent grading and between-grid diagnosis land, driven proofs do not
+- **user-reported defects since last session:** 0.
+- **slices proven / started:** 3 / 3. `02bcce9` feat(drums/rudiments) — grade accents
+  and take e-kit input in the rudiment trainer, closing DR-10's last open item and
+  wiring `useDrumMidiInput` into that trainer for the first time (DR-02). `2032db9`
+  feat(drums/practice) — a conservative between-grid diagnosis (a stroke that missed
+  the strict window but sits nearer this instant than the next) on the groove and
+  reading result cards, and dynamics sentences that now name their own denominator
+  (DR-07, DR-08, DR-11). `8591e12` chore(test) — script tests split into their own
+  vitest project (core suite back under budget, 3.76s → 3.02s) and the dynamics legend
+  keyed on the pads actually graded, not the whole plan.
+- **gate catches before commit:** two Opus review chains, every red contract-level.
+  Reviewer A (rudiment accents): 3 rounds + a copy fix — round 1 an over-accent (loud
+  plain strokes) passed as clean; round 2 the sentence hid its own denominator twice,
+  once on the accent side and once on the plain side; round 3 the `loudNormals` gate
+  applied unconditionally, failing unaccented rudiments for touch the spec says is
+  never graded; round 4 GREEN. Reviewer B (between-grid): 2 rounds + a guard fix — a
+  direction-inversion bug hit twice, first on uniform trains (fixed by anchoring the
+  pairing at the end instead of the start) and again on non-uniform trains (fixed by
+  requiring a complete pairing, not just a majority), plus a whole-kit lag sentence
+  that blamed one limb instead of naming all of them; round 2 GREEN. The verifier's
+  final line: "no re-run of steps 1/4 required."
+- **docs budget:** no warnings.
+- **cost note:** two adversarial Opus review chains plus a from-scratch root-cause
+  investigation into why every timed driven proof came back empty (below) — most of
+  the session's cost, and the reason the wave shipped on static evidence rather than a
+  browser-timed one.
+- **hypothesis:** the same shape as wave 14 — contract-level claims the learner cannot
+  see or verify (a hidden denominator, an unconditional gate, a "cannot happen"
+  direction inversion) keep being where the reds are, this time on the architect's own
+  accent and between-grid contracts rather than the sentence templates.
+- **change:** one. Recorded in `docs/PROCESS.md` ("Building a slice"): a reviewer's
+  attack list is written from the contract's own claims — every "cannot happen", every
+  quantifier ("every", "all", "N of the M") and every sentence regime gets a probe on a
+  real plan; a denominator the learner cannot see is a claim the copy must not make.
+  Wave 14's own change landed only in `docs/drums/NEXT-SESSION.md`, not `docs/PROCESS.md`,
+  so this is the first drum-session change written to the shared process file.
+- **experiment verdicts due:** none carried over from wave 14.
+
+**Driven proofs were not obtained.** The rudiment-run (0–4), groove-between-grid (1–3)
+and reading-slip driven proofs could not be reproduced in the running app this session:
+this sandbox's hidden Browser pane suspends both `requestAnimationFrame` and ordinary JS
+timers, so 0 strokes landed inside any grading window across every attempt, in every
+strategy tried. The wave shipped instead on `npm run verify` green, the unit/property
+suites, the two Opus review chains above, static driven checks that carry no timing
+dependency (legend show/hide, `aria-describedby` wiring, the e-kit status line), and
+visual passes in both themes at both widths — at the user's explicit instruction to
+commit and finish for the day rather than keep retrying a proof this environment cannot
+produce. Evidence paths (this wave's scratchpad): `verify-wave15.log`,
+`driven-wave15.txt`, `verifier-wave15-summary.txt`, the visual-pass receipts. A triage
+item (`docs/drums/ROADMAP.md` DR-T2, also at the top of `docs/drums/NEXT-SESSION.md`)
+carries the instruction to replay these proofs with the Browser pane visible before
+building further on DR-10/DR-07/DR-08/DR-11's wave-15 slices.
+
+---
+
 ## 2026-09-19 — drum session, wave 14: three slices, ten reds, nine of them the architect's sentences
 - **user-reported defects since last session:** 0.
 - **slices proven / started:** 3 / 3. `288f31b` feat(drums/practice) — grade ghost

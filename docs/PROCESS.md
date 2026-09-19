@@ -115,6 +115,10 @@ over a dozen "tests green, feature dead in the browser" defects. The browser dri
   wave-3 fixes were wrong in ways their green tests could not see (a level boundary that
   froze at the store's cap; a tempo mark that re-timed clicks already dispatched).
   **Review-by 2026-10-16**: keep if it catches one more, drop if it only costs a read.
+- **A reviewer's attack list is written from the contract's own claims.** Every "cannot
+  happen", every quantifier ("every", "all", "N of the M") and every sentence regime the
+  contract names gets a probe on a real plan. A denominator the learner cannot see is a
+  claim the copy must not make — name what was counted ("you hit"), not what was notated.
 - **Fan-out is earned, not default.** The 6-module pipelined workflow round exists for
   genuinely independent core modules. Most remaining work is wiring, UX and content — serial
   in nature, browser-verified — and gets a single builder or is done directly. Do not build
