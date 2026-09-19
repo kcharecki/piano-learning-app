@@ -13,10 +13,17 @@ const alias = {
 }
 
 /**
- * Two projects, deliberately split for speed:
+ * Three projects, deliberately split for speed:
  *  - `core`: pure TS domain logic, node environment, no DOM setup cost. This is
  *    the suite that must stay in the low-hundreds of milliseconds and is what
  *    `npm test` runs. Everything important lives here.
+ *  - `scripts`: node-environment tests for the repo's own tooling
+ *    (scripts/**\/*.test.mjs). These hit the real filesystem/repo (e.g.
+ *    orphan-signals.test.mjs's "the real scan" runs four scans over this
+ *    actual repo, ~2.8s on its own) so they are split out of `core` to keep
+ *    `npm test` fast; they still run under `npm run test:all` / CI via
+ *    `npm run test:scripts`. None of these tests use the `toBeCloseToMs`
+ *    matcher from `src/test/setup.core.ts`, so no setupFiles are needed here.
  *  - `ui`: React component tests in happy-dom. Slower to boot, so it is a
  *    separate project and only runs in `npm run test:all` / CI.
  */
@@ -36,12 +43,23 @@ export default defineConfig({
             'src/core/**/*.test.ts',
             'src/content/**/*.test.ts',
             'src/test/**/*.test.ts',
-            'scripts/**/*.test.mjs',
           ],
           pool: 'threads',
           poolOptions: { threads: { isolate: false, singleThread: false } },
           testTimeout: 5_000,
           setupFiles: ['src/test/setup.core.ts'],
+        },
+      },
+      {
+        resolve: { alias },
+        test: {
+          name: 'scripts',
+          globals: true,
+          environment: 'node',
+          include: ['scripts/**/*.test.mjs'],
+          pool: 'threads',
+          poolOptions: { threads: { isolate: false, singleThread: false } },
+          testTimeout: 5_000,
         },
       },
       {

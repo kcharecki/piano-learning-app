@@ -841,4 +841,51 @@ describe('GrooveTrainerScreen', () => {
       )
     })
   })
+
+  /**
+   * DR-09 dynamics legend: the legend must only ever describe pads that are
+   * actually graded, and assistive tech must be told which element it
+   * describes — but only while it renders (`aria-describedby` pointing at a
+   * missing id is an accessibility error, not a no-op).
+   */
+  describe('dynamics legend accessibility', () => {
+    it('Ghost Funk Bar: the legend renders, and the pads wrapper points aria-describedby at it', async () => {
+      const { user } = setup()
+      // Ghost Funk Bar is last in `grooveTrainerLibrary()`'s order — three
+      // steps on from Quarter-Note Rock, the screen's opening groove.
+      await user.click(screen.getByRole('button', { name: 'Next groove' }))
+      await user.click(screen.getByRole('button', { name: 'Next groove' }))
+      await user.click(screen.getByRole('button', { name: 'Next groove' }))
+      expect(screen.getByText('Ghost Funk Bar')).toBeInTheDocument()
+
+      const legend = screen.getByText('Shift = accent · Alt = ghost')
+      expect(legend).toHaveAttribute('id', 'groove-dynamics-legend')
+      expect(document.querySelector('.groove-pads')).toHaveAttribute(
+        'aria-describedby',
+        'groove-dynamics-legend',
+      )
+    })
+
+    it('Ghost Funk Bar with the snare muted: the legend is gone, since the snare is the only pad Ghost-Funk Bar notates dynamics on', async () => {
+      const { user } = setup()
+      await user.click(screen.getByRole('button', { name: 'Next groove' }))
+      await user.click(screen.getByRole('button', { name: 'Next groove' }))
+      await user.click(screen.getByRole('button', { name: 'Next groove' }))
+      expect(screen.getByText('Ghost Funk Bar')).toBeInTheDocument()
+
+      await user.click(screen.getByRole('switch', { name: 'Play Snare' }))
+
+      expect(screen.queryByText('Shift = accent · Alt = ghost')).not.toBeInTheDocument()
+      expect(document.querySelector('.groove-pads')).not.toHaveAttribute('aria-describedby')
+    })
+
+    it('Money Beat: no dynamics notated, so no legend and no aria-describedby', async () => {
+      const { user } = setup()
+      await user.click(screen.getByRole('button', { name: 'Next groove' }))
+      expect(screen.getByText('Money Beat')).toBeInTheDocument()
+
+      expect(screen.queryByText('Shift = accent · Alt = ghost')).not.toBeInTheDocument()
+      expect(document.querySelector('.groove-pads')).not.toHaveAttribute('aria-describedby')
+    })
+  })
 })

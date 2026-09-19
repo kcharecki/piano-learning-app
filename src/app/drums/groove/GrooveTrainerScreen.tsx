@@ -103,6 +103,10 @@ import { waitStateText } from './waitText.ts'
 /** The persona's goal tempo for the Debut rock groove, and the tempo the screen opens on. */
 const DEFAULT_BPM = 80
 
+/** `DynamicsLegend`'s own `id`, and the `aria-describedby` target on the pads
+ * wrapper while it renders — one constant so the two can never drift apart. */
+const DYNAMICS_LEGEND_ID = 'groove-dynamics-legend'
+
 export type GrooveTrainerScreenProps = {
   /** Injection seams for tests; each defaults to the real browser adapter. */
   readonly clock?: Clock
@@ -309,6 +313,24 @@ function Trainer({
   const pads = useMemo(
     () => sortPadsForDisplay(plan.pads, (padPlan) => padPlan.pad).map((padPlan) => padPlan.pad),
     [plan],
+  )
+
+  // `DynamicsLegend`'s notion of "which pads count" mirrors grading's own:
+  // a muted pad gets no result row (`useGrooveRun`'s per-limb mute), so its
+  // notated dynamics should not keep the legend on screen either — but
+  // `useGrooveRun.start()` treats "every pad muted" as muting NONE ("So a
+  // request that would mute everything is silently treated as muting
+  // nothing, rather than thrown" — a run needs at least one graded limb).
+  // Mirrored here rather than imported: `mutePads` itself throws on an
+  // all-muted plan, so it is not safe to call from render.
+  const expectedDynamicsByPad = useMemo(() => {
+    const allMuted = plan.pads.every((padPlan) => muted.has(padPlan.pad))
+    return plan.pads
+      .filter((padPlan) => allMuted || !muted.has(padPlan.pad))
+      .map((padPlan) => padPlan.expectedDynamics)
+  }, [plan, muted])
+  const showDynamicsLegend = expectedDynamicsByPad.some((dynamics) =>
+    dynamics.some((dynamic) => dynamic !== 'normal'),
   )
 
   useKeyboardPads(pads, wait ? waitRun.hit : run.hit, running)
@@ -559,7 +581,10 @@ function Trainer({
         })}
       </div>
 
-      <div className="groove-pads">
+      <div
+        className="groove-pads"
+        {...(showDynamicsLegend ? { 'aria-describedby': DYNAMICS_LEGEND_ID } : {})}
+      >
         {pads.map((pad) => {
           // Driven by `hitByPad`, not `lastHit`: a unison instant (hat and
           // kick together — every instant of the default Quarter-Note Rock)
@@ -594,9 +619,13 @@ function Trainer({
       {/* Review round 3, RED 3: on-screen pads carry no velocity, so a mouse
           learner on a dynamics-notated groove needs to be told the keyboard
           fallback exists at all — see `DynamicsLegend`'s own comment.
-          `DynamicsLegend` hides itself for a plan with no ghost/accent notes
-          (Money Beat, Quarter-Note Rock), so this renders nothing there. */}
-      <DynamicsLegend plan={plan} />
+          `DynamicsLegend` hides itself when `expectedDynamicsByPad` (above,
+          already muted-pad-aware) has no ghost/accent notes left to show
+          (Money Beat, Quarter-Note Rock, or Ghost-Funk Bar with the snare
+          muted), so this renders nothing there — and the pads wrapper above
+          only carries `aria-describedby` when this does render, since a
+          describedby pointing at a missing id is an accessibility error. */}
+      <DynamicsLegend expectedDynamicsByPad={expectedDynamicsByPad} id={DYNAMICS_LEGEND_ID} />
 
       {/* The summary of the PREVIOUS session, for a learner arriving fresh. Once this
           run has its own result panel the line is stale by definition, and printing

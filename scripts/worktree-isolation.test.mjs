@@ -68,7 +68,7 @@ describe('worktree isolation from the main checkout tooling', () => {
     // pull another session's files in.
     const vitestConfig = readFileSync(abs('vitest.config.ts'), 'utf8')
     const includeBlocks = [...vitestConfig.matchAll(/\binclude:\s*\[([^\]]*)\]/g)]
-    expect(includeBlocks.length, 'no vitest include arrays found — did the config move?').toBe(3)
+    expect(includeBlocks.length, 'no vitest include arrays found — did the config move?').toBe(4)
     for (const block of includeBlocks) {
       for (const glob of block[1].matchAll(/'([^']+)'/g)) {
         expect(

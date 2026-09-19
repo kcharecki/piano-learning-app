@@ -14,8 +14,9 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { Icon } from '@app/ui/Icon.tsx'
 import type { LiveHitKind } from '@core/drums/practice/liveHit.ts'
+import type { DynamicsClass } from '@core/drums/model/groove.ts'
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
-import { MAX_BPM, MIN_BPM, type GrooveRunPlan } from '@core/drums/practice/plan.ts'
+import { MAX_BPM, MIN_BPM } from '@core/drums/practice/plan.ts'
 import { GROOVE_PAD_KEY, GROOVE_PAD_LABEL, keyLabel } from './padLabels.ts'
 
 /** How long a struck pad stays lit. Long enough to see at sixteenths, short enough not to smear. */
@@ -92,7 +93,16 @@ export function Pad({ pad, lit, onHit, verdict, muted, required }: PadProps) {
 }
 
 export type DynamicsLegendProps = {
-  readonly plan: GrooveRunPlan
+  /**
+   * One entry per pad the legend should consider — the caller's job to
+   * narrow to whichever pads are actually graded (e.g. drop muted ones), not
+   * this component's. See `GrooveTrainerScreen.tsx` for the muted-pad rule.
+   */
+  readonly expectedDynamicsByPad: readonly (readonly DynamicsClass[])[]
+  /** Rendered as this element's own `id`, so a caller can point
+   * `aria-describedby` at it — but only while it actually renders something;
+   * see the caller for how it decides that. */
+  readonly id: string
 }
 
 /**
@@ -102,21 +112,28 @@ export type DynamicsLegendProps = {
  * a mouse learner on a dynamics-notated groove (Ghost-Funk Bar) has no way to
  * discover the keyboard fallback exists (`groovePadHooks.ts`'s
  * `KEYBOARD_ACCENT_VELOCITY`/`KEYBOARD_GHOST_VELOCITY`) and is left reading
- * "16 of 16 ghost notes came out full" with no way to fix it.
+ * "12 of the 12 ghost notes you hit came out full" with no way to fix it.
  *
  * Hidden for a plan with no non-'normal' `expectedDynamics` at all (e.g.
  * Money Beat, Quarter-Note Rock) — printing a dynamics hint there would be
- * pointing at a control that changes nothing.
+ * pointing at a control that changes nothing. Also hidden when the caller has
+ * already narrowed `expectedDynamicsByPad` to exclude a muted pad that was
+ * the only one carrying dynamics (e.g. Ghost-Funk Bar with the snare muted):
+ * grading has nothing to apply the hint to either way.
  *
  * `--text-3` reused directly under a new class, the same pattern
  * `.groove-latency-note`/`.groove-graded-at` already use in
  * `feature-drums-groove.css` — this design system has no shared `.muted`
  * primitive (see `feature-drums-progress.css`'s module comment).
  */
-export function DynamicsLegend({ plan }: DynamicsLegendProps) {
-  const hasDynamics = plan.pads.some((pad) => pad.expectedDynamics.some((dynamics) => dynamics !== 'normal'))
+export function DynamicsLegend({ expectedDynamicsByPad, id }: DynamicsLegendProps) {
+  const hasDynamics = expectedDynamicsByPad.some((dynamics) => dynamics.some((dynamic) => dynamic !== 'normal'))
   if (!hasDynamics) return null
-  return <p className="groove-dynamics-legend">Shift = accent · Alt = ghost</p>
+  return (
+    <p id={id} className="groove-dynamics-legend">
+      Shift = accent · Alt = ghost
+    </p>
+  )
 }
 
 export type TempoFieldProps = {
