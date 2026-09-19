@@ -23,7 +23,7 @@
  * graded at (`GradedRun.bpm`, shown by the screen), so it stays readable
  * until the next run replaces it or the rudiment itself changes.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { createBrowserClock } from '@app/practice/clock.ts'
 import { useGrooveRun, type GrooveRunApi } from '@app/drums/groove/useGrooveRun.ts'
 import type { FrameDriver } from '@app/practice/useTransportLoop.ts'
@@ -136,18 +136,13 @@ export function useRudimentTrainer(options: UseRudimentTrainerOptions): Rudiment
   )
 
   // The learner's own stroke instants for the run currently in progress, in
-  // onset order — fed to `rudimentEvenness` when the run finishes. Cleared
-  // whenever the phase becomes 'count-in' (a fresh run starting), so a stale
-  // tap from a previous attempt never survives into the next one's score.
+  // onset order — fed to `rudimentEvenness` when the run finishes. Each entry
+  // is the engine's OWN stamped instant: exactly the ms `run.hit()` returns,
+  // which is exactly the ms it recorded into its own grading list — never a
+  // value read off a mirrored phase. Cleared by `wrappedStart` below, at the
+  // moment a fresh run is requested, so a stale tap from a previous attempt
+  // never survives into the next one's score.
   const tapsRef = useRef<number[]>([])
-
-  // Mirrors `run.phase` into a ref so `tap()` (a stable callback) can read the
-  // CURRENT phase without depending on it — `useGrooveRun` does the same
-  // thing internally for its own phase checks. This lags the engine by at
-  // most one frame: a stroke played in the very first frame of the graded
-  // window may still see phaseRef holding 'count-in' and be excluded from the
-  // evenness record, even though the engine itself already grades it.
-  const phaseRef = useRef<GrooveRunApi['phase']>('idle')
 
   const onFinished = useCallback(
     (result: GrooveRunResult): void => {
@@ -186,16 +181,24 @@ export function useRudimentTrainer(options: UseRudimentTrainerOptions): Rudiment
     ...(options.driver === undefined ? {} : { driver: options.driver }),
   })
 
-  // Mirrored during render, not inside an effect: an effect would not commit
-  // until after this render's `tap()` closures could already run (e.g. a
-  // pointer handler firing between commits), which is exactly the one-frame
-  // lag the module comment above already accounts for — mirroring later
-  // would only make that lag worse.
-  phaseRef.current = run.phase
-
-  useEffect(() => {
-    if (run.phase === 'count-in') tapsRef.current = []
-  }, [run.phase])
+  // Cleared at the moment a fresh run is actually requested, not on a
+  // phase-edge effect: with an early tap now acceptable (DR-10, the grader's
+  // own acceptance window opens before `gradedOrigin`), a phase-edge effect
+  // only fires on the NEXT render after `start()` flips the ref, so a second
+  // `start()` fired while still mid count-in could leave a stale tap from the
+  // previous attempt sitting in `tapsRef` until the effect catches up.
+  // Clearing inline, in the same call that starts the run, has no such gap.
+  // `rawStart` is the engine's own `start` (a stable `useCallback` inside
+  // `useGrooveRun`, so this hook's own `useCallback` actually memoises
+  // something — `run` itself is a fresh object literal every render) and is
+  // used ONLY here: every caller of this hook must start a run through
+  // `wrappedStart`, never `rawStart` directly, so the tap record is empty by
+  // construction whenever a graded window can begin.
+  const { start: rawStart } = run
+  const wrappedStart = useCallback((): void => {
+    tapsRef.current = []
+    rawStart()
+  }, [rawStart])
 
   const restart = useCallback((): void => {
     setLadder(startLadder(config))
@@ -204,9 +207,19 @@ export function useRudimentTrainer(options: UseRudimentTrainerOptions): Rudiment
   }, [config])
 
   const tap = useCallback((): void => {
-    run.hit('snare')
-    if (phaseRef.current === 'playing') tapsRef.current.push(clock.now())
-  }, [run, clock])
+    const ms = run.hit('snare')
+    if (ms !== undefined) tapsRef.current.push(ms)
+  }, [run])
 
-  return { score, plan, ladder, config, run, lastClean, lastEvenness, restart, tap }
+  return {
+    score,
+    plan,
+    ladder,
+    config,
+    run: { ...run, start: wrappedStart },
+    lastClean,
+    lastEvenness,
+    restart,
+    tap,
+  }
 }

@@ -817,6 +817,127 @@ describe('useGrooveRun', () => {
   })
 
   /**
+   * DR-10: `hit()` reports the exact ms it recorded for grading (or
+   * `undefined` when it recorded nothing) so a caller — the rudiment
+   * trainer's evenness record, in particular — can ask the engine directly
+   * instead of mirroring its phase into a ref that lags a render behind.
+   */
+  describe('hit() return value (DR-10 — one clock, one truth)', () => {
+    it('returns undefined while idle, returns undefined during the count-in, returns the recorded ms while playing, and returns undefined again once the run has finished', () => {
+      const h = harness()
+
+      // Idle: no run in progress at all.
+      let idleReturn: number | undefined
+      act(() => {
+        idleReturn = h.result.current.hit('kick')
+      })
+      expect(idleReturn).toBeUndefined()
+
+      const startedAt = h.clock.now()
+      act(() => h.result.current.start())
+      const gradedOrigin = startedAt + h.plan.countInBars * h.plan.barMs
+
+      // Count-in, well before even the early-open window around the first
+      // instant (`gradedOrigin - windowMs`) — the clock has not moved since
+      // `start()` read it.
+      let countInReturn: number | undefined
+      act(() => {
+        countInReturn = h.result.current.hit('kick')
+      })
+      expect(countInReturn).toBeUndefined()
+
+      // Playing: strike kick once, close to (but not exactly on) its own
+      // first expected instant, and check the RETURNED ms against the
+      // GRADER's own view of that same stroke — `meanOffsetMs` on the
+      // matched pad row — rather than re-deriving "now - gradedOrigin" a
+      // second time in the test. Re-deriving it would pass even for a mutant
+      // that returns a different number from the one actually pushed into
+      // the grading list (e.g. returns `ms` but records `ms + 1`); tying the
+      // assertion to the grader's own arithmetic does not.
+      const kickPad = h.plan.pads.find((p) => p.pad === 'kick')
+      const kickFirstMs = kickPad?.expectedMs[0]
+      if (kickFirstMs === undefined) throw new Error('fixture has no kick instants')
+
+      let playingReturn: number | undefined
+      act(() => {
+        h.clock.setTime(gradedOrigin + kickFirstMs + 50)
+        playingReturn = h.result.current.hit('kick')
+      })
+      if (playingReturn === undefined) throw new Error('expected the hit to be accepted')
+
+      frameAt(h, gradedOrigin + h.plan.gradedMs)
+      expect(h.result.current.phase).toBe('graded')
+      const kickRow = h.finished[0]?.pads.find((row) => row.pad === 'kick')
+      expect(kickRow?.matched).toBe(1)
+      // `GroovePadResult.meanOffsetMs` is the mean of (hit - instant) over
+      // matched strokes; with exactly one matched stroke it IS that stroke's
+      // own offset, computed by the grader from whatever `hitsRef` actually
+      // held — independent of the value `hit()` happened to return.
+      expect(kickRow?.meanOffsetMs).toBe(playingReturn - kickFirstMs)
+
+      // Finished: the run has already graded, nothing left to record.
+      let afterFinishReturn: number | undefined
+      act(() => {
+        afterFinishReturn = h.result.current.hit('kick')
+      })
+      expect(afterFinishReturn).toBeUndefined()
+    })
+
+    it('loop path: the returned ms equals the passMs recorded for grading', () => {
+      const h = harness(moneyBeatPlan(), true)
+      act(() => h.result.current.start())
+      const gradedOrigin = h.plan.barMs
+
+      // Advance into pass 1 (not pass 0) so this actually exercises the loop
+      // branch's own `passMs = relative - passOrigin(...)` arithmetic rather
+      // than the degenerate pass-0 case where the pass origin is the graded
+      // window's own origin.
+      frameAt(h, gradedOrigin + h.plan.gradedMs)
+      const pass1Origin = gradedOrigin + h.plan.gradedMs
+
+      let ret: number | undefined
+      act(() => {
+        h.clock.setTime(pass1Origin + 50)
+        ret = h.result.current.hit('kick')
+      })
+      // The pass's own ms is relative to the pass's own origin, not the
+      // run's — read off the same clock the hit itself was recorded against.
+      expect(ret).toBe(h.clock.now() - pass1Origin)
+    })
+
+    it('returns undefined for a muted pad — the press is never recorded for grading', () => {
+      const h = harness(moneyBeatPlan(), false, new Set<MappedDrumPad>(['kick']))
+      act(() => h.result.current.start())
+      const gradedOrigin = h.plan.barMs
+
+      let ret: number | undefined
+      act(() => {
+        h.clock.setTime(gradedOrigin)
+        ret = h.result.current.hit('kick')
+      })
+      expect(ret).toBeUndefined()
+    })
+
+    it('returns undefined for a non-loop hit landing after the acceptance window closes', () => {
+      const h = harness()
+      act(() => h.result.current.start())
+      const gradedOrigin = h.plan.barMs
+      const endAt = gradedOrigin + h.plan.gradedMs
+
+      // The clock reads well past the window's close, but no frame has been
+      // pumped since — `timingRef` is still populated from `start()`, exactly
+      // as it would be for a genuinely late press arriving before the engine
+      // itself has had a chance to notice the run ended and call `finish()`.
+      let ret: number | undefined
+      act(() => {
+        h.clock.setTime(endAt + h.plan.windowMs + 1)
+        ret = h.result.current.hit('kick')
+      })
+      expect(ret).toBeUndefined()
+    })
+  })
+
+  /**
    * Loop mode (roadmap DR-09 "loop"): one count-in, then the graded window
    * repeats back-to-back with no gap and no further count-in, each pass
    * graded on its own the moment it can be — see the module comment.

@@ -255,7 +255,21 @@ export type GrooveRunApi = {
   readonly hitByPad: ReadonlyMap<MappedDrumPad, LiveHit>
   start: () => void
   stop: () => void
-  hit: (pad: MappedDrumPad) => void
+  /**
+   * Records a stroke for grading, if the engine accepts it right now — see
+   * the module comment ("A hit is accepted by the clock, not by the phase").
+   * Returns the exact ms this hit was recorded at for grading — the same
+   * value pushed into `hitsRef` (non-loop) or a pass's own list in
+   * `hitsByPassRef` (loop) — or `undefined` when nothing was recorded: the
+   * pad is muted, no run is in progress (idle, before `start()`, or after
+   * `finish()`/`stop()`), or the hit landed outside the acceptance window
+   * (too early for either mode, or too late for non-loop — loop has no upper
+   * bound). The pad still flashes and sounds either way. The base the ms is
+   * measured from differs by mode: the graded origin in non-loop mode, the
+   * answering pass's own origin in loop mode — never accumulated across
+   * passes.
+   */
+  hit: (pad: MappedDrumPad) => number | undefined
   /** Play the graded music, plus a click track under it. Nothing is graded. */
   preview: () => void
 }
@@ -695,23 +709,23 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
   }, [])
 
   const hit = useCallback(
-    (pad: MappedDrumPad): void => {
+    (pad: MappedDrumPad): number | undefined => {
       seqRef.current += 1
       setFlash({ pad, seq: seqRef.current })
       sound(pad)
       // A muted pad still flashes and sounds (above) — that is what tells the
       // learner their own tap on it still registers as a stroke — but it is
       // never recorded and never gets a live verdict, in or out of a run.
-      if (frozenMutedRef.current.has(pad)) return
+      if (frozenMutedRef.current.has(pad)) return undefined
 
       const timing = timingRef.current
-      if (timing === undefined) return
+      if (timing === undefined) return undefined
       const runPlan = planRef.current
       const gradingPlan = gradingPlanRef.current ?? runPlan
       const rawOffset = inputOffsetMsRef.current
       const offset = rawOffset !== undefined && Number.isFinite(rawOffset) ? rawOffset : 0
       const now = clock.now() - offset
-      if (now < timing.gradedOrigin - runPlan.windowMs) return
+      if (now < timing.gradedOrigin - runPlan.windowMs) return undefined
 
       // Loop mode has no upper bound on acceptance — a loop run only ends at
       // Stop — and files the hit by which pass the CLOCK says it answers,
@@ -733,10 +747,10 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
         if (verdict.instantIndex !== undefined) claimed.add(claimKey(pad, verdict.instantIndex))
         claimedByPassRef.current.set(passIndex, claimed)
         publishLiveHit(pad, verdict)
-        return
+        return passMs
       }
 
-      if (now > timing.endAt + runPlan.windowMs) return
+      if (now > timing.endAt + runPlan.windowMs) return undefined
       const ms = now - timing.gradedOrigin
       hitsRef.current.push({ pad, ms })
 
@@ -744,6 +758,7 @@ export function useGrooveRun(options: UseGrooveRunOptions): GrooveRunApi {
       if (verdict.instantIndex !== undefined)
         claimedRef.current.add(claimKey(pad, verdict.instantIndex))
       publishLiveHit(pad, verdict)
+      return ms
     },
     [clock, sound, publishLiveHit],
   )

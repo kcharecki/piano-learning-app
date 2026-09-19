@@ -13,7 +13,7 @@ import { FakeClock } from '@test/fakes.ts'
 import { rudimentById } from '@content/drums/rudiments.ts'
 import type { MappedDrumPad } from '@core/drums/model/pad.ts'
 import type { Rudiment } from '@core/drums/rudiment/index.ts'
-import { RUDIMENT_CLEAN_EVENNESS } from '@core/drums/rudiment/index.ts'
+import { RUDIMENT_CLEAN_EVENNESS, rudimentEvenness } from '@core/drums/rudiment/index.ts'
 import type { Clock, DrumAudioOutput } from '@core/ports/index.ts'
 import type { Millis } from '@core/shared/units.ts'
 import { useRudimentTrainer, type UseRudimentTrainerOptions } from './useRudimentTrainer.ts'
@@ -304,6 +304,117 @@ describe('useRudimentTrainer — evenness (roadmap DR-10)', () => {
     expect(h.view.result.current.lastClean).toBe(true)
   })
 
+  it('an early first stroke inside the window counts, as the grader already counts it', () => {
+    // `useGrooveRun.hit()` opens its acceptance window at
+    // `gradedOrigin - windowMs`, not at `gradedOrigin` itself (see that
+    // hook's own module comment) — a stroke landing anywhere in that window
+    // is graded, so the evenness record must agree: if the score counts it,
+    // evenness counts it. The old phase guard excluded anything before
+    // 'playing', which this same stroke would have hit.
+    const h = harness(singleStrokeRoll())
+    const startedAt = h.clock.now()
+    act(() => h.view.result.current.run.start())
+    const plan = h.view.result.current.plan
+    const gradedOrigin = startedAt + plan.countInBars * plan.barMs
+    const padPlan = plan.pads[0]
+    if (padPlan === undefined) throw new Error('fixture missing: single-stroke-roll has no pads')
+    const expectedMs = padPlan.expectedMs
+    const firstMs = expectedMs[0]
+    if (firstMs === undefined) throw new Error('fixture missing: single-stroke-roll has no notes')
+
+    const earlyTapAt = gradedOrigin - plan.windowMs + 1
+
+    // Still genuinely mid count-in — no frame has been pumped yet, so the
+    // engine's own phase (and any mirror of it) reads 'count-in'. Acceptance
+    // here rests entirely on `timingRef` and the clock, never on phase.
+    act(() => {
+      h.clock.setTime(earlyTapAt)
+      h.view.result.current.tap()
+    })
+
+    for (const ms of expectedMs.slice(1)) {
+      act(() => {
+        h.clock.setTime(gradedOrigin + ms)
+        h.view.result.current.tap()
+      })
+    }
+    frameAt(h, gradedOrigin + plan.gradedMs)
+
+    const playedWithEarly = [earlyTapAt, ...expectedMs.slice(1).map((ms) => gradedOrigin + ms)]
+    const playedWithoutEarly = playedWithEarly.slice(1)
+    const withEarly = rudimentEvenness(playedWithEarly)
+    const withoutEarly = rudimentEvenness(playedWithoutEarly)
+    // Proves the two arrays actually read differently to the evenness
+    // function — otherwise this test would pass no matter which one the
+    // hook recorded, and would prove nothing (same guard as THE RACE below).
+    expect(withEarly).not.toBeCloseTo(withoutEarly, 6)
+
+    expect(h.view.result.current.lastEvenness).toBeCloseTo(withEarly, 9)
+  })
+
+  it('THE RACE: a tap in the very first frame of the graded window is graded, not dropped (DR-10)', () => {
+    // Regression for the phaseRef-mirror bug: the mirror is written during
+    // render, and a `setState` made from OUTSIDE a React event (the manual
+    // driver's `pump()`, standing in for a real animation frame) does not
+    // commit until this `act()` call returns. A tap dispatched inside the
+    // SAME act as the pump that flips the engine to 'playing' would therefore
+    // still read the mirror as 'count-in' and be silently dropped by the old
+    // code. Acceptance is decided by `timingRef` and the clock, never by
+    // phase — `useGrooveRun` mutates its own refs synchronously inside
+    // `onFrame`, so `hit()` is genuinely open the instant `onFrame` runs. The
+    // pump here is what makes that true within this act; it is not standing
+    // in for a render. This test fails against the phaseRef mirror for
+    // exactly that reason.
+    const h = harness(singleStrokeRoll())
+    const startedAt = h.clock.now()
+    act(() => h.view.result.current.run.start())
+    const plan = h.view.result.current.plan
+    const gradedOrigin = startedAt + plan.countInBars * plan.barMs
+    const padPlan = plan.pads[0]
+    if (padPlan === undefined) throw new Error('fixture missing: single-stroke-roll has no pads')
+    const expectedMs = padPlan.expectedMs
+    const firstMs = expectedMs[0]
+    if (firstMs === undefined) throw new Error('fixture missing: single-stroke-roll has no notes')
+
+    // All strokes are played exactly on their own notated instant EXCEPT the
+    // first-frame one, which lands `lateBy` after it — the one deliberate
+    // irregularity that makes whether it is recorded at all a fact
+    // `rudimentEvenness` can actually detect (dropping it from an otherwise
+    // perfectly even run restores perfect evenness; keeping it does not).
+    const lateBy = 80
+
+    // The first stroke, in the SAME act() as the frame pump that flips the
+    // engine from 'count-in' to 'playing' — the race.
+    act(() => {
+      h.clock.setTime(gradedOrigin + firstMs + lateBy)
+      h.pump()
+      h.view.result.current.tap()
+    })
+
+    for (const ms of expectedMs.slice(1)) {
+      act(() => {
+        h.clock.setTime(gradedOrigin + ms)
+        h.view.result.current.tap()
+      })
+    }
+    frameAt(h, gradedOrigin + plan.gradedMs)
+
+    const playedWithFirst = [
+      gradedOrigin + firstMs + lateBy,
+      ...expectedMs.slice(1).map((ms) => gradedOrigin + ms),
+    ]
+    const playedWithoutFirst = playedWithFirst.slice(1)
+
+    const withFirstTap = rudimentEvenness(playedWithFirst)
+    const withoutFirstTap = rudimentEvenness(playedWithoutFirst)
+    // Proves the two arrays actually read differently to the evenness
+    // function — otherwise this test would pass no matter which one the
+    // hook recorded, and would prove nothing.
+    expect(withFirstTap).not.toBeCloseTo(withoutFirstTap, 6)
+
+    expect(h.view.result.current.lastEvenness).toBeCloseTo(withFirstTap, 9)
+  })
+
   it('resets the stroke record between runs', () => {
     const h = harness(singleStrokeRoll())
     driveRunOneStrokeLate(h, 8, 80)
@@ -313,6 +424,53 @@ describe('useRudimentTrainer — evenness (roadmap DR-10)', () => {
     // A clean run right after an uneven one reads as perfectly even — the
     // previous run's taps did not leak into this one's record.
     expect(h.view.result.current.lastEvenness).toBeCloseTo(1, 9)
+    expect(h.view.result.current.lastClean).toBe(true)
+  })
+
+  it('a restart through run.start clears a stray tap left over from an abandoned run', () => {
+    // This is the scenario `wrappedStart` exists for: a tap can now land
+    // inside the acceptance window before `gradedOrigin` (DR-10), so a tap
+    // taken during one run's count-in and never followed through survives in
+    // `tapsRef` until something clears it. It must be cleared by the act of
+    // starting the NEXT run, not by a phase-edge effect one render behind.
+    const h = harness(singleStrokeRoll())
+    const startedAt1 = h.clock.now()
+    act(() => h.view.result.current.run.start())
+    const plan1 = h.view.result.current.plan
+    const gradedOrigin1 = startedAt1 + plan1.countInBars * plan1.barMs
+
+    // A stray tap, inside the first run's own acceptance window, while
+    // genuinely still mid count-in — the run is abandoned right after.
+    const strayTapAt = gradedOrigin1 - plan1.windowMs + 1
+    act(() => {
+      h.clock.setTime(strayTapAt)
+      h.view.result.current.tap()
+    })
+
+    // Restart — through `run.start`, the only entry point the screen calls.
+    const startedAt2 = h.clock.now()
+    act(() => h.view.result.current.run.start())
+    const plan2 = h.view.result.current.plan
+    const gradedOrigin2 = startedAt2 + plan2.countInBars * plan2.barMs
+    frameAt(h, gradedOrigin2)
+
+    for (const padPlan of plan2.pads) {
+      for (const ms of padPlan.expectedMs) {
+        act(() => {
+          h.clock.setTime(gradedOrigin2 + ms)
+          h.view.result.current.tap()
+        })
+      }
+    }
+    frameAt(h, gradedOrigin2 + plan2.gradedMs)
+
+    // The second run's own taps, exactly on their own notated instants — if
+    // the stray tap survived, this would not match what the hook actually
+    // scored.
+    const secondRunTaps = plan2.pads.flatMap((padPlan) =>
+      padPlan.expectedMs.map((ms) => gradedOrigin2 + ms),
+    )
+    expect(h.view.result.current.lastEvenness).toBeCloseTo(rudimentEvenness(secondRunTaps), 9)
     expect(h.view.result.current.lastClean).toBe(true)
   })
 })
